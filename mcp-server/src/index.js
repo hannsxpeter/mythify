@@ -16,79 +16,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { registerFanoutTools } from "./fanout.js";
+import {
+  EFFORT_LEVELS,
+  FANOUT_VISIBILITY_MODES,
+  HOST_MODEL_DEFAULTS,
+  HOST_PLATFORMS as PLATFORMS,
+  HOST_PROFILE_RANK,
+  HOST_THINKING_LEVELS,
+  MODEL_TIER_RANK,
+  SPAWN_CEILINGS,
+  SPEED_LEVELS,
+  STRONG_HOST_TASK_TYPES,
+  TRIAGE_ENGINES,
+  TRIAGE_MODES,
+} from "./capability-registry.js";
 
 const VERSION = "2.5.0";
 const TAIL_CHARS = 4000;
-const TRIAGE_ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "command"];
-const TRIAGE_MODES = ["never", "auto", "always"];
-const PLATFORMS = [
-  "auto",
-  "unknown",
-  "codex-desktop",
-  "codex-cli",
-  "claude-desktop",
-  "claude-code",
-  "cursor-desktop",
-  "cursor-agent",
-];
-const EFFORT_LEVELS = ["auto", "low", "medium", "high"];
-const SPEED_LEVELS = ["auto", "standard", "fast"];
-const HOST_THINKING_LEVELS = ["auto", "low", "medium", "high", "xhigh", "max"];
-const SPAWN_CEILINGS = ["auto", "lower_only", "same_or_lower", "allow_stronger"];
-const FANOUT_VISIBILITY_MODES = ["auto", "quiet", "summary", "verbose", "threaded"];
-const MODEL_TIER_RANK = {
-  unknown: 0,
-  small: 1,
-  fast: 2,
-  standard: 3,
-  strong: 4,
-  frontier: 5,
-};
-const HOST_PROFILE_RANK = {
-  fast: MODEL_TIER_RANK.fast,
-  standard: MODEL_TIER_RANK.standard,
-  strong: MODEL_TIER_RANK.frontier,
-};
-const HOST_MODEL_DEFAULTS = {
-  "codex-desktop": {
-    fast: "gpt-5.4-mini",
-    standard: "gpt-5.4",
-    strong: "gpt-5.5",
-  },
-  "codex-cli": {
-    fast: "gpt-5.4-mini",
-    standard: "gpt-5.4",
-    strong: "gpt-5.5",
-  },
-  "claude-desktop": {
-    fast: "haiku",
-    standard: "sonnet",
-    strong: "opus",
-  },
-  "claude-code": {
-    fast: "haiku",
-    standard: "sonnet",
-    strong: "opus",
-  },
-  "cursor-desktop": {
-    fast: "gpt-5.3-codex-low-fast",
-    standard: "gpt-5.3-codex",
-    strong: "gpt-5.3-codex-high",
-  },
-  "cursor-agent": {
-    fast: "gpt-5.3-codex-low-fast",
-    standard: "gpt-5.3-codex",
-    strong: "gpt-5.3-codex-high",
-  },
-};
-const STRONG_HOST_TASK_TYPES = [
-  "research",
-  "benchmark",
-  "design",
-  "security",
-  "release",
-  "migration",
-];
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
 const OUTCOME_STATUSES = ["active", "succeeded", "failed", "stopped"];
 const STEP_ICONS = {
@@ -2184,11 +2128,11 @@ server.registerTool(
         .optional()
         .describe("Return text by default, or JSON for machine-readable routing."),
       triage: z
-        .enum(["never", "auto", "always"])
+        .enum(TRIAGE_MODES)
         .optional()
         .describe("Run a fast model triage pass: never by default, auto when the gate recommends it, or always."),
       triage_engine: z
-        .enum(["claude-cli", "codex-cli", "cursor-agent", "command"])
+        .enum(TRIAGE_ENGINES)
         .optional()
         .describe("Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE or local auto-detection."),
       triage_model: z

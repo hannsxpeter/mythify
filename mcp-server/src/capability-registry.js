@@ -1,0 +1,208 @@
+// Capability and policy registry for MCP host and provider integrations.
+// Public schemas stay stable until docs/design.md explicitly expands them.
+
+export const TRIAGE_ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "command"];
+export const TRIAGE_MODES = ["never", "auto", "always"];
+export const HOST_PLATFORMS = [
+  "auto",
+  "unknown",
+  "codex-desktop",
+  "codex-cli",
+  "claude-desktop",
+  "claude-code",
+  "cursor-desktop",
+  "cursor-agent",
+];
+export const EFFORT_LEVELS = ["auto", "low", "medium", "high"];
+export const SPEED_LEVELS = ["auto", "standard", "fast"];
+export const HOST_THINKING_LEVELS = ["auto", "low", "medium", "high", "xhigh", "max"];
+export const SPAWN_CEILINGS = ["auto", "lower_only", "same_or_lower", "allow_stronger"];
+export const FANOUT_VISIBILITY_MODES = ["auto", "quiet", "summary", "verbose", "threaded"];
+
+export const MODEL_TIER_RANK = {
+  unknown: 0,
+  small: 1,
+  fast: 2,
+  standard: 3,
+  strong: 4,
+  frontier: 5,
+};
+
+export const HOST_PROFILE_RANK = {
+  fast: MODEL_TIER_RANK.fast,
+  standard: MODEL_TIER_RANK.standard,
+  strong: MODEL_TIER_RANK.frontier,
+};
+
+export const HOST_MODEL_DEFAULTS = {
+  "codex-desktop": {
+    fast: "gpt-5.4-mini",
+    standard: "gpt-5.4",
+    strong: "gpt-5.5",
+  },
+  "codex-cli": {
+    fast: "gpt-5.4-mini",
+    standard: "gpt-5.4",
+    strong: "gpt-5.5",
+  },
+  "claude-desktop": {
+    fast: "haiku",
+    standard: "sonnet",
+    strong: "opus",
+  },
+  "claude-code": {
+    fast: "haiku",
+    standard: "sonnet",
+    strong: "opus",
+  },
+  "cursor-desktop": {
+    fast: "gpt-5.3-codex-low-fast",
+    standard: "gpt-5.3-codex",
+    strong: "gpt-5.3-codex-high",
+  },
+  "cursor-agent": {
+    fast: "gpt-5.3-codex-low-fast",
+    standard: "gpt-5.3-codex",
+    strong: "gpt-5.3-codex-high",
+  },
+};
+
+export const STRONG_HOST_TASK_TYPES = [
+  "research",
+  "benchmark",
+  "design",
+  "security",
+  "release",
+  "migration",
+];
+
+const NO_HOST_CAPABILITY = {
+  kind: "host",
+  status: "unsupported",
+  can_switch_current_thread: false,
+  can_set_new_thread_model: false,
+  can_set_worker_model: false,
+  can_set_thinking: false,
+  can_list_models: false,
+  can_confirm_current_model: false,
+};
+
+export const HOST_CAPABILITIES = {
+  unknown: {
+    ...NO_HOST_CAPABILITY,
+    status: "unknown",
+  },
+  "codex-desktop": {
+    ...NO_HOST_CAPABILITY,
+    status: "supported",
+    can_set_new_thread_model: true,
+    can_set_worker_model: true,
+    can_set_thinking: true,
+  },
+  "codex-cli": {
+    ...NO_HOST_CAPABILITY,
+    status: "supported",
+    can_set_new_thread_model: true,
+    can_set_worker_model: true,
+    can_set_thinking: true,
+  },
+  "claude-desktop": {
+    ...NO_HOST_CAPABILITY,
+    status: "supported",
+    can_set_new_thread_model: true,
+    can_set_worker_model: true,
+  },
+  "claude-code": {
+    ...NO_HOST_CAPABILITY,
+    status: "supported",
+    can_set_new_thread_model: true,
+    can_set_worker_model: true,
+  },
+  "cursor-desktop": {
+    ...NO_HOST_CAPABILITY,
+    status: "supported",
+    can_set_new_thread_model: true,
+    can_set_worker_model: true,
+    can_set_thinking: true,
+  },
+  "cursor-agent": {
+    ...NO_HOST_CAPABILITY,
+    status: "supported",
+    can_set_new_thread_model: true,
+    can_set_worker_model: true,
+    can_set_thinking: true,
+  },
+};
+
+export const ADAPTER_CANDIDATES = {
+  "generic-openai-compatible": {
+    kind: "model_provider",
+    status: "candidate",
+    local: false,
+    openai_compatible: true,
+  },
+  ollama: {
+    kind: "model_provider",
+    status: "candidate",
+    local: true,
+    openai_compatible: false,
+  },
+  "lm-studio": {
+    kind: "model_provider",
+    status: "candidate",
+    local: true,
+    openai_compatible: true,
+  },
+  "llama-cpp": {
+    kind: "model_provider",
+    status: "candidate",
+    local: true,
+    openai_compatible: true,
+  },
+  vllm: {
+    kind: "model_provider",
+    status: "candidate",
+    local: true,
+    openai_compatible: true,
+  },
+  "kimi-code": {
+    kind: "host",
+    status: "candidate",
+    local: false,
+    openai_compatible: false,
+  },
+  opencode: {
+    kind: "host",
+    status: "candidate",
+    local: false,
+    openai_compatible: false,
+  },
+  antigravity: {
+    kind: "host",
+    status: "candidate",
+    local: false,
+    openai_compatible: false,
+  },
+  "google-colab-cli": {
+    kind: "execution_substrate",
+    status: "candidate",
+    local: false,
+    openai_compatible: false,
+  },
+  "google-agents-cli": {
+    kind: "agent_lifecycle",
+    status: "candidate",
+    local: false,
+    openai_compatible: false,
+  },
+};
+
+export function getHostCapability(platform) {
+  return HOST_CAPABILITIES[platform] || HOST_CAPABILITIES.unknown;
+}
+
+export function listAdapterCandidates(kind = "") {
+  return Object.entries(ADAPTER_CANDIDATES)
+    .filter(([, candidate]) => kind === "" || candidate.kind === kind)
+    .map(([name, candidate]) => ({ name, ...candidate }));
+}

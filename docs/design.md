@@ -48,8 +48,10 @@ mythify/
 |   |-- package.json
 |   |-- mcp-config.example.json
 |   |-- client-configs/
-|   |-- src/index.js
+|   |-- src/capability-registry.js
 |   |-- src/fanout.js
+|   |-- src/index.js
+|   |-- test/capability-registry.test.js
 |   |-- test/smoke.test.js
 |   `-- test/fanout.test.js
 |-- skills/
@@ -72,6 +74,39 @@ mythify/
 ```
 
 `dist/` (built skill packages) and `node_modules/` are build outputs, ignored by git.
+
+## Capability registry
+
+The MCP server keeps host, provider, execution, and lifecycle capability metadata in
+`mcp-server/src/capability-registry.js`. The registry is a contract boundary, not a
+router. Listing a candidate adapter does not make it a supported public input.
+
+Registry rules:
+
+- Existing public enums stay stable until this design document changes.
+- Candidate adapters can be tracked before `classify_task`, `host_model_switch`, or
+  `fanout_start` accept them.
+- A `true` capability means Mythify has a documented or locally probed path for that
+  adapter. Unknown capabilities default to `false`.
+- Runtime tools must still verify adapter availability before claiming that anything
+  was applied.
+- Generated docs, schemas, and fixtures may be derived from the registry only after a
+  drift test protects the generated output.
+
+Adapter kinds:
+
+- `host`: coding host, desktop app, or agent CLI.
+- `model_provider`: API or local model endpoint.
+- `execution_substrate`: runtime that executes remote or local jobs and returns logs,
+  files, or artifacts.
+- `agent_lifecycle`: scaffold, test, deploy, or observe tools for agents.
+
+The current public host platforms remain `auto`, `unknown`, `codex-desktop`,
+`codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, and `cursor-agent`.
+Future candidates such as local OpenAI-compatible providers, Ollama, LM Studio,
+llama.cpp, vLLM, Kimi Code, OpenCode, Antigravity, Google Colab CLI, and Google
+Agents CLI must enter the registry first, then earn public schema support in a
+separate verified slice.
 
 ## State model (shared contract)
 
