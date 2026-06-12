@@ -129,21 +129,24 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 22 tools: `classify_task`, `host_model_switch`,
-`outcome_start`, `outcome_check`, `outcome_status`, `outcome_results`,
-`outcome_stop`, `memory_store`, `memory_recall`, `memory_clear`,
-`lesson_record`, `lesson_recall`, `plan_create`, `plan_add_step`,
-`plan_update_step`, `plan_status`, `verify_run`, `verify_claim`, `reflect`,
-plus the parallel delegation tools `fanout_start`, `fanout_status`, and
-`fanout_results`. Same state directory, same file formats, same evidence rules:
+through exactly 23 tools: `classify_task`, `host_model_switch`,
+`provider_probe`, `outcome_start`, `outcome_check`, `outcome_status`,
+`outcome_results`, `outcome_stop`, `memory_store`, `memory_recall`,
+`memory_clear`, `lesson_record`, `lesson_recall`, `plan_create`,
+`plan_add_step`, `plan_update_step`, `plan_status`, `verify_run`,
+`verify_claim`, `reflect`, plus the parallel delegation tools
+`fanout_start`, `fanout_status`, and `fanout_results`. Same state directory,
+same file formats, same evidence rules:
 `verify_run` and `outcome_check` execute and record; `verify_claim` only attests;
 `plan_update_step` refuses `completed` or `failed` without a `result`.
 Outcome loops are host-supervised and stored in `.mythify/outcomes/`: make a
 bounded attempt, call `outcome_check`, then report success, retry, or stop.
 `host_model_switch` records intended host chat changes but does not mutate the
-host unless it exposes that capability. `classify_task` mirrors CLI triage and
-model policy. Fanout workers accept `engine`, `model`, `effort`, and `speed`;
-stronger workers require `spawn_ceiling: "allow_stronger"` when tier is known.
+host unless it exposes that capability. `provider_probe` can probe a configured
+OpenAI-compatible provider, but its output is material, not verification
+evidence. `classify_task` mirrors CLI triage and model policy. Fanout workers
+accept `engine`, `model`, `effort`, and `speed`; stronger workers require
+`spawn_ceiling: "allow_stronger"` when tier is known.
 
 Delegation discipline for fanout:
 

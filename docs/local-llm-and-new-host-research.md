@@ -16,8 +16,11 @@ Implementation status:
 - First slice landed in `mcp-server/src/capability-registry.js`: researched
   local providers and new hosts are tracked as candidates, not accepted public
   inputs.
-- No local model provider is supported yet. The next slice should add a probe
-  and a role-limited execution path before claiming support.
+- Provider probe slice landed in `provider_probe`: a generic OpenAI-compatible
+  endpoint can be checked through `/v1/models` and `/v1/chat/completions`, and
+  the result is marked as material, not verification evidence.
+- Local provider worker execution is not supported yet. The next slice should
+  add a role-limited execution path before claiming reader or triage support.
 
 Near-term fit:
 
@@ -438,7 +441,8 @@ This prevents Colab CLI and Agents CLI from being squeezed into the wrong box.
 
 1. Probe Ollama and LM Studio if installed, including `/v1/models` and one tiny
    completion request.
-2. Prototype a generic OpenAI-compatible local adapter against a fake server.
+2. Done 2026-06-12: prototype a generic OpenAI-compatible provider probe
+   against a fake server.
 3. Add a real Kimi Code adapter spike:
    `kimi -p "summarize this repository"`.
 4. Add a real OpenCode adapter spike:

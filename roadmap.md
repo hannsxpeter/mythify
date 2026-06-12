@@ -73,8 +73,8 @@ Next adapter slices:
 
 - [x] 2026-06-12: wire registry data into `host_model_switch` status output
   without claiming current-chat switching.
-- Add a generic OpenAI-compatible local provider probe for reader or triage
-  roles.
+- [x] 2026-06-12: add a generic OpenAI-compatible local provider probe for
+  reader or triage roles without enabling worker execution.
 - Add a Kimi Code or OpenCode CLI probe after the local provider path proves
   the adapter contract.
 

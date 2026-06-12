@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v2.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 19 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 22 tools in total. On-disk formats are
+// reflections) as 20 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 23 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -17,6 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { registerFanoutTools } from "./fanout.js";
 import {
+  ADAPTER_CANDIDATES,
   EFFORT_LEVELS,
   FANOUT_VISIBILITY_MODES,
   HOST_MODEL_DEFAULTS,
@@ -2133,6 +2134,242 @@ function runModelTriage(taskText, classification, options) {
   };
 }
 
+function envValue(name) {
+  return (process.env[name] || "").trim();
+}
+
+function providerBaseUrl(input) {
+  return String(input || "").trim() || envValue("MYTHIFY_OPENAI_COMPAT_BASE_URL") || envValue("MYTHIFY_PROVIDER_BASE_URL");
+}
+
+function providerModel(input) {
+  return String(input || "").trim() || envValue("MYTHIFY_OPENAI_COMPAT_MODEL") || envValue("MYTHIFY_PROVIDER_MODEL");
+}
+
+function providerApiKeyEnv(input) {
+  return String(input || "").trim() || "MYTHIFY_OPENAI_COMPAT_API_KEY";
+}
+
+function normalizeProviderBaseUrl(raw) {
+  const value = String(raw || "").trim();
+  if (value === "") {
+    return { ok: false, baseUrl: "", error: "provider_probe requires base_url or MYTHIFY_OPENAI_COMPAT_BASE_URL." };
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { ok: false, baseUrl: "", error: `Invalid provider base_url: ${value}` };
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return { ok: false, baseUrl: "", error: "provider_probe base_url must use http or https." };
+  }
+  return { ok: true, baseUrl: parsed.toString().replace(/\/+$/, ""), error: "" };
+}
+
+function providerEndpoint(baseUrl, pathSuffix) {
+  return `${baseUrl}/${pathSuffix.replace(/^\/+/, "")}`;
+}
+
+function providerHeaders(apiKeyEnv) {
+  const headers = { accept: "application/json" };
+  if (apiKeyEnv !== "") {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
+      return { ok: false, headers, error: "api_key_env must be a valid environment variable name." };
+    }
+    const apiKey = envValue(apiKeyEnv);
+    if (apiKey !== "") {
+      headers.authorization = `Bearer ${apiKey}`;
+    }
+  }
+  return { ok: true, headers, error: "" };
+}
+
+async function fetchProviderJson(url, options, timeoutSeconds) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.round(timeoutSeconds * 1000));
+  const startedAt = process.hrtime.bigint();
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    let json = null;
+    if (text.trim() !== "") {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+    }
+    return {
+      ok: response.ok,
+      status_code: response.status,
+      duration_seconds: Number((Number(process.hrtime.bigint() - startedAt) / 1e9).toFixed(3)),
+      json,
+      body_tail: tailText(text),
+      error: response.ok ? "" : `HTTP ${response.status}`,
+      timed_out: false,
+    };
+  } catch (err) {
+    const timedOut = err && err.name === "AbortError";
+    return {
+      ok: false,
+      status_code: 0,
+      duration_seconds: Number((Number(process.hrtime.bigint() - startedAt) / 1e9).toFixed(3)),
+      json: null,
+      body_tail: "",
+      error: timedOut ? `timed out after ${timeoutSeconds} seconds` : err && err.message ? err.message : String(err),
+      timed_out: timedOut,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function modelNamesFromList(json) {
+  const data = json && Array.isArray(json.data) ? json.data : [];
+  return data.map((item) => String(item && item.id ? item.id : "")).filter(Boolean);
+}
+
+function chatContentFromCompletion(json) {
+  const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
+  const message = choice && choice.message ? choice.message : null;
+  return String(message && message.content ? message.content : "");
+}
+
+async function probeOpenAICompatibleProvider({ base_url, model, timeout_seconds, api_key_env, check, prompt }) {
+  const selectedCheck = check || "both";
+  const timeoutSeconds =
+    typeof timeout_seconds === "number" && timeout_seconds > 0 ? timeout_seconds : 10;
+  const base = normalizeProviderBaseUrl(providerBaseUrl(base_url));
+  const selectedModel = providerModel(model);
+  const keyEnv = providerApiKeyEnv(api_key_env);
+  const adapter = ADAPTER_CANDIDATES["generic-openai-compatible"] || {};
+  const result = {
+    provider: "generic-openai-compatible",
+    provider_kind: adapter.kind || "model_provider",
+    status: "blocked",
+    base_url: base.baseUrl,
+    model: selectedModel,
+    check: selectedCheck,
+    api_key_env: keyEnv,
+    api_key_present: keyEnv !== "" && envValue(keyEnv) !== "",
+    material_not_evidence: true,
+    evidence_status: "probe_only_not_verification",
+    can_answer_prompt: false,
+    checks: [],
+    error: "",
+  };
+  if (!base.ok) {
+    result.error = base.error;
+    return result;
+  }
+  if (!["models", "chat", "both"].includes(selectedCheck)) {
+    result.error = "provider_probe check must be models, chat, or both.";
+    return result;
+  }
+  if (["chat", "both"].includes(selectedCheck) && selectedModel === "") {
+    result.error = "provider_probe check=chat or both requires model or MYTHIFY_OPENAI_COMPAT_MODEL.";
+    return result;
+  }
+  const headersResult = providerHeaders(keyEnv);
+  if (!headersResult.ok) {
+    result.error = headersResult.error;
+    return result;
+  }
+
+  if (["models", "both"].includes(selectedCheck)) {
+    const models = await fetchProviderJson(
+      providerEndpoint(base.baseUrl, "models"),
+      { method: "GET", headers: headersResult.headers },
+      timeoutSeconds
+    );
+    const names = modelNamesFromList(models.json);
+    result.checks.push({
+      name: "models",
+      ok: models.ok,
+      status_code: models.status_code,
+      duration_seconds: models.duration_seconds,
+      models_count: names.length,
+      model_present: selectedModel === "" ? null : names.includes(selectedModel),
+      error: models.error,
+      timed_out: models.timed_out,
+    });
+  }
+
+  if (["chat", "both"].includes(selectedCheck)) {
+    const body = {
+      model: selectedModel,
+      messages: [
+        {
+          role: "user",
+          content: String(prompt || "").trim() || "Reply with exactly: mythify-provider-probe-ok",
+        },
+      ],
+      max_tokens: 32,
+      temperature: 0,
+    };
+    const chat = await fetchProviderJson(
+      providerEndpoint(base.baseUrl, "chat/completions"),
+      {
+        method: "POST",
+        headers: { ...headersResult.headers, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      timeoutSeconds
+    );
+    const content = chatContentFromCompletion(chat.json);
+    result.checks.push({
+      name: "chat",
+      ok: chat.ok && content !== "",
+      status_code: chat.status_code,
+      duration_seconds: chat.duration_seconds,
+      response_tail: tailText(content, 1000),
+      error: chat.ok && content !== "" ? "" : chat.error || "empty chat completion content",
+      timed_out: chat.timed_out,
+    });
+  }
+
+  result.can_answer_prompt = result.checks.some((item) => item.name === "chat" && item.ok);
+  result.status = result.checks.length > 0 && result.checks.every((item) => item.ok) ? "available" : "blocked";
+  result.error = result.status === "available"
+    ? ""
+    : result.checks.find((item) => !item.ok)?.error || "provider probe failed";
+  return result;
+}
+
+function formatProviderProbe(result) {
+  const prefix = result.status === "available" ? "[OK]" : "[FAIL]";
+  const lines = [
+    `${prefix} Provider probe ${result.status}.`,
+    `provider: ${result.provider}`,
+    `base_url: ${result.base_url || "unset"}`,
+    `model: ${result.model || "unset"}`,
+    `check: ${result.check}`,
+    `api key env: ${result.api_key_env || "none"} (${result.api_key_present ? "set" : "unset"})`,
+    "evidence: probe output is material, not verification evidence.",
+  ];
+  for (const item of result.checks || []) {
+    const details = [`${item.name}: ${item.ok ? "ok" : "failed"}`, `status=${item.status_code}`];
+    if (typeof item.models_count === "number") {
+      details.push(`models=${item.models_count}`);
+    }
+    if (item.model_present !== null && item.model_present !== undefined) {
+      details.push(`model_present=${item.model_present}`);
+    }
+    if (item.response_tail) {
+      details.push(`response=${item.response_tail}`);
+    }
+    if (item.error) {
+      details.push(`error=${item.error}`);
+    }
+    lines.push(details.join("; "));
+  }
+  if (result.error && (!result.checks || result.checks.length === 0)) {
+    lines.push(`error: ${result.error}`);
+  }
+  return lines.join("\n");
+}
+
 // Handlers never throw on bad state: any unexpected error becomes an
 // explanatory [FAIL] text result.
 function guarded(handler) {
@@ -2331,6 +2568,79 @@ server.registerTool(
     });
     writeJsonAtomic(hostModelPath(), record);
     return format === "json" ? "[OK] " + JSON.stringify(record, null, 2) : formatHostModelRecord(record);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Provider probe tool
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "provider_probe",
+  {
+    title: "Probe an OpenAI-compatible model provider",
+    description:
+      "Probe a configured generic OpenAI-compatible provider by calling /v1/models and, when requested, /v1/chat/completions. " +
+      "Use this before assigning local reader or triage roles to a provider. The result is material, not verification evidence, and does not enable worker execution.",
+    inputSchema: {
+      provider: z
+        .enum(["generic-openai-compatible"])
+        .optional()
+        .describe("Provider adapter to probe. Currently only generic-openai-compatible is supported."),
+      base_url: z
+        .string()
+        .optional()
+        .describe("OpenAI-compatible /v1 base URL. Defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL."),
+      model: z
+        .string()
+        .optional()
+        .describe("Model id for chat probes. Defaults to MYTHIFY_OPENAI_COMPAT_MODEL."),
+      check: z
+        .enum(["models", "chat", "both"])
+        .optional()
+        .describe("Probe /models, /chat/completions, or both. Defaults to both."),
+      api_key_env: z
+        .string()
+        .optional()
+        .describe("Environment variable containing the API key. Defaults to MYTHIFY_OPENAI_COMPAT_API_KEY."),
+      timeout_seconds: z
+        .number()
+        .positive()
+        .optional()
+        .describe("HTTP timeout per request in seconds. Defaults to 10."),
+      prompt: z
+        .string()
+        .optional()
+        .describe("Optional tiny prompt for check=chat or both."),
+      format: z
+        .enum(["text", "json"])
+        .optional()
+        .describe("Return text by default, or JSON for machine-readable probes."),
+    },
+  },
+  guarded(async ({ provider, base_url, model, check, api_key_env, timeout_seconds, prompt, format }) => {
+    const selectedProvider = provider || "generic-openai-compatible";
+    if (selectedProvider !== "generic-openai-compatible") {
+      const blocked = {
+        provider: selectedProvider,
+        status: "blocked",
+        material_not_evidence: true,
+        evidence_status: "probe_only_not_verification",
+        error: "provider_probe currently supports only generic-openai-compatible.",
+        checks: [],
+      };
+      return format === "json" ? "[FAIL] " + JSON.stringify(blocked, null, 2) : formatProviderProbe(blocked);
+    }
+    const result = await probeOpenAICompatibleProvider({
+      base_url,
+      model,
+      check: check || "both",
+      api_key_env,
+      timeout_seconds,
+      prompt,
+    });
+    const prefix = result.status === "available" ? "[OK] " : "[FAIL] ";
+    return format === "json" ? prefix + JSON.stringify(result, null, 2) : formatProviderProbe(result);
   })
 );
 

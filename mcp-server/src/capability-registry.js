@@ -137,9 +137,11 @@ export const HOST_CAPABILITIES = {
 export const ADAPTER_CANDIDATES = {
   "generic-openai-compatible": {
     kind: "model_provider",
-    status: "candidate",
-    local: false,
+    status: "probe_supported",
+    local: true,
     openai_compatible: true,
+    can_probe: true,
+    can_answer_prompt: false,
   },
   ollama: {
     kind: "model_provider",

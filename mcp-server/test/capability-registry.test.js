@@ -63,6 +63,8 @@ test("researched future adapters are candidates, not public host platforms", () 
     listAdapterCandidates("model_provider").map((candidate) => candidate.name).sort(),
     ["generic-openai-compatible", "llama-cpp", "lm-studio", "ollama", "vllm"]
   );
+  assert.equal(ADAPTER_CANDIDATES["generic-openai-compatible"].status, "probe_supported");
+  assert.equal(ADAPTER_CANDIDATES["generic-openai-compatible"].can_probe, true);
   assert.deepEqual(
     listAdapterCandidates("host").map((candidate) => candidate.name).sort(),
     ["antigravity", "kimi-code", "opencode"]
