@@ -42,10 +42,12 @@ mythify/
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
+|   |-- local_model_eval.py      local bare-vs-Mythify comparison harness
 |   `-- package_skill.py         builds dist/mythify.skill from skills/mythify/
 |-- mcp-server/
 |   |-- package.json
 |   |-- mcp-config.example.json
+|   |-- client-configs/
 |   |-- src/index.js
 |   |-- src/fanout.js
 |   |-- test/smoke.test.js
@@ -60,9 +62,11 @@ mythify/
 |           `-- meta-prompts.md
 |-- tests/
 |   |-- test_mythify.py          CLI unit and end-to-end tests (stdlib unittest)
-|   `-- test_interop.py          CLI and MCP server against the same state dir
+|   |-- test_interop.py          CLI and MCP server against the same state dir
+|   `-- test_local_model_eval.py offline test for the local comparison harness
 `-- docs/
     |-- design.md                this document
+    |-- codex-integrations.md    Codex Desktop, CLI, MCP, and benchmark setup
     |-- claude-integrations.md   Claude Desktop and Claude Code guide
     `-- research-report.md       preserved research report
 ```
@@ -93,6 +97,7 @@ variable when it is set (Python `Path.home()`, Node `os.homedir()` both already 
 ```
 .mythify/
 |-- memory.json
+|-- host-model.json              optional recorded host chat model request
 |-- plans/
 |   |-- active                   text file containing the slug of the active plan
 |   |-- <slug>.json
@@ -118,6 +123,73 @@ memory.json:
 ```
 
 Keys are unique; `set` on an existing key overwrites the entry.
+
+host-model.json:
+
+```json
+{
+  "platform": "codex-desktop|codex-cli|claude-desktop|claude-code|cursor-desktop|cursor-agent|unknown",
+  "requested_platform": "auto|unknown|codex-desktop|codex-cli|claude-desktop|claude-code|cursor-desktop|cursor-agent",
+  "target_model": "str",
+  "current_model": "str",
+  "target_model_tier": "unknown|small|fast|standard|strong|frontier",
+  "thinking": "auto|low|medium|high|xhigh|max",
+  "speed": "auto|standard|fast",
+  "reason": "str",
+  "status": "recorded_requires_host_action",
+  "control": "host_selected",
+  "can_apply_current_chat": false,
+  "updated": "ISO-8601",
+  "host_actions": ["str"]
+}
+```
+
+`host-model.json` is optional. Explicit `session_model` and
+`MYTHIFY_SESSION_MODEL` beat it; otherwise it supplies the default session model
+for `classify_task` and `fanout_start`.
+
+outcomes/&lt;slug&gt;/goal.json:
+
+```json
+{
+  "id": "slug",
+  "goal": "str",
+  "success_criteria": "str",
+  "verify_command": "str",
+  "metric_command": "str",
+  "max_iterations": 3,
+  "iteration_count": 0,
+  "allowed_paths": ["str"],
+  "visibility": "auto|quiet|summary|verbose|threaded",
+  "status": "active|succeeded|failed|stopped",
+  "created": "ISO-8601",
+  "updated": "ISO-8601",
+  "last_verified": true,
+  "best_metric_score": 42.5,
+  "stop_reason": "str or null"
+}
+```
+
+outcomes/&lt;slug&gt;/iterations.jsonl, one JSON object per verifier attempt:
+
+```json
+{
+  "iteration": 1,
+  "timestamp": "ISO-8601",
+  "notes": "str",
+  "verify": {"command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true},
+  "metric": {"command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "score": 42.5},
+  "verified": true,
+  "status_after": "succeeded|active|failed",
+  "next_action": "str"
+}
+```
+
+`outcomes/active` stores the active outcome slug. Outcome loops are supervised:
+the host chat acts between `outcome check` calls, while Mythify records the
+verifier result, optional metric, iteration budget, and next action. A passing
+check also appends an executed verification record tagged with the outcome slug
+and iteration number.
 
 plans/&lt;slug&gt;.json:
 
@@ -199,6 +271,11 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | :--- | :--- | :--- |
 | `init` | Create `./.mythify` with subdirectories and empty memory.json. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--max-iterations N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start a supervised outcome loop, set it active, and record the verifier, optional metric, allowed path hints, visibility policy, and iteration budget. | 0; 1 if no workspace or invalid budget |
+| `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric for the active or named outcome, append an iteration record, append executed verification evidence, and return the next action. | 0 if verified, 2 if still unmet or failed, 1 if not found |
+| `outcome status [NAME] [--json]` | Show outcome status, verifier, metric, iteration budget, and latest next action. | 0; 1 if not found |
+| `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final state. | 0 if succeeded, 2 otherwise, 1 if not found |
+| `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
 | `plan create GOAL [--steps JSON] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. Without `--steps`, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
@@ -214,32 +291,40 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and output tails, append an executed record, print the verdict. Default timeout 300 seconds. | 0 if verified, 2 if unverified |
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |
+| `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|codex-desktop\|claude-desktop\|cursor-desktop] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. `--triage auto` runs one fast local model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
 | `summary` | Full session report: plans and progress, memory count, project and global lesson counts, verification stats (executed passed, executed failed, attested count), reflection count. | 0 |
 
 Implementation notes:
 
 - `verify run` uses `subprocess.run(command, shell=True, capture_output=True,
   text=True, timeout=N)`. Catch `TimeoutExpired` per the timeout rule above.
-- All commands other than `init` require a resolvable state directory (or
-  `MYTHIFY_DIR`, which is created on demand).
+- All commands other than `init` and `classify` require a resolvable state
+  directory (or `MYTHIFY_DIR`, which is created on demand).
 - `--help` output for the top level and each subcommand must be accurate.
 
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (3.x). package.json: name `mythify-mcp`, version `2.1.0`,
+(current 1.x) and `zod` (3.x). package.json: name `mythify-mcp`, version `2.4.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 15 tools: the 12 core tools below plus the 3 fanout tools defined in the
+Exactly 22 tools: the 19 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
+| `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. With `triage: auto`, run one fast local model only when the deterministic gate recommends it. |
+| `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate the current host chat unless a future host integration exposes that capability. |
+| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. |
+| `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
+| `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
+| `outcome_results` | `{name?: string, format?: enum(text, json)}` | Show all recorded verifier iterations and final state. |
+| `outcome_stop` | `{name?: string, reason: string, format?: enum(text, json)}` | Mark an outcome stopped and clear the active pointer when it matches. |
 | `memory_store` | `{key: string, value: string, category: enum(fact, decision, discovery, state) = "fact"}` | Upsert by key. Returns `[OK]` summary. |
 | `memory_recall` | `{query?: string, category?: enum(fact, decision, discovery, state, all)}` | Substring search as in the CLI. |
 | `memory_clear` | `{key?: string, confirm_clear_all?: boolean}` | With key: remove one. Without key and without `confirm_clear_all: true`: refuse with an explanation, do not clear. |
@@ -261,20 +346,120 @@ absolute path placeholder like `/absolute/path/to/mythify/mcp-server/src/index.j
 and a `MYTHIFY_DIR` env entry. This is the one allowed "placeholder", since the
 install path is genuinely user-specific.
 
+## Classification, execution profiles, and fast model triage
+
+Classification is two-stage:
+
+1. Deterministic gate. `classify` and `classify_task` always compute task type,
+   risk, ambiguity, ceremony, execution profile, verification hint, fanout fit,
+   and `model_triage`.
+2. Optional fast model pass. The caller must opt in with `--triage auto`,
+   `--triage always`, or the matching MCP `triage` argument. `auto` runs only
+   when `model_triage` is `recommended` or `required`.
+
+`execution_profile` may be `direct`, `fast`, `standard`, or `full`:
+
+- `direct`: answer or make one reversible edit with no protocol state.
+- `fast`: focused low-risk work skips plan state but still requires an executed
+  `verify run` before completion is claimed.
+- `standard`: create a plan with verifiable steps, act step by step, and run
+  `verify run` before completion.
+- `full`: use plan, memory, step updates, executed verification, reflection on
+  failures, and summary.
+
+Classification always returns `model_policy`. It separates:
+
+- `session`: host-selected current conversation model, model source, rough
+  tier, effort policy, spawn ceiling, and `recommendation`.
+  `host_model_switch` records intended host model changes in
+  `.mythify/host-model.json`; the host still owns the actual current chat
+  model switch.
+- `session.recommendation`: task-based host settings with `action`,
+  `target_profile`, `target_model`, `target_model_source`,
+  `target_model_tier`, `thinking`, `speed`, and `reason`. The action is one
+  of `keep`, `downgrade`, `upgrade`, or `recommend_set`.
+- `spawn_ceiling`: policy object with `policy`, `source`, `session_model`,
+  `session_model_source`, `session_model_tier`, default, and opt-in rule.
+- `triage`: spawned problem-framing worker, engine, spawned model policy,
+  model tier, relation to the session model, effort, timeout, max turns, and
+  sandbox.
+- `fanout_worker`: default policy for independent fanout tasks, including
+  chat visibility (`quiet`, `summary`, `verbose`, or `threaded`).
+- `reviewer`: whether a separate reviewer worker is useful and its effort.
+- `verifier`: command-first verification policy, no model when an executable
+  check exists.
+
+`--platform` and MCP `platform` may be `auto`, `unknown`, `codex-desktop`,
+`codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, or
+`cursor-agent`. `--effort` and MCP `effort` may be `auto`, `low`, `medium`,
+or `high`. `--speed` and MCP `speed` may be `auto`, `standard`, or `fast`.
+Auto speed preserves the host or CLI default; fast maps to Codex fast mode
+where supported; standard explicitly disables Codex fast mode for that spawned
+worker. `--session-model`, MCP `session_model`, and
+`MYTHIFY_SESSION_MODEL` provide the initiating model when the host can name it;
+if neither is set, Mythify uses `.mythify/host-model.json` when present.
+`--spawn-ceiling`, MCP `spawn_ceiling`, and `MYTHIFY_SPAWN_CEILING` may be
+`auto`, `lower_only`, `same_or_lower`, or `allow_stronger`; auto defaults to
+`same_or_lower`. Auto effort keeps triage cheap and scales fanout or reviewer
+effort by risk and ceremony.
+
+Host recommendations are profile-based, then mapped to platform model names.
+Direct low-risk prompts use profile `fast`, thinking `low`, and speed `fast`.
+Research, benchmark, design, security, release, and migration prompts use
+profile `strong`, thinking `high`, and speed `standard`. Ambiguous or normal
+implementation work uses profile `standard`, thinking `medium`, and speed
+`auto`. Defaults are Codex `gpt-5.4-mini`, `gpt-5.4`, `gpt-5.5`; Claude
+`haiku`, `sonnet`, `opus`; and Cursor `gpt-5.3-codex-low-fast`,
+`gpt-5.3-codex`, `gpt-5.3-codex-high`. The defaults can be replaced with
+`MYTHIFY_HOST_FAST_MODEL`, `MYTHIFY_HOST_STANDARD_MODEL`, and
+`MYTHIFY_HOST_STRONG_MODEL`.
+
+The fast model pass is not verification. It returns a problem frame that the
+main agent may use before planning. The required JSON shape is:
+
+```json
+{
+  "primary_type": "string",
+  "secondary_types": ["string"],
+  "ambiguity": "low|medium|high",
+  "hidden_questions": ["string"],
+  "likely_files_or_surfaces": ["string"],
+  "verification_plan": ["string"],
+  "fanout_plan": ["string"],
+  "risk_notes": ["string"],
+  "recommended_first_step": "string"
+}
+```
+
+Supported fast triage engines are local-first and API-free:
+`claude-cli`, `codex-cli`, `cursor-agent`, and `command`. Selection order is
+explicit argument, `MYTHIFY_TRIAGE_ENGINE`, local CLI auto-detection, then
+`MYTHIFY_TRIAGE_COMMAND`. Fanout binary env vars are accepted as fallbacks for
+CLI paths. `claude-cli` defaults to model `haiku`; `codex-cli` and
+`cursor-agent` use their local defaults unless `MYTHIFY_TRIAGE_MODEL` or an
+explicit model is set. The `command` engine reads the triage prompt on stdin
+and must print JSON.
+
 ### Smoke test: mcp-server/test/smoke.test.js
 
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the 15 tool names above (set equality), the 12
+1. `tools/list` returns exactly the 22 tool names above (set equality), the 19
    core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
-2. `memory_store` then `memory_recall` round-trips a value.
-3. `plan_create` with one step, then `plan_update_step` to completed WITHOUT result
+2. `classify_task` returns a benchmark classification in text form with
+   execution profile `full`, a question classification in JSON form with
+   execution profile `direct`, and a command-backed fast triage result when
+   requested.
+3. `memory_store` then `memory_recall` round-trips a value.
+4. `plan_create` with one step, then `plan_update_step` to completed WITHOUT result
    returns the evidence refusal and leaves the step pending; with result it succeeds.
-4. `verify_run` with `node -e "process.exit(0)"` reports VERIFIED; with
+5. `verify_run` with `node -e "process.exit(0)"` reports VERIFIED; with
    `node -e "process.exit(3)"` reports UNVERIFIED.
-5. `memory_clear` with no arguments refuses.
-6. After the calls, read `memory.json` and the plan file from the temp dir and assert
+6. `memory_clear` with no arguments refuses.
+7. Outcome tools start a loop, run a successful verifier, record iteration
+   evidence, and fail cleanly when the retry budget is exhausted.
+8. After the calls, read `memory.json` and the plan file from the temp dir and assert
    the exact field names from the format contract (this enforces interop at the byte
    level).
 
@@ -292,9 +477,10 @@ document the project. Required structure:
    the user can provide); anti-overengineering; persist state outside the context
    window on long tasks.
 3. Proportional ceremony table: trivial task (single edit or question) uses no
-   protocol commands; multi-step single-session task uses a plan plus executed
-   verification of completion claims; long-horizon or multi-session work uses the
-   full loop with memory and lessons.
+   protocol commands; focused low-risk fix or test tasks use the fast profile
+   with `verify run` but no plan state; multi-step single-session task uses a
+   plan plus executed verification of completion claims; long-horizon or
+   multi-session work uses the full loop with memory and lessons.
 4. The autonomy loop: PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, with the
    exact CLI commands for each stage.
 5. Verification doctrine: executed beats attested; `verify run` whenever anything
@@ -303,7 +489,7 @@ document the project. Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 15 tool names for clients using the server instead
+8. A short MCP note listing the 22 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
 ### scripts/build_variants.py
@@ -361,9 +547,9 @@ Sections, in order:
 5. Quick start B: MCP server (npm install inside `mcp-server/`, then the example
    client config; note `MYTHIFY_DIR` and `MYTHIFY_DISABLE_RUN`).
 6. Quick start C: build the skill (`python3 scripts/package_skill.py`).
-7. How it works: the autonomy loop, then "Verification: evidence over attestation"
-   with a short example transcript showing `verify run` on a failing then passing
-   test command.
+7. How it works: proportional ceremony including the fast profile, the autonomy
+   loop, then "Verification: evidence over attestation" with a short example
+   transcript showing `verify run` on a failing then passing test command.
 8. State layout tree.
 9. CLI command reference table and MCP tool table (matching this spec exactly).
 10. Compatibility table: Claude Code, Cursor, Windsurf, VS Code Copilot,
@@ -429,6 +615,14 @@ directory. Required coverage:
 - Corrupt recovery: write garbage into memory.json, run `memory get`, expect
   `[WARN]` on stderr, exit 0, and a `memory.json.corrupt-*` file.
 
+### tests/test_local_model_eval.py
+
+Offline command-engine tests verify the local benchmark harness without real
+model accounts. The default `--mythify-profile auto` resolves built-in focused
+bugfix scenarios to `fast`, requiring executed verification evidence but no
+plan record. `--mythify-profile standard` keeps the older plan-plus-verify
+behavior and requires both plan and verification evidence.
+
 ### tests/test_interop.py
 
 Stdlib only. Skips (unittest skip, not failure) unless `node` is on PATH and
@@ -460,15 +654,19 @@ Implementation lives in `mcp-server/src/fanout.js`, wired into the server in
 ### Engines
 
 A worker is one fresh model invocation with no memory of the conversation.
-Four engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
+Six engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
 order: explicit env value, else `claude-cli` if a claude binary resolves, else
-`anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
+`codex-cli` if a codex binary resolves, else `cursor-agent` if Cursor Agent
+resolves, else `anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
 `MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with a message
-listing all four options.
+listing all six options. `openai` is explicit-only because it needs both an
+endpoint and a model.
 
 | Engine | Mechanism | Billing | Models |
 | :--- | :--- | :--- | :--- |
 | `claude-cli` | Spawn `<bin> -p --output-format json --model <model> --max-turns <N>` with the assembled prompt on stdin, cwd = project root (parent of `.mythify/`). Parse the JSON output: `result` is the text, `is_error` true or a non-zero exit means failure. | Claude subscription (or whatever auth the claude CLI resolves) | Aliases `haiku`, `sonnet`, `opus`, `fable`, or any full model ID |
+| `codex-cli` | Spawn `<bin> --ask-for-approval never exec --cd <project> --sandbox <mode> --skip-git-repo-check --ephemeral --color never --output-last-message <tmp> [-m <model>] -` with the assembled prompt on stdin. Exit 0 means success; the worker output is the output-last-message file, falling back to stdout. | Codex CLI local login, usually ChatGPT/Codex subscription auth | Any model the local Codex CLI supports; empty model means the CLI default |
+| `cursor-agent` | Spawn `cursor-agent --print --output-format text --trust --workspace <project> [--mode <mode>] [--model <model>] <prompt-file-instruction>`, or `cursor agent ...` when the configured binary is `cursor`. The assembled prompt is written to a temporary file under `.mythify/tmp/`; stdout is the worker output. | Cursor Agent local login, usually Cursor subscription auth | Any model Cursor Agent exposes; empty model means the agent default |
 | `anthropic` | POST `https://api.anthropic.com/v1/messages` (anthropic-version 2023-06-01) with `max_tokens` from env. Aliases map: haiku to claude-haiku-4-5, sonnet to claude-sonnet-4-6, opus to claude-opus-4-8, fable to claude-fable-5. Join text blocks. | API key (`ANTHROPIC_API_KEY`) | Any Claude model ID |
 | `openai` | POST `<MYTHIFY_FANOUT_BASE_URL>/chat/completions` with `MYTHIFY_FANOUT_API_KEY`. | Provider API key | Any model the endpoint serves |
 | `command` | Run the `MYTHIFY_FANOUT_COMMAND` shell template; prompt on stdin; stdout is the output; exit 0 is success. | Whatever the command does | Anything (generic CLI agents; also used by CI to test the job machinery with no network) |
@@ -478,10 +676,27 @@ minimal PATH): `MYTHIFY_FANOUT_CLAUDE_BIN` if set, else `claude` on PATH, else
 the first existing of `~/.claude/local/claude`, `/opt/homebrew/bin/claude`,
 `/usr/local/bin/claude`. Resolution failure names the env var in the error.
 
+`codex-cli` binary resolution: `MYTHIFY_FANOUT_CODEX_BIN` if set, else `codex`
+on PATH, else the first existing of `~/.local/bin/codex`,
+`/opt/homebrew/bin/codex`, `/usr/local/bin/codex`. Resolution failure names
+the env var in the error. Workers run with `HOME`, `TERM=dumb`, an augmented
+`PATH`, `CODEX_HOME` when set, `XDG_CONFIG_HOME` when set, and the fanout
+guards. They do not inherit `OPENAI_API_KEY`; the intended path is local
+`codex login`.
+
+`cursor-agent` binary resolution: `MYTHIFY_FANOUT_CURSOR_BIN` if set, else
+`MYTHIFY_FANOUT_CURSOR_AGENT_BIN`, else `cursor-agent` on PATH and common
+locations, else `cursor` on PATH and common locations. When the resolved
+binary name is `cursor`, Mythify prepends the `agent` subcommand. Workers run
+with `HOME`, `TERM=dumb`, an augmented `PATH`, `XDG_CONFIG_HOME` when set, and
+the fanout guards. They do not inherit `CURSOR_API_KEY`; the intended path is
+local `cursor-agent login` or `cursor agent login`.
+
 `claude-cli` worker environment is curated, not inherited: `HOME`, `TERM=dumb`,
-`PATH` (server PATH augmented with `/opt/homebrew/bin:/usr/local/bin`), plus
-`CLAUDE_CODE_OAUTH_TOKEN` when present in the server environment, plus the
-guards below. Harness variables (`CLAUDECODE`, `CLAUDE_CODE_*`,
+`PATH` (server PATH augmented with `~/.local/bin`, `/opt/homebrew/bin`, and
+`/usr/local/bin`), plus `CLAUDE_CODE_OAUTH_TOKEN` when present in the server
+environment, plus the guards below. Harness variables (`CLAUDECODE`,
+`CLAUDE_CODE_*`,
 `ANTHROPIC_BASE_URL`) are NOT passed through: a server spawned by Claude Code
 inherits harness routing that breaks nested workers. Subscription auth setup
 is documented as: run `claude /login` once in a terminal, or run
@@ -489,21 +704,57 @@ is documented as: run `claude /login` once in a terminal, or run
 `env` block. A worker failure whose output contains `Not logged in` or
 `401` is reported with exactly that remediation.
 
-### Model selection (all models, three levels)
+### Model, ceiling, and effort selection
 
 Most specific wins: per-task `model` overrides per-job `model` overrides
 `MYTHIFY_FANOUT_MODEL` overrides the engine default (`haiku` for `claude-cli`,
-`claude-haiku-4-5` for `anthropic`). The same precedence applies to `engine`,
-so one job may mix engines and models across tasks (for example five haiku
-drafters and one sonnet reviewer; the reviewer task is still independent and
-reviews material supplied in its prompt, not other tasks' outputs).
+`claude-haiku-4-5` for `anthropic`, empty string for `codex-cli` and
+`cursor-agent`, which means each local CLI uses its configured default). The
+same precedence applies to `engine`, so one job may mix engines and models
+across tasks (for example five haiku drafters and one sonnet reviewer; the
+reviewer task is still independent and reviews material supplied in its
+prompt, not other tasks' outputs).
 
-### Tools (3, total 15)
+Spawn ceiling is checked after model resolution. `session_model` comes from the
+tool call, `MYTHIFY_SESSION_MODEL`, or `.mythify/host-model.json`; `spawn_ceiling`
+comes from the tool call or `MYTHIFY_SPAWN_CEILING`, defaulting to
+`same_or_lower`. Mythify classifies
+known model names into rough tiers: `small`, `fast`, `standard`, `strong`,
+`frontier`, or `unknown`. If both the session model and spawned model have
+known tiers, `fanout_start` refuses stronger spawned models unless the ceiling
+is `allow_stronger`. Unknown tiers are recorded as `uncheckable`; Mythify does
+not guess blank local CLI defaults.
+
+Effort is a separate field with the same precedence: per-task `effort`
+overrides per-job `effort`, which overrides `MYTHIFY_FANOUT_EFFORT`, which
+falls back to a model-derived default. The resolved `effort` and
+`effort_source` are stored on both the job and task records, shown in status
+and result output, and included in the assembled worker prompt as
+`Requested effort: <level>`.
+
+Speed is tracked separately from effort. Per-task `speed` overrides per-job
+`speed`, which overrides `MYTHIFY_FANOUT_SPEED`, which otherwise stays `auto`.
+`auto` preserves the platform default.
+
+Platform mapping:
+
+- `codex-cli`: `fast` adds `service_tier = "fast"` and
+  `features.fast_mode = true`; `standard` adds `features.fast_mode = false`.
+- `claude-cli`: resolved `effort` is passed as `--effort`; `speed` is recorded
+  and included in the worker prompt because Claude Code exposes no separate
+  speed flag.
+- `cursor-agent`: `model`, `effort`, and `speed` are resolved against the local
+  `cursor-agent models` list. For example, `model: "gpt-5.3-codex"`,
+  `effort: "high"`, and `speed: "fast"` resolves to
+  `gpt-5.3-codex-high-fast` when that id is available. If no matching encoded
+  id is found, Mythify leaves the requested model unchanged.
+
+### Tools (3, total 17)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
-| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], model?: string, engine?: string}], model?: string, engine?: string, timeout_seconds?: number}` | Validate (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable). Create `.mythify/fanout/<job_id>/job.json`, return the job id IMMEDIATELY, run workers in the background with a concurrency pool. Tasks must be fully independent; the description says so and says each task is a fresh model call that costs real money or subscription quota. |
-| `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, elapsed. If the job is marked running on disk but unknown to the in-memory registry (server restarted), mark its running tasks `interrupted` and say so. |
+| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), timeout_seconds?: number}` | Validate (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable, spawned model does not exceed the ceiling). Create `.mythify/fanout/<job_id>/job.json`, return the job id IMMEDIATELY, run workers in the background with a concurrency pool. Tasks must be fully independent; the description says so and says each task is a fresh model call that costs real money, subscription quota, or local compute. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
+| `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, model tier, effort, speed, visibility, and elapsed. Quiet jobs show aggregate progress and failures only. If the job is marked running on disk but unknown to the in-memory registry (server restarted), mark its running tasks `interrupted` and say so. |
 | `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). Per-task text in the tool result is capped at 20000 characters with a note pointing at the full output file. Warns when tasks are still running. |
 
 Job ids: `fo-<YYYYMMDDHHMMSS>-<4 random hex>`. Worker prompt assembly:
@@ -513,6 +764,15 @@ labeled fenced block, then the task prompt. `context_paths` resolve relative
 to the project root (absolute allowed); total inlined context per task is
 capped at `MYTHIFY_FANOUT_CONTEXT_BYTES` with an explicit truncation marker;
 an unreadable path fails the task at validation time with a clear error.
+
+Fanout visibility controls what the host should surface in the main chat.
+Modes are `quiet`, `summary`, `verbose`, and `threaded`; `auto` is accepted
+on input only. `summary` is the resolved default and should show worker titles,
+status counts, and notable findings. `quiet` suppresses per-task status lines
+except failures. `verbose` permits detailed worker output in the chat.
+`threaded` asks the host to create visible worker chats only when the host has
+native thread support; otherwise hosts should fall back to summary. Auto
+visibility infers from `purpose` and task prompts, then defaults to summary.
 
 ### On-disk format
 
@@ -527,10 +787,23 @@ job.json (atomic writes on every transition):
 ```json
 {
   "id": "fo-...", "created": "ISO-8601", "engine": "str", "model": "str",
+  "model_source": "str", "model_tier": "str", "model_ceiling_status": "str",
+  "session_model": "str", "session_model_source": "str",
+  "session_model_tier": "str", "spawn_ceiling": "str",
+  "spawn_ceiling_source": "str", "effort": "low|medium|high",
+  "effort_source": "str", "speed": "auto|standard|fast",
+  "speed_source": "str", "visibility": "quiet|summary|verbose|threaded",
+  "visibility_source": "explicit|env|prompt|default",
+  "visibility_requested": "auto|quiet|summary|verbose|threaded",
+  "visibility_reason": "str", "purpose": "str",
   "timeout_seconds": 600, "last_updated": "ISO-8601",
   "tasks": [
     {"id": 1, "title": "str", "status": "pending|running|completed|failed|interrupted",
-     "engine": "str", "model": "str", "started_at": "ISO-8601 or null",
+     "engine": "str", "model": "str", "model_source": "str",
+     "model_tier": "str", "model_ceiling_status": "str",
+     "effort": "low|medium|high", "effort_source": "str",
+     "speed": "auto|standard|fast", "speed_source": "str",
+     "started_at": "ISO-8601 or null",
      "finished_at": "ISO-8601 or null", "duration_seconds": 0.0,
      "error": "str or null", "output_file": "task-1-output.md", "output_bytes": 0}
   ]
@@ -542,8 +815,16 @@ job.json (atomic writes on every transition):
 | Env | Default | Meaning |
 | :--- | :--- | :--- |
 | `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
-| `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `anthropic`, `openai`, `command`. |
+| `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
 | `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
+| `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |
+| `MYTHIFY_SPAWN_CEILING` | `same_or_lower` | Spawn ceiling: `auto`, `lower_only`, `same_or_lower`, or `allow_stronger`. |
+| `MYTHIFY_HOST_FAST_MODEL` | platform default | Host recommendation model for direct, trivial, or focused low-risk prompts. |
+| `MYTHIFY_HOST_STANDARD_MODEL` | platform default | Host recommendation model for balanced implementation, debugging, review, and docs prompts. |
+| `MYTHIFY_HOST_STRONG_MODEL` | platform default | Host recommendation model for research, benchmarks, design, release, migration, and security prompts. |
+| `MYTHIFY_FANOUT_EFFORT` | model-derived | Default worker effort: `auto`, `low`, `medium`, or `high`. |
+| `MYTHIFY_FANOUT_SPEED` | auto | Default worker speed: `auto`, `standard`, or `fast`. Auto preserves platform defaults; fast enables Codex fast mode where supported. |
+| `MYTHIFY_FANOUT_VISIBILITY` | auto | Worker visibility mode: `auto`, `quiet`, `summary`, `verbose`, or `threaded`. Auto infers from `purpose` and task prompts, then defaults to summary. |
 | `MYTHIFY_FANOUT_CONCURRENCY` | 3 | Parallel workers per job. |
 | `MYTHIFY_FANOUT_MAX_TASKS` | 16 | Max tasks per job. |
 | `MYTHIFY_FANOUT_MAX_TOKENS` | 8000 | API engines' max_tokens. |
@@ -552,6 +833,15 @@ job.json (atomic writes on every transition):
 | `MYTHIFY_FANOUT_CONTEXT_BYTES` | 200000 | Total inlined context per task. |
 | `MYTHIFY_FANOUT_CLAUDE_BIN` | resolved | Path to the claude binary. |
 | `MYTHIFY_FANOUT_CLAUDE_ARGS` | empty | Extra claude args, for example `--allowedTools "Bash"`. |
+| `MYTHIFY_FANOUT_CODEX_BIN` | resolved | Path to the codex binary. |
+| `MYTHIFY_FANOUT_CODEX_SANDBOX` | `read-only` | Codex worker sandbox mode. |
+| `MYTHIFY_FANOUT_CODEX_ARGS` | empty | Extra codex exec args. |
+| `MYTHIFY_FANOUT_CURSOR_BIN` | resolved | Path to `cursor-agent` or `cursor`. |
+| `MYTHIFY_FANOUT_CURSOR_AGENT_BIN` | resolved | Path to `cursor-agent`, used only when `MYTHIFY_FANOUT_CURSOR_BIN` is not set. |
+| `MYTHIFY_FANOUT_CURSOR_MODELS` | auto-list | Optional whitespace or comma-separated Cursor model id list. When unset, Mythify runs `cursor-agent models` or `cursor agent models` to resolve encoded model ids. |
+| `MYTHIFY_FANOUT_CURSOR_MODE` | `ask` | Cursor Agent worker mode. Empty string omits `--mode`. |
+| `MYTHIFY_FANOUT_CURSOR_FORCE` | unset | `1` adds `--force` to Cursor Agent workers. |
+| `MYTHIFY_FANOUT_CURSOR_ARGS` | empty | Extra Cursor Agent args. |
 | `MYTHIFY_FANOUT_BASE_URL`, `MYTHIFY_FANOUT_API_KEY` | unset | openai engine endpoint and key. |
 | `MYTHIFY_FANOUT_COMMAND` | unset | command engine shell template. |
 
@@ -569,15 +859,21 @@ job.json (atomic writes on every transition):
 
 ### Smoke coverage (mcp-server/test/, runs in CI with no network)
 
-Using the `command` engine with a deterministic local template: 15-tool set
-equality; a 3-task job runs to completion and `fanout_results` returns the
-outputs; `context_paths` content demonstrably reaches the worker prompt; the
-kill switch refuses; the depth guard refuses; a failing command produces a
-failed task with captured stderr; job.json matches the format contract field
-by field.
+Using the `command` engine with a deterministic local template and stub local
+CLI binaries: 16-tool set equality; a 3-task command job runs to completion
+and `fanout_results` returns the outputs; `context_paths` content demonstrably
+reaches the worker prompt; the kill switch refuses; the depth guard refuses; a
+failing command produces a failed task with captured stderr; job.json matches
+the format contract field by field; stub `claude-cli`, `codex-cli`, and
+`cursor-agent` workers prove argv, prompt delivery, environment guards, and
+auth remediation behavior without network access.
 
 ## Versioning
 
-This is Mythify v2.1.0 (fanout added on top of the 2.0.0 contract; the 12 core
-tools and all 2.0.0 formats are unchanged). The CLI prints no version banner;
-the MCP server reports 2.1.0 through its server info.
+This is Mythify v2.4.0. Fanout was added in 2.1.0; 2.2.0 added local
+subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 adds
+task classification; 2.4.0 adds optional fast model triage after
+classification, execution profiles, optional fast model triage after
+classification, platform-aware model policy, initiating-model awareness, spawn
+ceiling checks, and additive fanout model and effort metadata. The CLI prints
+no version banner; the MCP server reports 2.4.0 through its server info.

@@ -15,6 +15,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const SERVER_PATH = fileURLToPath(new URL("../src/index.js", import.meta.url));
 
 const EXPECTED_TOOLS = [
+  "classify_task",
+  "host_model_switch",
   "memory_store",
   "memory_recall",
   "memory_clear",
@@ -24,6 +26,11 @@ const EXPECTED_TOOLS = [
   "plan_add_step",
   "plan_update_step",
   "plan_status",
+  "outcome_start",
+  "outcome_check",
+  "outcome_status",
+  "outcome_results",
+  "outcome_stop",
   "verify_run",
   "verify_claim",
   "reflect",
@@ -42,20 +49,196 @@ function textOf(result) {
 test("mythify MCP server smoke test", async (t) => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-smoke-state-"));
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-smoke-home-"));
+  const triageStub = path.join(stateDir, "triage-stub.js");
+  fs.writeFileSync(
+    triageStub,
+    [
+      "process.stdin.resume();",
+      "process.stdin.on('end', () => {",
+      "  console.log(JSON.stringify({",
+      "    primary_type: 'benchmark',",
+      "    secondary_types: ['evaluation'],",
+      "    ambiguity: 'low',",
+      "    hidden_questions: [],",
+      "    likely_files_or_surfaces: ['scripts/local_model_eval.py'],",
+      "    verification_plan: ['run benchmark harness'],",
+      "    fanout_plan: [],",
+      "    risk_notes: [],",
+      "    recommended_first_step: 'run the harness'",
+      "  }));",
+      "});",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
 
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [SERVER_PATH],
-    env: { ...process.env, MYTHIFY_DIR: stateDir, HOME: homeDir },
+    env: {
+      ...process.env,
+      MYTHIFY_DIR: stateDir,
+      HOME: homeDir,
+      MYTHIFY_TRIAGE_ENGINE: "command",
+      MYTHIFY_TRIAGE_COMMAND: `${process.execPath} ${triageStub}`,
+    },
   });
-  const client = new Client({ name: "mythify-smoke-test", version: "2.0.0" });
+  const client = new Client({ name: "mythify-smoke-test", version: "2.4.0" });
   await client.connect(transport);
 
   try {
-    await t.test("tools/list returns exactly the 15 tools", async () => {
+    await t.test("tools/list returns exactly the 22 tools", async () => {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name).sort();
       assert.deepEqual(names, [...EXPECTED_TOOLS].sort());
+    });
+
+    await t.test("classify_task recommends ceremony and verification", async () => {
+      const classified = textOf(
+        await client.callTool({
+          name: "classify_task",
+          arguments: { task: "benchmark bare codex vs mythify across tasks" },
+        })
+      );
+      assert.ok(classified.startsWith("[OK]"), `classification reports [OK]: ${classified}`);
+      assert.match(classified, /type: benchmark/, "classification detects benchmark work");
+      assert.match(classified, /ceremony: full/, "benchmark work gets full ceremony");
+      assert.match(classified, /execution profile: full/, "benchmark work gets full execution profile");
+      assert.match(classified, /fanout: recommended/, "benchmark work can use fanout");
+      assert.match(classified, /model triage: recommended/, "benchmark work gets model triage");
+
+      const jsonText = textOf(
+        await client.callTool({
+          name: "classify_task",
+          arguments: { task: "what does this project do?", format: "json" },
+        })
+      );
+      const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
+      assert.equal(parsed.task_type, "question");
+      assert.equal(parsed.ceremony, "none");
+      assert.equal(parsed.execution_profile, "direct");
+      assert.equal(parsed.fanout_visibility, "summary");
+      assert.equal(parsed.model_policy.session.control, "host_selected");
+      assert.equal(parsed.model_policy.fanout_worker.visibility, "summary");
+      assert.equal(parsed.model_policy.verifier.engine, "local_command");
+      assert.equal(parsed.model_policy.session.recommendation.target_profile, "fast");
+
+      const directText = textOf(
+        await client.callTool({
+          name: "classify_task",
+          arguments: {
+            task: "what is 1 + 1?",
+            format: "json",
+            platform: "codex-desktop",
+            session_model: "gpt-5.5",
+          },
+        })
+      );
+      const direct = JSON.parse(directText.replace(/^\[OK\] /, ""));
+      assert.equal(direct.execution_profile, "direct");
+      assert.equal(direct.model_policy.session.recommendation.action, "downgrade");
+      assert.equal(direct.model_policy.session.recommendation.target_profile, "fast");
+      assert.equal(direct.model_policy.session.recommendation.target_model, "gpt-5.4-mini");
+      assert.equal(direct.model_policy.session.recommendation.target_model_tier, "fast");
+      assert.equal(direct.model_policy.session.recommendation.thinking, "low");
+      assert.equal(direct.model_policy.session.recommendation.speed, "fast");
+
+      const researchText = textOf(
+        await client.callTool({
+          name: "classify_task",
+          arguments: {
+            task: "make me a research paper about memory consolidation in LLM agents",
+            format: "json",
+            platform: "claude-desktop",
+            session_model: "haiku",
+          },
+        })
+      );
+      const research = JSON.parse(researchText.replace(/^\[OK\] /, ""));
+      assert.equal(research.task_type, "research");
+      assert.equal(research.model_policy.session.recommendation.action, "upgrade");
+      assert.equal(research.model_policy.session.recommendation.target_profile, "strong");
+      assert.equal(research.model_policy.session.recommendation.target_model, "opus");
+      assert.equal(research.model_policy.session.recommendation.thinking, "high");
+      assert.equal(research.model_policy.session.recommendation.speed, "standard");
+
+      const triagedText = textOf(
+        await client.callTool({
+          name: "classify_task",
+          arguments: {
+            task: "benchmark bare codex vs mythify across tasks",
+            format: "json",
+            triage: "auto",
+            platform: "claude-desktop",
+            effort: "auto",
+            speed: "fast",
+            session_model: "sonnet",
+            spawn_ceiling: "same_or_lower",
+          },
+        })
+      );
+      const triaged = JSON.parse(triagedText.replace(/^\[OK\] /, ""));
+      assert.equal(triaged.model_policy.session.platform, "claude-desktop");
+      assert.equal(triaged.execution_profile, "full");
+      assert.equal(triaged.model_policy.session.model, "sonnet");
+      assert.equal(triaged.model_policy.session.model_source, "explicit");
+      assert.equal(triaged.model_policy.session.model_tier, "strong");
+      assert.equal(triaged.model_policy.spawn_ceiling.policy, "same_or_lower");
+      assert.equal(triaged.model_policy.fanout_worker.model_relation_to_session, "same_or_lower");
+      assert.equal(triaged.model_policy.triage.effort, "low");
+      assert.equal(triaged.model_policy.triage.speed, "fast");
+      assert.equal(triaged.model_policy.fanout_worker.effort, "high");
+      assert.equal(triaged.model_policy.fanout_worker.speed, "fast");
+      assert.equal(triaged.model_triage_run.attempted, true);
+      assert.equal(triaged.model_triage_run.ok, true);
+      assert.equal(triaged.model_triage_run.engine, "command");
+      assert.equal(triaged.model_triage_run.model_policy, "command_default");
+      assert.equal(triaged.model_triage_run.effort, "low");
+      assert.equal(triaged.model_triage_run.speed, "fast");
+      assert.equal(triaged.model_triage_run.parsed.primary_type, "benchmark");
+    });
+
+    await t.test("host_model_switch records a host model for later policy", async () => {
+      const switched = textOf(
+        await client.callTool({
+          name: "host_model_switch",
+          arguments: {
+            platform: "codex-desktop",
+            target_model: "gpt-5.4",
+            current_model: "gpt-5.3-codex",
+            thinking: "high",
+            speed: "fast",
+          },
+        })
+      );
+      assert.ok(switched.startsWith("[OK]"), `host_model_switch reports [OK]: ${switched}`);
+      assert.match(switched, /target model: gpt-5\.4/, "text includes the target model");
+
+      const statusText = textOf(
+        await client.callTool({
+          name: "host_model_switch",
+          arguments: { action: "status", format: "json" },
+        })
+      );
+      const status = JSON.parse(statusText.replace(/^\[OK\] /, ""));
+      assert.equal(status.target_model, "gpt-5.4");
+      assert.equal(status.platform, "codex-desktop");
+      assert.equal(status.status, "recorded_requires_host_action");
+
+      const classifiedText = textOf(
+        await client.callTool({
+          name: "classify_task",
+          arguments: {
+            task: "implement a follow-up feature",
+            format: "json",
+            platform: "codex-desktop",
+          },
+        })
+      );
+      const classified = JSON.parse(classifiedText.replace(/^\[OK\] /, ""));
+      assert.equal(classified.model_policy.session.model, "gpt-5.4");
+      assert.equal(classified.model_policy.session.model_source, "host_model_switch");
+      assert.equal(classified.model_policy.session.model_tier, "frontier");
     });
 
     await t.test("memory_store then memory_recall round-trips a value", async () => {
@@ -141,6 +324,77 @@ test("mythify MCP server smoke test", async (t) => {
       assert.ok(failed.startsWith("[FAIL]"), `failing run reports [FAIL]: ${failed}`);
       assert.match(failed, /UNVERIFIED/, "failing run is UNVERIFIED");
       assert.match(failed, /exit 3/, "failing run reports the exit code");
+    });
+
+    await t.test("outcome tools track success and bounded failure", async () => {
+      const passCommand = `${JSON.stringify(process.execPath)} -e "process.exit(0)"`;
+      const metricCommand = `${JSON.stringify(process.execPath)} -e "process.stdout.write('9.5')"`;
+      const startedText = textOf(
+        await client.callTool({
+          name: "outcome_start",
+          arguments: {
+            goal: "Make the smoke verifier pass",
+            success: "node exits zero",
+            verify_command: passCommand,
+            metric_command: metricCommand,
+            max_iterations: 2,
+            allowed_paths: ["mcp-server/src", "mcp-server/test"],
+            format: "json",
+          },
+        })
+      );
+      const started = JSON.parse(startedText.replace(/^\[OK\] /, ""));
+      assert.equal(started.status, "active");
+      assert.deepEqual(started.allowed_paths, ["mcp-server/src", "mcp-server/test"]);
+
+      const checkedText = textOf(
+        await client.callTool({
+          name: "outcome_check",
+          arguments: { format: "json" },
+        })
+      );
+      const checked = JSON.parse(checkedText.replace(/^\[OK\] /, ""));
+      assert.equal(checked.goal.status, "succeeded");
+      assert.equal(checked.record.verified, true);
+      assert.equal(checked.record.metric.score, 9.5);
+
+      const statusText = textOf(
+        await client.callTool({
+          name: "outcome_status",
+          arguments: {},
+        })
+      );
+      assert.match(statusText, /status: succeeded/, "status reports success");
+
+      const failCommand = `${JSON.stringify(process.execPath)} -e "process.stdout.write('nope'); process.exit(4)"`;
+      const failStartedText = textOf(
+        await client.callTool({
+          name: "outcome_start",
+          arguments: {
+            goal: "Fail within one iteration",
+            success: "node exits zero",
+            verify_command: failCommand,
+            max_iterations: 1,
+            format: "json",
+          },
+        })
+      );
+      const failStarted = JSON.parse(failStartedText.replace(/^\[OK\] /, ""));
+      const failChecked = textOf(
+        await client.callTool({
+          name: "outcome_check",
+          arguments: {},
+        })
+      );
+      assert.ok(failChecked.startsWith("[FAIL]"), `failing outcome reports [FAIL]: ${failChecked}`);
+      assert.match(failChecked, /failed/, "failing outcome reaches failed status");
+      const stopped = textOf(
+        await client.callTool({
+          name: "outcome_stop",
+          arguments: { name: failStarted.id, reason: "test cleanup" },
+        })
+      );
+      assert.ok(stopped.startsWith("[OK]"), `outcome_stop succeeds: ${stopped}`);
     });
 
     await t.test("memory_clear with no arguments refuses", async () => {

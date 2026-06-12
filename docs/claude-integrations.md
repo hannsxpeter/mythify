@@ -8,6 +8,8 @@ deliberately on smaller, cheaper models.
 
 All paths below must be absolute. Neither `.mcp.json` nor
 `claude_desktop_config.json` supports relative paths or variable substitution.
+For a cross-client setup covering Codex Desktop, Claude Desktop, and Cursor
+Desktop, see [desktop-tool-calls.md](desktop-tool-calls.md).
 
 ## Claude Code
 
@@ -106,10 +108,16 @@ Two Desktop-specific notes:
 ### Fanout from Claude Desktop
 
 The fanout tools (`fanout_start`, `fanout_status`, `fanout_results`) let
-Desktop delegate parallel subtasks to fresh workers, and with the
-`claude-cli` engine those workers bill against your Claude subscription
-instead of an API key. Desktop usually needs two extra `env` entries that a
-terminal session gets for free:
+Desktop delegate parallel subtasks to fresh workers. With the local CLI
+engines, those workers use subscriptions you already authenticated in a
+terminal instead of API keys:
+
+- `claude-cli`: run `claude /login`, or use `claude setup-token` for Desktop.
+- `codex-cli`: run `codex login`.
+- `cursor-agent`: run `cursor-agent login`, or `cursor agent login`.
+
+For Claude Desktop with Claude workers, Desktop usually needs two extra `env`
+entries that a terminal session gets for free:
 
 ```json
 {
@@ -138,7 +146,54 @@ Why Desktop needs them:
   session. If you have run `claude /login` once in a terminal, workers
   usually inherit that stored credential through `HOME`; otherwise run
   `claude setup-token` and put the printed token in the `env` block. A worker
-  failure containing `Not logged in` or `401` means exactly this is missing.
+failure containing `Not logged in` or `401` means exactly this is missing.
+
+For Codex workers in any MCP client, set the engine and, if needed, the binary
+path:
+
+```json
+{
+  "mcpServers": {
+    "mythify": {
+      "command": "node",
+      "args": ["/absolute/path/to/mythify/mcp-server/src/index.js"],
+      "env": {
+        "MYTHIFY_DIR": "/absolute/path/to/your/project/.mythify",
+        "MYTHIFY_FANOUT_ENGINE": "codex-cli",
+        "MYTHIFY_FANOUT_CODEX_BIN": "/opt/homebrew/bin/codex"
+      }
+    }
+  }
+}
+```
+
+Codex workers default to `MYTHIFY_FANOUT_CODEX_SANDBOX=read-only` so parallel
+workers produce material for the orchestrator to merge. Set it to
+`workspace-write` only when isolated worker edits are acceptable.
+
+For Cursor workers, use:
+
+```json
+{
+  "mcpServers": {
+    "mythify": {
+      "command": "node",
+      "args": ["/absolute/path/to/mythify/mcp-server/src/index.js"],
+      "env": {
+        "MYTHIFY_DIR": "/absolute/path/to/your/project/.mythify",
+        "MYTHIFY_FANOUT_ENGINE": "cursor-agent",
+        "MYTHIFY_FANOUT_CURSOR_BIN": "/Users/you/.local/bin/cursor-agent"
+      }
+    }
+  }
+}
+```
+
+Cursor workers default to `MYTHIFY_FANOUT_CURSOR_MODE=ask`, matching fanout's
+"return material, then merge and verify" shape. Set
+`MYTHIFY_FANOUT_CURSOR_MODE=` to omit the mode, and set
+`MYTHIFY_FANOUT_CURSOR_FORCE=1` only when you deliberately want force-approved
+commands.
 
 ## Running Mythify on smaller models
 
@@ -157,6 +212,17 @@ claude --model haiku                 # one session
 ANTHROPIC_MODEL=haiku claude         # via environment
 /model                               # switch mid-session
 ```
+
+In Mythify MCP, call `host_model_switch` with `platform: "claude-code"` or
+`platform: "claude-desktop"` to record the intended host model for future
+model policy and spawn ceiling checks. Claude Code can apply the returned
+`/model <target>` action; Claude Desktop still requires its model picker.
+`classify_task` also returns `model_policy.session.recommendation`: direct
+low-risk prompts map to `haiku`, low thinking, and fast speed; ordinary
+implementation maps to `sonnet`, medium thinking, and auto speed; research or
+high-risk prompts map to `opus`, high thinking, and standard speed. Override
+these model names with `MYTHIFY_HOST_FAST_MODEL`,
+`MYTHIFY_HOST_STANDARD_MODEL`, and `MYTHIFY_HOST_STRONG_MODEL` when needed.
 
 Or persistently, in `.claude/settings.json`:
 
@@ -192,6 +258,15 @@ summarizing files, generating test cases) to `haiku` workers with
 `fanout_start`: the strong model writes the task list once and the server
 does the spawning and collecting. Models mix per task, since per-task `model`
 overrides the job `model`, which overrides `MYTHIFY_FANOUT_MODEL`, so one job
-can run five haiku drafters and one sonnet reviewer. Merge the results
-yourself and verify the merged work with `verify_run`; worker output is
-material, not evidence.
+can run five haiku drafters and one sonnet reviewer. Effort and speed mix the
+same way: per-task `effort` or `speed` overrides the matching job setting,
+which overrides `MYTHIFY_FANOUT_EFFORT` or `MYTHIFY_FANOUT_SPEED`, and the
+resolved values are written to `job.json`.
+For Claude Code workers, Mythify also passes the resolved effort to the
+Claude CLI with `--effort`. Speed remains prompt-visible policy because Claude
+Code does not expose a separate speed flag.
+Spawn ceiling is separate: pass `session_model` or set
+`MYTHIFY_SESSION_MODEL`, and Mythify defaults spawned workers to
+same-or-lower unless `spawn_ceiling` is `allow_stronger`.
+Merge the results yourself and verify the merged work with `verify_run`;
+worker output is material, not evidence.

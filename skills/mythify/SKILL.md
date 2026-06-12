@@ -21,6 +21,7 @@ Match protocol overhead to task size. Trivial tasks pay zero overhead.
 | Task size | Protocol |
 | :--- | :--- |
 | Trivial (single edit or question) | No protocol commands. Just do it. |
+| Focused low-risk fix or test task | Fast profile: skip plan state, do the work, then `verify run`. |
 | Multi-step, single session | A plan, plus executed verification of every completion claim. |
 | Long-horizon or multi-session | Full loop with memory and lessons. |
 
@@ -32,6 +33,12 @@ Match protocol overhead to task size. Trivial tasks pay zero overhead.
 4. REFLECT: record what happened, especially after failures or surprises.
 5. CORRECT or ADVANCE: on failure, fix and re-verify; on success, mark the
    step completed with evidence and take the next pending step.
+
+For outcome-driven work, start a supervised loop with `outcome start`, make one
+bounded attempt, then run `outcome check`. Continue only when Mythify says the
+outcome is still active and the budget remains. Use `outcome results` to report
+the evidence trail and `outcome stop --reason TEXT` when the host decides to
+end the loop.
 
 Read `references/autonomy-loop.md` before starting any multi-step plan, when
 deciding how much ceremony a task deserves, or when you need the step
@@ -76,6 +83,7 @@ much to build.
 | :--- | :--- |
 | `init` | Create `./.mythify` workspace. |
 | `status` | Orientation: active plan, next step, counts. |
+| `classify TASK [--json] [--triage never\|auto\|always]` | Identify task type, risk, execution profile, verification strategy, fanout fit, model policy, and task-based host recommendation. |
 | `plan create GOAL [--steps JSON] [--name NAME]` | Create a plan, set it active. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step. |
 | `plan list` | List plans with progress. |
@@ -86,6 +94,14 @@ much to build.
 | `memory set KEY VALUE [--category C]` | Store an entry (fact, decision, discovery, state). |
 | `memory get [QUERY] [--category C]` | Substring search over keys and values. |
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |
+| `host-model switch MODEL [--platform P]` | Record a requested host chat model switch for model policy. |
+| `host-model status` | Show the recorded host model switch. |
+| `host-model clear` | Clear the recorded host model switch. |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND]` | Start a supervised outcome loop with verifier, optional metric, and budget. |
+| `outcome check [NAME]` | Run the verifier and return success, retry, or budget exhaustion. |
+| `outcome status [NAME]` | Show the active or named outcome loop. |
+| `outcome results [NAME]` | Show all verifier iterations and final state. |
+| `outcome stop [NAME] --reason TEXT` | Stop an outcome loop. |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson. |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | List lessons by scope. |
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute and record proof. Exit 0 verified, 2 unverified. |
@@ -95,9 +111,20 @@ much to build.
 
 ## MCP clients
 
-Clients wired to the Mythify MCP server instead of the CLI use 15 tools:
-memory_store, memory_recall, memory_clear, lesson_record, lesson_recall,
-plan_create, plan_add_step, plan_update_step, plan_status, verify_run,
-verify_claim, reflect, plus the parallel delegation tools fanout_start,
-fanout_status, and fanout_results. Same state directory, same file formats,
-full interop with the CLI.
+Clients wired to the Mythify MCP server instead of the CLI use 22 tools:
+classify_task, host_model_switch, outcome_start, outcome_check,
+outcome_status, outcome_results, outcome_stop, memory_store, memory_recall,
+memory_clear, lesson_record, lesson_recall, plan_create, plan_add_step,
+plan_update_step, plan_status, verify_run, verify_claim, reflect, plus the
+parallel delegation tools fanout_start, fanout_status, and fanout_results. Same
+state directory, same file formats, full interop with the CLI.
+
+`classify_task` returns `model_policy.session.recommendation` so hosts can map
+the prompt to chat settings before work begins. Direct low-risk prompts use a
+fast profile with low thinking and fast speed, ordinary implementation uses a
+standard profile with medium thinking, and research or high-risk work uses a
+strong profile with high thinking and standard speed.
+
+Fanout visibility defaults to `summary`: show worker titles, status counts,
+and notable findings in the main chat. Use quiet, verbose, or threaded only
+when the prompt asks for that behavior; threaded still requires host support.

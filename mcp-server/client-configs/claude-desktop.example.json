@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mythify": {
+      "command": "/absolute/path/to/node",
+      "args": [
+        "/absolute/path/to/mythify/mcp-server/src/index.js"
+      ],
+      "env": {
+        "MYTHIFY_DIR": "/absolute/path/to/your/project/.mythify"
+      }
+    }
+  }
+}

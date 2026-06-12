@@ -7,14 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [2.4.0] - 2026-06-12
+
+### Added
+
+- Optional fast model triage after classification. `classify --triage auto`
+  and MCP `classify_task` with `triage: "auto"` run one local fast model only
+  when the deterministic gate recommends it, returning a JSON problem frame
+  without treating model output as verification.
+- Local fast triage engine configuration:
+  `MYTHIFY_TRIAGE_ENGINE`, `MYTHIFY_TRIAGE_MODEL`,
+  `MYTHIFY_TRIAGE_COMMAND`, `MYTHIFY_TRIAGE_CLAUDE_BIN`,
+  `MYTHIFY_TRIAGE_CODEX_BIN`, and `MYTHIFY_TRIAGE_CURSOR_BIN`.
+- Platform-aware model policy from CLI `classify` and MCP `classify_task`,
+  separating host-selected session model, spawned triage worker, fanout
+  worker, reviewer, verifier, spawned model policy, and effort.
+- Task-based host chat recommendations in `model_policy.session.recommendation`,
+  including keep, downgrade, upgrade, or set actions plus target profile,
+  target model, thinking, and speed.
+- Fanout visibility modes for spawned workers: summary by default, with quiet,
+  verbose, threaded, and auto prompt inference through `fanout_start`.
+- Host chat model switch state through CLI `host-model` and MCP
+  `host_model_switch`, recording `.mythify/host-model.json` for later
+  `classify_task` and `fanout_start` session model defaults while returning
+  host-specific switch guidance.
+- Initiating-model awareness through `session_model`,
+  `MYTHIFY_SESSION_MODEL`, `spawn_ceiling`, and `MYTHIFY_SPAWN_CEILING`, with
+  same-or-lower spawning by default and explicit opt-in for stronger workers.
+- Fanout effort selection through job-level and per-task `effort`, plus
+  `MYTHIFY_FANOUT_EFFORT`, with resolved effort recorded in `job.json` and
+  inserted into worker prompts.
+- Fanout speed selection through job-level and per-task `speed`, plus
+  `MYTHIFY_FANOUT_SPEED`, with Codex `fast` and `standard` mapped to Codex
+  fast-mode config overrides.
+- Platform-specific fanout mapping for Claude and Cursor: Claude receives
+  resolved effort through `--effort`, and Cursor resolves `model`, `effort`,
+  and `speed` to encoded model ids from `cursor-agent models` when available.
+- Execution profiles from CLI `classify` and MCP `classify_task`, including a
+  fast profile for focused low-risk work that skips plan state but still
+  requires executed `verify run` evidence.
+- `scripts/local_model_eval.py --mythify-profile` with `auto`, `fast`, and
+  `standard` modes, so local benchmarks can measure fast Mythify runs against
+  the older plan-plus-verify behavior.
+
+### Changed
+
+- Fanout job metadata now records model, effort, and speed sources for both
+  the job and each task.
+- Fanout job metadata now records session model, session tier, spawn ceiling,
+  model tier, and ceiling status for jobs and tasks.
+- MCP package metadata now reports version 2.4.0.
+
+## [2.3.0] - 2026-06-12
+
+### Added
+
+- Supervised outcome loops through CLI `outcome` and MCP outcome tools, with a
+  verifier command, optional metric command, iteration budget, durable
+  `.mythify/outcomes` state, and explicit success, retry, stop decisions.
+- Problem classification through the CLI (`classify`) and MCP
+  (`classify_task`) so agents can identify task type, risk, ceremony level,
+  verification strategy, and fanout fit before planning.
+- Codex integration guide covering Codex Desktop, Codex MCP registration,
+  local Codex fanout workers, and the local benchmark workflow.
+- Cross-desktop MCP tool-call guide and example configs for Codex Desktop,
+  Claude Desktop, and Cursor Desktop.
+
+## [2.2.0] - 2026-06-12
+
+### Added
+
+- Local subscription-backed fanout engines for `codex-cli` and
+  `cursor-agent`, so users can run parallel workers through existing Codex or
+  Cursor CLI logins without configuring API keys.
+- Configuration for local worker binaries and safety defaults:
+  `MYTHIFY_FANOUT_CODEX_BIN`, `MYTHIFY_FANOUT_CODEX_SANDBOX`,
+  `MYTHIFY_FANOUT_CODEX_ARGS`, `MYTHIFY_FANOUT_CURSOR_BIN`,
+  `MYTHIFY_FANOUT_CURSOR_MODE`, `MYTHIFY_FANOUT_CURSOR_FORCE`, and
+  `MYTHIFY_FANOUT_CURSOR_ARGS`.
+- Local bare-vs-Mythify comparison harness (`scripts/local_model_eval.py`)
+  with an offline unit test and opt-in real local CLI runs for Claude, Codex,
+  Cursor, or a generic command worker.
+- Built-in local benchmark scenarios for the comparison harness, with JSON
+  summary metrics for verified success rate, Mythify evidence rate, and
+  average model duration.
+
+### Changed
+
+- Fanout auto-detection now prefers local subscription CLIs before API
+  engines: `claude-cli`, `codex-cli`, `cursor-agent`, then API or command
+  fallbacks.
+
 ## [2.1.0] - 2026-06-12
 
 ### Added
 
 - Fanout parallel delegation (MCP only): the orchestrating model declares a
   one-shot task list and the server spawns, sequences, and collects parallel
-  sub-workers. Three new MCP tools, `fanout_start`, `fanout_status`, and
-  `fanout_results`, bring the server to 15 tools.
+  sub-workers through `fanout_start`, `fanout_status`, and `fanout_results`.
 - Four worker engines: subscription-billed `claude-cli` workers (no API key
   needed), the `anthropic` and `openai` HTTP APIs, and a generic `command`
   engine that runs any local CLI agent through a shell template.
@@ -69,6 +161,9 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/aihxp/mythify/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/aihxp/mythify/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/aihxp/mythify/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/aihxp/mythify/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/aihxp/mythify/releases/tag/v2.0.0

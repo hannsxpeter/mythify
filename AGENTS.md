@@ -33,6 +33,7 @@ Match protocol overhead to task size. Trivial work pays zero protocol tax.
 | Task size | Protocol usage |
 | :--- | :--- |
 | Trivial: a single edit or a question | No protocol commands. Just do it. |
+| Focused low-risk fix or test task | Fast profile: skip plan state, do the focused work, then `verify run` before any completion claim. |
 | Multi-step, single session | `plan create` with steps, `step` updates as you go, `verify run` for every completion claim. |
 | Long-horizon or multi-session | Full loop: plan, steps, memory, lessons, reflections. `status` at session start, `summary` at session end. |
 
@@ -41,6 +42,19 @@ Match protocol overhead to task size. Trivial work pays zero protocol tax.
 Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met.
 
 1. PLAN. Decompose the goal into steps, each with a success criterion.
+   First classify non-trivial work:
+   `python3 scripts/mythify.py classify "Ship feature X"`
+   Use `--triage auto` only when `model_triage` recommends or requires it.
+   `model_policy` separates host session settings from spawned workers; pass
+   `--session-model MODEL` when known, use `host-model switch MODEL` to persist
+   intended host changes, keep spawned workers `same_or_lower` by default, and
+   keep fanout visibility at `summary` unless the prompt asks otherwise.
+   If `execution_profile` is `fast`, skip plan state, act, then `verify run`.
+   If the user gives an explicit outcome and verifier, start a bounded outcome
+   loop instead of relying on self-report:
+   `python3 scripts/mythify.py outcome start "Ship feature X" --success "tests pass" --verify "python3 -m unittest discover -s tests" --max-iterations 3`
+   Act once, then run `outcome check`. Continue only when it says the outcome is
+   still active and the budget remains.
    `python3 scripts/mythify.py plan create "Ship feature X" --steps '[{"title": "Write parser", "success_criteria": "unit tests pass"}]'`
    Add steps as you discover them:
    `python3 scripts/mythify.py plan add-step "Handle empty input" --criteria "regression test passes"`
@@ -85,6 +99,15 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | :--- | :--- |
 | `init` | Create `./.mythify` for this project. Safe to re-run. |
 | `status` | Orient: active plan, next pending step, state counts. |
+| `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
+| `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`; the host still owns the actual current chat model. |
+| `host-model status [--json]` | Show the recorded host model switch. |
+| `host-model clear [--json]` | Clear the recorded host model switch. |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--max-iterations N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start a supervised outcome loop with verifier, optional metric, and retry budget. |
+| `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric, record the iteration, and return success, retry, or budget exhaustion. |
+| `outcome status [NAME] [--json]` | Show the active or named outcome loop. |
+| `outcome results [NAME] [--json]` | Show all verifier iterations and final outcome state. |
+| `outcome stop [NAME] --reason TEXT [--json]` | Stop an outcome loop and clear the active pointer when it matches. |
 | `plan create GOAL [--steps JSON] [--name NAME]` | Create a plan and set it active. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step to the named or active plan. |
 | `plan list` | List plans with active marker and progress. |
@@ -106,13 +129,21 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 15 tools: `memory_store`, `memory_recall`, `memory_clear`,
+through exactly 22 tools: `classify_task`, `host_model_switch`,
+`outcome_start`, `outcome_check`, `outcome_status`, `outcome_results`,
+`outcome_stop`, `memory_store`, `memory_recall`, `memory_clear`,
 `lesson_record`, `lesson_recall`, `plan_create`, `plan_add_step`,
 `plan_update_step`, `plan_status`, `verify_run`, `verify_claim`, `reflect`,
 plus the parallel delegation tools `fanout_start`, `fanout_status`, and
-`fanout_results`. Same state directory, same file formats, same evidence
-rules: `verify_run` executes and records, `verify_claim` only attests, and
+`fanout_results`. Same state directory, same file formats, same evidence rules:
+`verify_run` and `outcome_check` execute and record; `verify_claim` only attests;
 `plan_update_step` refuses `completed` or `failed` without a `result`.
+Outcome loops are host-supervised and stored in `.mythify/outcomes/`: make a
+bounded attempt, call `outcome_check`, then report success, retry, or stop.
+`host_model_switch` records intended host chat changes but does not mutate the
+host unless it exposes that capability. `classify_task` mirrors CLI triage and
+model policy. Fanout workers accept `engine`, `model`, `effort`, and `speed`;
+stronger workers require `spawn_ceiling: "allow_stronger"` when tier is known.
 
 Delegation discipline for fanout:
 

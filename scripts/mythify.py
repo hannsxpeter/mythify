@@ -14,9 +14,13 @@ MYTHIFY_DIR environment variable (created on demand). Global lessons live in
 import argparse
 import json
 import os
+import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +32,7 @@ EVIDENCE_MESSAGE = (
     "[FAIL] Evidence required: pass a RESULT describing what proves this status."
 )
 STEP_STATUSES = ("pending", "in_progress", "completed", "failed", "skipped")
+OUTCOME_STATUSES = ("active", "succeeded", "failed", "stopped")
 STATUS_ICONS = {
     "pending": "[ ]",
     "in_progress": "[>]",
@@ -39,6 +44,181 @@ MEMORY_CATEGORIES = ("fact", "decision", "discovery", "state")
 REFLECT_OUTCOMES = ("success", "partial", "failure")
 TAIL_CHARS = 4000
 DEFAULT_VERIFY_TIMEOUT = 300.0
+TRIAGE_ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
+TRIAGE_MODES = ("never", "auto", "always")
+PLATFORMS = (
+    "auto",
+    "unknown",
+    "codex-desktop",
+    "codex-cli",
+    "claude-desktop",
+    "claude-code",
+    "cursor-desktop",
+    "cursor-agent",
+)
+EFFORT_LEVELS = ("auto", "low", "medium", "high")
+SPEED_LEVELS = ("auto", "standard", "fast")
+HOST_THINKING_LEVELS = ("auto", "low", "medium", "high", "xhigh", "max")
+SPAWN_CEILINGS = ("auto", "lower_only", "same_or_lower", "allow_stronger")
+FANOUT_VISIBILITY_MODES = ("auto", "quiet", "summary", "verbose", "threaded")
+HOST_MODEL_STATE_FILE = "host-model.json"
+MODEL_TIERS = ("unknown", "small", "fast", "standard", "strong", "frontier")
+MODEL_TIER_RANK = {
+    "unknown": 0,
+    "small": 1,
+    "fast": 2,
+    "standard": 3,
+    "strong": 4,
+    "frontier": 5,
+}
+HOST_PROFILE_RANK = {
+    "fast": MODEL_TIER_RANK["fast"],
+    "standard": MODEL_TIER_RANK["standard"],
+    "strong": MODEL_TIER_RANK["frontier"],
+}
+HOST_MODEL_DEFAULTS = {
+    "codex-desktop": {
+        "fast": "gpt-5.4-mini",
+        "standard": "gpt-5.4",
+        "strong": "gpt-5.5",
+    },
+    "codex-cli": {
+        "fast": "gpt-5.4-mini",
+        "standard": "gpt-5.4",
+        "strong": "gpt-5.5",
+    },
+    "claude-desktop": {
+        "fast": "haiku",
+        "standard": "sonnet",
+        "strong": "opus",
+    },
+    "claude-code": {
+        "fast": "haiku",
+        "standard": "sonnet",
+        "strong": "opus",
+    },
+    "cursor-desktop": {
+        "fast": "gpt-5.3-codex-low-fast",
+        "standard": "gpt-5.3-codex",
+        "strong": "gpt-5.3-codex-high",
+    },
+    "cursor-agent": {
+        "fast": "gpt-5.3-codex-low-fast",
+        "standard": "gpt-5.3-codex",
+        "strong": "gpt-5.3-codex-high",
+    },
+}
+STRONG_HOST_TASK_TYPES = (
+    "research",
+    "benchmark",
+    "design",
+    "security",
+    "release",
+    "migration",
+)
+
+CLASSIFICATION_RULES = (
+    (
+        "security",
+        (
+            "security", "vulnerability", "secret", "credential", "auth",
+            "authentication", "authorization", "login", "permission",
+            "permissions", "sandbox", "exploit", "token",
+        ),
+    ),
+    (
+        "release",
+        ("release", "publish", "version", "tag", "npm", "package", "ship", "deploy"),
+    ),
+    (
+        "migration",
+        ("migrate", "migration", "upgrade", "dependency", "dependencies", "schema", "breaking"),
+    ),
+    (
+        "performance",
+        ("performance", "optimize", "slow", "latency", "throughput", "memory leak", "profile"),
+    ),
+    (
+        "frontend_ui",
+        ("ui", "frontend", "component", "css", "responsive", "browser", "page", "screen", "layout"),
+    ),
+    (
+        "benchmark",
+        ("benchmark", "eval", "measure", "metric", "compare", "pass rate", "success rate"),
+    ),
+    (
+        "research",
+        ("research", "investigate", "find online", "look up", "survey", "source", "latest"),
+    ),
+    (
+        "review",
+        ("review", "audit", "inspect", "critique", "findings", "risk"),
+    ),
+    (
+        "debugging",
+        ("debug", "diagnose", "trace", "reproduce", "root cause"),
+    ),
+    (
+        "bugfix",
+        ("bug", "fix", "failing", "failure", "error", "exception", "broken", "crash", "regression"),
+    ),
+    (
+        "test_generation",
+        ("test", "tests", "coverage", "unit", "integration", "regression test"),
+    ),
+    (
+        "refactor",
+        ("refactor", "cleanup", "clean up", "simplify", "rename", "restructure"),
+    ),
+    (
+        "feature",
+        ("feature", "add", "implement", "support", "build", "create", "new"),
+    ),
+    (
+        "docs",
+        ("docs", "documentation", "readme", "guide", "changelog", "manual"),
+    ),
+    (
+        "design",
+        ("design", "architecture", "plan", "approach", "proposal", "spec"),
+    ),
+)
+
+VERIFICATION_HINTS = {
+    "security": "Run security-focused tests plus the relevant normal suite; inspect permissions and secret handling.",
+    "release": "Run full tests, package/build checks, and version or artifact checks before publishing.",
+    "migration": "Run migration tests, compatibility checks, and rollback or fixture validation.",
+    "performance": "Run targeted benchmarks or profiling before and after the change.",
+    "frontend_ui": "Run build/lint plus browser or screenshot checks for affected views.",
+    "benchmark": "Run the benchmark harness and record JSON output, pass rates, evidence rates, and durations.",
+    "research": "Cite sources and record a verify claim only when no executable check exists.",
+    "review": "Read diffs/files and report findings with file and line references; tests are supporting evidence.",
+    "debugging": "Reproduce the failure first, then run the failing check again after the fix.",
+    "bugfix": "Run the failing or targeted regression test, then the nearest broader suite.",
+    "test_generation": "Run the added tests and confirm they fail before the fix when practical.",
+    "refactor": "Run the existing test suite and any type, lint, or build checks.",
+    "feature": "Run targeted tests for the feature plus the nearest broader suite.",
+    "docs": "Run docs generation, link checks, or a text/build check when available.",
+    "design": "Use verify claim for the design rationale, then create executable checks for implementation steps.",
+    "question": "No executable check is required unless the answer makes a factual or time-sensitive claim.",
+    "trivial": "Use the smallest available check, or no protocol command for a one-line answer.",
+}
+
+TRIAGE_OUTPUT_SHAPE = {
+    "primary_type": "string",
+    "secondary_types": ["string"],
+    "ambiguity": "low|medium|high",
+    "hidden_questions": ["string"],
+    "likely_files_or_surfaces": ["string"],
+    "verification_plan": ["string"],
+    "fanout_plan": ["string"],
+    "risk_notes": ["string"],
+    "recommended_first_step": "string",
+}
+VAGUE_REQUEST_TERMS = (
+    "thing", "things", "stuff", "better", "problem", "issue", "issues",
+    "it", "this", "that", "something", "somehow", "maybe", "unclear",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +338,7 @@ def ensure_layout(state):
     """Create the state directory and its subdirectories."""
     (state / "plans" / "archive").mkdir(parents=True, exist_ok=True)
     (state / "lessons").mkdir(parents=True, exist_ok=True)
+    (state / "outcomes").mkdir(parents=True, exist_ok=True)
 
 
 def discover_state_dir():
@@ -182,6 +363,136 @@ def resolve_state_dir():
 
 def global_lessons_dir():
     return Path.home() / WORKSPACE_DIR_NAME / "lessons"
+
+
+def host_model_path(state):
+    return Path(state) / HOST_MODEL_STATE_FILE
+
+
+def normalize_host_platform(platform):
+    value = (platform or "auto").strip()
+    return value if value in PLATFORMS else "auto"
+
+
+def normalize_host_thinking(thinking):
+    value = (thinking or "auto").strip()
+    return value if value in HOST_THINKING_LEVELS else "auto"
+
+
+def normalize_host_speed(speed):
+    value = (speed or "auto").strip()
+    return value if value in SPEED_LEVELS else "auto"
+
+
+def detect_host_platform(platform):
+    explicit = normalize_host_platform(platform)
+    if explicit != "auto":
+        return explicit
+    if os.environ.get("CODEX_THREAD_ID", "").strip():
+        return "codex-desktop"
+    if os.environ.get("CLAUDECODE", "").strip() or os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").strip():
+        return "claude-code"
+    return "unknown"
+
+
+def read_host_model_state(state=None):
+    resolved = state or resolve_state_dir()
+    if resolved is None:
+        return None
+    record = read_json(host_model_path(resolved), None)
+    if not isinstance(record, dict):
+        return None
+    if not str(record.get("target_model", "")).strip():
+        return None
+    return record
+
+
+def host_switch_actions(platform, target_model, thinking, speed):
+    actions = []
+    if platform == "codex-desktop":
+        actions.append("Use the Codex Desktop model picker for the current chat.")
+        thread_id = os.environ.get("CODEX_THREAD_ID", "").strip()
+        if thread_id:
+            suffix = ', thinking="{0}"'.format(thinking) if thinking != "auto" else ""
+            actions.append(
+                'Codex app agents can continue this thread with model override: '
+                'send_message_to_thread(threadId="{0}", model="{1}"{2}).'.format(
+                    thread_id, target_model, suffix
+                )
+            )
+        else:
+            actions.append(
+                "Codex app agents can use send_message_to_thread with a model override "
+                "when they know the target thread id."
+            )
+    elif platform == "codex-cli":
+        actions.append("Start or resume Codex with --model {0}.".format(target_model))
+        if thinking != "auto":
+            actions.append(
+                "Use the host reasoning effort control for {0} when available.".format(thinking)
+            )
+        if speed != "auto":
+            actions.append(
+                "Use Codex speed {0} for spawned workers; host chat speed remains host-controlled.".format(
+                    speed
+                )
+            )
+    elif platform == "claude-code":
+        actions.append("In interactive Claude Code, run /model {0}.".format(target_model))
+        actions.append("For a new Claude Code session, start with claude --model {0}.".format(target_model))
+    elif platform == "claude-desktop":
+        actions.append("Use the Claude Desktop model picker for the current chat.")
+        actions.append("MCP servers cannot directly mutate Claude Desktop's active chat model.")
+    elif platform == "cursor-desktop":
+        actions.append("Use the Cursor chat model picker for the current chat.")
+        actions.append("For spawned Cursor Agent workers, pass model, effort, and speed through fanout_start.")
+    elif platform == "cursor-agent":
+        actions.append("Start or resume Cursor Agent with --model {0}.".format(target_model))
+        actions.append("For Mythify fanout workers, pass model per task or per job.")
+    else:
+        actions.append("Use the host app's model picker or model command for the current chat.")
+        actions.append("Mythify has recorded the target model for session policy and spawn ceiling checks.")
+    return actions
+
+
+def build_host_model_record(args):
+    target_model = str(getattr(args, "target_model", "") or "").strip()
+    platform = detect_host_platform(getattr(args, "platform", "auto"))
+    thinking = normalize_host_thinking(getattr(args, "thinking", "auto"))
+    speed = normalize_host_speed(getattr(args, "speed", "auto"))
+    return {
+        "platform": platform,
+        "requested_platform": normalize_host_platform(getattr(args, "platform", "auto")),
+        "target_model": target_model,
+        "current_model": str(getattr(args, "current_model", "") or "").strip(),
+        "target_model_tier": classify_model_tier(target_model),
+        "thinking": thinking,
+        "speed": speed,
+        "reason": str(getattr(args, "reason", "") or "").strip(),
+        "status": "recorded_requires_host_action",
+        "control": "host_selected",
+        "can_apply_current_chat": False,
+        "updated": now_iso(),
+        "host_actions": host_switch_actions(platform, target_model, thinking, speed),
+    }
+
+
+def format_host_model_record(record):
+    lines = [
+        "[OK] Host model switch {0}.".format(record.get("status", "recorded")),
+        "platform: {0}".format(record.get("platform", "unknown")),
+        "target model: {0} (tier {1})".format(
+            record.get("target_model", ""), record.get("target_model_tier", "unknown")
+        ),
+        "current model: {0}".format(record.get("current_model") or "unknown"),
+        "thinking: {0}".format(record.get("thinking", "auto")),
+        "speed: {0}".format(record.get("speed", "auto")),
+        "scope: Mythify recorded the requested host model for model_policy and spawn ceiling checks.",
+        "host action required:",
+    ]
+    for action in record.get("host_actions", []):
+        lines.append("- " + action)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +638,1392 @@ def describe_next_pending(plan):
 
 
 # ---------------------------------------------------------------------------
+# Outcome loops
+# ---------------------------------------------------------------------------
+
+def outcomes_dir(state):
+    return state / "outcomes"
+
+
+def active_outcome_path(state):
+    return outcomes_dir(state) / "active"
+
+
+def outcome_dir(state, slug):
+    return outcomes_dir(state) / slug
+
+
+def outcome_goal_path(state, slug):
+    return outcome_dir(state, slug) / "goal.json"
+
+
+def outcome_iterations_path(state, slug):
+    return outcome_dir(state, slug) / "iterations.jsonl"
+
+
+def get_active_outcome_slug(state):
+    path = active_outcome_path(state)
+    if not path.exists():
+        return None
+    value = path.read_text(encoding="utf-8").strip()
+    return value or None
+
+
+def set_active_outcome_slug(state, slug):
+    _write_text_atomic(active_outcome_path(state), slug + "\n")
+
+
+def clear_active_outcome_slug(state, slug=None):
+    path = active_outcome_path(state)
+    if not path.exists():
+        return
+    if slug is not None and get_active_outcome_slug(state) != slug:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def find_outcome_slug(state, name):
+    if name:
+        if outcome_goal_path(state, name).exists():
+            return name
+        candidate = slugify(name)
+        if candidate and outcome_goal_path(state, candidate).exists():
+            return candidate
+        return None
+    return get_active_outcome_slug(state)
+
+
+def load_outcome(state, name=None):
+    slug = find_outcome_slug(state, name)
+    if not slug:
+        return None, None
+    goal = read_json(outcome_goal_path(state, slug), None)
+    if not isinstance(goal, dict):
+        return slug, None
+    return slug, goal
+
+
+def save_outcome(state, slug, goal):
+    write_json_atomic(outcome_goal_path(state, slug), goal)
+
+
+def list_outcomes(state):
+    root = outcomes_dir(state)
+    if not root.exists():
+        return []
+    items = []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir():
+            continue
+        goal = read_json(path / "goal.json", None)
+        if isinstance(goal, dict):
+            items.append((path.name, goal))
+    return items
+
+
+def parse_allowed_paths(value):
+    if not value:
+        return []
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def run_shell_capture(command, timeout):
+    started = datetime.now(timezone.utc)
+    timed_out = False
+    try:
+        completed = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        exit_code = completed.returncode
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        exit_code = -1
+        stdout = _coerce_stream_text(exc.stdout)
+        stderr = _coerce_stream_text(exc.stderr)
+    duration = (datetime.now(timezone.utc) - started).total_seconds()
+    stdout_tail = stdout[-TAIL_CHARS:]
+    stderr_tail = stderr[-TAIL_CHARS:]
+    if timed_out:
+        notice = "(timed out after {0:g} seconds)".format(timeout)
+        stderr_tail = (stderr_tail + "\n" + notice) if stderr_tail else notice
+    return {
+        "command": command,
+        "exit_code": exit_code,
+        "duration_seconds": round(duration, 3),
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "verified": (not timed_out) and exit_code == 0,
+        "timed_out": timed_out,
+    }
+
+
+def parse_metric_score(output):
+    match = re.search(r"-?\d+(?:\.\d+)?", str(output or ""))
+    return float(match.group(0)) if match else None
+
+
+def format_outcome_status(slug, goal, iterations=None):
+    iterations = iterations if iterations is not None else []
+    lines = [
+        "[OK] Outcome {0}: {1}".format(slug, goal.get("goal", "")),
+        "status: {0}".format(goal.get("status", "active")),
+        "success: {0}".format(goal.get("success_criteria", "")),
+        "verify: {0}".format(goal.get("verify_command", "")),
+        "iterations: {0}/{1}".format(
+            goal.get("iteration_count", 0), goal.get("max_iterations", 1)
+        ),
+    ]
+    metric = goal.get("metric_command", "")
+    if metric:
+        lines.append("metric: {0}".format(metric))
+    allowed = goal.get("allowed_paths") or []
+    if allowed:
+        lines.append("allowed paths: {0}".format(", ".join(allowed)))
+    if iterations:
+        last = iterations[-1]
+        lines.append(
+            "last check: iteration {0}, verified={1}, status={2}".format(
+                last.get("iteration"), last.get("verified"), last.get("status_after")
+            )
+        )
+        next_action = last.get("next_action")
+        if next_action:
+            lines.append("next: {0}".format(next_action))
+    else:
+        lines.append("next: do the first bounded attempt, then run outcome check.")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Task classification
+# ---------------------------------------------------------------------------
+
+def _wordish(text):
+    return "".join(ch if ch.isalnum() else " " for ch in str(text).lower())
+
+
+def _contains_any(text, terms):
+    haystack = " {0} ".format(" ".join(_wordish(text).split()))
+    matches = []
+    for term in terms:
+        needle_words = _wordish(term).split()
+        if needle_words and " {0} ".format(" ".join(needle_words)) in haystack:
+            matches.append(term)
+    return matches
+
+
+def classify_ambiguity(text, words, signals, scores, task_type):
+    if task_type in ("question", "trivial"):
+        return "low"
+    if _contains_any(text, VAGUE_REQUEST_TERMS) or (not signals and len(words) <= 18):
+        return "high"
+    if len(scores) > 1 or len(words) > 22:
+        return "medium"
+    return "low"
+
+
+def model_triage_gate(task_type, risk, ceremony, ambiguity, text):
+    if ceremony == "none":
+        return (
+            "skip",
+            "The deterministic classifier is enough for a simple question or one-step task.",
+        )
+    high_impact_terms = (
+        "production", "payment", "credential", "secret", "data loss",
+        "delete", "remove", "drop", "deploy",
+    )
+    if risk == "high" and ambiguity == "high" and _contains_any(text, high_impact_terms):
+        return (
+            "required",
+            "High-impact ambiguous work deserves a cheap second read before planning.",
+        )
+    if ambiguity == "high":
+        return (
+            "recommended",
+            "The request is underspecified enough that a fast framing pass can reduce rework.",
+        )
+    if task_type in (
+        "research", "review", "benchmark", "design", "debugging",
+        "security", "migration", "release", "performance",
+    ):
+        return (
+            "recommended",
+            "This problem type benefits from an independent framing pass before execution.",
+        )
+    if task_type in ("feature", "refactor", "frontend_ui", "bugfix", "test_generation") or risk == "medium":
+        return (
+            "optional",
+            "A fast triage pass may help, but the main worker can proceed without it.",
+        )
+    return (
+        "skip",
+        "The deterministic classification gives enough routing signal for this task.",
+    )
+
+
+def infer_fanout_visibility(text):
+    normalized = " ".join(str(text or "").lower().split())
+    quiet_terms = (
+        "quiet",
+        "quietly",
+        "silent",
+        "silently",
+        "background only",
+        "do not show worker",
+        "don't show worker",
+        "do not show subagent",
+        "don't show subagent",
+        "no worker details",
+        "minimal progress",
+    )
+    threaded_terms = (
+        "threaded",
+        "visible thread",
+        "visible threads",
+        "separate thread",
+        "separate threads",
+        "separate chat",
+        "separate chats",
+        "show subagent chats",
+        "show sub-agent chats",
+        "visible subagent",
+        "visible sub-agent",
+    )
+    verbose_terms = (
+        "verbose",
+        "show details",
+        "show full",
+        "show logs",
+        "show worker output",
+        "show subagent output",
+        "show sub-agent output",
+        "detailed progress",
+        "full worker output",
+    )
+    if _contains_any(normalized, quiet_terms):
+        return (
+            "quiet",
+            "prompt",
+            "The prompt asks to keep background worker activity quiet.",
+        )
+    if _contains_any(normalized, threaded_terms):
+        return (
+            "threaded",
+            "prompt",
+            "The prompt asks for visible worker threads or separate chats when the host supports them.",
+        )
+    if _contains_any(normalized, verbose_terms):
+        return (
+            "verbose",
+            "prompt",
+            "The prompt asks to see detailed worker output or progress.",
+        )
+    return (
+        "summary",
+        "default",
+        "Summary visibility is the default: show worker titles, status, and notable results without flooding the chat.",
+    )
+
+
+def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
+    if ceremony == "none":
+        return (
+            "direct",
+            "No protocol state is needed for a simple answer or one reversible edit.",
+        )
+    if ceremony == "full" or risk == "high":
+        return (
+            "full",
+            "High-risk or heavy work needs the full plan, verify, reflect, and state loop.",
+        )
+    if ambiguity == "high":
+        return (
+            "standard",
+            "Ambiguous work needs a plan or fast triage before execution.",
+        )
+    focused_terms = (
+        "small", "single", "one file", "focused", "unit", "unittest",
+        "test", "tests", "bug", "fix", "failing", "regression",
+    )
+    if task_type in ("bugfix", "test_generation") or (
+        task_type in ("docs", "refactor") and _contains_any(text, focused_terms)
+    ):
+        return (
+            "fast",
+            "Focused low-risk work can skip plan state but must still use verify run.",
+        )
+    if ceremony == "light":
+        return (
+            "fast",
+            "Light work can use the fast profile unless it expands into multiple steps.",
+        )
+    return (
+        "standard",
+        "Use a plan with verifiable steps and verify run before completion.",
+    )
+
+
+def classify_task_text(task_text):
+    text = " ".join(str(task_text or "").lower().split())
+    words = [word for word in text.replace("/", " ").replace("_", " ").split() if word]
+    signals = []
+    scores = {}
+    for task_type, terms in CLASSIFICATION_RULES:
+        matches = _contains_any(text, terms)
+        if matches:
+            scores[task_type] = len(matches)
+            signals.extend(matches)
+    if scores:
+        task_type = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
+    elif text.endswith("?") or any(text.startswith(prefix) for prefix in ("what ", "why ", "how ", "can ", "should ")):
+        task_type = "question"
+    elif _contains_any(text, VAGUE_REQUEST_TERMS):
+        task_type = "feature"
+    elif len(words) <= 12:
+        task_type = "trivial"
+    else:
+        task_type = "feature"
+
+    high_risk_terms = (
+        "delete", "remove", "drop", "destructive", "production", "payment",
+        "security", "secret", "credential", "auth", "authentication",
+        "authorization", "login", "release", "deploy", "migration", "schema",
+        "data loss", "permission", "permissions",
+    )
+    medium_risk_terms = (
+        "refactor", "dependency", "upgrade", "performance", "benchmark",
+        "multiple", "multi", "large", "cross", "api",
+    )
+    if _contains_any(text, high_risk_terms) or task_type in ("security", "release", "migration"):
+        risk = "high"
+    elif _contains_any(text, medium_risk_terms) or task_type in (
+        "feature", "refactor", "benchmark", "performance", "frontend_ui",
+    ):
+        risk = "medium"
+    else:
+        risk = "low"
+
+    ambiguity = classify_ambiguity(text, words, signals, scores, task_type)
+
+    if task_type in ("trivial", "question") and risk == "low":
+        ceremony = "none"
+    elif risk == "low" and task_type in ("docs", "review", "research", "design"):
+        ceremony = "light"
+    elif risk == "high" or task_type in ("benchmark", "migration", "release", "security"):
+        ceremony = "full"
+    else:
+        ceremony = "standard"
+
+    if task_type in ("research", "review", "benchmark", "design") or "parallel" in text:
+        fanout = "recommended"
+        fanout_reason = "Independent analysis or comparison work can be split across workers."
+    elif task_type in ("feature", "refactor", "frontend_ui") or "multiple files" in text:
+        fanout = "optional"
+        fanout_reason = "Use fanout only for independent subtasks; keep dependent implementation sequential."
+    else:
+        fanout = "not_recommended"
+        fanout_reason = "A single focused worker is simpler for this task type."
+
+    verification = VERIFICATION_HINTS.get(task_type, VERIFICATION_HINTS["feature"])
+    execution_profile, execution_profile_reason = execution_profile_for(
+        task_type, risk, ceremony, ambiguity, text
+    )
+    if execution_profile == "direct":
+        next_action = "Answer directly or make the single reversible edit; no plan is required."
+    elif execution_profile == "fast":
+        next_action = "Use the fast profile: skip plan state, make the focused change, and run verify run before completion."
+    elif execution_profile == "standard":
+        next_action = "Create a plan with verifiable steps, act step by step, and use verify run before completion."
+    else:
+        next_action = "Use the full loop: plan, memory, step updates, verify run, reflect on failures, and summarize."
+
+    model_triage, model_triage_reason = model_triage_gate(
+        task_type, risk, ceremony, ambiguity, text
+    )
+    fanout_visibility, fanout_visibility_source, fanout_visibility_reason = (
+        infer_fanout_visibility(text)
+    )
+
+    return {
+        "task_type": task_type,
+        "risk": risk,
+        "ambiguity": ambiguity,
+        "ceremony": ceremony,
+        "execution_profile": execution_profile,
+        "execution_profile_reason": execution_profile_reason,
+        "verification": verification,
+        "fanout": fanout,
+        "fanout_reason": fanout_reason,
+        "fanout_visibility": fanout_visibility,
+        "fanout_visibility_source": fanout_visibility_source,
+        "fanout_visibility_reason": fanout_visibility_reason,
+        "model_triage": model_triage,
+        "model_triage_reason": model_triage_reason,
+        "signals": sorted(set(signals))[:10],
+        "next_action": next_action,
+    }
+
+
+def should_run_model_triage(result, mode):
+    if mode == "never":
+        return False
+    if mode == "always":
+        return True
+    return result.get("model_triage") in ("recommended", "required")
+
+
+def build_triage_prompt(task_text, classification):
+    return "\n".join(
+        [
+            "You are a fast triage model helping Mythify frame a task before the main agent plans.",
+            "Do not edit files, run commands, or ask questions.",
+            "Return only valid JSON with this exact shape:",
+            json.dumps(TRIAGE_OUTPUT_SHAPE, indent=2),
+            "",
+            "User task:",
+            str(task_text),
+            "",
+            "Deterministic classification:",
+            json.dumps(classification, indent=2, sort_keys=True),
+            "",
+            "Focus on the problem shape, likely hidden requirements, verification, risk, and whether independent fanout would help.",
+        ]
+    )
+
+
+def format_classification(result):
+    lines = [
+        "[OK] Task classification",
+        "type: {0}".format(result["task_type"]),
+        "risk: {0}".format(result["risk"]),
+        "ambiguity: {0}".format(result["ambiguity"]),
+        "ceremony: {0}".format(result["ceremony"]),
+        "execution profile: {0} ({1})".format(
+            result["execution_profile"], result["execution_profile_reason"]
+        ),
+        "verification: {0}".format(result["verification"]),
+        "fanout: {0} ({1})".format(result["fanout"], result["fanout_reason"]),
+        "fanout visibility: {0} ({1})".format(
+            result.get("fanout_visibility", "summary"),
+            result.get("fanout_visibility_reason", "Summary visibility is the default."),
+        ),
+        "model triage: {0} ({1})".format(
+            result["model_triage"], result["model_triage_reason"]
+        ),
+        "next: {0}".format(result["next_action"]),
+    ]
+    if result["signals"]:
+        lines.append("signals: {0}".format(", ".join(result["signals"])))
+    policy = result.get("model_policy")
+    if policy:
+        recommendation = policy.get("session", {}).get("recommendation", {})
+        lines.append(
+            "model policy: session={0}/{1}; ceiling={2}; triage={3}/{4}/{5}/{6}; fanout={7}/{8}/{9}/{10}; verifier={11}".format(
+                policy.get("session", {}).get("control", "host_selected"),
+                policy.get("session", {}).get("model_tier", "unknown"),
+                policy.get("spawn_ceiling", {}).get("policy", "same_or_lower"),
+                policy.get("triage", {}).get("engine", "auto"),
+                policy.get("triage", {}).get("model_policy", "engine_default"),
+                policy.get("triage", {}).get("effort", "low"),
+                policy.get("triage", {}).get("speed", "auto"),
+                policy.get("fanout_worker", {}).get("engine_policy", "local_first"),
+                policy.get("fanout_worker", {}).get("effort", "medium"),
+                policy.get("fanout_worker", {}).get("speed", "auto"),
+                policy.get("fanout_worker", {}).get("visibility", "summary"),
+                policy.get("verifier", {}).get("engine", "local_command"),
+            )
+        )
+        lines.append(
+            "host recommendation: {0} to {1}/{2} thinking={3} speed={4}".format(
+                recommendation.get("action", "recommend_set"),
+                recommendation.get("target_profile", "standard"),
+                recommendation.get("target_model", ""),
+                recommendation.get("thinking", "medium"),
+                recommendation.get("speed", "auto"),
+            )
+        )
+    run = result.get("model_triage_run")
+    if run:
+        if not run.get("attempted"):
+            lines.append("fast triage run: skipped ({0})".format(run.get("reason", "")))
+        elif run.get("ok"):
+            lines.append(
+                "fast triage run: [OK] {0} model={1} duration={2}s".format(
+                    run.get("engine", ""),
+                    run.get("model", ""),
+                    run.get("duration_seconds", 0),
+                )
+            )
+            if run.get("parsed") is not None:
+                lines.append("fast triage json: {0}".format(json.dumps(run["parsed"], sort_keys=True)))
+            elif run.get("output_tail"):
+                lines.append("fast triage output: {0}".format(run["output_tail"]))
+        else:
+            lines.append(
+                "fast triage run: [FAIL] {0}".format(
+                    run.get("error") or "triage worker failed"
+                )
+            )
+    return "\n".join(lines)
+
+
+def tail_text(text, limit=TAIL_CHARS):
+    return str(text or "")[-limit:]
+
+
+def triage_default_model(engine):
+    if engine == "claude-cli":
+        return "haiku"
+    return ""
+
+
+def resolve_triage_binary(names, env_names):
+    for env_name in env_names:
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            path = Path(value)
+            if path.is_file() and os.access(str(path), os.X_OK):
+                return str(path)
+            return None
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    home = Path.home()
+    fallbacks = []
+    if "claude" in names:
+        fallbacks.extend([
+            home / ".claude" / "local" / "claude",
+            Path("/opt/homebrew/bin/claude"),
+            Path("/usr/local/bin/claude"),
+        ])
+    if "codex" in names:
+        fallbacks.extend([
+            home / ".local" / "bin" / "codex",
+            Path("/opt/homebrew/bin/codex"),
+            Path("/usr/local/bin/codex"),
+        ])
+    if "cursor-agent" in names:
+        fallbacks.extend([
+            home / ".local" / "bin" / "cursor-agent",
+            Path("/opt/homebrew/bin/cursor-agent"),
+            Path("/usr/local/bin/cursor-agent"),
+        ])
+    if "cursor" in names:
+        fallbacks.extend([
+            home / ".local" / "bin" / "cursor",
+            Path("/opt/homebrew/bin/cursor"),
+            Path("/usr/local/bin/cursor"),
+        ])
+    for candidate in fallbacks:
+        if candidate.is_file() and os.access(str(candidate), os.X_OK):
+            return str(candidate)
+    return None
+
+
+def command_triage_template():
+    return (
+        os.environ.get("MYTHIFY_TRIAGE_COMMAND", "").strip()
+        or os.environ.get("MYTHIFY_FANOUT_COMMAND", "").strip()
+    )
+
+
+def auto_detect_triage_engine():
+    explicit = os.environ.get("MYTHIFY_TRIAGE_ENGINE", "").strip()
+    if explicit:
+        return explicit
+    if resolve_triage_binary(["claude"], ["MYTHIFY_TRIAGE_CLAUDE_BIN", "MYTHIFY_FANOUT_CLAUDE_BIN"]):
+        return "claude-cli"
+    if resolve_triage_binary(["codex"], ["MYTHIFY_TRIAGE_CODEX_BIN", "MYTHIFY_FANOUT_CODEX_BIN"]):
+        return "codex-cli"
+    if resolve_triage_binary(
+        ["cursor-agent", "cursor"],
+        [
+            "MYTHIFY_TRIAGE_CURSOR_BIN",
+            "MYTHIFY_FANOUT_CURSOR_BIN",
+            "MYTHIFY_FANOUT_CURSOR_AGENT_BIN",
+        ],
+    ):
+        return "cursor-agent"
+    if command_triage_template():
+        return "command"
+    return ""
+
+
+def infer_platform():
+    origin = os.environ.get("CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "").lower()
+    if "codex" in origin or os.environ.get("CODEX_SHELL"):
+        return "codex-desktop"
+    if os.environ.get("CLAUDECODE") or any(
+        key.startswith("CLAUDE_CODE_") for key in os.environ
+    ):
+        return "claude-code"
+    if (
+        os.environ.get("CURSOR_AGENT")
+        or os.environ.get("CURSOR_TRACE_ID")
+        or os.environ.get("CURSOR_SESSION_ID")
+    ):
+        return "cursor-desktop"
+    return "unknown"
+
+
+def normalize_platform(platform):
+    value = (platform or "auto").strip()
+    if value == "auto":
+        return infer_platform()
+    return value if value in PLATFORMS else "unknown"
+
+
+def preferred_local_engine(platform):
+    if platform in ("codex-desktop", "codex-cli"):
+        return "codex-cli"
+    if platform in ("claude-desktop", "claude-code"):
+        return "claude-cli"
+    if platform in ("cursor-desktop", "cursor-agent"):
+        return "cursor-agent"
+    return ""
+
+
+def triage_engine_available(engine):
+    if engine == "claude-cli":
+        return bool(resolve_triage_binary(
+            ["claude"],
+            ["MYTHIFY_TRIAGE_CLAUDE_BIN", "MYTHIFY_FANOUT_CLAUDE_BIN"],
+        ))
+    if engine == "codex-cli":
+        return bool(resolve_triage_binary(
+            ["codex"],
+            ["MYTHIFY_TRIAGE_CODEX_BIN", "MYTHIFY_FANOUT_CODEX_BIN"],
+        ))
+    if engine == "cursor-agent":
+        return bool(resolve_triage_binary(
+            ["cursor-agent", "cursor"],
+            [
+                "MYTHIFY_TRIAGE_CURSOR_BIN",
+                "MYTHIFY_FANOUT_CURSOR_BIN",
+                "MYTHIFY_FANOUT_CURSOR_AGENT_BIN",
+            ],
+        ))
+    if engine == "command":
+        return bool(command_triage_template())
+    return False
+
+
+def select_triage_engine(requested_engine, platform):
+    explicit = (requested_engine or "").strip()
+    if explicit:
+        return explicit, "explicit"
+    env_engine = os.environ.get("MYTHIFY_TRIAGE_ENGINE", "").strip()
+    if env_engine:
+        return env_engine, "env"
+    preferred = preferred_local_engine(platform)
+    if preferred and triage_engine_available(preferred):
+        return preferred, "platform_preferred"
+    detected = auto_detect_triage_engine()
+    if detected:
+        return detected, "auto_detected"
+    return "", "unavailable"
+
+
+def resolve_triage_model_selection(engine, requested_model):
+    explicit = (requested_model or "").strip()
+    if explicit:
+        return explicit, "explicit"
+    env_model = os.environ.get("MYTHIFY_TRIAGE_MODEL", "").strip()
+    if env_model:
+        return env_model, "env"
+    default_model = triage_default_model(engine)
+    if default_model:
+        return default_model, "engine_default"
+    if engine in ("codex-cli", "cursor-agent"):
+        return "", "platform_default"
+    if engine == "command":
+        return "", "command_default"
+    return "", "auto_after_engine_detection"
+
+
+def classify_model_tier(model):
+    value = str(model or "").lower()
+    compact = value.replace("_", "-").replace(" ", "-")
+    if not compact:
+        return "unknown"
+    frontier_terms = (
+        "gpt-5",
+        "o3",
+        "o4",
+        "opus",
+        "max",
+        "deep-research",
+        "reasoning-pro",
+    )
+    strong_terms = (
+        "sonnet",
+        "gpt-4",
+        "gpt4",
+        "gemini-2.5-pro",
+        "pro",
+        "large",
+        "grok-4",
+    )
+    fast_terms = (
+        "haiku",
+        "mini",
+        "nano",
+        "small",
+        "lite",
+        "flash",
+        "fast",
+        "instant",
+    )
+    if any(term in compact for term in fast_terms):
+        return "fast"
+    if any(term in compact for term in frontier_terms):
+        return "frontier"
+    if any(term in compact for term in strong_terms):
+        return "strong"
+    if "3.5" in compact or "cheap" in compact:
+        return "small"
+    return "standard"
+
+
+def resolve_session_model(session_model):
+    explicit = (session_model or "").strip()
+    if explicit:
+        return explicit, "explicit"
+    env_model = os.environ.get("MYTHIFY_SESSION_MODEL", "").strip()
+    if env_model:
+        return env_model, "env"
+    host_model = read_host_model_state()
+    if host_model:
+        return host_model["target_model"].strip(), "host_model_switch"
+    return "", "unknown"
+
+
+def resolve_spawn_ceiling(spawn_ceiling):
+    explicit = (spawn_ceiling or "auto").strip()
+    if explicit and explicit != "auto":
+        return explicit, "explicit"
+    env_ceiling = os.environ.get("MYTHIFY_SPAWN_CEILING", "").strip()
+    if env_ceiling in SPAWN_CEILINGS and env_ceiling != "auto":
+        return env_ceiling, "env"
+    return "same_or_lower", "default"
+
+
+def role_model_relation(role, session_tier, ceiling):
+    if role == "verifier":
+        return "none"
+    if role == "triage":
+        return "lower_preferred"
+    if ceiling == "allow_stronger":
+        return "may_exceed_session"
+    if role == "reviewer":
+        return "same_or_lower"
+    if ceiling == "lower_only":
+        return "lower_only"
+    if session_tier == "unknown":
+        return "same_or_lower_when_session_known"
+    return "same_or_lower"
+
+
+def effort_for_role(role, classification, requested_effort):
+    requested = (requested_effort or "auto").strip()
+    if requested != "auto":
+        return requested, "explicit"
+    risk = classification.get("risk", "low")
+    ceremony = classification.get("ceremony", "none")
+    if role == "triage":
+        return "low", "role_default"
+    if role == "fanout_worker":
+        if risk == "high" or ceremony == "full":
+            return "high", "risk_default"
+        if ceremony == "standard":
+            return "medium", "role_default"
+        return "low", "role_default"
+    if role == "reviewer":
+        if risk == "high" or ceremony == "full":
+            return "high", "risk_default"
+        if risk == "medium" or ceremony == "standard":
+            return "medium", "role_default"
+        return "low", "role_default"
+    return "none", "command_first"
+
+
+def speed_for_role(role, requested_speed):
+    requested = (requested_speed or "auto").strip()
+    if requested != "auto":
+        return requested, "explicit"
+    if role == "verifier":
+        return "none", "command_first"
+    return "auto", "host_default"
+
+
+def reviewer_spawn_policy(classification):
+    if classification.get("risk") == "high" or classification.get("ceremony") == "full":
+        return "recommended"
+    if classification.get("risk") == "medium" or classification.get("ceremony") == "standard":
+        return "optional"
+    return "skip"
+
+
+def host_recommendation_profile(classification):
+    task_type = classification.get("task_type", "feature")
+    risk = classification.get("risk", "low")
+    ambiguity = classification.get("ambiguity", "low")
+    ceremony = classification.get("ceremony", "none")
+    execution_profile = classification.get("execution_profile", "standard")
+    if (
+        task_type in ("trivial", "question")
+        and risk == "low"
+        and execution_profile == "direct"
+    ):
+        return {
+            "target_profile": "fast",
+            "thinking": "low",
+            "speed": "fast",
+            "reason": "Direct low-risk prompts should use the cheapest responsive host settings.",
+        }
+    if (
+        task_type in STRONG_HOST_TASK_TYPES
+        or risk == "high"
+        or ceremony == "full"
+    ):
+        return {
+            "target_profile": "strong",
+            "thinking": "high",
+            "speed": "standard",
+            "reason": "Research, benchmark, release, security, migration, and design work benefit from stronger reasoning.",
+        }
+    if execution_profile == "fast" or ceremony == "light":
+        return {
+            "target_profile": "fast",
+            "thinking": "low",
+            "speed": "fast",
+            "reason": "Focused low-risk work is a good fit for fast host settings.",
+        }
+    if ambiguity == "high":
+        return {
+            "target_profile": "standard",
+            "thinking": "medium",
+            "speed": "auto",
+            "reason": "Ambiguous work needs enough reasoning to frame the problem, but more model size will not replace missing context.",
+        }
+    return {
+        "target_profile": "standard",
+        "thinking": "medium",
+        "speed": "auto",
+        "reason": "Normal implementation, debugging, review, and docs work should use balanced host settings.",
+    }
+
+
+def host_recommendation_model(platform, target_profile):
+    env_name = "MYTHIFY_HOST_{0}_MODEL".format(target_profile.upper())
+    env_model = os.environ.get(env_name, "").strip()
+    if env_model:
+        return env_model, "env:" + env_name
+    defaults = HOST_MODEL_DEFAULTS.get(platform, {})
+    default_model = defaults.get(target_profile, "")
+    if default_model:
+        return default_model, "platform_default"
+    return "", "none"
+
+
+def host_recommendation_action(session_model, session_tier, target_profile):
+    if not session_model:
+        return "recommend_set"
+    session_rank = MODEL_TIER_RANK.get(session_tier, 0)
+    target_rank = HOST_PROFILE_RANK.get(target_profile, MODEL_TIER_RANK["standard"])
+    if session_rank == 0:
+        return "recommend_set"
+    if target_rank < session_rank:
+        return "downgrade"
+    if target_rank > session_rank:
+        return "upgrade"
+    return "keep"
+
+
+def host_prompt_recommendation(classification, platform, session_model, session_tier):
+    profile = host_recommendation_profile(classification)
+    target_profile = profile["target_profile"]
+    target_model, target_model_source = host_recommendation_model(
+        platform, target_profile
+    )
+    return {
+        "policy": "task_classification",
+        "action": host_recommendation_action(
+            session_model, session_tier, target_profile
+        ),
+        "target_profile": target_profile,
+        "target_model": target_model,
+        "target_model_source": target_model_source,
+        "target_model_tier": classify_model_tier(target_model),
+        "thinking": profile["thinking"],
+        "speed": profile["speed"],
+        "reason": profile["reason"],
+    }
+
+
+def build_model_policy(classification, args):
+    platform = normalize_platform(getattr(args, "platform", "auto"))
+    requested_effort = getattr(args, "effort", "auto")
+    requested_speed = getattr(args, "speed", "auto")
+    session_model, session_model_source = resolve_session_model(
+        getattr(args, "session_model", "")
+    )
+    session_tier = classify_model_tier(session_model)
+    spawn_ceiling, spawn_ceiling_source = resolve_spawn_ceiling(
+        getattr(args, "spawn_ceiling", "auto")
+    )
+    triage_engine, triage_engine_source = select_triage_engine(
+        getattr(args, "triage_engine", ""), platform
+    )
+    triage_model, triage_model_source = resolve_triage_model_selection(
+        triage_engine, getattr(args, "triage_model", "")
+    )
+    triage_effort, triage_effort_source = effort_for_role(
+        "triage", classification, requested_effort
+    )
+    fanout_effort, fanout_effort_source = effort_for_role(
+        "fanout_worker", classification, requested_effort
+    )
+    reviewer_effort, reviewer_effort_source = effort_for_role(
+        "reviewer", classification, requested_effort
+    )
+    triage_speed, triage_speed_source = speed_for_role("triage", requested_speed)
+    fanout_speed, fanout_speed_source = speed_for_role(
+        "fanout_worker", requested_speed
+    )
+    reviewer_speed, reviewer_speed_source = speed_for_role(
+        "reviewer", requested_speed
+    )
+    session_effort_policy = (
+        "host_default" if requested_effort == "auto" else "requested_" + requested_effort
+    )
+    session_speed_policy = (
+        "host_default" if requested_speed == "auto" else "requested_" + requested_speed
+    )
+    host_recommendation = host_prompt_recommendation(
+        classification, platform, session_model, session_tier
+    )
+    return {
+        "session": {
+            "role": "current_conversation",
+            "control": "host_selected",
+            "platform": platform,
+            "model": session_model,
+            "model_source": session_model_source,
+            "model_tier": session_tier,
+            "model_policy": "host_default",
+            "effort_policy": session_effort_policy,
+            "speed_policy": session_speed_policy,
+            "spawn_ceiling": spawn_ceiling,
+            "spawn_ceiling_source": spawn_ceiling_source,
+            "recommendation": host_recommendation,
+            "reason": (
+                "The active chat model belongs to the desktop or CLI host. "
+                "Mythify records the policy and controls only spawned workers."
+            ),
+        },
+        "spawn_ceiling": {
+            "policy": spawn_ceiling,
+            "source": spawn_ceiling_source,
+            "session_model": session_model,
+            "session_model_source": session_model_source,
+            "session_model_tier": session_tier,
+            "default": "same_or_lower",
+            "stronger_requires": "spawn_ceiling_allow_stronger",
+        },
+        "triage": {
+            "role": "problem_framing",
+            "spawn": classification.get("model_triage", "skip"),
+            "engine": triage_engine or "auto",
+            "engine_policy": triage_engine_source,
+            "model": triage_model,
+            "model_tier": classify_model_tier(triage_model),
+            "model_relation_to_session": role_model_relation(
+                "triage", session_tier, spawn_ceiling
+            ),
+            "model_policy": triage_model_source,
+            "effort": triage_effort,
+            "effort_policy": triage_effort_source,
+            "speed": triage_speed,
+            "speed_policy": triage_speed_source,
+            "timeout_seconds": getattr(args, "triage_timeout", 120.0),
+            "max_turns": 1,
+            "sandbox": "read-only",
+            "reason": "Use a cheap local CLI or command pass to frame the problem before planning.",
+        },
+        "fanout_worker": {
+            "role": "independent_subtask",
+            "spawn": classification.get("fanout", "not_recommended"),
+            "engine": "auto",
+            "engine_policy": "local_first",
+            "model_policy": "per_task_over_job_over_env_over_engine_default",
+            "model_relation_to_session": role_model_relation(
+                "fanout_worker", session_tier, spawn_ceiling
+            ),
+            "effort": fanout_effort,
+            "effort_policy": fanout_effort_source,
+            "speed": fanout_speed,
+            "speed_policy": fanout_speed_source,
+            "visibility": classification.get("fanout_visibility", "summary"),
+            "visibility_policy": classification.get(
+                "fanout_visibility_source", "default"
+            ),
+            "visibility_modes": list(FANOUT_VISIBILITY_MODES),
+            "visibility_reason": classification.get(
+                "fanout_visibility_reason",
+                "Summary visibility is the default.",
+            ),
+            "timeout_seconds": 600,
+            "reason": (
+                "Spawn only independent tasks. The fanout_start tool can set "
+                "engine, model, effort, speed, and visibility per job."
+            ),
+        },
+        "reviewer": {
+            "role": "independent_review",
+            "spawn": reviewer_spawn_policy(classification),
+            "engine": "auto",
+            "engine_policy": "local_first",
+            "model_policy": "prefer_stronger_than_worker_when_available",
+            "model_relation_to_session": role_model_relation(
+                "reviewer", session_tier, spawn_ceiling
+            ),
+            "effort": reviewer_effort,
+            "effort_policy": reviewer_effort_source,
+            "speed": reviewer_speed,
+            "speed_policy": reviewer_speed_source,
+            "reason": "Use a separate review pass for high-risk or broad changes.",
+        },
+        "verifier": {
+            "role": "evidence",
+            "spawn": "not_model_based",
+            "engine": "local_command",
+            "model_policy": "none_when_executable_check_exists",
+            "model_relation_to_session": role_model_relation(
+                "verifier", session_tier, spawn_ceiling
+            ),
+            "effort": "none",
+            "effort_policy": "command_first",
+            "speed": "none",
+            "speed_policy": "command_first",
+            "reason": "Executable verify_run evidence beats model judgment.",
+        },
+    }
+
+
+def triage_shell_env(model, speed="auto"):
+    env = dict(os.environ)
+    env["TERM"] = "dumb"
+    env["MYTHIFY_FANOUT_DEPTH"] = "1"
+    env["MYTHIFY_DISABLE_FANOUT"] = "1"
+    env["MYTHIFY_TRIAGE_MODEL"] = model or ""
+    env["MYTHIFY_TRIAGE_SPEED"] = speed or "auto"
+    return env
+
+
+def run_triage_process(args, cwd, prompt, timeout, env, shell=False):
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            args,
+            cwd=str(cwd),
+            input=prompt,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=shell,
+        )
+        return {
+            "exit_code": result.returncode,
+            "duration_seconds": round(time.monotonic() - started, 3),
+            "stdout_tail": tail_text(result.stdout),
+            "stderr_tail": tail_text(result.stderr),
+            "timed_out": False,
+        }
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        return {
+            "exit_code": -1,
+            "duration_seconds": round(time.monotonic() - started, 3),
+            "stdout_tail": tail_text(stdout),
+            "stderr_tail": tail_text(stderr + "\n[FAIL] timed out"),
+            "timed_out": True,
+        }
+
+
+def parse_model_triage_json(text):
+    raw = str(text or "").strip()
+    candidates = [raw]
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(raw[start:end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def run_claude_triage(prompt, model, timeout, cwd, speed="auto"):
+    binary = resolve_triage_binary(["claude"], ["MYTHIFY_TRIAGE_CLAUDE_BIN", "MYTHIFY_FANOUT_CLAUDE_BIN"])
+    if not binary:
+        return {
+            "exit_code": 127,
+            "duration_seconds": 0,
+            "stdout_tail": "",
+            "stderr_tail": "claude binary not found",
+            "timed_out": False,
+        }
+    args = [
+        binary,
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        model or "haiku",
+        "--max-turns",
+        os.environ.get("MYTHIFY_TRIAGE_MAX_TURNS", "1"),
+    ]
+    args.extend(shlex.split(os.environ.get("MYTHIFY_TRIAGE_CLAUDE_ARGS", "")))
+    result = run_triage_process(args, cwd, prompt, timeout, triage_shell_env(model, speed))
+    try:
+        parsed = json.loads(result["stdout_tail"])
+        if isinstance(parsed, dict) and isinstance(parsed.get("result"), str):
+            result["output_tail"] = tail_text(parsed["result"])
+        else:
+            result["output_tail"] = result["stdout_tail"]
+    except ValueError:
+        result["output_tail"] = result["stdout_tail"]
+    return result
+
+
+def codex_speed_args(speed):
+    if speed == "fast":
+        return ["-c", 'service_tier="fast"', "-c", "features.fast_mode=true"]
+    if speed == "standard":
+        return ["-c", "features.fast_mode=false"]
+    return []
+
+
+def run_codex_triage(prompt, model, timeout, cwd, speed="auto"):
+    binary = resolve_triage_binary(["codex"], ["MYTHIFY_TRIAGE_CODEX_BIN", "MYTHIFY_FANOUT_CODEX_BIN"])
+    if not binary:
+        return {
+            "exit_code": 127,
+            "duration_seconds": 0,
+            "stdout_tail": "",
+            "stderr_tail": "codex binary not found",
+            "timed_out": False,
+        }
+    with tempfile.NamedTemporaryFile(prefix="mythify-codex-triage-", suffix=".md", delete=False) as handle:
+        output_path = Path(handle.name)
+    args = [
+        binary,
+        "--ask-for-approval",
+        "never",
+        "exec",
+        "--cd",
+        str(cwd),
+        "--sandbox",
+        os.environ.get("MYTHIFY_TRIAGE_CODEX_SANDBOX", "read-only"),
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "--color",
+        "never",
+        "--output-last-message",
+        str(output_path),
+    ]
+    if model:
+        args.extend(["--model", model])
+    args.extend(codex_speed_args(speed))
+    args.extend(shlex.split(os.environ.get("MYTHIFY_TRIAGE_CODEX_ARGS", "")))
+    args.append("-")
+    result = run_triage_process(args, cwd, prompt, timeout, triage_shell_env(model, speed))
+    try:
+        if output_path.exists():
+            result["output_tail"] = tail_text(output_path.read_text(encoding="utf-8"))
+        else:
+            result["output_tail"] = result["stdout_tail"]
+    finally:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+    return result
+
+
+def run_cursor_triage(prompt, model, timeout, cwd, speed="auto"):
+    binary = resolve_triage_binary(
+        ["cursor-agent", "cursor"],
+        [
+            "MYTHIFY_TRIAGE_CURSOR_BIN",
+            "MYTHIFY_FANOUT_CURSOR_BIN",
+            "MYTHIFY_FANOUT_CURSOR_AGENT_BIN",
+        ],
+    )
+    if not binary:
+        return {
+            "exit_code": 127,
+            "duration_seconds": 0,
+            "stdout_tail": "",
+            "stderr_tail": "cursor-agent or cursor binary not found",
+            "timed_out": False,
+        }
+    with tempfile.NamedTemporaryFile(prefix="mythify-cursor-triage-", suffix=".md", delete=False, mode="w", encoding="utf-8") as handle:
+        handle.write(prompt)
+        prompt_path = Path(handle.name)
+    args = [binary]
+    if Path(binary).name == "cursor":
+        args.append("agent")
+    args.extend(["--print", "--output-format", "text", "--trust", "--workspace", str(cwd)])
+    mode = os.environ.get("MYTHIFY_TRIAGE_CURSOR_MODE", "ask")
+    if mode:
+        args.extend(["--mode", mode])
+    if model:
+        args.extend(["--model", model])
+    if os.environ.get("MYTHIFY_TRIAGE_CURSOR_FORCE", "") == "1":
+        args.append("--force")
+    args.extend(shlex.split(os.environ.get("MYTHIFY_TRIAGE_CURSOR_ARGS", "")))
+    args.append("Read the triage prompt from this file and return only the requested JSON: {0}".format(prompt_path))
+    result = run_triage_process(args, cwd, "", timeout, triage_shell_env(model, speed))
+    result["output_tail"] = result["stdout_tail"]
+    try:
+        prompt_path.unlink()
+    except OSError:
+        pass
+    return result
+
+
+def run_command_triage(prompt, model, timeout, cwd, speed="auto"):
+    command = command_triage_template()
+    if not command:
+        return {
+            "exit_code": 127,
+            "duration_seconds": 0,
+            "stdout_tail": "",
+            "stderr_tail": "MYTHIFY_TRIAGE_COMMAND is not set",
+            "timed_out": False,
+        }
+    result = run_triage_process(command, cwd, prompt, timeout, triage_shell_env(model, speed), shell=True)
+    result["output_tail"] = result["stdout_tail"]
+    return result
+
+
+def run_model_triage(task_text, classification, args):
+    if not should_run_model_triage(classification, args.triage):
+        return {
+            "attempted": False,
+            "reason": "triage mode {0} with gate {1}".format(
+                args.triage, classification.get("model_triage")
+            ),
+        }
+    platform = normalize_platform(getattr(args, "platform", "auto"))
+    engine, engine_policy = select_triage_engine(
+        getattr(args, "triage_engine", ""), platform
+    )
+    if not engine:
+        return {
+            "attempted": True,
+            "ok": False,
+            "engine": "",
+            "engine_policy": engine_policy,
+            "model": "",
+            "model_policy": "unavailable",
+            "effort": "low",
+            "speed": "auto",
+            "duration_seconds": 0,
+            "exit_code": 127,
+            "error": (
+                "No fast triage engine is available. Configure a local engine with "
+                "MYTHIFY_TRIAGE_ENGINE plus the matching CLI login, or set "
+                "MYTHIFY_TRIAGE_COMMAND for a command that reads the prompt on stdin."
+            ),
+            "output_tail": "",
+            "parsed": None,
+        }
+    if engine not in TRIAGE_ENGINES:
+        return {
+            "attempted": True,
+            "ok": False,
+            "engine": engine,
+            "engine_policy": engine_policy,
+            "model": "",
+            "model_policy": "unavailable",
+            "effort": "low",
+            "speed": "auto",
+            "duration_seconds": 0,
+            "exit_code": 127,
+            "error": "Unknown triage engine {0}. Valid engines: {1}.".format(
+                engine, ", ".join(TRIAGE_ENGINES)
+            ),
+            "output_tail": "",
+            "parsed": None,
+        }
+    model, model_policy = resolve_triage_model_selection(
+        engine, getattr(args, "triage_model", "")
+    )
+    effort, effort_policy = effort_for_role(
+        "triage", classification, getattr(args, "effort", "auto")
+    )
+    speed, speed_policy = speed_for_role(
+        "triage", getattr(args, "speed", "auto")
+    )
+    prompt = build_triage_prompt(task_text, classification)
+    cwd = Path.cwd()
+    if engine == "claude-cli":
+        raw = run_claude_triage(prompt, model, args.triage_timeout, cwd, speed)
+    elif engine == "codex-cli":
+        raw = run_codex_triage(prompt, model, args.triage_timeout, cwd, speed)
+    elif engine == "cursor-agent":
+        raw = run_cursor_triage(prompt, model, args.triage_timeout, cwd, speed)
+    else:
+        raw = run_command_triage(prompt, model, args.triage_timeout, cwd, speed)
+    output_tail = raw.get("output_tail", raw.get("stdout_tail", ""))
+    parsed = parse_model_triage_json(output_tail)
+    ok = raw["exit_code"] == 0 and parsed is not None
+    error = ""
+    if raw["exit_code"] != 0:
+        error = raw.get("stderr_tail") or "triage worker exited {0}".format(raw["exit_code"])
+    elif parsed is None:
+        error = "triage worker exited 0 but did not return valid JSON"
+    return {
+        "attempted": True,
+        "ok": ok,
+        "engine": engine,
+        "engine_policy": engine_policy,
+        "model": model,
+        "model_policy": model_policy,
+        "effort": effort,
+        "effort_policy": effort_policy,
+        "speed": speed,
+        "speed_policy": speed_policy,
+        "duration_seconds": raw.get("duration_seconds", 0),
+        "exit_code": raw["exit_code"],
+        "error": error,
+        "output_tail": output_tail,
+        "stderr_tail": raw.get("stderr_tail", ""),
+        "timed_out": raw.get("timed_out", False),
+        "parsed": parsed,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Lesson store
 # ---------------------------------------------------------------------------
 
@@ -400,6 +2097,23 @@ def cmd_status(args, state):
             print("Active plan: none")
     else:
         print("Active plan: none")
+    active_outcome = get_active_outcome_slug(state)
+    if active_outcome:
+        _, outcome = load_outcome(state, active_outcome)
+        if outcome is not None:
+            print(
+                "Active outcome: {0} ({1}, {2}/{3} iterations)".format(
+                    active_outcome,
+                    outcome.get("status", "active"),
+                    outcome.get("iteration_count", 0),
+                    outcome.get("max_iterations", 1),
+                )
+            )
+            print("Outcome goal: {0}".format(outcome.get("goal", "")))
+        else:
+            print("Active outcome: none")
+    else:
+        print("Active outcome: none")
     memory = load_memory(state)
     project_lessons = load_lessons(state / "lessons", "project")
     global_lessons = load_lessons(global_lessons_dir(), "global")
@@ -415,6 +2129,59 @@ def cmd_status(args, state):
             len(reflections),
         )
     )
+    return 0
+
+
+def cmd_classify(args, _state):
+    result = classify_task_text(args.task)
+    result["model_policy"] = build_model_policy(result, args)
+    if args.triage != "never":
+        result["model_triage_run"] = run_model_triage(args.task, result, args)
+    if args.json_output:
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_classification(result))
+    return 0
+
+
+def cmd_host_model_switch(args, state):
+    if not str(args.target_model or "").strip():
+        fail("[FAIL] host-model switch requires TARGET_MODEL.")
+        return 1
+    record = build_host_model_record(args)
+    write_json_atomic(host_model_path(state), record)
+    if args.json_output:
+        print(json.dumps(record, indent=2))
+    else:
+        print(format_host_model_record(record))
+    return 0
+
+
+def cmd_host_model_status(args, state):
+    record = read_host_model_state(state)
+    if record is None:
+        empty = {"status": "unset", "target_model": "", "source": "unknown"}
+        if args.json_output:
+            print(json.dumps(empty, indent=2))
+        else:
+            print("[OK] No host model switch is recorded.")
+        return 0
+    if args.json_output:
+        print(json.dumps(record, indent=2))
+    else:
+        print(format_host_model_record(record))
+    return 0
+
+
+def cmd_host_model_clear(args, state):
+    try:
+        host_model_path(state).unlink()
+    except FileNotFoundError:
+        pass
+    if args.json_output:
+        print(json.dumps({"status": "cleared", "target_model": ""}, indent=2))
+    else:
+        print("[OK] Host model switch record cleared.")
     return 0
 
 
@@ -750,6 +2517,233 @@ def cmd_lesson_list(args, state):
     return 0
 
 
+def cmd_outcome_start(args, state):
+    if args.max_iterations < 1:
+        print("[FAIL] outcome start requires --max-iterations >= 1.")
+        return 1
+    base = args.name or args.goal
+    slug = slugify(base) or "outcome"
+    original = slug
+    counter = 2
+    while outcome_goal_path(state, slug).exists():
+        slug = "{0}-{1}".format(original[:36], counter)
+        counter += 1
+    now = now_iso()
+    goal = {
+        "id": slug,
+        "goal": args.goal,
+        "success_criteria": args.success,
+        "verify_command": args.verify,
+        "metric_command": args.metric or "",
+        "max_iterations": args.max_iterations,
+        "iteration_count": 0,
+        "allowed_paths": parse_allowed_paths(args.allowed_paths),
+        "visibility": args.visibility,
+        "status": "active",
+        "created": now,
+        "updated": now,
+        "last_verified": None,
+        "best_metric_score": None,
+        "stop_reason": None,
+    }
+    save_outcome(state, slug, goal)
+    set_active_outcome_slug(state, slug)
+    if args.json_output:
+        print(json.dumps(goal, indent=2))
+    else:
+        print("[OK] Outcome started: {0}".format(slug))
+        print("goal: {0}".format(args.goal))
+        print("success: {0}".format(args.success))
+        print("verify: {0}".format(args.verify))
+        if args.metric:
+            print("metric: {0}".format(args.metric))
+        print("iterations: 0/{0}".format(args.max_iterations))
+        print("next: make a bounded attempt, then run outcome check.")
+    return 0
+
+
+def cmd_outcome_status(args, state):
+    slug, goal = load_outcome(state, args.name)
+    if not slug or goal is None:
+        print("[FAIL] No outcome found. Start one with outcome start.")
+        return 1
+    iterations = read_jsonl(outcome_iterations_path(state, slug))
+    if args.json_output:
+        print(json.dumps({"goal": goal, "iterations": iterations}, indent=2))
+    else:
+        print(format_outcome_status(slug, goal, iterations))
+    return 0
+
+
+def cmd_outcome_check(args, state):
+    slug, goal = load_outcome(state, args.name)
+    if not slug or goal is None:
+        print("[FAIL] No outcome found. Start one with outcome start.")
+        return 1
+    if goal.get("status") in ("succeeded", "failed", "stopped"):
+        if args.json_output:
+            print(json.dumps({"goal": goal, "record": None}, indent=2))
+        else:
+            print("[OK] Outcome {0} is already {1}.".format(slug, goal.get("status")))
+        return 0 if goal.get("status") == "succeeded" else 2
+    iteration_count = int(goal.get("iteration_count", 0))
+    max_iterations = int(goal.get("max_iterations", 1))
+    if iteration_count >= max_iterations:
+        goal["status"] = "failed"
+        goal["stop_reason"] = "iteration budget exhausted before check"
+        goal["updated"] = now_iso()
+        save_outcome(state, slug, goal)
+        if args.json_output:
+            print(json.dumps({"goal": goal, "record": None}, indent=2))
+        else:
+            print("[FAIL] Outcome {0} failed: iteration budget exhausted.".format(slug))
+        return 2
+    verify = run_shell_capture(goal["verify_command"], args.timeout)
+    metric_record = None
+    metric_ok = True
+    metric_score = None
+    if goal.get("metric_command"):
+        metric = run_shell_capture(goal["metric_command"], args.timeout)
+        metric_ok = metric["verified"]
+        metric_score = parse_metric_score(metric.get("stdout_tail", ""))
+        metric_record = {
+            "command": metric["command"],
+            "exit_code": metric["exit_code"],
+            "duration_seconds": metric["duration_seconds"],
+            "stdout_tail": metric["stdout_tail"],
+            "stderr_tail": metric["stderr_tail"],
+            "verified": metric["verified"],
+            "score": metric_score,
+        }
+    verified = bool(verify["verified"] and metric_ok)
+    next_iteration = iteration_count + 1
+    if verified:
+        status_after = "succeeded"
+        next_action = "Outcome met. Report the evidence and stop."
+    elif next_iteration >= max_iterations:
+        status_after = "failed"
+        next_action = "Iteration budget exhausted. Summarize the blocker and stop."
+    else:
+        status_after = "active"
+        next_action = (
+            "Outcome not met. Inspect verifier output, make another bounded attempt, "
+            "then run outcome check again."
+        )
+    record = {
+        "iteration": next_iteration,
+        "timestamp": now_iso(),
+        "notes": args.notes or "",
+        "verify": {
+            "command": verify["command"],
+            "exit_code": verify["exit_code"],
+            "duration_seconds": verify["duration_seconds"],
+            "stdout_tail": verify["stdout_tail"],
+            "stderr_tail": verify["stderr_tail"],
+            "verified": verify["verified"],
+        },
+        "metric": metric_record,
+        "verified": verified,
+        "status_after": status_after,
+        "next_action": next_action,
+    }
+    append_jsonl(outcome_iterations_path(state, slug), record)
+    goal["iteration_count"] = next_iteration
+    goal["status"] = status_after
+    goal["last_verified"] = verified
+    goal["updated"] = record["timestamp"]
+    if metric_score is not None:
+        best = goal.get("best_metric_score")
+        if best is None or metric_score > best:
+            goal["best_metric_score"] = metric_score
+    if status_after == "failed":
+        goal["stop_reason"] = "iteration budget exhausted"
+    if status_after == "succeeded":
+        goal["stop_reason"] = "success criteria verified"
+    save_outcome(state, slug, goal)
+    append_jsonl(
+        state / "verifications.jsonl",
+        {
+            "kind": "executed",
+            "claim": "Outcome {0}: {1}".format(slug, goal.get("success_criteria", "")),
+            "command": goal["verify_command"],
+            "exit_code": verify["exit_code"],
+            "duration_seconds": verify["duration_seconds"],
+            "stdout_tail": verify["stdout_tail"],
+            "stderr_tail": verify["stderr_tail"],
+            "verified": verify["verified"],
+            "timestamp": record["timestamp"],
+            "outcome": slug,
+            "iteration": next_iteration,
+        },
+    )
+    if args.json_output:
+        print(json.dumps({"goal": goal, "record": record}, indent=2))
+    else:
+        prefix = "[OK]" if verified else "[FAIL]"
+        print(
+            "{0} Outcome {1} iteration {2}/{3}: {4}".format(
+                prefix, slug, next_iteration, max_iterations, status_after
+            )
+        )
+        print("verify exit: {0}".format(verify["exit_code"]))
+        if metric_record:
+            print("metric exit: {0}".format(metric_record["exit_code"]))
+            if metric_score is not None:
+                print("metric score: {0}".format(metric_score))
+        print("next: {0}".format(next_action))
+        if verify["stdout_tail"]:
+            print("--- verify stdout (tail) ---")
+            print(verify["stdout_tail"])
+        if verify["stderr_tail"]:
+            print("--- verify stderr (tail) ---")
+            print(verify["stderr_tail"])
+    return 0 if verified else 2
+
+
+def cmd_outcome_results(args, state):
+    slug, goal = load_outcome(state, args.name)
+    if not slug or goal is None:
+        print("[FAIL] No outcome found. Start one with outcome start.")
+        return 1
+    iterations = read_jsonl(outcome_iterations_path(state, slug))
+    if args.json_output:
+        print(json.dumps({"goal": goal, "iterations": iterations}, indent=2))
+        return 0
+    print(format_outcome_status(slug, goal, iterations))
+    for item in iterations:
+        print("")
+        print(
+            "iteration {0}: verified={1}, status={2}".format(
+                item.get("iteration"), item.get("verified"), item.get("status_after")
+            )
+        )
+        verify = item.get("verify") or {}
+        print("  verify exit: {0}".format(verify.get("exit_code")))
+        metric = item.get("metric")
+        if metric:
+            print("  metric exit: {0}".format(metric.get("exit_code")))
+            if metric.get("score") is not None:
+                print("  metric score: {0}".format(metric.get("score")))
+    return 0 if goal.get("status") == "succeeded" else 2
+
+
+def cmd_outcome_stop(args, state):
+    slug, goal = load_outcome(state, args.name)
+    if not slug or goal is None:
+        print("[FAIL] No outcome found. Start one with outcome start.")
+        return 1
+    goal["status"] = "stopped"
+    goal["stop_reason"] = args.reason
+    goal["updated"] = now_iso()
+    save_outcome(state, slug, goal)
+    clear_active_outcome_slug(state, slug)
+    if args.json_output:
+        print(json.dumps(goal, indent=2))
+    else:
+        print("[OK] Outcome {0} stopped: {1}".format(slug, args.reason))
+    return 0
+
+
 def _coerce_stream_text(value):
     if value is None:
         return ""
@@ -961,6 +2955,245 @@ def build_parser():
         ),
     )
     p.set_defaults(handler=cmd_status)
+
+    p = sub.add_parser(
+        "classify",
+        help="Classify a task and recommend ceremony, verification, and fanout.",
+        description=(
+            "Classify TASK before planning. Returns task type, risk, ceremony "
+            "level, verification strategy, model triage fit, and whether fanout is useful. This "
+            "command does not require an initialized .mythify workspace."
+        ),
+    )
+    p.add_argument("task", help="Task request or problem statement to classify.")
+    p.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Print machine-readable JSON instead of text.",
+    )
+    p.add_argument(
+        "--triage",
+        choices=TRIAGE_MODES,
+        default="never",
+        help=(
+            "Run a fast model triage pass: never (default), auto when the gate "
+            "is recommended or required, or always."
+        ),
+    )
+    p.add_argument(
+        "--triage-engine",
+        choices=TRIAGE_ENGINES,
+        default="",
+        help=(
+            "Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE or local "
+            "auto-detection: claude-cli, codex-cli, cursor-agent, command."
+        ),
+    )
+    p.add_argument(
+        "--triage-model",
+        default="",
+        help="Fast triage model. Defaults to MYTHIFY_TRIAGE_MODEL or the engine default.",
+    )
+    p.add_argument(
+        "--triage-timeout",
+        type=float,
+        default=120.0,
+        help="Fast triage timeout in seconds.",
+    )
+    p.add_argument(
+        "--platform",
+        choices=PLATFORMS,
+        default="auto",
+        help=(
+            "Host platform for model policy. Defaults to auto-detection; use "
+            "codex-desktop, claude-desktop, or cursor-desktop when the host is known."
+        ),
+    )
+    p.add_argument(
+        "--effort",
+        choices=EFFORT_LEVELS,
+        default="auto",
+        help=(
+            "Overall effort preference for spawned model roles. Auto keeps "
+            "triage cheap and scales worker or reviewer effort by risk."
+        ),
+    )
+    p.add_argument(
+        "--speed",
+        choices=SPEED_LEVELS,
+        default="auto",
+        help=(
+            "Overall speed preference for spawned model roles. Auto preserves "
+            "host defaults; fast enables Codex fast mode where supported."
+        ),
+    )
+    p.add_argument(
+        "--session-model",
+        default="",
+        help=(
+            "Current host session model for spawn ceiling policy. Defaults to "
+            "MYTHIFY_SESSION_MODEL when set."
+        ),
+    )
+    p.add_argument(
+        "--spawn-ceiling",
+        choices=SPAWN_CEILINGS,
+        default="auto",
+        help=(
+            "Maximum spawned model tier relative to the session model. Auto "
+            "uses MYTHIFY_SPAWN_CEILING or same_or_lower."
+        ),
+    )
+    p.set_defaults(handler=cmd_classify, needs_state=False)
+
+    host_model = sub.add_parser(
+        "host-model",
+        help="Record or inspect the intended host chat model.",
+        description=(
+            "Record a requested host chat model switch. Mythify uses the recorded "
+            "target as the default session model for model policy and spawn ceiling "
+            "checks, while the actual current chat model remains controlled by the host."
+        ),
+    )
+    host_model_sub = host_model.add_subparsers(dest="host_model_command", metavar="ACTION", required=True)
+
+    p = host_model_sub.add_parser(
+        "switch",
+        help="Record a requested host chat model switch.",
+        description="Record a target host model and print host-specific switch guidance.",
+    )
+    p.add_argument("target_model", help="Target host model to record.")
+    p.add_argument(
+        "--platform",
+        choices=PLATFORMS,
+        default="auto",
+        help="Host platform. Defaults to auto.",
+    )
+    p.add_argument(
+        "--current-model",
+        default="",
+        help="Current host model when known, recorded for audit only.",
+    )
+    p.add_argument(
+        "--thinking",
+        choices=HOST_THINKING_LEVELS,
+        default="auto",
+        help="Requested host reasoning effort when the host supports it.",
+    )
+    p.add_argument(
+        "--speed",
+        choices=SPEED_LEVELS,
+        default="auto",
+        help="Requested host speed preference when the host supports it.",
+    )
+    p.add_argument("--reason", default="", help="Reason for the host switch.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_host_model_switch)
+
+    p = host_model_sub.add_parser(
+        "status",
+        help="Show the recorded host model switch.",
+        description="Show the recorded host model switch, if any.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_host_model_status)
+
+    p = host_model_sub.add_parser(
+        "clear",
+        help="Clear the recorded host model switch.",
+        description="Remove host-model.json from the Mythify state directory.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_host_model_clear)
+
+    outcome = sub.add_parser(
+        "outcome",
+        help="Run outcome-driven loops with verifier and iteration budget.",
+        description=(
+            "Manage an outcome loop: define success, run verifier checks, track "
+            "iteration budget, and tell the host whether to retry, stop, or report success."
+        ),
+    )
+    outcome_sub = outcome.add_subparsers(dest="outcome_command", metavar="ACTION", required=True)
+
+    p = outcome_sub.add_parser(
+        "start",
+        help="Start an outcome loop and set it active.",
+        description="Start an outcome loop with a concrete verifier and iteration budget.",
+    )
+    p.add_argument("goal", help="Outcome goal.")
+    p.add_argument("--success", required=True, help="Human-readable success criteria.")
+    p.add_argument("--verify", required=True, help="Shell command that verifies the outcome.")
+    p.add_argument("--metric", default="", help="Optional shell command that emits a metric.")
+    p.add_argument(
+        "--max-iterations",
+        type=int,
+        default=3,
+        help="Maximum verifier iterations before the outcome fails.",
+    )
+    p.add_argument(
+        "--allowed-paths",
+        default="",
+        help="Comma-separated path scope for host edits; recorded for policy.",
+    )
+    p.add_argument(
+        "--visibility",
+        choices=FANOUT_VISIBILITY_MODES,
+        default="summary",
+        help="How much loop progress the host should surface.",
+    )
+    p.add_argument("--name", help="Outcome name; defaults to a slug of the goal.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_outcome_start)
+
+    p = outcome_sub.add_parser(
+        "check",
+        help="Run the active outcome verifier and update loop state.",
+        description=(
+            "Run the verifier and optional metric for the active or named outcome. "
+            "Exits 0 when the outcome is verified, 2 when it is not yet met or failed."
+        ),
+    )
+    p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
+    p.add_argument("--notes", default="", help="Notes for this iteration.")
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_VERIFY_TIMEOUT,
+        metavar="N",
+        help="Timeout in seconds for each command.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_outcome_check)
+
+    p = outcome_sub.add_parser(
+        "status",
+        help="Show the active or named outcome loop.",
+        description="Show outcome status, iteration budget, verifier, and next action.",
+    )
+    p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_outcome_status)
+
+    p = outcome_sub.add_parser(
+        "results",
+        help="Show outcome loop iterations and final state.",
+        description="Show all recorded verifier iterations for the active or named outcome.",
+    )
+    p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_outcome_results)
+
+    p = outcome_sub.add_parser(
+        "stop",
+        help="Stop the active or named outcome loop.",
+        description="Mark an outcome stopped and clear the active pointer when it matches.",
+    )
+    p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
+    p.add_argument("--reason", required=True, help="Why the loop is being stopped.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_outcome_stop)
 
     plan = sub.add_parser(
         "plan",

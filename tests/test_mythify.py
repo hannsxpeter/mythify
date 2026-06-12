@@ -99,14 +99,14 @@ class TestInit(CliTestCase):
     def test_help_exits_zero(self):
         result = self.run_cli("--help")
         self.assertEqual(result.returncode, 0)
-        for name in ("init", "status", "plan", "step", "memory", "lesson",
+        for name in ("init", "status", "classify", "host-model", "outcome", "plan", "step", "memory", "lesson",
                      "verify", "reflect", "summary"):
             self.assertIn(name, result.stdout)
 
 
 class TestWorkspaceResolution(CliTestCase):
     def test_commands_without_workspace_fail_with_message(self):
-        for args in (["status"], ["memory", "get"], ["summary"],
+        for args in (["status"], ["memory", "get"], ["summary"], ["outcome", "status"],
                      ["plan", "list"], ["verify", "claim", "c", "e"]):
             result = self.run_cli(*args)
             self.assertEqual(result.returncode, 1, repr(args))
@@ -136,6 +136,315 @@ class TestWorkspaceResolution(CliTestCase):
         self.assertEqual(memory["entries"][0]["key"], "override_key")
         project_memory = self.read_json(state / "memory.json")
         self.assertEqual(project_memory["entries"], [])
+
+
+class TestClassification(CliTestCase):
+    def test_classify_works_without_workspace(self):
+        result = self.run_cli(
+            "classify",
+            "benchmark bare codex vs mythify across tasks",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Task classification", result.stdout)
+        self.assertIn("type: benchmark", result.stdout)
+        self.assertIn("ceremony: full", result.stdout)
+        self.assertIn("execution profile: full", result.stdout)
+        self.assertIn("fanout: recommended", result.stdout)
+        self.assertIn("model triage: recommended", result.stdout)
+
+    def test_classify_json_for_question(self):
+        result = self.run_cli("classify", "what does this project do?", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["task_type"], "question")
+        self.assertEqual(payload["risk"], "low")
+        self.assertEqual(payload["ceremony"], "none")
+        self.assertEqual(payload["execution_profile"], "direct")
+        self.assertEqual(payload["fanout"], "not_recommended")
+        self.assertEqual(payload["model_triage"], "skip")
+        self.assertEqual(payload["model_policy"]["session"]["control"], "host_selected")
+        self.assertEqual(payload["model_policy"]["verifier"]["engine"], "local_command")
+
+    def test_classify_recommends_fast_host_settings_for_direct_question(self):
+        result = self.run_cli(
+            "classify",
+            "what is 1 + 1?",
+            "--json",
+            "--platform",
+            "codex-desktop",
+            "--session-model",
+            "gpt-5.5",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        recommendation = payload["model_policy"]["session"]["recommendation"]
+        self.assertEqual(payload["execution_profile"], "direct")
+        self.assertEqual(recommendation["action"], "downgrade")
+        self.assertEqual(recommendation["target_profile"], "fast")
+        self.assertEqual(recommendation["target_model"], "gpt-5.4-mini")
+        self.assertEqual(recommendation["target_model_tier"], "fast")
+        self.assertEqual(recommendation["thinking"], "low")
+        self.assertEqual(recommendation["speed"], "fast")
+
+    def test_classify_recommends_strong_host_settings_for_research(self):
+        result = self.run_cli(
+            "classify",
+            "make me a research paper about memory consolidation in LLM agents",
+            "--json",
+            "--platform",
+            "codex-desktop",
+            "--session-model",
+            "gpt-5.4-mini",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        recommendation = payload["model_policy"]["session"]["recommendation"]
+        self.assertEqual(payload["task_type"], "research")
+        self.assertEqual(recommendation["action"], "upgrade")
+        self.assertEqual(recommendation["target_profile"], "strong")
+        self.assertEqual(recommendation["target_model"], "gpt-5.5")
+        self.assertEqual(recommendation["thinking"], "high")
+        self.assertEqual(recommendation["speed"], "standard")
+
+    def test_classify_host_recommendation_respects_model_override(self):
+        result = self.run_cli(
+            "classify",
+            "what is 1 + 1?",
+            "--json",
+            "--platform",
+            "codex-desktop",
+            env_extra={"MYTHIFY_HOST_FAST_MODEL": "gpt-fast-local"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        recommendation = payload["model_policy"]["session"]["recommendation"]
+        self.assertEqual(recommendation["target_profile"], "fast")
+        self.assertEqual(recommendation["target_model"], "gpt-fast-local")
+        self.assertEqual(
+            recommendation["target_model_source"],
+            "env:MYTHIFY_HOST_FAST_MODEL",
+        )
+
+    def test_classify_model_policy_tracks_platform_model_and_effort(self):
+        result = self.run_cli(
+            "classify",
+            "implement platform-aware model selection",
+            "--json",
+            "--platform",
+            "codex-desktop",
+            "--triage-engine",
+            "codex-cli",
+            "--effort",
+            "high",
+            "--speed",
+            "fast",
+            "--session-model",
+            "gpt-5",
+            "--spawn-ceiling",
+            "same_or_lower",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        policy = payload["model_policy"]
+        self.assertEqual(payload["execution_profile"], "standard")
+        self.assertEqual(policy["session"]["platform"], "codex-desktop")
+        self.assertEqual(policy["session"]["control"], "host_selected")
+        self.assertEqual(policy["session"]["model"], "gpt-5")
+        self.assertEqual(policy["session"]["model_source"], "explicit")
+        self.assertEqual(policy["session"]["model_tier"], "frontier")
+        self.assertEqual(policy["session"]["speed_policy"], "requested_fast")
+        self.assertEqual(policy["spawn_ceiling"]["policy"], "same_or_lower")
+        self.assertEqual(policy["spawn_ceiling"]["session_model_tier"], "frontier")
+        self.assertEqual(policy["triage"]["engine"], "codex-cli")
+        self.assertEqual(policy["triage"]["model_policy"], "platform_default")
+        self.assertEqual(policy["triage"]["model_relation_to_session"], "lower_preferred")
+        self.assertEqual(policy["fanout_worker"]["model_policy"], "per_task_over_job_over_env_over_engine_default")
+        self.assertEqual(policy["fanout_worker"]["model_relation_to_session"], "same_or_lower")
+        self.assertEqual(policy["fanout_worker"]["effort"], "high")
+        self.assertEqual(policy["fanout_worker"]["effort_policy"], "explicit")
+        self.assertEqual(policy["fanout_worker"]["speed"], "fast")
+        self.assertEqual(policy["fanout_worker"]["speed_policy"], "explicit")
+
+    def test_host_model_switch_feeds_classify_session_model(self):
+        state = self.init_workspace()
+        switched = self.run_cli(
+            "host-model",
+            "switch",
+            "gpt-5.4",
+            "--platform",
+            "codex-desktop",
+            "--current-model",
+            "gpt-5.3-codex",
+            "--thinking",
+            "high",
+            "--speed",
+            "fast",
+            "--json",
+        )
+        self.assertEqual(switched.returncode, 0, switched.stderr)
+        record = json.loads(switched.stdout)
+        self.assertEqual(record["target_model"], "gpt-5.4")
+        self.assertEqual(record["platform"], "codex-desktop")
+        self.assertEqual(record["status"], "recorded_requires_host_action")
+        self.assertTrue((state / "host-model.json").exists())
+
+        result = self.run_cli(
+            "classify",
+            "implement a follow-up feature",
+            "--json",
+            "--platform",
+            "codex-desktop",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        policy = payload["model_policy"]
+        self.assertEqual(policy["session"]["model"], "gpt-5.4")
+        self.assertEqual(policy["session"]["model_source"], "host_model_switch")
+        self.assertEqual(policy["session"]["model_tier"], "frontier")
+
+        cleared = self.run_cli("host-model", "clear")
+        self.assertEqual(cleared.returncode, 0, cleared.stderr)
+        status = self.run_cli("host-model", "status")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("No host model switch", status.stdout)
+
+    def test_classify_vague_short_request_recommends_model_triage(self):
+        result = self.run_cli("classify", "make this better", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["task_type"], "feature")
+        self.assertEqual(payload["ambiguity"], "high")
+        self.assertEqual(payload["execution_profile"], "standard")
+        self.assertEqual(payload["model_triage"], "recommended")
+
+    def test_classify_defaults_fanout_visibility_to_summary(self):
+        result = self.run_cli(
+            "classify",
+            "compare these three implementation approaches",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["fanout_visibility"], "summary")
+        self.assertEqual(payload["fanout_visibility_source"], "default")
+        self.assertEqual(
+            payload["model_policy"]["fanout_worker"]["visibility"],
+            "summary",
+        )
+
+    def test_classify_infers_fanout_visibility_from_prompt(self):
+        quiet = self.run_cli(
+            "classify",
+            "spawn workers quietly and do not show worker details",
+            "--json",
+        )
+        self.assertEqual(quiet.returncode, 0, quiet.stderr)
+        quiet_payload = json.loads(quiet.stdout)
+        self.assertEqual(quiet_payload["fanout_visibility"], "quiet")
+        self.assertEqual(quiet_payload["fanout_visibility_source"], "prompt")
+
+        verbose = self.run_cli(
+            "classify",
+            "run subagents and show full worker output",
+            "--json",
+        )
+        self.assertEqual(verbose.returncode, 0, verbose.stderr)
+        verbose_payload = json.loads(verbose.stdout)
+        self.assertEqual(verbose_payload["fanout_visibility"], "verbose")
+
+        threaded = self.run_cli(
+            "classify",
+            "spawn visible subagent chats in separate threads",
+            "--json",
+        )
+        self.assertEqual(threaded.returncode, 0, threaded.stderr)
+        threaded_payload = json.loads(threaded.stdout)
+        self.assertEqual(threaded_payload["fanout_visibility"], "threaded")
+
+    def test_classify_focused_bugfix_uses_fast_profile(self):
+        result = self.run_cli(
+            "classify",
+            "fix word_count.py so python3 -m unittest passes",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["task_type"], "bugfix")
+        self.assertEqual(payload["execution_profile"], "fast")
+        self.assertIn("fast profile", payload["next_action"])
+
+    def test_classify_auto_triage_skips_when_gate_skips(self):
+        result = self.run_cli("classify", "what does this project do?", "--json", "--triage", "auto")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["model_triage_run"]["attempted"])
+
+    def test_classify_runs_command_backed_model_triage(self):
+        stub = self.project / "triage_stub.py"
+        stub.write_text(
+            "\n".join(
+                [
+                    "import json",
+                    "import sys",
+                    "sys.stdin.read()",
+                    "print(json.dumps({",
+                    "    'primary_type': 'benchmark',",
+                    "    'secondary_types': ['evaluation'],",
+                    "    'ambiguity': 'low',",
+                    "    'hidden_questions': [],",
+                    "    'likely_files_or_surfaces': ['scripts/local_model_eval.py'],",
+                    "    'verification_plan': ['run benchmark harness'],",
+                    "    'fanout_plan': [],",
+                    "    'risk_notes': [],",
+                    "    'recommended_first_step': 'run the harness'",
+                    "}))",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_cli(
+            "classify",
+            "benchmark bare codex vs mythify across tasks",
+            "--json",
+            "--triage",
+            "auto",
+            env_extra={
+                "MYTHIFY_TRIAGE_ENGINE": "command",
+                "MYTHIFY_TRIAGE_COMMAND": '"{0}" "{1}"'.format(sys.executable, stub),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        run = payload["model_triage_run"]
+        self.assertTrue(run["attempted"])
+        self.assertTrue(run["ok"], run)
+        self.assertEqual(run["engine"], "command")
+        self.assertEqual(run["engine_policy"], "env")
+        self.assertEqual(run["model_policy"], "command_default")
+        self.assertEqual(run["effort"], "low")
+        self.assertEqual(run["speed"], "auto")
+        self.assertEqual(run["parsed"]["primary_type"], "benchmark")
+
+    def test_classify_uses_word_boundaries_for_security_terms(self):
+        result = self.run_cli("classify", "create author profile page", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertNotEqual(payload["task_type"], "security")
+        self.assertNotEqual(payload["risk"], "high")
+
+    def test_classify_security_authentication_work(self):
+        result = self.run_cli(
+            "classify",
+            "audit authentication token permissions",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["task_type"], "security")
+        self.assertEqual(payload["risk"], "high")
+        self.assertEqual(payload["ceremony"], "full")
+        self.assertEqual(payload["execution_profile"], "full")
 
 
 class TestPlanLifecycle(CliTestCase):
@@ -446,6 +755,90 @@ class TestLessons(CliTestCase):
         both = self.run_cli("lesson", "list", "--scope", "all")
         self.assertIn("Project only", both.stdout)
         self.assertIn("Global only", both.stdout)
+
+
+class TestOutcome(CliTestCase):
+    def test_outcome_start_check_and_results_success(self):
+        state = self.init_workspace()
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Make verifier pass",
+            "--success",
+            "python exits zero",
+            "--verify",
+            shell_py("raise SystemExit(0)"),
+            "--metric",
+            shell_py("import sys; sys.stdout.write('42.5')"),
+            "--max-iterations",
+            "2",
+            "--allowed-paths",
+            "scripts,tests",
+            "--json",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        goal = json.loads(started.stdout)
+        self.assertEqual(goal["status"], "active")
+        self.assertEqual(goal["allowed_paths"], ["scripts", "tests"])
+        self.assertTrue((state / "outcomes" / goal["id"] / "goal.json").exists())
+
+        checked = self.run_cli("outcome", "check", "--json")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        payload = json.loads(checked.stdout)
+        self.assertEqual(payload["goal"]["status"], "succeeded")
+        self.assertEqual(payload["goal"]["iteration_count"], 1)
+        self.assertIs(payload["record"]["verified"], True)
+        self.assertEqual(payload["record"]["metric"]["score"], 42.5)
+
+        status = self.run_cli("outcome", "status")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("status: succeeded", status.stdout)
+        results = self.run_cli("outcome", "results")
+        self.assertEqual(results.returncode, 0, results.stderr)
+        self.assertIn("iteration 1: verified=True", results.stdout)
+        verification = self.read_jsonl(state / "verifications.jsonl")[-1]
+        self.assertEqual(verification["outcome"], goal["id"])
+        self.assertIs(verification["verified"], True)
+
+    def test_outcome_check_fails_after_iteration_budget(self):
+        state = self.init_workspace()
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Fail bounded verifier",
+            "--success",
+            "command exits zero",
+            "--verify",
+            shell_py("import sys; sys.stdout.write('nope'); raise SystemExit(7)"),
+            "--max-iterations",
+            "1",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 2, checked.stderr)
+        self.assertIn("failed", checked.stdout)
+        self.assertIn("nope", checked.stdout)
+        outcome_dirs = [path for path in (state / "outcomes").iterdir() if path.is_dir()]
+        self.assertEqual(len(outcome_dirs), 1)
+        goal = self.read_json(outcome_dirs[0] / "goal.json")
+        self.assertEqual(goal["status"], "failed")
+        self.assertEqual(goal["iteration_count"], 1)
+
+    def test_outcome_stop_clears_active_pointer(self):
+        state = self.init_workspace()
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Stop me",
+            "--success",
+            "manual stop",
+            "--verify",
+            shell_py("raise SystemExit(0)"),
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        stopped = self.run_cli("outcome", "stop", "--reason", "user changed scope")
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+        self.assertFalse((state / "outcomes" / "active").exists())
 
 
 class TestVerify(CliTestCase):

@@ -2,19 +2,31 @@
 // fanout_start accepts a one-shot declarative task list, registers the job
 // under .mythify/fanout/<job_id>/, returns the job id immediately, and runs
 // one fresh worker per task in a background concurrency pool. Workers are
-// independent model invocations (claude-cli subprocess, anthropic API,
-// openai-compatible API, or a shell command template) with no memory of the
-// conversation. fanout_status and fanout_results report on the job.
+// independent model invocations (local subscription CLIs, HTTP APIs, or a
+// shell command template) with no memory of the conversation. fanout_status
+// and fanout_results report on the job.
 // The Python CLI deliberately does not implement fanout.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { z } from "zod";
 
-const ENGINES = ["claude-cli", "anthropic", "openai", "command"];
+const ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "anthropic", "openai", "command"];
+const EFFORT_LEVELS = ["auto", "low", "medium", "high"];
+const SPEED_LEVELS = ["auto", "standard", "fast"];
+const SPAWN_CEILINGS = ["auto", "lower_only", "same_or_lower", "allow_stronger"];
+const FANOUT_VISIBILITY_MODES = ["auto", "quiet", "summary", "verbose", "threaded"];
+const MODEL_TIER_RANK = {
+  unknown: 0,
+  small: 1,
+  fast: 2,
+  standard: 3,
+  strong: 4,
+  frontier: 5,
+};
 
 const TASK_STATUS_ICONS = {
   pending: "[ ]",
@@ -44,6 +56,12 @@ export function resolveAnthropicModelId(model) {
 const LOGIN_REMEDIATION =
   'Authentication remediation: run "claude /login" once in a terminal, or run ' +
   '"claude setup-token" and set CLAUDE_CODE_OAUTH_TOKEN in the MCP client\'s env block.';
+
+const CODEX_LOGIN_REMEDIATION =
+  'Authentication remediation: run "codex login" once in a terminal, then retry the fanout job.';
+
+const CURSOR_LOGIN_REMEDIATION =
+  'Authentication remediation: run "cursor-agent login" once in a terminal (or "cursor agent login" if you use the cursor binary), then retry the fanout job.';
 
 const WORKER_PREAMBLE = [
   "You are a delegated worker executing one self-contained task for an orchestrating agent.",
@@ -78,6 +96,128 @@ function intEnv(name, fallback) {
 
 function envSet(name) {
   return (process.env[name] || "").trim() !== "";
+}
+
+function containsPhrase(text, phrases) {
+  const normalized = String(text || "").toLowerCase().split(/\s+/).join(" ");
+  return phrases.some((phrase) => normalized.includes(String(phrase).toLowerCase()));
+}
+
+function inferVisibilityFromText(text) {
+  const quietTerms = [
+    "quiet",
+    "quietly",
+    "silent",
+    "silently",
+    "background only",
+    "do not show worker",
+    "don't show worker",
+    "do not show subagent",
+    "don't show subagent",
+    "no worker details",
+    "minimal progress",
+  ];
+  const threadedTerms = [
+    "threaded",
+    "visible thread",
+    "visible threads",
+    "separate thread",
+    "separate threads",
+    "separate chat",
+    "separate chats",
+    "show subagent chats",
+    "show sub-agent chats",
+    "visible subagent",
+    "visible sub-agent",
+  ];
+  const verboseTerms = [
+    "verbose",
+    "show details",
+    "show full",
+    "show logs",
+    "show worker output",
+    "show subagent output",
+    "show sub-agent output",
+    "detailed progress",
+    "full worker output",
+  ];
+  if (containsPhrase(text, quietTerms)) {
+    return {
+      visibility: "quiet",
+      source: "prompt",
+      reason: "The prompt asks to keep background worker activity quiet.",
+    };
+  }
+  if (containsPhrase(text, threadedTerms)) {
+    return {
+      visibility: "threaded",
+      source: "prompt",
+      reason:
+        "The prompt asks for visible worker threads or separate chats when the host supports them.",
+    };
+  }
+  if (containsPhrase(text, verboseTerms)) {
+    return {
+      visibility: "verbose",
+      source: "prompt",
+      reason: "The prompt asks to see detailed worker output or progress.",
+    };
+  }
+  return {
+    visibility: "summary",
+    source: "default",
+    reason:
+      "Summary visibility is the default: show worker titles, status, and notable results without flooding the chat.",
+  };
+}
+
+function resolveVisibilitySelection(visibility, purpose, tasks) {
+  const requested = (visibility || "").trim();
+  if (requested !== "" && requested !== "auto") {
+    return {
+      visibility: requested,
+      source: "explicit",
+      requested: requested,
+      reason: `The caller explicitly requested ${requested} fanout visibility.`,
+    };
+  }
+  const envVisibility = (process.env.MYTHIFY_FANOUT_VISIBILITY || "").trim();
+  if (
+    envVisibility !== "" &&
+    envVisibility !== "auto" &&
+    FANOUT_VISIBILITY_MODES.includes(envVisibility)
+  ) {
+    return {
+      visibility: envVisibility,
+      source: "env",
+      requested: requested || "auto",
+      reason: `MYTHIFY_FANOUT_VISIBILITY requested ${envVisibility}.`,
+    };
+  }
+  const promptText = [
+    purpose || "",
+    ...(Array.isArray(tasks)
+      ? tasks.map((task) => `${task?.title || ""}\n${task?.prompt || ""}`)
+      : []),
+  ].join("\n");
+  const inferred = inferVisibilityFromText(promptText);
+  return {
+    ...inferred,
+    requested: requested || envVisibility || "auto",
+  };
+}
+
+function visibilityGuidance(visibility) {
+  if (visibility === "quiet") {
+    return "Chat visibility: quiet. Keep worker activity out of the user-facing chat unless a failure blocks progress.";
+  }
+  if (visibility === "verbose") {
+    return "Chat visibility: verbose. It is appropriate to show detailed worker progress or outputs when useful.";
+  }
+  if (visibility === "threaded") {
+    return "Chat visibility: threaded. Create visible host threads only when the host supports native thread creation; otherwise fall back to summary.";
+  }
+  return "Chat visibility: summary. Show worker titles, status counts, and notable findings without flooding the chat.";
 }
 
 function killSwitchText() {
@@ -132,32 +272,88 @@ function isExecutableFile(filePath) {
   }
 }
 
-// Claude Desktop launches MCP servers with a minimal PATH, so the claude
-// binary is resolved explicitly: MYTHIFY_FANOUT_CLAUDE_BIN if set, else
-// claude on PATH, else well-known install locations.
-function resolveClaudeBin() {
-  const explicit = (process.env.MYTHIFY_FANOUT_CLAUDE_BIN || "").trim();
-  if (explicit !== "") {
-    return isExecutableFile(explicit) ? explicit : null;
-  }
+function findExecutableOnPath(binaryName) {
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
     if (dir === "") {
       continue;
     }
-    const candidate = path.join(dir, "claude");
+    const candidate = path.join(dir, binaryName);
     if (isExecutableFile(candidate)) {
       return candidate;
     }
   }
-  const fallbacks = [
-    path.join(os.homedir(), ".claude", "local", "claude"),
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-  ];
+  return null;
+}
+
+// Desktop MCP clients often launch servers with a minimal PATH, so local CLI
+// engines resolve their binaries explicitly through an env override, PATH, and
+// common install locations.
+function resolveBinary(envName, binaryName, fallbacks) {
+  const explicit = (process.env[envName] || "").trim();
+  if (explicit !== "") {
+    return isExecutableFile(explicit) ? explicit : null;
+  }
+  const onPath = findExecutableOnPath(binaryName);
+  if (onPath !== null) {
+    return onPath;
+  }
   for (const candidate of fallbacks) {
     if (isExecutableFile(candidate)) {
       return candidate;
     }
+  }
+  return null;
+}
+
+function resolveClaudeBin() {
+  return resolveBinary("MYTHIFY_FANOUT_CLAUDE_BIN", "claude", [
+    path.join(os.homedir(), ".claude", "local", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ]);
+}
+
+function resolveCodexBin() {
+  return resolveBinary("MYTHIFY_FANOUT_CODEX_BIN", "codex", [
+    path.join(os.homedir(), ".local", "bin", "codex"),
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+  ]);
+}
+
+function resolveCursorInvocation() {
+  const explicit = (process.env.MYTHIFY_FANOUT_CURSOR_BIN || "").trim();
+  if (explicit !== "") {
+    if (!isExecutableFile(explicit)) {
+      return null;
+    }
+    const base = path.basename(explicit);
+    return { bin: explicit, prefixArgs: base === "cursor" ? ["agent"] : [] };
+  }
+  const explicitAgent = (process.env.MYTHIFY_FANOUT_CURSOR_AGENT_BIN || "").trim();
+  if (explicitAgent !== "") {
+    return isExecutableFile(explicitAgent) ? { bin: explicitAgent, prefixArgs: [] } : null;
+  }
+  const userLocalAgent = path.join(os.homedir(), ".local", "bin", "cursor-agent");
+  if (isExecutableFile(userLocalAgent)) {
+    return { bin: userLocalAgent, prefixArgs: [] };
+  }
+  const pathAgent = findExecutableOnPath("cursor-agent");
+  if (pathAgent !== null) {
+    return { bin: pathAgent, prefixArgs: [] };
+  }
+  for (const candidate of ["/opt/homebrew/bin/cursor-agent", "/usr/local/bin/cursor-agent"]) {
+    if (isExecutableFile(candidate)) {
+      return { bin: candidate, prefixArgs: [] };
+    }
+  }
+  const cursor = resolveBinary("MYTHIFY_FANOUT_CURSOR_BIN", "cursor", [
+    path.join(os.homedir(), ".local", "bin", "cursor"),
+    "/opt/homebrew/bin/cursor",
+    "/usr/local/bin/cursor",
+  ]);
+  if (cursor !== null) {
+    return { bin: cursor, prefixArgs: ["agent"] };
   }
   return null;
 }
@@ -170,10 +366,26 @@ function claudeBinFailureText() {
   );
 }
 
+function codexBinFailureText() {
+  return (
+    "no codex binary was found (checked MYTHIFY_FANOUT_CODEX_BIN, codex on PATH, " +
+    "~/.local/bin/codex, /opt/homebrew/bin/codex, /usr/local/bin/codex). " +
+    "Set MYTHIFY_FANOUT_CODEX_BIN to the codex binary path, or pick another engine."
+  );
+}
+
+function cursorBinFailureText() {
+  return (
+    "no cursor-agent or cursor binary was found (checked MYTHIFY_FANOUT_CURSOR_BIN, " +
+    "MYTHIFY_FANOUT_CURSOR_AGENT_BIN, cursor-agent on PATH, cursor on PATH, " +
+    "~/.local/bin, /opt/homebrew/bin, and /usr/local/bin). Set " +
+    "MYTHIFY_FANOUT_CURSOR_BIN to the cursor-agent or cursor binary path, or pick another engine."
+  );
+}
+
 // Auto-detection order from the spec: explicit MYTHIFY_FANOUT_ENGINE, else
-// claude-cli if a claude binary resolves, else anthropic if ANTHROPIC_API_KEY
-// is set, else command if MYTHIFY_FANOUT_COMMAND is set, else refuse with a
-// message listing all four options.
+// local subscription CLIs, then API or command fallbacks, else refuse with a
+// message listing every option.
 function autoDetectEngine() {
   const explicit = (process.env.MYTHIFY_FANOUT_ENGINE || "").trim();
   if (explicit !== "") {
@@ -181,6 +393,12 @@ function autoDetectEngine() {
   }
   if (resolveClaudeBin() !== null) {
     return { engine: "claude-cli" };
+  }
+  if (resolveCodexBin() !== null) {
+    return { engine: "codex-cli" };
+  }
+  if (resolveCursorInvocation() !== null) {
+    return { engine: "cursor-agent" };
   }
   if (envSet("ANTHROPIC_API_KEY")) {
     return { engine: "anthropic" };
@@ -190,8 +408,10 @@ function autoDetectEngine() {
   }
   return {
     error:
-      "[FAIL] No fanout engine is available. Configure one of the four engines: " +
+      "[FAIL] No fanout engine is available. Configure one of the six engines: " +
       "claude-cli (install the claude CLI or set MYTHIFY_FANOUT_CLAUDE_BIN), " +
+      "codex-cli (install the codex CLI or set MYTHIFY_FANOUT_CODEX_BIN), " +
+      "cursor-agent (install Cursor Agent or set MYTHIFY_FANOUT_CURSOR_BIN), " +
       "anthropic (set ANTHROPIC_API_KEY), " +
       "openai (set MYTHIFY_FANOUT_ENGINE=openai plus MYTHIFY_FANOUT_BASE_URL and MYTHIFY_FANOUT_API_KEY), " +
       "or command (set MYTHIFY_FANOUT_COMMAND to a shell template that reads the prompt on stdin). " +
@@ -209,15 +429,312 @@ function engineDefaultModel(engine) {
   return "";
 }
 
+function classifyModelTier(model) {
+  const compact = String(model || "").toLowerCase().replace(/[_ ]+/g, "-");
+  if (compact === "") {
+    return "unknown";
+  }
+  const frontierTerms = [
+    "gpt-5",
+    "o3",
+    "o4",
+    "opus",
+    "max",
+    "deep-research",
+    "reasoning-pro",
+  ];
+  const strongTerms = [
+    "sonnet",
+    "gpt-4",
+    "gpt4",
+    "gemini-2.5-pro",
+    "pro",
+    "large",
+    "grok-4",
+  ];
+  const fastTerms = [
+    "haiku",
+    "mini",
+    "nano",
+    "small",
+    "lite",
+    "flash",
+    "fast",
+    "instant",
+  ];
+  if (frontierTerms.some((term) => compact.includes(term))) {
+    return "frontier";
+  }
+  if (fastTerms.some((term) => compact.includes(term))) {
+    return "fast";
+  }
+  if (strongTerms.some((term) => compact.includes(term))) {
+    return "strong";
+  }
+  if (compact.includes("3.5") || compact.includes("cheap")) {
+    return "small";
+  }
+  return "standard";
+}
+
+function resolveSessionModel(sessionModel) {
+  const explicit = (sessionModel || "").trim();
+  if (explicit !== "") {
+    return { model: explicit, source: "explicit", tier: classifyModelTier(explicit) };
+  }
+  const envModel = (process.env.MYTHIFY_SESSION_MODEL || "").trim();
+  if (envModel !== "") {
+    return { model: envModel, source: "env", tier: classifyModelTier(envModel) };
+  }
+  const hostModel = io.readJsonRecover(path.join(io.resolveStateDir(), "host-model.json"), () => null);
+  if (
+    hostModel &&
+    typeof hostModel === "object" &&
+    !Array.isArray(hostModel) &&
+    typeof hostModel.target_model === "string" &&
+    hostModel.target_model.trim() !== ""
+  ) {
+    const model = hostModel.target_model.trim();
+    return { model, source: "host_model_switch", tier: classifyModelTier(model) };
+  }
+  return { model: "", source: "unknown", tier: "unknown" };
+}
+
+function resolveSpawnCeiling(spawnCeiling) {
+  const explicit = (spawnCeiling || "auto").trim();
+  if (explicit !== "" && explicit !== "auto") {
+    return { ceiling: explicit, source: "explicit" };
+  }
+  const envCeiling = (process.env.MYTHIFY_SPAWN_CEILING || "").trim();
+  if (SPAWN_CEILINGS.includes(envCeiling) && envCeiling !== "auto") {
+    return { ceiling: envCeiling, source: "env" };
+  }
+  return { ceiling: "same_or_lower", source: "default" };
+}
+
+function ceilingCheck(session, ceiling, workerModel) {
+  const workerTier = classifyModelTier(workerModel);
+  if (ceiling === "allow_stronger") {
+    return { ok: true, workerTier, status: "allowed_stronger" };
+  }
+  if (session.tier === "unknown" || workerTier === "unknown") {
+    return { ok: true, workerTier, status: "uncheckable" };
+  }
+  const sessionRank = MODEL_TIER_RANK[session.tier] || 0;
+  const workerRank = MODEL_TIER_RANK[workerTier] || 0;
+  if (ceiling === "lower_only" && workerRank >= sessionRank) {
+    return { ok: false, workerTier, status: "violates_lower_only" };
+  }
+  if (ceiling === "same_or_lower" && workerRank > sessionRank) {
+    return { ok: false, workerTier, status: "violates_same_or_lower" };
+  }
+  return { ok: true, workerTier, status: "within_ceiling" };
+}
+
+function resolveModelSelection(taskModel, jobModel, engine) {
+  const candidates = [
+    [taskModel, "task"],
+    [jobModel, "job"],
+    [process.env.MYTHIFY_FANOUT_MODEL, "env"],
+  ];
+  for (const [candidate, source] of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== "") {
+      return { model: String(candidate).trim(), modelSource: source };
+    }
+  }
+  const defaultModel = engineDefaultModel(engine);
+  if (defaultModel !== "") {
+    return { model: defaultModel, modelSource: "engine_default" };
+  }
+  if (["codex-cli", "cursor-agent"].includes(engine)) {
+    return { model: "", modelSource: "platform_default" };
+  }
+  if (engine === "command") {
+    return { model: "", modelSource: "command_default" };
+  }
+  return { model: "", modelSource: "unset" };
+}
+
 // Most specific wins: per-task model, then per-job model, then
 // MYTHIFY_FANOUT_MODEL, then the engine default.
 function resolveModel(taskModel, jobModel, engine) {
-  for (const candidate of [taskModel, jobModel, process.env.MYTHIFY_FANOUT_MODEL]) {
-    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== "") {
-      return String(candidate).trim();
+  return resolveModelSelection(taskModel, jobModel, engine).model;
+}
+
+function effortFromModel(engine, model) {
+  const text = `${engine} ${model || ""}`.toLowerCase();
+  if (/(haiku|mini|nano|small|fast|lite)/.test(text)) {
+    return "low";
+  }
+  if (/(opus|pro|max|large|deep|heavy)/.test(text)) {
+    return "high";
+  }
+  return "medium";
+}
+
+function normalizeEffort(value) {
+  const effort = String(value || "").trim();
+  return EFFORT_LEVELS.includes(effort) ? effort : "";
+}
+
+function resolveEffortSelection(taskEffort, jobEffort, engine, model) {
+  const candidates = [
+    [taskEffort, "task"],
+    [jobEffort, "job"],
+    [process.env.MYTHIFY_FANOUT_EFFORT, "env"],
+  ];
+  for (const [candidate, source] of candidates) {
+    const effort = normalizeEffort(candidate);
+    if (effort !== "" && effort !== "auto") {
+      return { effort, effortSource: source };
     }
   }
-  return engineDefaultModel(engine);
+  return { effort: effortFromModel(engine, model), effortSource: "model_default" };
+}
+
+function normalizeSpeed(value) {
+  const speed = String(value || "").trim();
+  return SPEED_LEVELS.includes(speed) ? speed : "";
+}
+
+function resolveSpeedSelection(taskSpeed, jobSpeed) {
+  const candidates = [
+    [taskSpeed, "task"],
+    [jobSpeed, "job"],
+    [process.env.MYTHIFY_FANOUT_SPEED, "env"],
+  ];
+  for (const [candidate, source] of candidates) {
+    const speed = normalizeSpeed(candidate);
+    if (speed !== "" && speed !== "auto") {
+      return { speed, speedSource: source };
+    }
+  }
+  return { speed: "auto", speedSource: "platform_default" };
+}
+
+let cursorModelsCache = null;
+
+function parseCursorModels(text) {
+  const models = [];
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const match = line.trim().match(/^([A-Za-z0-9._-]+)\s+-\s+/);
+    if (match) {
+      models.push(match[1]);
+    }
+  }
+  return models;
+}
+
+function cursorModelsFromEnv() {
+  const raw = (process.env.MYTHIFY_FANOUT_CURSOR_MODELS || "").trim();
+  if (raw === "") {
+    return null;
+  }
+  return raw
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+}
+
+function listCursorModels(invocation) {
+  const fromEnv = cursorModelsFromEnv();
+  if (fromEnv !== null) {
+    return fromEnv;
+  }
+  if (cursorModelsCache !== null) {
+    return cursorModelsCache;
+  }
+  const res = spawnSync(invocation.bin, [...invocation.prefixArgs, "models"], {
+    cwd: projectRootDir(),
+    env: curatedLocalCliEnv(),
+    encoding: "utf8",
+    timeout: 10000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (res.status !== 0) {
+    cursorModelsCache = [];
+    return cursorModelsCache;
+  }
+  cursorModelsCache = parseCursorModels(res.stdout || "");
+  return cursorModelsCache;
+}
+
+function stripCursorModelSuffixes(model) {
+  let base = String(model || "").trim();
+  if (base.endsWith("-fast")) {
+    base = base.slice(0, -5);
+  }
+  const effortSuffixes = ["-extra-high", "-xhigh", "-medium", "-high", "-low", "-none", "-max"];
+  for (const suffix of effortSuffixes) {
+    if (base.endsWith(suffix)) {
+      return base.slice(0, -suffix.length);
+    }
+  }
+  return base;
+}
+
+function cursorEffortSuffixes(effort) {
+  if (effort === "low") {
+    return ["-low"];
+  }
+  if (effort === "medium") {
+    return ["-medium", ""];
+  }
+  if (effort === "high") {
+    return ["-high", ""];
+  }
+  return [""];
+}
+
+function cursorSpeedSuffixes(speed) {
+  if (speed === "fast") {
+    return ["-fast", ""];
+  }
+  if (speed === "standard") {
+    return [""];
+  }
+  return ["", "-fast"];
+}
+
+function resolveCursorEncodedModel(model, effort, speed, invocation) {
+  const requested = String(model || "").trim();
+  if (requested === "") {
+    return requested;
+  }
+  const available = listCursorModels(invocation);
+  if (available.length === 0) {
+    return requested;
+  }
+  const availableSet = new Set(available);
+  const base = stripCursorModelSuffixes(requested);
+  const candidates = [];
+  if (speed === "auto" && effort === "auto") {
+    candidates.push(requested);
+  }
+  for (const effortSuffix of cursorEffortSuffixes(effort)) {
+    for (const speedSuffix of cursorSpeedSuffixes(speed)) {
+      candidates.push(`${base}${effortSuffix}${speedSuffix}`);
+    }
+  }
+  candidates.push(requested);
+  const unique = [...new Set(candidates)];
+  for (const candidate of unique) {
+    if (availableSet.has(candidate)) {
+      return candidate;
+    }
+  }
+  return requested;
+}
+
+function resolveEngineSpecificModel(engine, model, effort, speed) {
+  if (engine !== "cursor-agent") {
+    return model;
+  }
+  const invocation = resolveCursorInvocation();
+  if (invocation === null) {
+    return model;
+  }
+  return resolveCursorEncodedModel(model, effort, speed, invocation);
 }
 
 // Validation-time availability check for a task's resolved engine. Returns an
@@ -225,6 +742,12 @@ function resolveModel(taskModel, jobModel, engine) {
 function engineAvailabilityError(engine, model) {
   if (engine === "claude-cli") {
     return resolveClaudeBin() === null ? `engine claude-cli: ${claudeBinFailureText()}` : null;
+  }
+  if (engine === "codex-cli") {
+    return resolveCodexBin() === null ? `engine codex-cli: ${codexBinFailureText()}` : null;
+  }
+  if (engine === "cursor-agent") {
+    return resolveCursorInvocation() === null ? `engine cursor-agent: ${cursorBinFailureText()}` : null;
   }
   if (engine === "anthropic") {
     return envSet("ANTHROPIC_API_KEY") ? null : "engine anthropic: ANTHROPIC_API_KEY is not set.";
@@ -254,6 +777,16 @@ function engineAvailabilityError(engine, model) {
 // with an explicit truncation marker. An unreadable path is a validation error.
 function assembleWorkerPrompt(task, projectRoot, contextBytesCap) {
   const parts = [WORKER_PREAMBLE];
+  if (typeof task.effort === "string" && task.effort !== "") {
+    parts.push(
+      `Requested effort: ${task.effort}. Match the depth and rigor to this level while keeping the requested deliverable format.`
+    );
+  }
+  if (typeof task.speed === "string" && task.speed !== "" && task.speed !== "auto") {
+    parts.push(
+      `Requested speed: ${task.speed}. Prefer this latency setting for any platform-specific model controls when available.`
+    );
+  }
   let remaining = contextBytesCap;
   for (const rawPath of task.context_paths || []) {
     const resolved = path.isAbsolute(rawPath) ? rawPath : path.join(projectRoot, rawPath);
@@ -390,7 +923,7 @@ function splitShellArgs(raw) {
 
 function augmentedPath() {
   const parts = (process.env.PATH || "").split(path.delimiter).filter((p) => p !== "");
-  for (const extra of ["/opt/homebrew/bin", "/usr/local/bin"]) {
+  for (const extra of [path.join(os.homedir(), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"]) {
     if (!parts.includes(extra)) {
       parts.push(extra);
     }
@@ -406,6 +939,7 @@ function augmentedPath() {
 function curatedClaudeEnv() {
   const env = {
     HOME: process.env.HOME || os.homedir(),
+    USER: process.env.USER || os.userInfo().username,
     TERM: "dumb",
     PATH: augmentedPath(),
     MYTHIFY_FANOUT_DEPTH: "1",
@@ -413,6 +947,23 @@ function curatedClaudeEnv() {
   };
   if (envSet("CLAUDE_CODE_OAUTH_TOKEN")) {
     env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  }
+  return env;
+}
+
+function curatedLocalCliEnv() {
+  const env = {
+    HOME: process.env.HOME || os.homedir(),
+    TERM: "dumb",
+    PATH: augmentedPath(),
+    MYTHIFY_FANOUT_DEPTH: "1",
+    MYTHIFY_DISABLE_FANOUT: "1",
+  };
+  if (envSet("CODEX_HOME")) {
+    env.CODEX_HOME = process.env.CODEX_HOME;
+  }
+  if (envSet("XDG_CONFIG_HOME")) {
+    env.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
   }
   return env;
 }
@@ -431,7 +982,7 @@ function timeoutFailure(stdout, timeoutSeconds) {
 // Engines
 // ---------------------------------------------------------------------------
 
-async function runClaudeCliWorker(prompt, model, timeoutSeconds, projectRoot) {
+async function runClaudeCliWorker(prompt, model, effort, timeoutSeconds, projectRoot) {
   const bin = resolveClaudeBin();
   if (bin === null) {
     return { ok: false, output: "", error: `engine claude-cli: ${claudeBinFailureText()}` };
@@ -445,6 +996,9 @@ async function runClaudeCliWorker(prompt, model, timeoutSeconds, projectRoot) {
     "--max-turns",
     String(intEnv("MYTHIFY_FANOUT_MAX_TURNS", 25)),
   ];
+  if ((effort || "").trim() !== "" && effort !== "auto") {
+    args.push("--effort", effort);
+  }
   args.push(...splitShellArgs(process.env.MYTHIFY_FANOUT_CLAUDE_ARGS || ""));
   const res = await runSubprocess({
     bin,
@@ -492,6 +1046,161 @@ async function runClaudeCliWorker(prompt, model, timeoutSeconds, projectRoot) {
     error += ` ${LOGIN_REMEDIATION}`;
   }
   return { ok: false, output: resultText !== "" ? resultText : res.stdout, error };
+}
+
+function tempWorkerPath(prefix, suffix) {
+  const tmpDir = path.join(io.resolveStateDir(), "tmp");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  return path.join(tmpDir, `${prefix}-${io.stampNow()}-${crypto.randomBytes(3).toString("hex")}${suffix}`);
+}
+
+function authLooksMissing(text) {
+  return /not logged in/i.test(text) || /not authenticated/i.test(text) || /\blogin\b/i.test(text) || text.includes("401");
+}
+
+function codexSpeedArgs(speed) {
+  if (speed === "fast") {
+    return ["-c", 'service_tier="fast"', "-c", "features.fast_mode=true"];
+  }
+  if (speed === "standard") {
+    return ["-c", "features.fast_mode=false"];
+  }
+  return [];
+}
+
+async function runCodexCliWorker(prompt, model, speed, timeoutSeconds, projectRoot) {
+  const bin = resolveCodexBin();
+  if (bin === null) {
+    return { ok: false, output: "", error: `engine codex-cli: ${codexBinFailureText()}` };
+  }
+  const outputFile = tempWorkerPath("codex-output", ".md");
+  const sandbox = (process.env.MYTHIFY_FANOUT_CODEX_SANDBOX || "read-only").trim() || "read-only";
+  const args = [
+    "--ask-for-approval",
+    "never",
+    "exec",
+    "--cd",
+    projectRoot,
+    "--sandbox",
+    sandbox,
+    "--skip-git-repo-check",
+    "--ephemeral",
+    "--color",
+    "never",
+    "--output-last-message",
+    outputFile,
+  ];
+  if ((model || "").trim() !== "") {
+    args.push("--model", model);
+  }
+  args.push(...codexSpeedArgs(speed));
+  args.push(...splitShellArgs(process.env.MYTHIFY_FANOUT_CODEX_ARGS || ""));
+  args.push("-");
+  const res = await runSubprocess({
+    bin,
+    args,
+    cwd: projectRoot,
+    env: curatedLocalCliEnv(),
+    input: prompt,
+    timeoutSeconds,
+  });
+  let output = "";
+  try {
+    if (fs.existsSync(outputFile)) {
+      output = fs.readFileSync(outputFile, "utf8");
+    }
+  } catch {
+    output = "";
+  }
+  try {
+    fs.rmSync(outputFile, { force: true });
+  } catch {
+    // Best effort cleanup.
+  }
+  if (output === "") {
+    output = res.stdout;
+  }
+  if (res.timedOut) {
+    return timeoutFailure(output, timeoutSeconds);
+  }
+  if (res.spawnError) {
+    return { ok: false, output, error: `Failed to spawn codex binary "${bin}": ${res.spawnError}` };
+  }
+  if (res.exitCode === 0) {
+    return { ok: true, output, error: null };
+  }
+  let error =
+    `codex-cli worker failed (codex exited ${res.exitCode}). ` +
+    `stdout (tail): ${res.stdout.slice(-2000) || "(empty)"} stderr (tail): ${res.stderr.slice(-2000) || "(empty)"}`;
+  if (authLooksMissing(`${output}\n${res.stdout}\n${res.stderr}`)) {
+    error += ` ${CODEX_LOGIN_REMEDIATION}`;
+  }
+  return { ok: false, output, error };
+}
+
+async function runCursorAgentWorker(prompt, model, timeoutSeconds, projectRoot) {
+  const invocation = resolveCursorInvocation();
+  if (invocation === null) {
+    return { ok: false, output: "", error: `engine cursor-agent: ${cursorBinFailureText()}` };
+  }
+  const promptFile = tempWorkerPath("cursor-prompt", ".md");
+  fs.writeFileSync(promptFile, prompt, "utf8");
+  const mode = (process.env.MYTHIFY_FANOUT_CURSOR_MODE || "ask").trim();
+  const args = [
+    ...invocation.prefixArgs,
+    "--print",
+    "--output-format",
+    "text",
+    "--trust",
+    "--workspace",
+    projectRoot,
+  ];
+  if (mode !== "") {
+    args.push("--mode", mode);
+  }
+  if ((model || "").trim() !== "") {
+    args.push("--model", model);
+  }
+  if (process.env.MYTHIFY_FANOUT_CURSOR_FORCE === "1") {
+    args.push("--force");
+  }
+  args.push(...splitShellArgs(process.env.MYTHIFY_FANOUT_CURSOR_ARGS || ""));
+  args.push(
+    `Read the task prompt from this file: ${promptFile}\nComplete it and return only the deliverable.`
+  );
+  const res = await runSubprocess({
+    bin: invocation.bin,
+    args,
+    cwd: projectRoot,
+    env: curatedLocalCliEnv(),
+    input: "",
+    timeoutSeconds,
+  });
+  try {
+    fs.rmSync(promptFile, { force: true });
+  } catch {
+    // Best effort cleanup.
+  }
+  if (res.timedOut) {
+    return timeoutFailure(res.stdout, timeoutSeconds);
+  }
+  if (res.spawnError) {
+    return {
+      ok: false,
+      output: res.stdout,
+      error: `Failed to spawn cursor agent binary "${invocation.bin}": ${res.spawnError}`,
+    };
+  }
+  if (res.exitCode === 0) {
+    return { ok: true, output: res.stdout, error: null };
+  }
+  let error =
+    `cursor-agent worker failed (cursor exited ${res.exitCode}). ` +
+    `stdout (tail): ${res.stdout.slice(-2000) || "(empty)"} stderr (tail): ${res.stderr.slice(-2000) || "(empty)"}`;
+  if (authLooksMissing(`${res.stdout}\n${res.stderr}`)) {
+    error += ` ${CURSOR_LOGIN_REMEDIATION}`;
+  }
+  return { ok: false, output: res.stdout, error };
 }
 
 async function runCommandWorker(prompt, timeoutSeconds, projectRoot) {
@@ -650,9 +1359,15 @@ async function runOpenAiWorker(prompt, model, timeoutSeconds) {
   });
 }
 
-function runWorker(engine, prompt, model, timeoutSeconds, projectRoot) {
+function runWorker(engine, prompt, model, effort, speed, timeoutSeconds, projectRoot) {
   if (engine === "claude-cli") {
-    return runClaudeCliWorker(prompt, model, timeoutSeconds, projectRoot);
+    return runClaudeCliWorker(prompt, model, effort, timeoutSeconds, projectRoot);
+  }
+  if (engine === "codex-cli") {
+    return runCodexCliWorker(prompt, model, speed, timeoutSeconds, projectRoot);
+  }
+  if (engine === "cursor-agent") {
+    return runCursorAgentWorker(prompt, model, timeoutSeconds, projectRoot);
   }
   if (engine === "anthropic") {
     return runAnthropicWorker(prompt, model, timeoutSeconds);
@@ -682,7 +1397,15 @@ async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot
   const startedNs = process.hrtime.bigint();
   let outcome;
   try {
-    outcome = await runWorker(task.engine, prompt, task.model, timeoutSeconds, projectRoot);
+    outcome = await runWorker(
+      task.engine,
+      prompt,
+      task.model,
+      task.effort,
+      task.speed,
+      timeoutSeconds,
+      projectRoot
+    );
   } catch (err) {
     outcome = {
       ok: false,
@@ -810,7 +1533,18 @@ function loadJob(jobId) {
 // Tool handlers
 // ---------------------------------------------------------------------------
 
-function handleFanoutStart({ tasks, model, engine, timeout_seconds }) {
+function handleFanoutStart({
+  tasks,
+  purpose,
+  model,
+  engine,
+  effort,
+  speed,
+  visibility,
+  session_model,
+  spawn_ceiling,
+  timeout_seconds,
+}) {
   const disabled = killSwitchText();
   if (disabled) {
     return disabled;
@@ -843,6 +1577,9 @@ function handleFanoutStart({ tasks, model, engine, timeout_seconds }) {
   const stateDir = io.resolveStateDir();
   const projectRoot = path.dirname(stateDir);
   const contextBytesCap = intEnv("MYTHIFY_FANOUT_CONTEXT_BYTES", 200000);
+  const sessionModel = resolveSessionModel(session_model);
+  const spawnCeiling = resolveSpawnCeiling(spawn_ceiling);
+  const visibilitySelection = resolveVisibilitySelection(visibility, purpose, tasks);
   const resolvedTasks = [];
   for (let i = 0; i < tasks.length; i += 1) {
     const task = tasks[i] || {};
@@ -861,20 +1598,71 @@ function handleFanoutStart({ tasks, model, engine, timeout_seconds }) {
     if (!ENGINES.includes(taskEngine)) {
       return `[FAIL] ${label}: unknown engine "${taskEngine}". Valid engines: ${ENGINES.join(", ")}. No job was started.`;
     }
-    const taskModel = resolveModel(task.model, model, taskEngine);
+    const modelSelection = resolveModelSelection(task.model, model, taskEngine);
+    const effortSelection = resolveEffortSelection(
+      task.effort,
+      effort,
+      taskEngine,
+      modelSelection.model
+    );
+    const speedSelection = resolveSpeedSelection(task.speed, speed);
+    const taskModel = resolveEngineSpecificModel(
+      taskEngine,
+      modelSelection.model,
+      effortSelection.effort,
+      speedSelection.speed
+    );
+    const modelCeiling = ceilingCheck(sessionModel, spawnCeiling.ceiling, taskModel);
+    if (!modelCeiling.ok) {
+      return (
+        `[FAIL] ${label}: spawned model "${taskModel}" (tier ${modelCeiling.workerTier}) ` +
+        `exceeds session model "${sessionModel.model}" (tier ${sessionModel.tier}) ` +
+        `under spawn ceiling ${spawnCeiling.ceiling}. Pass spawn_ceiling: "allow_stronger" to opt in. No job was started.`
+      );
+    }
     const availability = engineAvailabilityError(taskEngine, taskModel);
     if (availability) {
       return `[FAIL] ${label}: ${availability} No job was started.`;
     }
-    const assembled = assembleWorkerPrompt(task, projectRoot, contextBytesCap);
+    const assembled = assembleWorkerPrompt(
+      { ...task, effort: effortSelection.effort, speed: speedSelection.speed },
+      projectRoot,
+      contextBytesCap
+    );
     if (assembled.error) {
       return `[FAIL] ${label}: ${assembled.error} No job was started.`;
     }
-    resolvedTasks.push({ title, engine: taskEngine, model: taskModel, prompt: assembled.prompt });
+    resolvedTasks.push({
+      title,
+      engine: taskEngine,
+      model: taskModel,
+      modelSource: modelSelection.modelSource,
+      modelTier: modelCeiling.workerTier,
+      modelCeilingStatus: modelCeiling.status,
+      effort: effortSelection.effort,
+      effortSource: effortSelection.effortSource,
+      speed: speedSelection.speed,
+      speedSource: speedSelection.speedSource,
+      prompt: assembled.prompt,
+    });
   }
 
   const jobEngineRecord = jobEngine !== "" ? jobEngine : resolvedTasks[0].engine;
-  const jobModelRecord = resolveModel(undefined, model, jobEngineRecord);
+  const jobModelSelection = resolveModelSelection(undefined, model, jobEngineRecord);
+  const jobSpeedSelection = resolveSpeedSelection(undefined, speed);
+  const jobEffortSelection = resolveEffortSelection(
+    undefined,
+    effort,
+    jobEngineRecord,
+    jobModelSelection.model
+  );
+  const jobModelRecord = resolveEngineSpecificModel(
+    jobEngineRecord,
+    jobModelSelection.model,
+    jobEffortSelection.effort,
+    jobSpeedSelection.speed
+  );
+  const jobModelCeiling = ceilingCheck(sessionModel, spawnCeiling.ceiling, jobModelRecord);
   const jobTimeout =
     typeof timeout_seconds === "number" && timeout_seconds > 0
       ? timeout_seconds
@@ -887,6 +1675,23 @@ function handleFanoutStart({ tasks, model, engine, timeout_seconds }) {
     created: now,
     engine: jobEngineRecord,
     model: jobModelRecord,
+    model_source: jobModelSelection.modelSource,
+    model_tier: jobModelCeiling.workerTier,
+    model_ceiling_status: jobModelCeiling.status,
+    session_model: sessionModel.model,
+    session_model_source: sessionModel.source,
+    session_model_tier: sessionModel.tier,
+    spawn_ceiling: spawnCeiling.ceiling,
+    spawn_ceiling_source: spawnCeiling.source,
+    effort: jobEffortSelection.effort,
+    effort_source: jobEffortSelection.effortSource,
+    speed: jobSpeedSelection.speed,
+    speed_source: jobSpeedSelection.speedSource,
+    visibility: visibilitySelection.visibility,
+    visibility_source: visibilitySelection.source,
+    visibility_requested: visibilitySelection.requested,
+    visibility_reason: visibilitySelection.reason,
+    purpose: typeof purpose === "string" ? purpose : "",
     timeout_seconds: jobTimeout,
     last_updated: now,
     tasks: resolvedTasks.map((resolved, i) => ({
@@ -895,6 +1700,13 @@ function handleFanoutStart({ tasks, model, engine, timeout_seconds }) {
       status: "pending",
       engine: resolved.engine,
       model: resolved.model,
+      model_source: resolved.modelSource,
+      model_tier: resolved.modelTier,
+      model_ceiling_status: resolved.modelCeilingStatus,
+      effort: resolved.effort,
+      effort_source: resolved.effortSource,
+      speed: resolved.speed,
+      speed_source: resolved.speedSource,
       started_at: null,
       finished_at: null,
       duration_seconds: 0,
@@ -927,12 +1739,17 @@ function handleFanoutStart({ tasks, model, engine, timeout_seconds }) {
 
   const concurrency = Math.max(1, intEnv("MYTHIFY_FANOUT_CONCURRENCY", 3));
   const lines = [
-    `[OK] Fanout job ${jobId} started: ${job.tasks.length} ${job.tasks.length === 1 ? "task" : "tasks"}, concurrency ${concurrency}, timeout ${jobTimeout}s per worker.`,
+    `[OK] Fanout job ${jobId} started: ${job.tasks.length} ${job.tasks.length === 1 ? "task" : "tasks"}, concurrency ${concurrency}, ceiling ${job.spawn_ceiling}, visibility ${job.visibility}, timeout ${jobTimeout}s per worker.`,
   ];
-  for (const task of job.tasks) {
-    lines.push(
-      `[ ] ${task.id}. ${task.title} (engine: ${task.engine}${task.model !== "" ? `, model: ${task.model}` : ""})`
-    );
+  lines.push(visibilityGuidance(job.visibility));
+  if (job.visibility === "quiet") {
+    lines.push("Worker list suppressed by quiet visibility; use fanout_status for aggregate progress.");
+  } else {
+    for (const task of job.tasks) {
+      lines.push(
+        `[ ] ${task.id}. ${task.title} (engine: ${task.engine}${task.model !== "" ? `, model: ${task.model}` : ""}, effort: ${task.effort}, speed: ${task.speed})`
+      );
+    }
   }
   lines.push(
     "Workers run in the background inside this MCP server process; if the server dies, " +
@@ -960,31 +1777,48 @@ function handleFanoutStatus({ job_id }) {
     counts[task.status] = (counts[task.status] || 0) + 1;
   }
   const lines = [
-    `[OK] Fanout job ${job.id} (engine: ${job.engine}${job.model ? `, model: ${job.model}` : ""}, timeout ${job.timeout_seconds}s per worker, created ${job.created}).`,
+    `[OK] Fanout job ${job.id} (engine: ${job.engine}${job.model ? `, model: ${job.model}` : ""}, effort: ${job.effort || "medium"}, speed: ${job.speed || "auto"}, visibility: ${job.visibility || "summary"}, ceiling ${job.spawn_ceiling || "same_or_lower"}, timeout ${job.timeout_seconds}s per worker, created ${job.created}).`,
   ];
   if (interruptedNote) {
     lines.push(interruptedNote);
   }
+  lines.push(visibilityGuidance(job.visibility || "summary"));
   lines.push(
     `Tasks: ${job.tasks.length} total; ${counts.completed} completed, ${counts.failed} failed, ${counts.running} running, ${counts.pending} pending, ${counts.interrupted} interrupted.`
   );
-  for (const task of job.tasks) {
-    const icon = TASK_STATUS_ICONS[task.status] || "[ ]";
-    let line = `${icon} ${task.id}. ${task.title} (${task.status}; engine: ${task.engine}`;
-    if (task.model) {
-      line += `, model: ${task.model}`;
+  if ((job.visibility || "summary") === "quiet") {
+    const failedTasks = job.tasks.filter((task) => task.status === "failed" && task.error);
+    for (const task of failedTasks) {
+      lines.push(`[!] ${task.id}. ${task.title} failed: ${String(task.error).slice(0, 500)}`);
     }
-    if (task.status === "running" && task.started_at) {
-      const elapsed = Math.max(0, (Date.now() - Date.parse(task.started_at)) / 1000);
-      line += `, elapsed ${elapsed.toFixed(1)}s`;
-    } else if (typeof task.duration_seconds === "number" && task.duration_seconds > 0) {
-      line += `, ${task.duration_seconds.toFixed(1)}s`;
+  } else {
+    for (const task of job.tasks) {
+      const icon = TASK_STATUS_ICONS[task.status] || "[ ]";
+      let line = `${icon} ${task.id}. ${task.title} (${task.status}; engine: ${task.engine}`;
+      if (task.model) {
+        line += `, model: ${task.model}`;
+      }
+      if (task.model_tier) {
+        line += `, tier: ${task.model_tier}`;
+      }
+      if (task.effort) {
+        line += `, effort: ${task.effort}`;
+      }
+      if (task.speed) {
+        line += `, speed: ${task.speed}`;
+      }
+      if (task.status === "running" && task.started_at) {
+        const elapsed = Math.max(0, (Date.now() - Date.parse(task.started_at)) / 1000);
+        line += `, elapsed ${elapsed.toFixed(1)}s`;
+      } else if (typeof task.duration_seconds === "number" && task.duration_seconds > 0) {
+        line += `, ${task.duration_seconds.toFixed(1)}s`;
+      }
+      line += ")";
+      if (task.status === "failed" && task.error) {
+        line += `\n    error: ${String(task.error).slice(0, 500)}`;
+      }
+      lines.push(line);
     }
-    line += ")";
-    if (task.status === "failed" && task.error) {
-      line += `\n    error: ${String(task.error).slice(0, 500)}`;
-    }
-    lines.push(line);
   }
   if (counts.pending + counts.running === 0) {
     lines.push("All tasks finished. Collect outputs with fanout_results.");
@@ -1030,6 +1864,7 @@ function handleFanoutResults({ job_id, task_id }) {
   if (interruptedNote) {
     lines.push(interruptedNote);
   }
+  lines.push(visibilityGuidance(job.visibility || "summary"));
   if (unfinishedCount > 0) {
     lines.push(
       `[WARN] ${unfinishedCount} ${unfinishedCount === 1 ? "task is" : "tasks are"} still running or pending; check fanout_status and call fanout_results again once they finish.`
@@ -1043,7 +1878,7 @@ function handleFanoutResults({ job_id, task_id }) {
   for (const task of finished) {
     lines.push("");
     lines.push(
-      `=== Task ${task.id}: ${task.title} (${task.status}, ${typeof task.duration_seconds === "number" ? task.duration_seconds.toFixed(1) : "0.0"}s, engine: ${task.engine}${task.model ? `, model: ${task.model}` : ""}) ===`
+      `=== Task ${task.id}: ${task.title} (${task.status}, ${typeof task.duration_seconds === "number" ? task.duration_seconds.toFixed(1) : "0.0"}s, engine: ${task.engine}${task.model ? `, model: ${task.model}` : ""}${task.model_tier ? `, tier: ${task.model_tier}` : ""}${task.effort ? `, effort: ${task.effort}` : ""}${task.speed ? `, speed: ${task.speed}` : ""}) ===`
     );
     if (task.status === "failed" && task.error) {
       lines.push(`[FAIL] ${task.error}`);
@@ -1092,6 +1927,7 @@ export function registerFanoutTools(server, deps) {
       description:
         "Start a one-shot parallel delegation job: declare a list of tasks once and the server spawns, sequences, and collects background workers for you, returning a job id immediately. " +
         "Every task MUST be fully independent and self-contained: each one is a fresh model invocation with no memory of this conversation and no access to other tasks' outputs, and each one costs real money or subscription quota. " +
+        "Visibility defaults to summary, can be quiet, verbose, or threaded, and can be inferred from the purpose or task prompts when set to auto. Threaded means request visible host threads only when the host supports them. " +
         "Use this to parallelize independent subtasks (drafting sections, analyzing separate files, generating variants) during long work; afterwards merge the results yourself and verify the merged work with verify_run, because fanout results are material, not verification.",
       inputSchema: {
         tasks: z
@@ -1117,12 +1953,30 @@ export function registerFanoutTools(server, deps) {
                 .string()
                 .optional()
                 .describe(
-                  "Per-task engine override (claude-cli, anthropic, openai, or command); beats the job engine and MYTHIFY_FANOUT_ENGINE."
+                  "Per-task engine override (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); beats the job engine and MYTHIFY_FANOUT_ENGINE."
+                ),
+              effort: z
+                .enum(EFFORT_LEVELS)
+                .optional()
+                .describe(
+                  "Per-task effort override: auto, low, medium, or high. Beats the job effort and MYTHIFY_FANOUT_EFFORT."
+                ),
+              speed: z
+                .enum(SPEED_LEVELS)
+                .optional()
+                .describe(
+                  "Per-task speed override: auto, standard, or fast. Beats the job speed and MYTHIFY_FANOUT_SPEED."
                 ),
             })
           )
           .describe(
             "1 to MYTHIFY_FANOUT_MAX_TASKS fully independent tasks. Each task is a fresh model call that costs real money or subscription quota."
+          ),
+        purpose: z
+          .string()
+          .optional()
+          .describe(
+            "Optional original user request or reason for spawning workers. Used only to infer visibility when visibility is auto or omitted."
           ),
         model: z
           .string()
@@ -1132,7 +1986,37 @@ export function registerFanoutTools(server, deps) {
           .string()
           .optional()
           .describe(
-            "Default engine for every task (claude-cli, anthropic, openai, or command); per-task engine overrides it. Omit to auto-detect."
+            "Default engine for every task (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); per-task engine overrides it. Omit to auto-detect."
+          ),
+        effort: z
+          .enum(EFFORT_LEVELS)
+          .optional()
+          .describe(
+            "Default effort for every task: auto, low, medium, or high. Per-task effort overrides it. Defaults to MYTHIFY_FANOUT_EFFORT or a model-derived default."
+          ),
+        speed: z
+          .enum(SPEED_LEVELS)
+          .optional()
+          .describe(
+            "Default speed for every task: auto, standard, or fast. Per-task speed overrides it. Auto preserves platform defaults; fast enables Codex fast mode where supported."
+          ),
+        visibility: z
+          .enum(FANOUT_VISIBILITY_MODES)
+          .optional()
+          .describe(
+            "How much worker activity the host should surface in the user chat: auto, quiet, summary, verbose, or threaded. Omit for auto inference, which defaults to summary unless the purpose or task prompts ask otherwise."
+          ),
+        session_model: z
+          .string()
+          .optional()
+          .describe(
+            "Current host session model used to enforce spawn_ceiling. Defaults to MYTHIFY_SESSION_MODEL."
+          ),
+        spawn_ceiling: z
+          .enum(SPAWN_CEILINGS)
+          .optional()
+          .describe(
+            "Maximum spawned model tier relative to session_model: auto, lower_only, same_or_lower, or allow_stronger. Defaults to MYTHIFY_SPAWN_CEILING or same_or_lower."
           ),
         timeout_seconds: z
           .number()
@@ -1151,7 +2035,7 @@ export function registerFanoutTools(server, deps) {
     {
       title: "Show fanout job status",
       description:
-        "Show a fanout job's progress: per-task status icons with engine, model, and elapsed time, plus overall counts. Defaults to the most recent job. " +
+        "Show a fanout job's progress: per-task status icons with engine, model, model tier, effort, speed, and elapsed time, plus overall counts. Defaults to the most recent job. " +
         "Use this after fanout_start to monitor the background workers and to decide when fanout_results is worth calling. " +
         "If the server restarted since the job was started, its unfinished tasks are reported as interrupted, because background workers die with the server process.",
       inputSchema: {

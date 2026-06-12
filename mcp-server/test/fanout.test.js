@@ -1,8 +1,8 @@
 // Fanout smoke tests for the Mythify MCP server (docs/design.md, "Fanout:
 // parallel delegation"). Every scenario runs offline inside temp MYTHIFY_DIR
 // and temp HOME directories: the command engine uses deterministic local node
-// scripts, the claude-cli engine uses stub shell scripts, and the anthropic
-// engine is only checked for its alias-to-ID mapping (no API calls).
+// scripts, the local subscription CLI engines use stub scripts, and the
+// anthropic engine is only checked for its alias-to-ID mapping (no API calls).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -86,7 +86,7 @@ async function startServer(extraEnv, stateDir, homeDir) {
     args: [SERVER_PATH],
     env: { ...scrubbedEnv(), MYTHIFY_DIR: stateDir, HOME: homeDir, ...extraEnv },
   });
-  const client = new Client({ name: "mythify-fanout-test", version: "2.1.0" });
+  const client = new Client({ name: "mythify-fanout-test", version: "2.4.0" });
   await client.connect(transport);
   return client;
 }
@@ -158,6 +158,8 @@ test("fanout with the command engine", async (t) => {
       );
       const startElapsedMs = Date.now() - before;
       assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+      assert.match(started, /visibility summary/, "fanout_start defaults to summary visibility");
+      assert.match(started, /Chat visibility: summary/, "fanout_start explains summary visibility");
       threeTaskJobId = jobIdOf(started);
       assert.ok(
         startElapsedMs < 1200,
@@ -169,6 +171,7 @@ test("fanout with the command engine", async (t) => {
       );
       assert.ok(firstStatus.startsWith("[OK]"), `status reports [OK]: ${firstStatus}`);
       assert.match(firstStatus, /engine: command/, "status reports the engine");
+      assert.match(firstStatus, /visibility: summary/, "status reports summary visibility");
 
       const finalStatus = await waitForAllFinished(client, threeTaskJobId);
       assert.match(finalStatus, /3 completed, 0 failed/, "all three tasks completed");
@@ -190,6 +193,60 @@ test("fanout with the command engine", async (t) => {
       assert.ok(results.includes("beta deliverable 222"), "task 2 prompt reached its worker");
       assert.ok(results.includes("gamma deliverable 333"), "task 3 prompt reached its worker");
       assert.match(results, /delegated worker/, "the fixed preamble reached the workers");
+      const job = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "fanout", threeTaskJobId, "job.json"), "utf8")
+      );
+      assert.equal(job.visibility, "summary");
+      assert.equal(job.visibility_source, "default");
+    });
+
+    await t.test("fanout visibility can infer quiet or use explicit verbose", async () => {
+      const quietStarted = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: {
+            purpose: "Run these workers quietly in the background and do not show worker details.",
+            tasks: [
+              { title: "Quiet Alpha", prompt: "alpha quiet deliverable" },
+              { title: "Quiet Beta", prompt: "beta quiet deliverable" },
+            ],
+          },
+        })
+      );
+      assert.match(quietStarted, /visibility quiet/, "purpose infers quiet visibility");
+      assert.match(quietStarted, /Worker list suppressed/, "quiet start suppresses the worker list");
+      assert.doesNotMatch(quietStarted, /Quiet Alpha/, "quiet start omits individual task titles");
+      const quietJobId = jobIdOf(quietStarted);
+      await waitForAllFinished(client, quietJobId);
+      const quietStatus = textOf(
+        await client.callTool({ name: "fanout_status", arguments: { job_id: quietJobId } })
+      );
+      assert.match(quietStatus, /visibility: quiet/, "quiet status reports the mode");
+      assert.doesNotMatch(quietStatus, /Quiet Alpha/, "quiet status omits individual task titles");
+      const quietJob = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "fanout", quietJobId, "job.json"), "utf8")
+      );
+      assert.equal(quietJob.visibility, "quiet");
+      assert.equal(quietJob.visibility_source, "prompt");
+
+      const verboseStarted = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: {
+            purpose: "Run this quietly.",
+            visibility: "verbose",
+            tasks: [{ title: "Verbose override", prompt: "show details for this worker" }],
+          },
+        })
+      );
+      assert.match(verboseStarted, /visibility verbose/, "explicit visibility beats purpose inference");
+      const verboseJobId = jobIdOf(verboseStarted);
+      await waitForAllFinished(client, verboseJobId);
+      const verboseJob = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "fanout", verboseJobId, "job.json"), "utf8")
+      );
+      assert.equal(verboseJob.visibility, "verbose");
+      assert.equal(verboseJob.visibility_source, "explicit");
     });
 
     await t.test("context_paths content demonstrably reaches the worker prompt", async () => {
@@ -221,6 +278,134 @@ test("fanout with the command engine", async (t) => {
         results.includes("Summarize the supplied context."),
         "the task prompt follows the context block"
       );
+    });
+
+    await t.test("per-task effort overrides job effort and reaches the worker prompt", async () => {
+      const started = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: {
+            effort: "low",
+            speed: "standard",
+            tasks: [
+              {
+                title: "Effort check",
+                prompt: "Show the effort marker.",
+                effort: "high",
+                speed: "fast",
+              },
+            ],
+          },
+        })
+      );
+      const jobId = jobIdOf(started);
+      await waitForAllFinished(client, jobId);
+      const job = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+      );
+      assert.equal(job.effort, "low", "the job effort records the job default");
+      assert.equal(job.effort_source, "job");
+      assert.equal(job.speed, "standard", "the job speed records the job default");
+      assert.equal(job.speed_source, "job");
+      assert.equal(job.tasks[0].effort, "high", "the task effort records the override");
+      assert.equal(job.tasks[0].effort_source, "task");
+      assert.equal(job.tasks[0].speed, "fast", "the task speed records the override");
+      assert.equal(job.tasks[0].speed_source, "task");
+      const results = textOf(
+        await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+      );
+      assert.match(results, /Requested effort: high/, "worker prompt includes the task effort");
+      assert.match(results, /effort: high/, "result header includes the task effort");
+      assert.match(results, /Requested speed: fast/, "worker prompt includes the task speed");
+      assert.match(results, /speed: fast/, "result header includes the task speed");
+    });
+
+    await t.test("spawn ceiling refuses stronger explicit worker models by default", async () => {
+      const refused = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: {
+            session_model: "haiku",
+            tasks: [
+              {
+                title: "Too strong",
+                prompt: "This should not run.",
+                model: "opus",
+              },
+            ],
+          },
+        })
+      );
+      assert.ok(refused.startsWith("[FAIL]"), `stronger worker refuses: ${refused}`);
+      assert.match(refused, /exceeds session model/, "the refusal explains the ceiling");
+      assert.match(refused, /allow_stronger/, "the refusal names the opt-in");
+
+      const allowed = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: {
+            session_model: "haiku",
+            spawn_ceiling: "allow_stronger",
+            tasks: [
+              {
+                title: "Allowed strong",
+                prompt: "This stronger worker is explicitly allowed.",
+                model: "opus",
+              },
+            ],
+          },
+        })
+      );
+      assert.ok(allowed.startsWith("[OK]"), `allow_stronger starts the job: ${allowed}`);
+      const jobId = jobIdOf(allowed);
+      await waitForAllFinished(client, jobId);
+      const job = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+      );
+      assert.equal(job.session_model, "haiku");
+      assert.equal(job.session_model_tier, "fast");
+      assert.equal(job.spawn_ceiling, "allow_stronger");
+      assert.equal(job.tasks[0].model, "opus");
+      assert.equal(job.tasks[0].model_tier, "frontier");
+      assert.equal(job.tasks[0].model_ceiling_status, "allowed_stronger");
+    });
+
+    await t.test("recorded host model is used as the session model by default", async () => {
+      const hostModelFile = path.join(stateDir, "host-model.json");
+      fs.writeFileSync(
+        hostModelFile,
+        JSON.stringify(
+          {
+            platform: "claude-desktop",
+            target_model: "haiku",
+            target_model_tier: "fast",
+            status: "recorded_requires_host_action",
+          },
+          null,
+          2
+        )
+      );
+      try {
+        const refused = textOf(
+          await client.callTool({
+            name: "fanout_start",
+            arguments: {
+              tasks: [
+                {
+                  title: "Recorded host ceiling",
+                  prompt: "This should not run.",
+                  model: "opus",
+                },
+              ],
+            },
+          })
+        );
+        assert.ok(refused.startsWith("[FAIL]"), `recorded host ceiling refuses: ${refused}`);
+        assert.match(refused, /session model "haiku"/, "the recorded host model is used");
+        assert.match(refused, /allow_stronger/, "the refusal names the opt-in");
+      } finally {
+        fs.rmSync(hostModelFile, { force: true });
+      }
     });
 
     await t.test("an unreadable context path refuses at validation time", async () => {
@@ -271,12 +456,54 @@ test("fanout with the command engine", async (t) => {
       const job = JSON.parse(fs.readFileSync(jobPath, "utf8"));
       assert.deepEqual(
         Object.keys(job).sort(),
-        ["created", "engine", "id", "last_updated", "model", "tasks", "timeout_seconds"],
+        [
+          "created",
+          "effort",
+          "effort_source",
+          "engine",
+          "id",
+          "last_updated",
+          "model",
+          "model_ceiling_status",
+          "model_source",
+          "model_tier",
+          "purpose",
+          "session_model",
+          "session_model_source",
+          "session_model_tier",
+          "spawn_ceiling",
+          "spawn_ceiling_source",
+          "speed",
+          "speed_source",
+          "tasks",
+          "timeout_seconds",
+          "visibility",
+          "visibility_reason",
+          "visibility_requested",
+          "visibility_source",
+        ],
         "job.json has the exact top-level contract fields"
       );
       assert.equal(job.id, threeTaskJobId);
       assert.equal(job.engine, "command");
       assert.equal(typeof job.model, "string");
+      assert.equal(job.model_tier, "unknown");
+      assert.equal(job.model_ceiling_status, "uncheckable");
+      assert.equal(job.model_source, "command_default");
+      assert.equal(job.session_model, "");
+      assert.equal(job.session_model_source, "unknown");
+      assert.equal(job.session_model_tier, "unknown");
+      assert.equal(job.spawn_ceiling, "same_or_lower");
+      assert.equal(job.spawn_ceiling_source, "default");
+      assert.equal(job.effort, "medium");
+      assert.equal(job.effort_source, "model_default");
+      assert.equal(job.speed, "auto");
+      assert.equal(job.speed_source, "platform_default");
+      assert.equal(job.visibility, "summary");
+      assert.equal(job.visibility_source, "default");
+      assert.equal(job.visibility_requested, "auto");
+      assert.equal(typeof job.visibility_reason, "string");
+      assert.equal(job.purpose, "");
       assert.equal(job.timeout_seconds, 600, "the per-worker timeout defaults to 600");
       assert.equal(typeof job.created, "string");
       assert.equal(typeof job.last_updated, "string");
@@ -288,13 +515,20 @@ test("fanout with the command engine", async (t) => {
           Object.keys(task).sort(),
           [
             "duration_seconds",
+            "effort",
+            "effort_source",
             "engine",
             "error",
             "finished_at",
             "id",
             "model",
+            "model_ceiling_status",
+            "model_source",
+            "model_tier",
             "output_bytes",
             "output_file",
+            "speed",
+            "speed_source",
             "started_at",
             "status",
             "title",
@@ -306,6 +540,13 @@ test("fanout with the command engine", async (t) => {
         assert.equal(task.status, "completed");
         assert.equal(task.engine, "command");
         assert.equal(typeof task.model, "string");
+        assert.equal(task.model_tier, "unknown");
+        assert.equal(task.model_ceiling_status, "uncheckable");
+        assert.equal(task.model_source, "command_default");
+        assert.equal(task.effort, "medium");
+        assert.equal(task.effort_source, "model_default");
+        assert.equal(task.speed, "auto");
+        assert.equal(task.speed_source, "platform_default");
         assert.equal(typeof task.started_at, "string");
         assert.equal(typeof task.finished_at, "string");
         assert.ok(
@@ -402,17 +643,103 @@ test("the depth guard refuses nested fanout_start", async () => {
 // Stub claude binary: asserts its own argv, reports whether the context block
 // reached stdin, and dumps selected environment variables into the claude-style
 // JSON result so the test can assert the curated worker environment.
-function writeClaudeStub(filePath, expectedModel, contextMarker) {
+function writeClaudeStub(filePath, expectedModel, expectedEffort, contextMarker) {
   const script = `#!/bin/sh
 PROMPT=$(cat)
 args_ok=yes
 case " $* " in *" -p "*) ;; *) args_ok=no ;; esac
 case " $* " in *" --output-format json "*) ;; *) args_ok=no ;; esac
 case " $* " in *" --model ${expectedModel} "*) ;; *) args_ok=no ;; esac
+case " $* " in *" --effort ${expectedEffort} "*) ;; *) args_ok=no ;; esac
 case " $* " in *" --max-turns "*) ;; *) args_ok=no ;; esac
 ctx=no
 case "$PROMPT" in *"${contextMarker}"*) ctx=yes ;; esac
-printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_ENTRYPOINT=%s CLAUDE_CODE_OAUTH_TOKEN=%s MYTHIFY_FANOUT_DEPTH=%s MYTHIFY_DISABLE_FANOUT=%s TERM=%s","is_error":false}\\n' "$args_ok" "$ctx" "\${CLAUDECODE:-__unset__}" "\${ANTHROPIC_BASE_URL:-__unset__}" "\${CLAUDE_CODE_ENTRYPOINT:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:-__unset__}" "\${MYTHIFY_FANOUT_DEPTH:-__unset__}" "\${MYTHIFY_DISABLE_FANOUT:-__unset__}" "\${TERM:-__unset__}"
+printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_ENTRYPOINT=%s CLAUDE_CODE_OAUTH_TOKEN=%s USER=%s MYTHIFY_FANOUT_DEPTH=%s MYTHIFY_DISABLE_FANOUT=%s TERM=%s","is_error":false}\\n' "$args_ok" "$ctx" "\${CLAUDECODE:-__unset__}" "\${ANTHROPIC_BASE_URL:-__unset__}" "\${CLAUDE_CODE_ENTRYPOINT:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:-__unset__}" "\${USER:-__unset__}" "\${MYTHIFY_FANOUT_DEPTH:-__unset__}" "\${MYTHIFY_DISABLE_FANOUT:-__unset__}" "\${TERM:-__unset__}"
+`;
+  fs.writeFileSync(filePath, script, { mode: 0o755 });
+}
+
+function writeCodexStub(filePath, expectedModel, contextMarker, expectedSpeed = "auto") {
+  const speedChecks =
+    expectedSpeed === "fast"
+      ? [
+          'args.includes("-c") && args.includes(\'service_tier="fast"\')',
+          'args.includes("-c") && args.includes("features.fast_mode=true")',
+        ]
+      : expectedSpeed === "standard"
+        ? ['args.includes("-c") && args.includes("features.fast_mode=false")']
+        : [];
+  const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+let prompt = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { prompt += chunk; });
+process.stdin.on("end", () => {
+  const outputIndex = args.indexOf("--output-last-message");
+  const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : "";
+  const checks = [
+    args[0] === "--ask-for-approval",
+    args[1] === "never",
+    args[2] === "exec",
+    args.includes("--cd"),
+    args.includes("--sandbox") && args[args.indexOf("--sandbox") + 1] === "read-only",
+    args.includes("--skip-git-repo-check"),
+    args.includes("--ephemeral"),
+    args.includes("--color") && args[args.indexOf("--color") + 1] === "never",
+    outputFile !== "",
+    args.includes("--model") && args[args.indexOf("--model") + 1] === "${expectedModel}",
+    ${speedChecks.length > 0 ? speedChecks.join(",\n    ") + "," : ""}
+    args[args.length - 1] === "-",
+  ];
+  const argsOk = checks.every(Boolean) ? "yes" : "no";
+  const ctx = prompt.includes("${contextMarker}") ? "yes" : "no";
+  const result = "STUB-CODEX args_ok=" + argsOk +
+    " ctx=" + ctx +
+    " OPENAI_API_KEY=" + (process.env.OPENAI_API_KEY || "__unset__") +
+    " CODEX_HOME=" + (process.env.CODEX_HOME || "__unset__") +
+    " MYTHIFY_FANOUT_DEPTH=" + (process.env.MYTHIFY_FANOUT_DEPTH || "__unset__") +
+    " MYTHIFY_DISABLE_FANOUT=" + (process.env.MYTHIFY_DISABLE_FANOUT || "__unset__") +
+    " TERM=" + (process.env.TERM || "__unset__") + "\\n";
+  if (outputFile !== "") {
+    fs.writeFileSync(outputFile, result);
+  } else {
+    process.stdout.write(result);
+  }
+});
+`;
+  fs.writeFileSync(filePath, script, { mode: 0o755 });
+}
+
+function writeCursorStub(filePath, expectedModel, contextMarker) {
+  const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "models") {
+  process.stdout.write("Available models\\n\\ngpt-5.3-codex - Codex 5.3\\n${expectedModel} - Expected Model\\n");
+  process.exit(0);
+}
+const instruction = args[args.length - 1] || "";
+const match = instruction.match(/file: ([^\\n]+)/);
+const promptFile = match ? match[1] : "";
+const prompt = promptFile ? fs.readFileSync(promptFile, "utf8") : "";
+const checks = [
+  args.includes("--print"),
+  args.includes("--output-format") && args[args.indexOf("--output-format") + 1] === "text",
+  args.includes("--trust"),
+  args.includes("--workspace"),
+  args.includes("--mode") && args[args.indexOf("--mode") + 1] === "ask",
+  args.includes("--model") && args[args.indexOf("--model") + 1] === "${expectedModel}",
+  promptFile !== "",
+];
+const argsOk = checks.every(Boolean) ? "yes" : "no";
+const ctx = prompt.includes("${contextMarker}") ? "yes" : "no";
+process.stdout.write("STUB-CURSOR args_ok=" + argsOk +
+  " ctx=" + ctx +
+  " CURSOR_API_KEY=" + (process.env.CURSOR_API_KEY || "__unset__") +
+  " MYTHIFY_FANOUT_DEPTH=" + (process.env.MYTHIFY_FANOUT_DEPTH || "__unset__") +
+  " MYTHIFY_DISABLE_FANOUT=" + (process.env.MYTHIFY_DISABLE_FANOUT || "__unset__") +
+  " TERM=" + (process.env.TERM || "__unset__") + "\\n");
 `;
   fs.writeFileSync(filePath, script, { mode: 0o755 });
 }
@@ -422,7 +749,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
   const contextMarker = "CONTEXT-MARKER-claude-91b4";
   fs.writeFileSync(path.join(projectRoot, "ctx.txt"), `stub context body\n${contextMarker}\n`);
   const stubPath = path.join(root, "claude-stub.sh");
-  writeClaudeStub(stubPath, "sonnet", contextMarker);
+  writeClaudeStub(stubPath, "sonnet", "high", contextMarker);
   const client = await startServer(
     {
       MYTHIFY_FANOUT_ENGINE: "claude-cli",
@@ -433,6 +760,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
       ANTHROPIC_BASE_URL: "http://127.0.0.1:9/should-not-pass",
       // The one credential that MUST pass through.
       CLAUDE_CODE_OAUTH_TOKEN: "stub-oauth-token-123",
+      USER: "stub-user",
     },
     stateDir,
     homeDir
@@ -449,6 +777,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
               prompt: "Do the stub thing.",
               context_paths: ["ctx.txt"],
               model: "sonnet",
+              effort: "high",
             },
           ],
         },
@@ -465,7 +794,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
     assert.ok(results.includes("STUB-CLAUDE"), "the parsed claude JSON result is returned");
     assert.ok(
       results.includes("args_ok=yes"),
-      "argv contains -p, --output-format json, --model sonnet (per-task beats per-job), and --max-turns"
+      "argv contains -p, --output-format json, --model sonnet, --effort high, and --max-turns"
     );
     assert.ok(results.includes("ctx=yes"), "the context block reached the worker over stdin");
     assert.ok(results.includes("CLAUDECODE=__unset__"), "CLAUDECODE is not passed through");
@@ -481,6 +810,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
       results.includes("CLAUDE_CODE_OAUTH_TOKEN=stub-oauth-token-123"),
       "CLAUDE_CODE_OAUTH_TOKEN passes through for subscription auth"
     );
+    assert.ok(results.includes("USER=stub-user"), "USER passes through for desktop auth");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
     assert.ok(
       results.includes("MYTHIFY_DISABLE_FANOUT=1"),
@@ -493,6 +823,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
     );
     assert.equal(job.tasks[0].engine, "claude-cli");
     assert.equal(job.tasks[0].model, "sonnet", "the per-task model overrides the job model");
+    assert.equal(job.tasks[0].effort, "high", "the per-task effort is recorded");
     assert.equal(job.model, "haiku", "the job-level model is recorded");
   } finally {
     await client.close();
@@ -537,6 +868,254 @@ test("claude-cli auth failure reports the login remediation", async () => {
       /CLAUDE_CODE_OAUTH_TOKEN/,
       "the remediation names CLAUDE_CODE_OAUTH_TOKEN"
     );
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codex-cli engine drives a stub binary with local-login environment", async () => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-codex-");
+  const contextMarker = "CONTEXT-MARKER-codex-4d15";
+  fs.writeFileSync(path.join(projectRoot, "ctx.txt"), `codex context body\n${contextMarker}\n`);
+  const stubPath = path.join(root, "codex-stub.js");
+  const codexHome = path.join(root, "codex-home");
+  fs.mkdirSync(codexHome, { recursive: true });
+  writeCodexStub(stubPath, "gpt-5", contextMarker, "fast");
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "codex-cli",
+      MYTHIFY_FANOUT_CODEX_BIN: stubPath,
+      CODEX_HOME: codexHome,
+      OPENAI_API_KEY: "should-not-pass",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          tasks: [
+            {
+              title: "Codex stub task",
+              prompt: "Do the codex stub thing.",
+              context_paths: ["ctx.txt"],
+              model: "gpt-5",
+              speed: "fast",
+            },
+          ],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("STUB-CODEX"), "the codex stub output is returned");
+    assert.ok(results.includes("args_ok=yes"), "codex exec argv matches the contract");
+    assert.ok(results.includes("ctx=yes"), "the context block reached codex over stdin");
+    assert.ok(results.includes("OPENAI_API_KEY=__unset__"), "API key env does not pass through");
+    assert.ok(results.includes(`CODEX_HOME=${codexHome}`), "CODEX_HOME passes through for local auth");
+    assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
+    assert.ok(
+      results.includes("MYTHIFY_DISABLE_FANOUT=1"),
+      "the kill switch is set on the worker"
+    );
+
+    const job = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+    );
+    assert.equal(job.tasks[0].engine, "codex-cli");
+    assert.equal(job.tasks[0].model, "gpt-5");
+    assert.equal(job.tasks[0].speed, "fast");
+    assert.equal(job.tasks[0].speed_source, "task");
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cursor-agent engine drives a stub binary with local-login environment", async () => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-cursor-");
+  const contextMarker = "CONTEXT-MARKER-cursor-b261";
+  fs.writeFileSync(path.join(projectRoot, "ctx.txt"), `cursor context body\n${contextMarker}\n`);
+  const stubPath = path.join(root, "cursor-agent-stub.js");
+  writeCursorStub(stubPath, "gpt-5.3-codex-high-fast", contextMarker);
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "cursor-agent",
+      MYTHIFY_FANOUT_CURSOR_BIN: stubPath,
+      MYTHIFY_FANOUT_CURSOR_MODELS:
+        "gpt-5.3-codex gpt-5.3-codex-high gpt-5.3-codex-high-fast",
+      CURSOR_API_KEY: "should-not-pass",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          tasks: [
+            {
+              title: "Cursor stub task",
+              prompt: "Do the cursor stub thing.",
+              context_paths: ["ctx.txt"],
+              model: "gpt-5.3-codex",
+              effort: "high",
+              speed: "fast",
+            },
+          ],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("STUB-CURSOR"), "the cursor stub output is returned");
+    assert.ok(results.includes("args_ok=yes"), "cursor-agent argv matches the contract");
+    assert.ok(results.includes("ctx=yes"), "the prompt file contains the assembled prompt");
+    assert.ok(results.includes("CURSOR_API_KEY=__unset__"), "API key env does not pass through");
+    assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
+    assert.ok(
+      results.includes("MYTHIFY_DISABLE_FANOUT=1"),
+      "the kill switch is set on the worker"
+    );
+
+    const job = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+    );
+    assert.equal(job.tasks[0].engine, "cursor-agent");
+    assert.equal(job.tasks[0].model, "gpt-5.3-codex-high-fast");
+    assert.equal(job.tasks[0].effort, "high");
+    assert.equal(job.tasks[0].speed, "fast");
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cursor-agent resolver prefers user-local agent before stale PATH agent", async () => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-cursor-prefer-");
+  const contextMarker = "CONTEXT-MARKER-cursor-prefer-6a84";
+  fs.writeFileSync(path.join(projectRoot, "ctx.txt"), `cursor context body\n${contextMarker}\n`);
+  const userLocalBin = path.join(homeDir, ".local", "bin");
+  fs.mkdirSync(userLocalBin, { recursive: true });
+  const preferredStub = path.join(userLocalBin, "cursor-agent");
+  writeCursorStub(preferredStub, "gpt-5.3-codex-low-fast", contextMarker);
+  const staleBin = path.join(root, "stale-bin");
+  fs.mkdirSync(staleBin, { recursive: true });
+  fs.writeFileSync(
+    path.join(staleBin, "cursor-agent"),
+    "#!/bin/sh\necho stale cursor-agent >&2\nexit 42\n",
+    { mode: 0o755 }
+  );
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "cursor-agent",
+      PATH: `${staleBin}${path.delimiter}${process.env.PATH || ""}`,
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          tasks: [
+            {
+              title: "Cursor preferred binary task",
+              prompt: "Do the cursor preferred binary thing.",
+              context_paths: ["ctx.txt"],
+              model: "gpt-5.3-codex",
+              effort: "low",
+              speed: "fast",
+            },
+          ],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("STUB-CURSOR"), "the user-local cursor-agent stub ran");
+    assert.ok(!results.includes("stale cursor-agent"), "the stale PATH cursor-agent was not used");
+
+    const job = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+    );
+    assert.equal(job.tasks[0].model, "gpt-5.3-codex-low-fast");
+    assert.equal(job.tasks[0].effort, "low");
+    assert.equal(job.tasks[0].speed, "fast");
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("auto-detection prefers local CLIs before API engines", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-fanout-auto-");
+  const binDir = path.join(root, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const codexPath = path.join(binDir, "codex");
+  fs.writeFileSync(
+    codexPath,
+    `#!/bin/sh
+OUT=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then
+    shift
+    OUT="$1"
+  fi
+  shift
+done
+cat > /dev/null
+printf 'AUTO-CODEX\\n' > "$OUT"
+`,
+    { mode: 0o755 }
+  );
+  const client = await startServer(
+    {
+      PATH: binDir,
+      MYTHIFY_FANOUT_CLAUDE_BIN: path.join(root, "missing-claude"),
+      ANTHROPIC_API_KEY: "should-not-use-when-codex-is-local",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: { tasks: [{ title: "Auto", prompt: "Use the local engine." }] },
+      })
+    );
+    assert.ok(started.includes("engine: codex-cli"), "auto-detection chose local codex");
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("AUTO-CODEX"), "the local codex stub produced the result");
+    const job = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+    );
+    assert.equal(job.engine, "codex-cli");
   } finally {
     await client.close();
     fs.rmSync(root, { recursive: true, force: true });

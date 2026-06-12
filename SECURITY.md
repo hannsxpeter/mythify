@@ -31,14 +31,18 @@ Some behavior is by design and is not a vulnerability:
   commands. That is the feature: verification means running real commands and
   recording real exit codes. The commands run with the privileges of whoever
   runs the CLI or the MCP server.
-- `fanout_start` (MCP tool) spawns local worker processes (the `claude-cli`
-  and `command` engines) or makes outbound API calls (the `anthropic` and
-  `openai` engines). That is the parallel-delegation feature. `claude-cli`
-  workers get a curated environment (`HOME`, `TERM`, an augmented `PATH`, and
-  `CLAUDE_CODE_OAUTH_TOKEN` when set), never the rest of the server's
-  environment. `command` engine workers run a command you configured yourself
-  and inherit the server's environment, so what they can see is up to you.
-  Both kinds carry the depth-guard variables that prevent nested fanout.
+- `fanout_start` (MCP tool) spawns local worker processes (the `claude-cli`,
+  `codex-cli`, `cursor-agent`, and `command` engines) or makes outbound API
+  calls (the `anthropic` and `openai` engines). That is the
+  parallel-delegation feature. `claude-cli` workers get a curated environment
+  (`HOME`, `TERM`, an augmented `PATH`, and `CLAUDE_CODE_OAUTH_TOKEN` when
+  set), never the rest of the server's environment. `codex-cli` and
+  `cursor-agent` workers get a local-login environment (`HOME`, `TERM`, an
+  augmented `PATH`, `CODEX_HOME` or `XDG_CONFIG_HOME` when set, and the fanout
+  guards); API-key env vars are not passed through by default. `command`
+  engine workers run a command you configured yourself and inherit the
+  server's environment, so what they can see is up to you. All local workers
+  carry the depth-guard variables that prevent nested fanout.
 - Mythify is not a sandbox and does not try to be one. It does not restrict
   what a model asks it to run. The boundary is the operating-system user the
   server runs as.
