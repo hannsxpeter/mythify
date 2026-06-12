@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Mythify MCP server v2.0.0
+// Mythify MCP server v2.1.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 12 MCP tools over stdio. On-disk formats are shared with
-// the Python CLI (scripts/mythify.py); both implementations must interoperate
-// on the same .mythify state directory.
+// reflections) as 12 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 15 tools in total. On-disk formats are
+// shared with the Python CLI (scripts/mythify.py); both implementations must
+// interoperate on the same .mythify state directory. Fanout is MCP-only; the
+// CLI deliberately does not implement it.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -13,8 +15,9 @@ import { spawnSync } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { registerFanoutTools } from "./fanout.js";
 
-const VERSION = "2.0.0";
+const VERSION = "2.1.0";
 const TAIL_CHARS = 4000;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
 const STEP_ICONS = {
@@ -908,6 +911,20 @@ server.registerTool(
     return lines.join("\n");
   })
 );
+
+// ---------------------------------------------------------------------------
+// Fanout tools (parallel delegation; implementation in src/fanout.js)
+// ---------------------------------------------------------------------------
+
+registerFanoutTools(server, {
+  resolveStateDir,
+  writeTextAtomic,
+  writeJsonAtomic,
+  readJsonRecover,
+  isoNow,
+  stampNow,
+  guarded,
+});
 
 // ---------------------------------------------------------------------------
 // Startup

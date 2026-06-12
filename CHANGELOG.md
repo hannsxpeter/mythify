@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-12
+
+### Added
+
+- Fanout parallel delegation (MCP only): the orchestrating model declares a
+  one-shot task list and the server spawns, sequences, and collects parallel
+  sub-workers. Three new MCP tools, `fanout_start`, `fanout_status`, and
+  `fanout_results`, bring the server to 15 tools.
+- Four worker engines: subscription-billed `claude-cli` workers (no API key
+  needed), the `anthropic` and `openai` HTTP APIs, and a generic `command`
+  engine that runs any local CLI agent through a shell template.
+- Model selection at three levels, most specific wins: per-task `model`
+  overrides per-job `model` overrides `MYTHIFY_FANOUT_MODEL`. The same
+  precedence applies to engines, so one job can mix models and engines
+  across tasks.
+
 ## [2.0.0] - 2026-06-12
 
 First published release. Mythify 1.x was an unreleased prototype; 2.0.0 is a
@@ -53,5 +69,6 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/aihxp/mythify/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/aihxp/mythify/releases/tag/v2.0.0

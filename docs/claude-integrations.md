@@ -103,6 +103,43 @@ Two Desktop-specific notes:
   execution, add `"MYTHIFY_DISABLE_RUN": "1"` to the `env` block. See
   [SECURITY.md](../SECURITY.md) for the full risk notes.
 
+### Fanout from Claude Desktop
+
+The fanout tools (`fanout_start`, `fanout_status`, `fanout_results`) let
+Desktop delegate parallel subtasks to fresh workers, and with the
+`claude-cli` engine those workers bill against your Claude subscription
+instead of an API key. Desktop usually needs two extra `env` entries that a
+terminal session gets for free:
+
+```json
+{
+  "mcpServers": {
+    "mythify": {
+      "command": "node",
+      "args": ["/absolute/path/to/mythify/mcp-server/src/index.js"],
+      "env": {
+        "MYTHIFY_DIR": "/absolute/path/to/your/project/.mythify",
+        "MYTHIFY_FANOUT_CLAUDE_BIN": "/opt/homebrew/bin/claude",
+        "CLAUDE_CODE_OAUTH_TOKEN": "<output of: claude setup-token>"
+      }
+    }
+  }
+}
+```
+
+Why Desktop needs them:
+
+- `MYTHIFY_FANOUT_CLAUDE_BIN`: Desktop launches MCP servers with a minimal
+  `PATH`, so `claude` often does not resolve. The server falls back to
+  `~/.claude/local/claude`, `/opt/homebrew/bin/claude`, and
+  `/usr/local/bin/claude`; set the variable when your binary lives anywhere
+  else (find it with `which claude` in a terminal).
+- `CLAUDE_CODE_OAUTH_TOKEN`: the server runs outside any terminal login
+  session. If you have run `claude /login` once in a terminal, workers
+  usually inherit that stored credential through `HOME`; otherwise run
+  `claude setup-token` and put the printed token in the `env` block. A worker
+  failure containing `Not logged in` or `401` means exactly this is missing.
+
 ## Running Mythify on smaller models
 
 This is the configuration where Mythify earns its keep. A frontier model has
@@ -148,3 +185,13 @@ Guidance that matters more as the model gets smaller:
 5. Keep the honest framing. Mythify closes the discipline gap, not the
    capability gap. A small model with Mythify completes more multi-step work
    than the same model without it; it does not become a frontier model.
+
+Fanout makes the cheap-model strategy concrete. Run the orchestrating session
+on a strong model and fan the mechanical subtasks (drafting boilerplate,
+summarizing files, generating test cases) to `haiku` workers with
+`fanout_start`: the strong model writes the task list once and the server
+does the spawning and collecting. Models mix per task, since per-task `model`
+overrides the job `model`, which overrides `MYTHIFY_FANOUT_MODEL`, so one job
+can run five haiku drafters and one sonnet reviewer. Merge the results
+yourself and verify the merged work with `verify_run`; worker output is
+material, not evidence.

@@ -27,6 +27,9 @@ const EXPECTED_TOOLS = [
   "verify_run",
   "verify_claim",
   "reflect",
+  "fanout_start",
+  "fanout_status",
+  "fanout_results",
 ];
 
 function textOf(result) {
@@ -49,7 +52,7 @@ test("mythify MCP server smoke test", async (t) => {
   await client.connect(transport);
 
   try {
-    await t.test("tools/list returns exactly the 12 tools", async () => {
+    await t.test("tools/list returns exactly the 15 tools", async () => {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name).sort();
       assert.deepEqual(names, [...EXPECTED_TOOLS].sort());

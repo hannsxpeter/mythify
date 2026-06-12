@@ -18,7 +18,7 @@ capability gap.
 | :--- | :--- | :--- |
 | Protocol variants | `CLAUDE.md`, `AGENTS.md`, `.cursorrules` | Drop-in rules files, generated from `protocol/PROTOCOL.md` by `scripts/build_variants.py`. |
 | CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, memory, lessons, verification, and reflection. |
-| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 12 MCP tools. |
+| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 15 MCP tools, including parallel delegation (fanout). |
 | Skill | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
 
 All components read and write the same per-project `.mythify/` state directory, so
@@ -171,11 +171,11 @@ instead of crashing.
 | `init` | Create `./.mythify` with subdirectories and empty memory.json. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `plan create GOAL [--steps JSON] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. Without `--steps`, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
-| `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0 |
+| `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
 | `plan switch NAME` | Set the active plan pointer. | 0; 1 if not found |
-| `plan archive [NAME]` | Move plan file to `plans/archive/`; clear the active pointer if it pointed there. On filename conflict in archive, append a timestamp. | 0 |
+| `plan archive [NAME]` | Move plan file to `plans/archive/`; clear the active pointer if it pointed there. On filename conflict in archive, append a timestamp. | 0; 1 if plan not found |
 | `step ID STATUS [RESULT] [--plan NAME]` | Update step status. STATUS must be one of the five enum values, otherwise `[FAIL]`, exit 1. `completed` and `failed` REQUIRE the RESULT argument (evidence or failure description); without it print `[FAIL] Evidence required: pass a RESULT describing what proves this status.` and exit 1. After updating, print the next pending step. | 0 |
 | `memory set KEY VALUE [--category C]` | Category one of fact, decision, discovery, state; default fact. | 0 |
 | `memory get [QUERY] [--category C]` | Case-insensitive substring match over keys and values; optional category filter. | 0 |
@@ -203,6 +203,107 @@ instead of crashing.
 | `verify_run` | `{command: string, claim?: string, timeout_seconds?: number = 300}` | Execute through the shell, record an executed verification, return the verdict with output tails. If env `MYTHIFY_DISABLE_RUN=1`, refuse with an explanation and record nothing. |
 | `verify_claim` | `{claim: string, evidence: string}` | Record an attested entry, return the `[WARN] ATTESTED` line. |
 | `reflect` | `{action_taken: string, outcome: enum(success, partial, failure), observation: string, root_cause?: string, next_action: string, lesson?: string}` | Append reflection; auto-record lesson if provided (project scope, tag `auto-reflected`). Note: jsonl field names follow the file format (`action`, `next`), not the tool parameter names. |
+| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], model?: string, engine?: string}], model?: string, engine?: string, timeout_seconds?: number}` | Validate the job (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable), create `.mythify/fanout/<job_id>/job.json`, return the job id immediately, and run the workers in the background with a concurrency pool. Tasks must be fully independent; each task is a fresh model call that costs real money or subscription quota. |
+| `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, elapsed. Tasks left running by a restarted server are marked `interrupted` and reported as such. |
+| `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). Per-task text is capped at 20000 characters with a note pointing at the full output file. Warns when tasks are still running. |
+
+## Parallel delegation (fanout)
+
+The MCP server can fan work out to parallel sub-workers. The orchestrating
+model declares a one-shot task list with `fanout_start`, and the server does
+the orchestration: spawning, sequencing, and collecting. This deliberately
+avoids turn-by-turn coordination, which weaker models cannot sustain. Each
+worker is one fresh model invocation with no memory of the conversation, so
+every task prompt must stand alone, with files supplied through
+`context_paths`. Worker outputs are material, not verification: merge them,
+then verify the merged work with `verify_run`. Fanout is MCP-only; the CLI
+does not implement it (a CLI host has shell access and usually its own
+parallelism).
+
+### Engines
+
+Four engines run the workers. The headline option needs no API key: workers
+run through the `claude` CLI and bill against your existing Claude
+subscription.
+
+| Engine | Mechanism | Billing | Models |
+| :--- | :--- | :--- | :--- |
+| `claude-cli` | Spawns the `claude` binary in print mode, one process per task, with the assembled prompt on stdin. | Claude subscription (or whatever auth the claude CLI resolves) | Aliases `haiku`, `sonnet`, `opus`, `fable`, or any full model ID |
+| `anthropic` | POST `https://api.anthropic.com/v1/messages`. | API key (`ANTHROPIC_API_KEY`) | Any Claude model ID |
+| `openai` | POST `<MYTHIFY_FANOUT_BASE_URL>/chat/completions`. | Provider API key (`MYTHIFY_FANOUT_API_KEY`) | Any model the endpoint serves |
+| `command` | Runs the `MYTHIFY_FANOUT_COMMAND` shell template; prompt on stdin, stdout is the output, exit 0 is success. | Whatever the command does | Anything (generic CLI agents) |
+
+The engine is set by `MYTHIFY_FANOUT_ENGINE`, or auto-detected in this order:
+`claude-cli` if a claude binary resolves, else `anthropic` if
+`ANTHROPIC_API_KEY` is set, else `command` if `MYTHIFY_FANOUT_COMMAND` is set,
+else `fanout_start` refuses with a message listing all four options.
+
+### Model selection
+
+Three levels, most specific wins: per-task `model` overrides per-job `model`
+overrides `MYTHIFY_FANOUT_MODEL` overrides the engine default (`haiku` for
+`claude-cli`, `claude-haiku-4-5` for `anthropic`). The same precedence applies
+to `engine`, so one job can mix models and engines across tasks. A typical mix
+is cheap haiku drafters plus a sonnet reviewer; the reviewer is still an
+independent task that reviews material supplied in its own prompt, not the
+other tasks' outputs:
+
+```json
+{
+  "model": "haiku",
+  "tasks": [
+    {"title": "Draft install section", "prompt": "Write the install section of the user guide. Use only the outline below.", "context_paths": ["docs/outline.md"]},
+    {"title": "Draft config section", "prompt": "Write the configuration section of the user guide. Use only the outline below.", "context_paths": ["docs/outline.md"]},
+    {"title": "Review outline for gaps", "prompt": "List every topic the outline below misses that a user guide must cover, ranked by importance.", "model": "sonnet", "context_paths": ["docs/outline.md"]}
+  ]
+}
+```
+
+### Configuration
+
+| Env | Default | Meaning |
+| :--- | :--- | :--- |
+| `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
+| `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `anthropic`, `openai`, `command`. |
+| `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
+| `MYTHIFY_FANOUT_CONCURRENCY` | 3 | Parallel workers per job. |
+| `MYTHIFY_FANOUT_MAX_TASKS` | 16 | Max tasks per job. |
+| `MYTHIFY_FANOUT_MAX_TOKENS` | 8000 | API engines' max_tokens. |
+| `MYTHIFY_FANOUT_MAX_TURNS` | 25 | claude-cli `--max-turns`. |
+| `MYTHIFY_FANOUT_TIMEOUT_SECONDS` | 600 | Per-worker timeout; on expiry the worker is killed and the task fails with a timeout error. |
+| `MYTHIFY_FANOUT_CONTEXT_BYTES` | 200000 | Total inlined context per task. |
+| `MYTHIFY_FANOUT_CLAUDE_BIN` | resolved | Path to the claude binary. |
+| `MYTHIFY_FANOUT_CLAUDE_ARGS` | empty | Extra claude args, for example `--allowedTools "Bash"`. |
+| `MYTHIFY_FANOUT_BASE_URL`, `MYTHIFY_FANOUT_API_KEY` | unset | openai engine endpoint and key. |
+| `MYTHIFY_FANOUT_COMMAND` | unset | command engine shell template. |
+
+### Subscription auth for claude-cli workers
+
+Workers spawned by the server need credentials the same way your terminal
+does. Either:
+
+- run `claude /login` once in a terminal (workers inherit the stored
+  credential through `HOME`), or
+- run `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` in the MCP
+  client's `env` block.
+
+A worker failure whose output contains `Not logged in` or `401` is reported
+with exactly that remediation.
+
+### Caveats
+
+- Workers on the API engines (`anthropic`, `openai`) are text-only: one prompt
+  in, one completion out. They cannot run tools or read files beyond the
+  context inlined into their prompt.
+- `claude-cli` workers run Claude Code non-interactively and get its default
+  tool sandbox; grant more with `MYTHIFY_FANOUT_CLAUDE_ARGS`, for example
+  `--allowedTools "Bash"`.
+- Background workers live in the MCP server process. If the client disconnects
+  or the server dies, running tasks die with it, and `fanout_status` reports
+  them as interrupted afterward.
+- Depth limit of one: workers are spawned with `MYTHIFY_FANOUT_DEPTH=1` and
+  `MYTHIFY_DISABLE_FANOUT=1` in their environment, so a worker cannot fan out
+  again.
 
 ## Compatibility
 

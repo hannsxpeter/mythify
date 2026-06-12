@@ -95,8 +95,9 @@ much to build.
 
 ## MCP clients
 
-Clients wired to the Mythify MCP server instead of the CLI use 12 tools:
+Clients wired to the Mythify MCP server instead of the CLI use 15 tools:
 memory_store, memory_recall, memory_clear, lesson_record, lesson_recall,
 plan_create, plan_add_step, plan_update_step, plan_status, verify_run,
-verify_claim, reflect. Same state directory, same file formats, full interop
-with the CLI.
+verify_claim, reflect, plus the parallel delegation tools fanout_start,
+fanout_status, and fanout_results. Same state directory, same file formats,
+full interop with the CLI.

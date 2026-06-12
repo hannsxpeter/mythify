@@ -47,7 +47,9 @@ mythify/
 |   |-- package.json
 |   |-- mcp-config.example.json
 |   |-- src/index.js
-|   `-- test/smoke.test.js
+|   |-- src/fanout.js
+|   |-- test/smoke.test.js
+|   `-- test/fanout.test.js
 |-- skills/
 |   `-- mythify/
 |       |-- SKILL.md
@@ -61,6 +63,7 @@ mythify/
 |   `-- test_interop.py          CLI and MCP server against the same state dir
 `-- docs/
     |-- design.md                this document
+    |-- claude-integrations.md   Claude Desktop and Claude Code guide
     `-- research-report.md       preserved research report
 ```
 
@@ -224,15 +227,16 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (3.x). package.json: name `mythify-mcp`, version `2.0.0`,
+(current 1.x) and `zod` (3.x). package.json: name `mythify-mcp`, version `2.1.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 12 tools. Tool descriptions must state what the tool does AND when to use it,
-since descriptions drive tool selection.
+Exactly 15 tools: the 12 core tools below plus the 3 fanout tools defined in the
+"Fanout: parallel delegation" section. Tool descriptions must state what the tool
+does AND when to use it, since descriptions drive tool selection.
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
@@ -262,7 +266,8 @@ install path is genuinely user-specific.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the 12 tool names above (set equality).
+1. `tools/list` returns exactly the 15 tool names above (set equality), the 12
+   core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `memory_store` then `memory_recall` round-trips a value.
 3. `plan_create` with one step, then `plan_update_step` to completed WITHOUT result
    returns the evidence refusal and leaves the step pending; with result it succeeds.
@@ -298,8 +303,8 @@ document the project. Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 12 tool names for clients using the server instead
-   of the CLI.
+8. A short MCP note listing the 15 tool names for clients using the server instead
+   of the CLI, with delegation discipline for the fanout tools.
 
 ### scripts/build_variants.py
 
@@ -364,7 +369,7 @@ Sections, in order:
 10. Compatibility table: Claude Code, Cursor, Windsurf, VS Code Copilot,
     Claude Desktop, Manus, any CLI agent, custom MCP clients.
 11. Development: `python3 -m unittest discover -s tests -v` and
-    `cd mcp-server && npm install && npm test`.
+    `cd mcp-server && npm ci && npm test`.
 12. Limitations, honest: no published npm package yet (local path config), evals not
     yet run (claims are design rationale, not measured results), protocol adherence
     varies by model strength.
@@ -379,11 +384,13 @@ Document only what exists. No npx instructions, no badges for services not set u
 ```
 .DS_Store
 .mythify/
+.mcp.json
 __pycache__/
 *.pyc
 node_modules/
 dist/
 *.corrupt-*
+*.tgz
 npm-debug.log*
 ```
 
@@ -438,7 +445,139 @@ Stdlib only. Skips (unittest skip, not failure) unless `node` is on PATH and
    - `memory_store` writes key `from_mcp`.
 3. Terminate the server. Via the CLI: `memory get from_mcp` finds the entry.
 
+## Fanout: parallel delegation (MCP only)
+
+Fanout gives the orchestrating model parallel sub-workers through one-shot
+declarative jobs: the model emits a task list once, and the server does the
+spawning, sequencing, and collecting. This deliberately avoids turn-by-turn
+orchestration, which weaker models cannot sustain. Fanout is MCP-only; the CLI
+does not implement it (a CLI host has shell access and usually its own
+parallelism), and `docs/design.md` is explicit about that divergence.
+
+Implementation lives in `mcp-server/src/fanout.js`, wired into the server in
+`mcp-server/src/index.js`.
+
+### Engines
+
+A worker is one fresh model invocation with no memory of the conversation.
+Four engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
+order: explicit env value, else `claude-cli` if a claude binary resolves, else
+`anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
+`MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with a message
+listing all four options.
+
+| Engine | Mechanism | Billing | Models |
+| :--- | :--- | :--- | :--- |
+| `claude-cli` | Spawn `<bin> -p --output-format json --model <model> --max-turns <N>` with the assembled prompt on stdin, cwd = project root (parent of `.mythify/`). Parse the JSON output: `result` is the text, `is_error` true or a non-zero exit means failure. | Claude subscription (or whatever auth the claude CLI resolves) | Aliases `haiku`, `sonnet`, `opus`, `fable`, or any full model ID |
+| `anthropic` | POST `https://api.anthropic.com/v1/messages` (anthropic-version 2023-06-01) with `max_tokens` from env. Aliases map: haiku to claude-haiku-4-5, sonnet to claude-sonnet-4-6, opus to claude-opus-4-8, fable to claude-fable-5. Join text blocks. | API key (`ANTHROPIC_API_KEY`) | Any Claude model ID |
+| `openai` | POST `<MYTHIFY_FANOUT_BASE_URL>/chat/completions` with `MYTHIFY_FANOUT_API_KEY`. | Provider API key | Any model the endpoint serves |
+| `command` | Run the `MYTHIFY_FANOUT_COMMAND` shell template; prompt on stdin; stdout is the output; exit 0 is success. | Whatever the command does | Anything (generic CLI agents; also used by CI to test the job machinery with no network) |
+
+`claude-cli` binary resolution (Claude Desktop launches MCP servers with a
+minimal PATH): `MYTHIFY_FANOUT_CLAUDE_BIN` if set, else `claude` on PATH, else
+the first existing of `~/.claude/local/claude`, `/opt/homebrew/bin/claude`,
+`/usr/local/bin/claude`. Resolution failure names the env var in the error.
+
+`claude-cli` worker environment is curated, not inherited: `HOME`, `TERM=dumb`,
+`PATH` (server PATH augmented with `/opt/homebrew/bin:/usr/local/bin`), plus
+`CLAUDE_CODE_OAUTH_TOKEN` when present in the server environment, plus the
+guards below. Harness variables (`CLAUDECODE`, `CLAUDE_CODE_*`,
+`ANTHROPIC_BASE_URL`) are NOT passed through: a server spawned by Claude Code
+inherits harness routing that breaks nested workers. Subscription auth setup
+is documented as: run `claude /login` once in a terminal, or run
+`claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` in the MCP client's
+`env` block. A worker failure whose output contains `Not logged in` or
+`401` is reported with exactly that remediation.
+
+### Model selection (all models, three levels)
+
+Most specific wins: per-task `model` overrides per-job `model` overrides
+`MYTHIFY_FANOUT_MODEL` overrides the engine default (`haiku` for `claude-cli`,
+`claude-haiku-4-5` for `anthropic`). The same precedence applies to `engine`,
+so one job may mix engines and models across tasks (for example five haiku
+drafters and one sonnet reviewer; the reviewer task is still independent and
+reviews material supplied in its prompt, not other tasks' outputs).
+
+### Tools (3, total 15)
+
+| Tool | Input schema | Behavior |
+| :--- | :--- | :--- |
+| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], model?: string, engine?: string}], model?: string, engine?: string, timeout_seconds?: number}` | Validate (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable). Create `.mythify/fanout/<job_id>/job.json`, return the job id IMMEDIATELY, run workers in the background with a concurrency pool. Tasks must be fully independent; the description says so and says each task is a fresh model call that costs real money or subscription quota. |
+| `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, elapsed. If the job is marked running on disk but unknown to the in-memory registry (server restarted), mark its running tasks `interrupted` and say so. |
+| `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). Per-task text in the tool result is capped at 20000 characters with a note pointing at the full output file. Warns when tasks are still running. |
+
+Job ids: `fo-<YYYYMMDDHHMMSS>-<4 random hex>`. Worker prompt assembly:
+fixed preamble (you are a delegated worker; the task is self-contained; do not
+ask questions; return only the deliverable), then each context file as a
+labeled fenced block, then the task prompt. `context_paths` resolve relative
+to the project root (absolute allowed); total inlined context per task is
+capped at `MYTHIFY_FANOUT_CONTEXT_BYTES` with an explicit truncation marker;
+an unreadable path fails the task at validation time with a clear error.
+
+### On-disk format
+
+```
+.mythify/fanout/<job_id>/
+|-- job.json
+`-- task-<id>-output.md
+```
+
+job.json (atomic writes on every transition):
+
+```json
+{
+  "id": "fo-...", "created": "ISO-8601", "engine": "str", "model": "str",
+  "timeout_seconds": 600, "last_updated": "ISO-8601",
+  "tasks": [
+    {"id": 1, "title": "str", "status": "pending|running|completed|failed|interrupted",
+     "engine": "str", "model": "str", "started_at": "ISO-8601 or null",
+     "finished_at": "ISO-8601 or null", "duration_seconds": 0.0,
+     "error": "str or null", "output_file": "task-1-output.md", "output_bytes": 0}
+  ]
+}
+```
+
+### Configuration
+
+| Env | Default | Meaning |
+| :--- | :--- | :--- |
+| `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
+| `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `anthropic`, `openai`, `command`. |
+| `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
+| `MYTHIFY_FANOUT_CONCURRENCY` | 3 | Parallel workers per job. |
+| `MYTHIFY_FANOUT_MAX_TASKS` | 16 | Max tasks per job. |
+| `MYTHIFY_FANOUT_MAX_TOKENS` | 8000 | API engines' max_tokens. |
+| `MYTHIFY_FANOUT_MAX_TURNS` | 25 | claude-cli `--max-turns`. |
+| `MYTHIFY_FANOUT_TIMEOUT_SECONDS` | 600 | Per-worker timeout; on expiry the worker is killed and the task fails with a timeout error. |
+| `MYTHIFY_FANOUT_CONTEXT_BYTES` | 200000 | Total inlined context per task. |
+| `MYTHIFY_FANOUT_CLAUDE_BIN` | resolved | Path to the claude binary. |
+| `MYTHIFY_FANOUT_CLAUDE_ARGS` | empty | Extra claude args, for example `--allowedTools "Bash"`. |
+| `MYTHIFY_FANOUT_BASE_URL`, `MYTHIFY_FANOUT_API_KEY` | unset | openai engine endpoint and key. |
+| `MYTHIFY_FANOUT_COMMAND` | unset | command engine shell template. |
+
+### Guards
+
+- Depth limit of one: workers are spawned with `MYTHIFY_FANOUT_DEPTH=1` and
+  `MYTHIFY_DISABLE_FANOUT=1` in their environment, and `fanout_start` refuses
+  when `MYTHIFY_FANOUT_DEPTH` is already set in the server's own environment.
+- Fanout results are material, not verification: the orchestrator merges them
+  and then verifies the merged work with `verify_run`. The protocol text says
+  this explicitly.
+- Server lifetime caveat (documented): background workers live in the MCP
+  server process; if the client disconnects or the server dies, running tasks
+  die with it, and `fanout_status` reports them as interrupted afterward.
+
+### Smoke coverage (mcp-server/test/, runs in CI with no network)
+
+Using the `command` engine with a deterministic local template: 15-tool set
+equality; a 3-task job runs to completion and `fanout_results` returns the
+outputs; `context_paths` content demonstrably reaches the worker prompt; the
+kill switch refuses; the depth guard refuses; a failing command produces a
+failed task with captured stderr; job.json matches the format contract field
+by field.
+
 ## Versioning
 
-This is Mythify v2.0.0. The CLI prints no version banner; the MCP server reports
-2.0.0 through its server info.
+This is Mythify v2.1.0 (fanout added on top of the 2.0.0 contract; the 12 core
+tools and all 2.0.0 formats are unchanged). The CLI prints no version banner;
+the MCP server reports 2.1.0 through its server info.

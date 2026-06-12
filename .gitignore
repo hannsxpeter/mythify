@@ -6,4 +6,5 @@ __pycache__/
 node_modules/
 dist/
 *.corrupt-*
+*.tgz
 npm-debug.log*

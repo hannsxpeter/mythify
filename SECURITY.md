@@ -31,6 +31,14 @@ Some behavior is by design and is not a vulnerability:
   commands. That is the feature: verification means running real commands and
   recording real exit codes. The commands run with the privileges of whoever
   runs the CLI or the MCP server.
+- `fanout_start` (MCP tool) spawns local worker processes (the `claude-cli`
+  and `command` engines) or makes outbound API calls (the `anthropic` and
+  `openai` engines). That is the parallel-delegation feature. `claude-cli`
+  workers get a curated environment (`HOME`, `TERM`, an augmented `PATH`, and
+  `CLAUDE_CODE_OAUTH_TOKEN` when set), never the rest of the server's
+  environment. `command` engine workers run a command you configured yourself
+  and inherit the server's environment, so what they can see is up to you.
+  Both kinds carry the depth-guard variables that prevent nested fanout.
 - Mythify is not a sandbox and does not try to be one. It does not restrict
   what a model asks it to run. The boundary is the operating-system user the
   server runs as.
@@ -39,11 +47,16 @@ Hardening guidance for users:
 
 - Set `MYTHIFY_DISABLE_RUN=1` in the MCP server environment to disable
   `verify_run` entirely (the tool refuses and records nothing).
+- Set `MYTHIFY_DISABLE_FANOUT=1` to disable all three fanout tools
+  (`fanout_start`, `fanout_status`, `fanout_results`); they refuse with an
+  explanation.
 - Never run the MCP server with elevated privileges.
 - Do not store secrets in memory entries or lessons. Everything under
   `.mythify/` is plain text on disk.
 
 A report is in scope when Mythify does something other than what this model
 describes: for example, executing commands while `MYTHIFY_DISABLE_RUN=1` is
-set, writing state outside the resolved `.mythify/` directory, or any path
-traversal in state-file handling.
+set, spawning workers while `MYTHIFY_DISABLE_FANOUT=1` is set, leaking
+undocumented server environment variables into worker processes, writing
+state outside the resolved `.mythify/` directory, or any path traversal in
+state-file handling.

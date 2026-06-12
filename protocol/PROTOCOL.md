@@ -104,9 +104,21 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 12 tools: `memory_store`, `memory_recall`, `memory_clear`,
+through exactly 15 tools: `memory_store`, `memory_recall`, `memory_clear`,
 `lesson_record`, `lesson_recall`, `plan_create`, `plan_add_step`,
-`plan_update_step`, `plan_status`, `verify_run`, `verify_claim`, `reflect`.
-Same state directory, same file formats, same evidence rules: `verify_run`
-executes and records, `verify_claim` only attests, and `plan_update_step`
-refuses `completed` or `failed` without a `result`.
+`plan_update_step`, `plan_status`, `verify_run`, `verify_claim`, `reflect`,
+plus the parallel delegation tools `fanout_start`, `fanout_status`, and
+`fanout_results`. Same state directory, same file formats, same evidence
+rules: `verify_run` executes and records, `verify_claim` only attests, and
+`plan_update_step` refuses `completed` or `failed` without a `result`.
+
+Delegation discipline for fanout:
+
+- Fan out only genuinely independent tasks. If one task needs another's
+  output, run them yourself in sequence.
+- Write every task prompt to stand alone: the worker has no memory of your
+  conversation. Pass files through `context_paths`, never by reference.
+- Fanout results are material, not verification. Merge them, then verify the
+  merged work with `verify run` or `verify_run`.
+- Each task is a fresh model call that costs real money or subscription
+  quota. Do not fan out work you can do inline.
