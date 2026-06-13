@@ -2,12 +2,13 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 15,
+      "command_count": 16,
       "commands": [
         "init",
         "protocol",
         "status",
         "dashboard",
+        "background",
         "classify",
         "host-model",
         "outcome",
@@ -22,9 +23,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 27,
+      "core_tool_count": 28,
       "fanout_tool_count": 3,
-      "total_tools": 30,
+      "total_tools": 31,
       "core_tools": [
         "classify_task",
         "host_model_switch",
@@ -36,6 +37,7 @@
         "execution_run",
         "lifecycle_probe",
         "workflow_status",
+        "background_status",
         "memory_store",
         "memory_recall",
         "memory_clear",

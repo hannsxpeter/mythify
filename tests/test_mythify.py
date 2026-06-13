@@ -1659,6 +1659,77 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(len(payload["verification_summary"]["recent"]), 1)
         self.assertEqual(payload["reflection_summary"]["recent"][0]["next"], "frame walls")
 
+    def test_background_includes_outcomes_and_fanout_jobs_without_mutation(self):
+        state = self.init_workspace()
+        start = self.run_cli(
+            "outcome",
+            "start",
+            "Ship the background view",
+            "--success",
+            "python exits zero",
+            "--verify",
+            shell_py("raise SystemExit(0)"),
+            "--max-iterations",
+            "2",
+            "--name",
+            "ship-background-view",
+        )
+        self.assertEqual(start.returncode, 0, start.stderr)
+        checked = self.run_cli("outcome", "check", "ship-background-view")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+
+        job_id = "fo-20260613121212-abcd"
+        job_dir = state / "fanout" / job_id
+        job_dir.mkdir(parents=True)
+        job = {
+            "id": job_id,
+            "created": "2026-06-13T12:12:12+00:00",
+            "last_updated": "2026-06-13T12:12:13+00:00",
+            "purpose": "Map existing background task state",
+            "engine": "command",
+            "model": "",
+            "visibility": "summary",
+            "tasks": [
+                {
+                    "id": 1,
+                    "title": "Map fanout files",
+                    "status": "completed",
+                    "role": "worker",
+                    "engine": "command",
+                    "duration_seconds": 1.2,
+                    "error": None,
+                },
+                {
+                    "id": 2,
+                    "title": "Watch outcome loop",
+                    "status": "running",
+                    "role": "worker",
+                    "engine": "command",
+                    "duration_seconds": 0,
+                    "error": None,
+                },
+            ],
+        }
+        (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+        before = self.state_snapshot(state)
+        result = self.run_cli("background", "--recent", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Background tasks", result.stdout)
+        self.assertIn("Outcomes: 1 total", result.stdout)
+        self.assertIn("Active outcome: ship-background-view (succeeded, 1/2 iterations)", result.stdout)
+        self.assertIn("Fanout jobs: 1 total; 1 active", result.stdout)
+        self.assertIn(job_id, result.stdout)
+        self.assertIn("Map fanout files", result.stdout)
+        self.assertEqual(self.state_snapshot(state), before)
+
+        json_result = self.run_cli("background", "--json")
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        payload = json.loads(json_result.stdout)
+        self.assertEqual(payload["active_outcome"]["id"], "ship-background-view")
+        self.assertEqual(payload["counts"]["fanout_tasks"]["running"], 1)
+        self.assertEqual(payload["fanout_jobs"][0]["id"], job_id)
+
 
 class TestCorruptRecovery(CliTestCase):
     def test_corrupt_memory_json_is_quarantined_with_warning(self):

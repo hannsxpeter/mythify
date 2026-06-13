@@ -28,7 +28,7 @@ from pathlib import Path
 WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
-PROTOCOL_SOURCE_SHA256 = "a1e49441ba9bb197985a54ff92ec7ed3363bbf16b4c2622609f88c69b4fbe4ac"
+PROTOCOL_SOURCE_SHA256 = "62dba2a9ca0deb34d48f511421e11b2c05cc7de8ce12263b7f9f13d4c45fcaa2"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -3126,6 +3126,280 @@ def cmd_dashboard(args, state):
     return 0
 
 
+BACKGROUND_STATUS_ICONS = {
+    "active": "[>]",
+    "running": "[>]",
+    "pending": "[ ]",
+    "completed": "[x]",
+    "succeeded": "[x]",
+    "failed": "[!]",
+    "interrupted": "[~]",
+    "stopped": "[~]",
+    "empty": "[ ]",
+}
+
+
+def background_recent(items, limit):
+    if limit <= 0:
+        return []
+    return list(reversed(items[-limit:]))
+
+
+def fanout_root_dir(state):
+    return state / "fanout"
+
+
+def count_statuses(items, statuses):
+    counts = {status: 0 for status in statuses}
+    for item in items:
+        status = item.get("status", "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def summarize_fanout_job(job):
+    tasks = job.get("tasks") if isinstance(job.get("tasks"), list) else []
+    counts = count_statuses(
+        tasks, ("pending", "running", "completed", "failed", "interrupted")
+    )
+    if counts.get("pending", 0) or counts.get("running", 0):
+        status = "active"
+    elif counts.get("failed", 0):
+        status = "failed"
+    elif counts.get("interrupted", 0):
+        status = "interrupted"
+    elif tasks:
+        status = "completed"
+    else:
+        status = "empty"
+    return {
+        "id": job.get("id", ""),
+        "status": status,
+        "created": job.get("created", ""),
+        "last_updated": job.get("last_updated", ""),
+        "purpose": job.get("purpose", ""),
+        "engine": job.get("engine", ""),
+        "model": job.get("model", ""),
+        "visibility": job.get("visibility", "summary"),
+        "task_counts": counts,
+        "task_total": len(tasks),
+        "tasks": [
+            {
+                "id": task.get("id"),
+                "title": task.get("title", ""),
+                "status": task.get("status", "pending"),
+                "role": task.get("role", "worker"),
+                "engine": task.get("engine", ""),
+                "model": task.get("model", ""),
+                "duration_seconds": task.get("duration_seconds", 0),
+                "error": task.get("error"),
+            }
+            for task in tasks
+        ],
+    }
+
+
+def list_fanout_summaries(state):
+    root = fanout_root_dir(state)
+    if not root.exists():
+        return []
+    jobs = []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or not re.match(r"^fo-\d{14}-[0-9a-f]{4}$", path.name):
+            continue
+        job = read_json(path / "job.json", None)
+        if isinstance(job, dict):
+            summary = summarize_fanout_job(job)
+            if not summary["id"]:
+                summary["id"] = path.name
+            jobs.append(summary)
+    return sorted(jobs, key=lambda item: (item.get("created") or "", item.get("id") or ""))
+
+
+def summarize_outcome(state, slug, goal):
+    iterations = read_jsonl(outcome_iterations_path(state, slug))
+    last_iteration = iterations[-1] if iterations else None
+    return {
+        "id": slug,
+        "goal": goal.get("goal", ""),
+        "status": goal.get("status", "active"),
+        "iteration_count": goal.get("iteration_count", 0),
+        "max_iterations": goal.get("max_iterations", 1),
+        "visibility": goal.get("visibility", "summary"),
+        "created": goal.get("created", ""),
+        "updated": goal.get("updated", ""),
+        "last_verified": goal.get("last_verified"),
+        "last_iteration": last_iteration,
+        "next_action": last_iteration.get("next_action") if last_iteration else (
+            "make a bounded attempt, then run outcome check"
+        ),
+    }
+
+
+def list_outcome_summaries(state):
+    items = []
+    for slug, goal in list_outcomes(state):
+        items.append(summarize_outcome(state, slug, goal))
+    return sorted(items, key=lambda item: (item.get("updated") or item.get("created") or "", item.get("id") or ""))
+
+
+def build_background_view(state, recent=5):
+    outcomes = list_outcome_summaries(state)
+    fanout_jobs = list_fanout_summaries(state)
+    active_outcome_slug = get_active_outcome_slug(state)
+    outcome_counts = count_statuses(
+        outcomes, ("active", "succeeded", "failed", "stopped")
+    )
+    fanout_counts = count_statuses(
+        fanout_jobs, ("active", "completed", "failed", "interrupted", "empty")
+    )
+    task_counts = {
+        "pending": 0,
+        "running": 0,
+        "completed": 0,
+        "failed": 0,
+        "interrupted": 0,
+    }
+    for job in fanout_jobs:
+        for status, count in job.get("task_counts", {}).items():
+            task_counts[status] = task_counts.get(status, 0) + count
+    active_outcome = None
+    for outcome in outcomes:
+        if outcome.get("id") == active_outcome_slug:
+            active_outcome = outcome
+            break
+    return {
+        "state_dir": str(state),
+        "active_outcome": active_outcome,
+        "outcomes": background_recent(outcomes, recent),
+        "fanout_jobs": background_recent(fanout_jobs, recent),
+        "counts": {
+            "outcomes": {"total": len(outcomes), **outcome_counts},
+            "fanout_jobs": {"total": len(fanout_jobs), **fanout_counts},
+            "fanout_tasks": task_counts,
+        },
+    }
+
+
+def compact_label(text, fallback):
+    value = str(text or "").strip()
+    if not value:
+        return fallback
+    return value if len(value) <= 80 else value[:77] + "..."
+
+
+def format_background_view(view):
+    lines = ["[OK] Background tasks: {0}".format(view["state_dir"])]
+    counts = view["counts"]
+    outcomes = counts["outcomes"]
+    lines.append(
+        "Outcomes: {0} total; {1} active, {2} succeeded, {3} failed, {4} stopped".format(
+            outcomes["total"],
+            outcomes.get("active", 0),
+            outcomes.get("succeeded", 0),
+            outcomes.get("failed", 0),
+            outcomes.get("stopped", 0),
+        )
+    )
+    active_outcome = view.get("active_outcome")
+    if active_outcome:
+        lines.append(
+            "Active outcome: {0} ({1}, {2}/{3} iterations)".format(
+                active_outcome["id"],
+                active_outcome["status"],
+                active_outcome["iteration_count"],
+                active_outcome["max_iterations"],
+            )
+        )
+    else:
+        lines.append("Active outcome: none")
+    if view["outcomes"]:
+        lines.append("Recent outcomes:")
+        for outcome in view["outcomes"]:
+            icon = BACKGROUND_STATUS_ICONS.get(outcome["status"], "[ ]")
+            lines.append(
+                "  {0} {1}: {2} ({3}, {4}/{5} iterations, last verified={6})".format(
+                    icon,
+                    outcome["id"],
+                    compact_label(outcome["goal"], "outcome"),
+                    outcome["status"],
+                    outcome["iteration_count"],
+                    outcome["max_iterations"],
+                    outcome["last_verified"],
+                )
+            )
+            if outcome.get("next_action"):
+                lines.append("      next: {0}".format(outcome["next_action"]))
+    fanout = counts["fanout_jobs"]
+    tasks = counts["fanout_tasks"]
+    lines.append(
+        "Fanout jobs: {0} total; {1} active, {2} completed, {3} failed, {4} interrupted".format(
+            fanout["total"],
+            fanout.get("active", 0),
+            fanout.get("completed", 0),
+            fanout.get("failed", 0),
+            fanout.get("interrupted", 0),
+        )
+    )
+    lines.append(
+        "Fanout tasks: {0} running, {1} pending, {2} completed, {3} failed, {4} interrupted".format(
+            tasks.get("running", 0),
+            tasks.get("pending", 0),
+            tasks.get("completed", 0),
+            tasks.get("failed", 0),
+            tasks.get("interrupted", 0),
+        )
+    )
+    if view["fanout_jobs"]:
+        lines.append("Recent fanout jobs:")
+        for job in view["fanout_jobs"]:
+            icon = BACKGROUND_STATUS_ICONS.get(job["status"], "[ ]")
+            task_counts = job["task_counts"]
+            lines.append(
+                "  {0} {1}: {2} ({3}; {4} tasks, {5} completed, {6} failed, {7} running, {8} pending)".format(
+                    icon,
+                    job["id"],
+                    compact_label(job["purpose"], "fanout job"),
+                    job["status"],
+                    job["task_total"],
+                    task_counts.get("completed", 0),
+                    task_counts.get("failed", 0),
+                    task_counts.get("running", 0),
+                    task_counts.get("pending", 0),
+                )
+            )
+            lines.append(
+                "      visibility: {0}; engine: {1}; created: {2}".format(
+                    job["visibility"] or "summary",
+                    job["engine"] or "unknown",
+                    job["created"] or "unknown",
+                )
+            )
+            for task in job["tasks"]:
+                task_icon = BACKGROUND_STATUS_ICONS.get(task["status"], "[ ]")
+                detail = "      {0} {1}. {2} ({3})".format(
+                    task_icon,
+                    task["id"],
+                    compact_label(task["title"], "task"),
+                    task["status"],
+                )
+                if task.get("error"):
+                    detail += ": {0}".format(compact_label(task["error"], "error"))
+                lines.append(detail)
+    if not view["outcomes"] and not view["fanout_jobs"]:
+        lines.append("No background tasks found.")
+    return "\n".join(lines)
+
+
+def cmd_background(args, state):
+    view = build_background_view(state, args.recent)
+    if args.json_output:
+        print(json.dumps(view, indent=2))
+    else:
+        print(format_background_view(view))
+    return 0
+
+
 def cmd_classify(args, _state):
     result = classify_task_text(args.task)
     result["model_policy"] = build_model_policy(result, args)
@@ -4093,6 +4367,23 @@ def build_parser():
     )
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_dashboard)
+
+    p = sub.add_parser(
+        "background",
+        help="Show read-only background task state for outcomes and fanout jobs.",
+        description=(
+            "Read-only background task view: outcome loops, fanout jobs, task "
+            "counts, current statuses, and next actions from durable state."
+        ),
+    )
+    p.add_argument(
+        "--recent",
+        type=int,
+        default=5,
+        help="Number of recent outcomes and fanout jobs to show. Defaults to 5.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_background)
 
     p = sub.add_parser(
         "classify",

@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: a1e49441ba9bb197985a54ff92ec7ed3363bbf16b4c2622609f88c69b4fbe4ac -->
+<!-- Mythify protocol-sha256: 62dba2a9ca0deb34d48f511421e11b2c05cc7de8ce12263b7f9f13d4c45fcaa2 -->
 
 # The Mythify Protocol
 
@@ -102,6 +102,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. |
 | `status` | Orient: active plan, next pending step, state counts. |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, evidence counts, recent verification records, and recent reflections. |
+| `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch. |
@@ -133,13 +134,13 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 30 tools: `classify_task`, `host_model_switch`,
+through exactly 31 tools: `classify_task`, `host_model_switch`,
 `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
 `outcome_results`, `outcome_stop`, `memory_store`, `memory_recall`,
 `memory_clear`, `lesson_record`, `lesson_recall`, `plan_create`,
-`plan_add_step`, `plan_update_step`, `plan_status`, `workflow_status`, `verify_run`,
+`plan_add_step`, `plan_update_step`, `plan_status`, `workflow_status`, `background_status`, `verify_run`,
 `verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
 `fanout_status`, and `fanout_results`. Same
 state directory, same file formats, same evidence rules:

@@ -21,13 +21,13 @@ Status markers:
 
 ## Active Now
 
-- [>] Background task view for long-running delegated work.
-  - Current goal: expose in-flight fanout and outcome-loop work in a
-    scan-friendly status surface.
-  - Next step: map existing fanout job state, outcome iteration state, and
-    workflow dashboard data into the smallest read-only view.
-  - Guardrail: show durable state and executed evidence only; do not invent
-    progress from model confidence.
+- [>] Phase view for Understand, Design, Build, Judge, Verify.
+  - Current goal: expose the current work phase and supporting evidence in a
+    scan-friendly view.
+  - Next step: map existing plan, step, verification, reflection, and
+    background task state into phase buckets without adding ceremony.
+  - Guardrail: phases summarize recorded state; they do not grade model
+    confidence or replace executed verification.
 
 ## Next Queue
 
@@ -214,8 +214,7 @@ Already shipped in this track:
 
 What remains:
 
-- [>] Background task view.
-- [ ] Phase view for Understand, Design, Build, Judge, Verify.
+- [>] Phase view for Understand, Design, Build, Judge, Verify.
 - [ ] Fanout worker timeline.
 - [ ] Verification history.
 - [ ] Outcome loop progress.
@@ -225,6 +224,8 @@ Principle: reveal evidence, do not decorate self-report.
 
 Already shipped in this track:
 
+- [x] Background task view through CLI `background` and MCP
+  `background_status`.
 - [x] Status dashboard through CLI `dashboard` and MCP `workflow_status`.
 
 ### Evaluation
@@ -249,6 +250,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add read-only background task view. CLI `background` and MCP
+  `background_status` summarize durable outcome loops and fanout jobs with
+  statuses, task counts, recent jobs, and next actions without mutating state
+  or treating model confidence as progress.
 - [x] 2026-06-13: add registry-backed surface manifest. The manifest owns
   top-level CLI commands and MCP tool names/counts, while
   `scripts/check_surface_manifest.mjs` verifies runtime registrations, public

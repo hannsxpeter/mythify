@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CLI `background` and MCP `background_status` read-only background task
+  views. The view summarizes durable outcome loops and fanout jobs with
+  statuses, task counts, recent jobs, and next actions without mutating state
+  or treating model confidence as progress.
 - `protocol/surface-manifest.json` plus `scripts/check_surface_manifest.mjs`
   for duplicated public surface metadata. The manifest owns top-level CLI
   command names and MCP tool names/counts, and CI hygiene now checks it

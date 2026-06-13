@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v2.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 27 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 30 tools in total. On-disk formats are
+// reflections) as 28 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 31 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -1034,6 +1034,258 @@ function formatWorkflowDashboard(dashboard) {
     for (const record of reflections.recent) {
       lines.push(`  - ${record.outcome || "unknown"}: ${record.action || ""}; next ${record.next || ""}`);
     }
+  }
+  return lines.join("\n");
+}
+
+const BACKGROUND_STATUS_ICONS = {
+  active: "[>]",
+  running: "[>]",
+  pending: "[ ]",
+  completed: "[x]",
+  succeeded: "[x]",
+  failed: "[!]",
+  interrupted: "[~]",
+  stopped: "[~]",
+  empty: "[ ]",
+};
+
+function backgroundRecent(items, limit) {
+  if (limit <= 0) {
+    return [];
+  }
+  return items.slice(Math.max(0, items.length - limit)).reverse();
+}
+
+function fanoutRootDir() {
+  return path.join(resolveStateDir(), "fanout");
+}
+
+function countStatuses(items, statuses) {
+  const counts = Object.fromEntries(statuses.map((status) => [status, 0]));
+  for (const item of items) {
+    const status = item.status || "unknown";
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  return counts;
+}
+
+function summarizeFanoutJob(job) {
+  const tasks = Array.isArray(job.tasks) ? job.tasks : [];
+  const counts = countStatuses(tasks, ["pending", "running", "completed", "failed", "interrupted"]);
+  let status;
+  if (counts.pending > 0 || counts.running > 0) {
+    status = "active";
+  } else if (counts.failed > 0) {
+    status = "failed";
+  } else if (counts.interrupted > 0) {
+    status = "interrupted";
+  } else if (tasks.length > 0) {
+    status = "completed";
+  } else {
+    status = "empty";
+  }
+  return {
+    id: job.id || "",
+    status,
+    created: job.created || "",
+    last_updated: job.last_updated || "",
+    purpose: job.purpose || "",
+    engine: job.engine || "",
+    model: job.model || "",
+    visibility: job.visibility || "summary",
+    task_counts: counts,
+    task_total: tasks.length,
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      title: task.title || "",
+      status: task.status || "pending",
+      role: task.role || "worker",
+      engine: task.engine || "",
+      model: task.model || "",
+      duration_seconds: task.duration_seconds || 0,
+      error: task.error || null,
+    })),
+  };
+}
+
+function listFanoutSummaries() {
+  let names;
+  try {
+    names = fs.readdirSync(fanoutRootDir());
+  } catch {
+    return [];
+  }
+  const jobs = [];
+  for (const name of names.sort()) {
+    if (!/^fo-\d{14}-[0-9a-f]{4}$/.test(name)) {
+      continue;
+    }
+    const job = readJsonRecover(path.join(fanoutRootDir(), name, "job.json"), () => null);
+    if (job && typeof job === "object") {
+      const summary = summarizeFanoutJob(job);
+      if (!summary.id) {
+        summary.id = name;
+      }
+      jobs.push(summary);
+    }
+  }
+  return jobs.sort((left, right) =>
+    `${left.created || ""}${left.id || ""}`.localeCompare(`${right.created || ""}${right.id || ""}`)
+  );
+}
+
+function summarizeOutcome(slug, goal) {
+  const iterations = readOutcomeIterations(slug);
+  const lastIteration = iterations.length > 0 ? iterations[iterations.length - 1] : null;
+  return {
+    id: slug,
+    goal: goal.goal || "",
+    status: goal.status || "active",
+    iteration_count: goal.iteration_count || 0,
+    max_iterations: goal.max_iterations || 1,
+    visibility: goal.visibility || "summary",
+    created: goal.created || "",
+    updated: goal.updated || "",
+    last_verified: goal.last_verified,
+    last_iteration: lastIteration,
+    next_action: lastIteration ? lastIteration.next_action : "make a bounded attempt, then call outcome_check",
+  };
+}
+
+function listOutcomeSummaries() {
+  let names;
+  try {
+    names = fs.readdirSync(outcomesDir());
+  } catch {
+    return [];
+  }
+  const outcomes = [];
+  for (const name of names.sort()) {
+    const goalPath = outcomeGoalPath(name);
+    if (!fs.existsSync(goalPath)) {
+      continue;
+    }
+    const goal = readJsonRecover(goalPath, () => null);
+    if (goal && typeof goal === "object") {
+      outcomes.push(summarizeOutcome(name, goal));
+    }
+  }
+  return outcomes.sort((left, right) =>
+    `${left.updated || left.created || ""}${left.id || ""}`.localeCompare(
+      `${right.updated || right.created || ""}${right.id || ""}`
+    )
+  );
+}
+
+function buildBackgroundView(recent = 5) {
+  const outcomes = listOutcomeSummaries();
+  const fanoutJobs = listFanoutSummaries();
+  const activeOutcomeSlug = readActiveOutcomeSlug();
+  const outcomeCounts = countStatuses(outcomes, ["active", "succeeded", "failed", "stopped"]);
+  const fanoutCounts = countStatuses(fanoutJobs, ["active", "completed", "failed", "interrupted", "empty"]);
+  const taskCounts = {
+    pending: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    interrupted: 0,
+  };
+  for (const job of fanoutJobs) {
+    for (const [status, count] of Object.entries(job.task_counts || {})) {
+      taskCounts[status] = (taskCounts[status] || 0) + count;
+    }
+  }
+  return {
+    state_dir: resolveStateDir(),
+    active_outcome: outcomes.find((outcome) => outcome.id === activeOutcomeSlug) || null,
+    outcomes: backgroundRecent(outcomes, recent),
+    fanout_jobs: backgroundRecent(fanoutJobs, recent),
+    counts: {
+      outcomes: { total: outcomes.length, ...outcomeCounts },
+      fanout_jobs: { total: fanoutJobs.length, ...fanoutCounts },
+      fanout_tasks: taskCounts,
+    },
+  };
+}
+
+function compactLabel(text, fallback) {
+  const value = String(text || "").trim();
+  if (value === "") {
+    return fallback;
+  }
+  return value.length <= 80 ? value : `${value.slice(0, 77)}...`;
+}
+
+function formatBackgroundView(view) {
+  const lines = [`[OK] Background tasks: ${view.state_dir}`];
+  const outcomes = view.counts.outcomes;
+  lines.push(
+    `Outcomes: ${outcomes.total} total; ${outcomes.active || 0} active, ` +
+      `${outcomes.succeeded || 0} succeeded, ${outcomes.failed || 0} failed, ` +
+      `${outcomes.stopped || 0} stopped`
+  );
+  if (view.active_outcome) {
+    lines.push(
+      `Active outcome: ${view.active_outcome.id} (${view.active_outcome.status}, ` +
+        `${view.active_outcome.iteration_count}/${view.active_outcome.max_iterations} iterations)`
+    );
+  } else {
+    lines.push("Active outcome: none");
+  }
+  if (view.outcomes.length > 0) {
+    lines.push("Recent outcomes:");
+    for (const outcome of view.outcomes) {
+      const icon = BACKGROUND_STATUS_ICONS[outcome.status] || "[ ]";
+      lines.push(
+        `  ${icon} ${outcome.id}: ${compactLabel(outcome.goal, "outcome")} ` +
+          `(${outcome.status}, ${outcome.iteration_count}/${outcome.max_iterations} iterations, ` +
+          `last verified=${outcome.last_verified})`
+      );
+      if (outcome.next_action) {
+        lines.push(`      next: ${outcome.next_action}`);
+      }
+    }
+  }
+  const fanout = view.counts.fanout_jobs;
+  const tasks = view.counts.fanout_tasks;
+  lines.push(
+    `Fanout jobs: ${fanout.total} total; ${fanout.active || 0} active, ` +
+      `${fanout.completed || 0} completed, ${fanout.failed || 0} failed, ` +
+      `${fanout.interrupted || 0} interrupted`
+  );
+  lines.push(
+    `Fanout tasks: ${tasks.running || 0} running, ${tasks.pending || 0} pending, ` +
+      `${tasks.completed || 0} completed, ${tasks.failed || 0} failed, ` +
+      `${tasks.interrupted || 0} interrupted`
+  );
+  if (view.fanout_jobs.length > 0) {
+    lines.push("Recent fanout jobs:");
+    for (const job of view.fanout_jobs) {
+      const icon = BACKGROUND_STATUS_ICONS[job.status] || "[ ]";
+      const taskCounts = job.task_counts;
+      lines.push(
+        `  ${icon} ${job.id}: ${compactLabel(job.purpose, "fanout job")} ` +
+          `(${job.status}; ${job.task_total} tasks, ${taskCounts.completed || 0} completed, ` +
+          `${taskCounts.failed || 0} failed, ${taskCounts.running || 0} running, ` +
+          `${taskCounts.pending || 0} pending)`
+      );
+      lines.push(
+        `      visibility: ${job.visibility || "summary"}; engine: ${job.engine || "unknown"}; ` +
+          `created: ${job.created || "unknown"}`
+      );
+      for (const task of job.tasks) {
+        const taskIcon = BACKGROUND_STATUS_ICONS[task.status] || "[ ]";
+        let detail = `      ${taskIcon} ${task.id}. ${compactLabel(task.title, "task")} (${task.status})`;
+        if (task.error) {
+          detail += `: ${compactLabel(task.error, "error")}`;
+        }
+        lines.push(detail);
+      }
+    }
+  }
+  if (view.outcomes.length === 0 && view.fanout_jobs.length === 0) {
+    lines.push("No background tasks found.");
   }
   return lines.join("\n");
 }
@@ -4710,6 +4962,32 @@ server.registerTool(
       return `[OK] ${JSON.stringify(dashboard, null, 2)}`;
     }
     return formatWorkflowDashboard(dashboard);
+  })
+);
+
+server.registerTool(
+  "background_status",
+  {
+    title: "Show background task state",
+    description:
+      "Show a read-only background task view of durable outcome loops and fanout jobs, including task counts, statuses, and next actions. " +
+      "Use this to orient on long-running delegated work without mutating state or treating model confidence as progress.",
+    inputSchema: {
+      recent: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Number of recent outcomes and fanout jobs to include. Defaults to 5."),
+      format: z.enum(["text", "json"]).optional().describe("Return text or JSON. Defaults to text."),
+    },
+  },
+  guarded(({ recent, format }) => {
+    const view = buildBackgroundView(typeof recent === "number" ? recent : 5);
+    if (format === "json") {
+      return `[OK] ${JSON.stringify(view, null, 2)}`;
+    }
+    return formatBackgroundView(view);
   })
 );
 

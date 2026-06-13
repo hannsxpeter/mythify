@@ -555,6 +555,73 @@ test("mythify MCP server smoke test", async (t) => {
       assert.ok(stopped.startsWith("[OK]"), `outcome_stop succeeds: ${stopped}`);
     });
 
+    await t.test("background_status shows read-only outcome and fanout state", async () => {
+      const jobId = "fo-20260613131313-abcd";
+      const jobDir = path.join(stateDir, "fanout", jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(jobDir, "job.json"),
+        JSON.stringify(
+          {
+            id: jobId,
+            created: "2026-06-13T13:13:13+00:00",
+            last_updated: "2026-06-13T13:13:14+00:00",
+            purpose: "Inspect background task state",
+            engine: "command",
+            model: "",
+            visibility: "summary",
+            tasks: [
+              {
+                id: 1,
+                title: "Read fanout job",
+                status: "completed",
+                role: "worker",
+                engine: "command",
+                duration_seconds: 0.5,
+                error: null,
+              },
+              {
+                id: 2,
+                title: "Wait for verifier",
+                status: "pending",
+                role: "worker",
+                engine: "command",
+                duration_seconds: 0,
+                error: null,
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+
+      const before = snapshotStateDir(stateDir);
+      const text = textOf(
+        await client.callTool({
+          name: "background_status",
+          arguments: { recent: 2 },
+        })
+      );
+      assert.ok(text.startsWith("[OK] Background tasks"), `background_status reports [OK]: ${text}`);
+      assert.match(text, /Outcomes:/);
+      assert.match(text, /Fanout jobs: 1 total; 1 active/);
+      assert.match(text, new RegExp(jobId));
+      assert.match(text, /Read fanout job/);
+      assert.deepEqual(snapshotStateDir(stateDir), before, "background_status leaves state unchanged");
+
+      const jsonText = textOf(
+        await client.callTool({
+          name: "background_status",
+          arguments: { recent: 2, format: "json" },
+        })
+      );
+      const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
+      assert.equal(parsed.counts.fanout_tasks.pending, 1);
+      assert.equal(parsed.fanout_jobs[0].id, jobId);
+      assert.ok(parsed.outcomes.length >= 1, "background_status includes outcome summaries");
+    });
+
     await t.test("memory_clear with no arguments refuses", async () => {
       const snapshotBeforeRefusal = snapshotStateDir(stateDir);
       const refused = textOf(
