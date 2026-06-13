@@ -764,6 +764,9 @@ task:
 
 The harness verifies both workspaces with `python3 -m unittest` and reports
 pass rate, Mythify evidence rate, average duration, and per-run output tails.
+It also emits a `verified_task_success` JSON block that answers the core
+comparison directly from verifier exit codes: bare rate, Mythify rate, delta,
+winner, conclusion, Mythify evidence rate, and the local smoke-test caveat.
 The default `--mythify-profile auto` uses the fast profile for the built-in
 focused bugfix scenarios. Use `--mythify-profile standard` when you want the
 older plan-plus-verify benchmark behavior.
@@ -856,9 +859,9 @@ documented or locally probeable automation contract exists.
 - No published npm package yet. You can get the code by cloning the repository or
   downloading a GitHub release, but the MCP server is still configured by local
   absolute path; there are no `npx` instructions because nothing is published to npm.
-- No large benchmark eval has been run yet. The local comparison harness is a
-  smoke test for the Mythify effect, not statistically meaningful evidence by
-  itself.
+- No large benchmark eval has been run yet. The `verified_task_success` report
+  block is a rerunnable smoke signal for the Mythify effect, not statistically
+  meaningful evidence by itself.
 - Protocol adherence varies by model strength. Weaker models follow the discipline
   less reliably, and the gains shrink accordingly.
 

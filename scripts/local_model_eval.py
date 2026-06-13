@@ -527,6 +527,40 @@ def summarize_runs(runs):
     return summary
 
 
+def verified_task_success_effect(summary):
+    bare = summary["bare"]
+    mythify = summary["mythify"]
+    bare_rate = bare["verified_success_rate"]
+    mythify_rate = mythify["verified_success_rate"]
+    delta = round(mythify_rate - bare_rate, 3)
+    if delta > 0:
+        conclusion = "improved"
+    elif delta < 0:
+        conclusion = "regressed"
+    else:
+        conclusion = "no_change"
+    return {
+        "metric": "verified_success_rate",
+        "comparison": "mythify_vs_bare",
+        "evidence_source": "per-workspace python3 -m unittest exit code",
+        "bare_attempted": bare["attempted"],
+        "mythify_attempted": mythify["attempted"],
+        "paired_task_count": min(bare["attempted"], mythify["attempted"]),
+        "bare_verified_success_rate": bare_rate,
+        "mythify_verified_success_rate": mythify_rate,
+        "verified_success_rate_delta": delta,
+        "winner": summary["winner_by_verified_success_rate"],
+        "conclusion": conclusion,
+        "mythify_evidence_success_rate": mythify["evidence_success_rate"],
+        "avg_model_duration_delta_seconds": round(
+            mythify["avg_model_duration_seconds"] - bare["avg_model_duration_seconds"],
+            3,
+        ),
+        "statistical_strength": "local_smoke",
+        "caveat": "Built-in scenarios are a rerunnable smoke signal, not a large benchmark.",
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Run a local bare-vs-Mythify model comparison using installed CLI subscriptions."
@@ -590,6 +624,7 @@ def main(argv=None):
                         args.mythify_profile,
                     )
                 )
+        summary = summarize_runs(runs)
         report = {
             "engine": args.engine,
             "scenario": args.scenario,
@@ -599,7 +634,8 @@ def main(argv=None):
             "bare_speed": bare_speed,
             "mythify_speed": mythify_speed,
             "workspaces_root": str(parent),
-            "summary": summarize_runs(runs),
+            "summary": summary,
+            "verified_task_success": verified_task_success_effect(summary),
             "runs": runs,
         }
         text = json.dumps(report, indent=2)

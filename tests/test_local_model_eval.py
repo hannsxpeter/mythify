@@ -146,6 +146,11 @@ class LocalModelEvalTests(unittest.TestCase):
         self.assertEqual(mythify["mythify_profile"], "fast")
         self.assertGreaterEqual(mythify["mythify_records"]["verifications"], 1)
         self.assertEqual(mythify["mythify_records"]["plans"], 0)
+        effect = report["verified_task_success"]
+        self.assertEqual(effect["metric"], "verified_success_rate")
+        self.assertEqual(effect["evidence_source"], "per-workspace python3 -m unittest exit code")
+        self.assertEqual(effect["conclusion"], "no_change")
+        self.assertEqual(effect["statistical_strength"], "local_smoke")
 
     def test_command_engine_runs_all_scenarios_with_summary(self):
         worker = self.write_worker()
@@ -180,6 +185,35 @@ class LocalModelEvalTests(unittest.TestCase):
         self.assertEqual(report["summary"]["mythify"]["verified_success"], 3)
         self.assertEqual(report["summary"]["mythify"]["evidence_success"], 3)
         self.assertEqual(report["summary"]["winner_by_verified_success_rate"], "tie")
+        self.assertEqual(report["verified_task_success"]["paired_task_count"], 3)
+        self.assertEqual(report["verified_task_success"]["winner"], "tie")
+
+    def test_verified_task_success_effect_uses_verifier_exit_codes(self):
+        runs = [
+            {
+                "mode": "bare",
+                "model_exit_code": 0,
+                "verify_exit_code": 1,
+                "model_duration_seconds": 1.0,
+                "mythify_records": {"verifications": 0, "plans": 0},
+            },
+            {
+                "mode": "mythify",
+                "mythify_profile": "fast",
+                "model_exit_code": 0,
+                "verify_exit_code": 0,
+                "model_duration_seconds": 2.0,
+                "mythify_records": {"verifications": 1, "plans": 0},
+            },
+        ]
+        summary = local_model_eval.summarize_runs(runs)
+        effect = local_model_eval.verified_task_success_effect(summary)
+
+        self.assertEqual(effect["winner"], "mythify")
+        self.assertEqual(effect["conclusion"], "improved")
+        self.assertEqual(effect["verified_success_rate_delta"], 1.0)
+        self.assertEqual(effect["mythify_evidence_success_rate"], 1.0)
+        self.assertEqual(effect["avg_model_duration_delta_seconds"], 1.0)
 
     def test_standard_profile_requires_plan_evidence(self):
         worker = self.write_worker()

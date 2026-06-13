@@ -1025,6 +1025,31 @@ Sections, in order:
 
 Document only what exists. No npx instructions, no badges for services not set up.
 
+## Local Evaluation Harness
+
+`scripts/local_model_eval.py` is the built-in bare-vs-Mythify smoke harness.
+It creates paired task workspaces, runs the selected local CLI or command
+engine, then verifies each workspace with `python3 -m unittest`. The model
+output is material; the evaluation metric comes from verifier exit codes.
+
+The JSON report must include:
+
+- `summary`: per-mode attempts, model success, verified success, Mythify
+  evidence success, success rates, average model duration, and the winner by
+  verified success rate.
+- `verified_task_success`: the direct answer to the product question. It
+  records `metric: "verified_success_rate"`, `comparison:
+  "mythify_vs_bare"`, `evidence_source:
+  "per-workspace python3 -m unittest exit code"`, bare and Mythify rates,
+  the rate delta, winner, conclusion, Mythify evidence rate, duration delta,
+  and `statistical_strength: "local_smoke"`.
+- `runs`: per-workspace model exit details, verifier exit details, output
+  tails, and Mythify evidence counts.
+
+The built-in scenarios are a rerunnable smoke signal, not a large benchmark.
+Do not upgrade `verified_task_success.conclusion` into a release claim without
+recording the exact harness command and its JSON output as evidence.
+
 ## Housekeeping
 
 .gitignore:

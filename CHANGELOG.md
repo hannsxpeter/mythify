@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `scripts/local_model_eval.py` now emits a `verified_task_success` report
+  block. It answers the bare-vs-Mythify verified success question from
+  per-workspace `python3 -m unittest` exit codes, including rate delta, winner,
+  conclusion, Mythify evidence rate, duration delta, and a local smoke-test
+  caveat.
 - CLI `readiness` and MCP `release_readiness` read-only release readiness
   views. The view summarizes recorded verification gates, project git state,
   and roadmap state without rerunning gates, mutating state, or declaring the

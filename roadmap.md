@@ -21,13 +21,13 @@ Status markers:
 
 ## Active Now
 
-- [>] Verified task success evaluation.
-  - Current goal: measure whether Mythify improves verified task success using
-    rerunnable local harness evidence.
-  - Next step: map the current evaluation harness outputs, metrics, and missing
-    evidence before changing benchmark behavior.
-  - Guardrail: evaluation evidence comes from rerunning verifiers, not model
-    self-ratings.
+- [>] False completion claim evaluation.
+  - Current goal: measure whether Mythify reduces completion claims that are
+    not backed by passing verifiers.
+  - Next step: map where the local evaluation harness stores model output,
+    verifier exit codes, and Mythify evidence records.
+  - Guardrail: false-completion evidence must compare claims with executed
+    verifier results, not model tone or confidence.
 
 ## Next Queue
 
@@ -238,8 +238,7 @@ Already shipped in this track:
 
 What remains:
 
-- [>] Does Mythify improve verified task success?
-- [ ] Does it reduce false completion claims?
+- [>] Does it reduce false completion claims?
 - [ ] How much overhead does each profile add?
 - [ ] Which tasks benefit from local models?
 - [ ] Which roles require stronger models?
@@ -247,6 +246,10 @@ What remains:
 
 Already shipped in this track:
 
+- [x] Verified task success is reported through the local eval harness
+  `verified_task_success` JSON block, with rate delta, winner, conclusion,
+  Mythify evidence rate, duration delta, and a local smoke-test caveat derived
+  from executed verifier exit codes.
 - [x] Local bare-vs-Mythify evaluation harness.
 - [x] Fast Mythify profile support.
 
@@ -256,6 +259,11 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add verified task success evaluation reporting.
+  `scripts/local_model_eval.py` now emits `verified_task_success`, a direct
+  bare-vs-Mythify smoke comparison based on per-workspace unittest exit codes,
+  with delta, winner, conclusion, Mythify evidence rate, duration delta, and
+  an explicit smoke-test caveat.
 - [x] 2026-06-13: add read-only release readiness. CLI `readiness` and MCP
   `release_readiness` summarize recorded verification gates, project git state,
   and roadmap state without rerunning gates, mutating state, tagging,
