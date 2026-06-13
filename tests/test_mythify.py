@@ -363,6 +363,17 @@ class TestClassification(CliTestCase):
             policy["provider_defaults"]["fallback_policy"],
             "no_implicit_cross_provider_fallback",
         )
+        provider_catalog = policy["provider_defaults"]["provider_catalog"]
+        self.assertFalse(provider_catalog["api_provider"]["execution_enabled"])
+        self.assertEqual(provider_catalog["api_provider"]["default_roles"], [])
+        self.assertEqual(
+            provider_catalog["host_cli"]["default_roles"],
+            ["triage", "fanout_worker", "reviewer"],
+        )
+        self.assertEqual(
+            provider_catalog["local_openai_compatible"]["evidence_status"],
+            "model_output_not_verification",
+        )
         api_contract = policy["provider_defaults"]["api_provider_contract"]
         self.assertEqual(api_contract["status"], "metadata_supported")
         self.assertFalse(api_contract["execution_enabled"])
@@ -389,6 +400,14 @@ class TestClassification(CliTestCase):
         self.assertEqual(providers["fanout_worker"]["provider"], "host_cli")
         self.assertEqual(providers["reviewer"]["provider"], "host_cli")
         self.assertEqual(providers["verifier"]["provider"], "local_command")
+        self.assertEqual(
+            providers["reviewer"]["provider_profile"]["control"],
+            "bounded_worker",
+        )
+        self.assertEqual(
+            providers["verifier"]["provider_profile"]["evidence_status"],
+            "executed_verification",
+        )
         self.assertEqual(policy["reader"]["provider"], "local_openai_compatible")
         self.assertFalse(policy["reader"]["writes_state"])
         self.assertEqual(

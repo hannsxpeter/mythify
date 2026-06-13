@@ -156,6 +156,17 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(parsed.model_policy.verifier.engine, "local_command");
       assert.equal(parsed.model_policy.session.recommendation.target_profile, "fast");
       assert.equal(parsed.model_policy.provider_defaults.fallback_policy, "no_implicit_cross_provider_fallback");
+      assert.equal(parsed.model_policy.provider_defaults.provider_catalog.api_provider.execution_enabled, false);
+      assert.deepEqual(parsed.model_policy.provider_defaults.provider_catalog.api_provider.default_roles, []);
+      assert.deepEqual(parsed.model_policy.provider_defaults.provider_catalog.host_cli.default_roles, [
+        "triage",
+        "fanout_worker",
+        "reviewer",
+      ]);
+      assert.equal(
+        parsed.model_policy.provider_defaults.provider_catalog.local_openai_compatible.evidence_status,
+        "model_output_not_verification"
+      );
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.status, "metadata_supported");
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.execution_enabled, false);
       assert.equal(
@@ -178,6 +189,7 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(parsed.model_policy.provider_defaults.roles.reader.provider_source, "env:MYTHIFY_ROLE_READER_PROVIDER");
       assert.equal(parsed.model_policy.provider_defaults.roles.reviewer.provider, "host_cli");
       assert.equal(parsed.model_policy.provider_defaults.roles.reviewer.status, "invalid_env_ignored");
+      assert.equal(parsed.model_policy.provider_defaults.roles.reviewer.provider_profile.control, "bounded_worker");
       assert.equal(parsed.model_policy.reader.provider, "host");
       assert.equal(parsed.model_policy.reader.evidence_status, "model_output_not_verification");
       assert.equal(parsed.model_policy.reviewer.stronger_model_policy, "same_or_lower");

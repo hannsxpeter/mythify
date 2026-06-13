@@ -325,6 +325,11 @@ have to guess which model setting applies where:
   fanout worker, reviewer, and verifier roles. These fields do not route work
   by themselves. They make the default provider posture explicit and use
   `fallback_policy: "no_implicit_cross_provider_fallback"`.
+  `provider_defaults.provider_catalog` records the provider posture for
+  `host`, `host_cli`, `local_openai_compatible`, `api_provider`, `command`,
+  and `local_command`: allowed roles, default roles, billing posture,
+  execution boundary, evidence status, state-write posture, and fallback
+  policy. Each resolved role also includes its selected `provider_profile`.
   `provider_defaults.api_provider_contract` lists metadata-supported hosted
   API providers, currently OpenAI, Anthropic, and hosted OpenAI-compatible
   endpoints. It records auth env names, billing posture, timeout fields, cost
@@ -384,6 +389,17 @@ Provider defaults can be made explicit with environment variables:
 `MYTHIFY_ROLE_READER_PROVIDER`, `MYTHIFY_ROLE_WORKER_PROVIDER`,
 `MYTHIFY_ROLE_REVIEWER_PROVIDER`, and `MYTHIFY_ROLE_VERIFIER_PROVIDER`.
 Invalid values are ignored and reported in `model_policy.provider_defaults`.
+
+Built-in role provider catalog:
+
+| Provider | Default roles | Allowed roles | Execution boundary | Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| `host` | `session` | `session`, `reader` | Host-selected current conversation | Host output is not verification |
+| `host_cli` | `triage`, `fanout_worker`, `reviewer` | `triage`, `fanout_worker`, `reviewer` | Bounded local host CLI worker | Worker output is material, not verification |
+| `local_openai_compatible` | `reader` | `triage`, `reader` | Localhost OpenAI-compatible model provider | Model output is material, not verification |
+| `api_provider` | none | `fanout_worker`, `reviewer` | Metadata-only until hosted execution is explicit | Provider output will be material, not verification |
+| `command` | none | `triage`, `fanout_worker`, `reviewer` | Explicit user command | Command output is material, not verification |
+| `local_command` | `verifier` | `verifier` | Local executed verifier | Exit code is verification evidence |
 
 Fast triage engines are local-first and do not require API keys:
 

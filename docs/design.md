@@ -522,6 +522,12 @@ Classification always returns `model_policy`. It separates:
   defaults. Invalid env values are ignored with `status:
   "invalid_env_ignored"`. Every role uses `fallback_policy:
   "no_implicit_cross_provider_fallback"`.
+- `provider_defaults.provider_catalog`: provider-specific posture metadata for
+  `host`, `host_cli`, `local_openai_compatible`, `api_provider`, `command`,
+  and `local_command`. It records allowed roles, default roles, billing
+  posture, execution boundary, evidence status, state-write posture, and
+  fallback policy. Each resolved role also includes its selected
+  `provider_profile`.
 - `provider_defaults.api_provider_contract`: metadata for hosted providers
   before Mythify can spend API credits. It currently covers OpenAI, Anthropic,
   and hosted OpenAI-compatible endpoints. It records auth env names, billing
@@ -566,6 +572,17 @@ Built-in role provider defaults:
 | `fanout_worker` | `host_cli` | `host_cli`, `api_provider`, `command` |
 | `reviewer` | `host_cli` | `host_cli`, `api_provider`, `command` |
 | `verifier` | `local_command` | `local_command` |
+
+Built-in role provider catalog:
+
+| Provider | Default roles | Allowed roles | Execution boundary | Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| `host` | `session` | `session`, `reader` | Host-selected current conversation | Host output is not verification |
+| `host_cli` | `triage`, `fanout_worker`, `reviewer` | `triage`, `fanout_worker`, `reviewer` | Bounded local host CLI worker | Worker output is material, not verification |
+| `local_openai_compatible` | `reader` | `triage`, `reader` | Localhost OpenAI-compatible model provider | Model output is material, not verification |
+| `api_provider` | none | `fanout_worker`, `reviewer` | Metadata-only until hosted execution is explicit | Provider output will be material, not verification |
+| `command` | none | `triage`, `fanout_worker`, `reviewer` | Explicit user command | Command output is material, not verification |
+| `local_command` | `verifier` | `verifier` | Local executed verifier | Exit code is verification evidence |
 
 `--platform` and MCP `platform` may be `auto`, `unknown`, `codex-desktop`,
 `codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, or

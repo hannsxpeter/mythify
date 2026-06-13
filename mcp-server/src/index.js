@@ -29,6 +29,7 @@ import {
   ROLE_PROVIDER_DEFAULTS,
   ROLE_PROVIDER_ENV_NAMES,
   ROLE_PROVIDER_FALLBACK_POLICY,
+  ROLE_PROVIDER_PROFILES,
   REVIEWER_STRENGTH_MODES,
   SPAWN_CEILINGS,
   SPEED_LEVELS,
@@ -1860,8 +1861,22 @@ function resolveRoleProvider(role) {
     requested_provider: requested || null,
     status,
     fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    provider_profile: ROLE_PROVIDER_PROFILES[provider] || {},
     selection: "advisory_metadata_only",
   };
+}
+
+function roleProviderCatalog() {
+  const catalog = {};
+  for (const [provider, profile] of Object.entries(ROLE_PROVIDER_PROFILES).sort(([left], [right]) =>
+    left.localeCompare(right)
+  )) {
+    catalog[provider] = {
+      ...profile,
+      fallback_policy: profile.fallback_policy || ROLE_PROVIDER_FALLBACK_POLICY,
+    };
+  }
+  return catalog;
 }
 
 function apiProviderContract() {
@@ -1920,6 +1935,7 @@ function buildProviderDefaults() {
     version: 1,
     precedence: ["future_explicit_role_input", "env", "built_in"],
     fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    provider_catalog: roleProviderCatalog(),
     api_provider_contract: apiProviderContract(),
     roles,
   };
@@ -1933,6 +1949,7 @@ function roleProviderFields(providerDefaults, role) {
     provider_default: provider.default_provider,
     provider_status: provider.status,
     provider_fallback_policy: provider.fallback_policy,
+    provider_profile: provider.provider_profile || {},
   };
 }
 

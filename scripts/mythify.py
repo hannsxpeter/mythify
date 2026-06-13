@@ -173,6 +173,76 @@ ROLE_PROVIDER_ALLOWED = {
     "verifier": ("local_command",),
 }
 ROLE_PROVIDER_FALLBACK_POLICY = "no_implicit_cross_provider_fallback"
+ROLE_PROVIDER_PROFILES = {
+    "host": {
+        "status": "supported",
+        "allowed_roles": ("session", "reader"),
+        "default_roles": ("session",),
+        "control": "host_selected",
+        "billing": "host_account_or_subscription",
+        "execution_enabled": True,
+        "writes_state": False,
+        "evidence_status": "host_output_not_verification",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "host_cli": {
+        "status": "supported",
+        "allowed_roles": ("triage", "fanout_worker", "reviewer"),
+        "default_roles": ("triage", "fanout_worker", "reviewer"),
+        "control": "bounded_worker",
+        "billing": "host_cli_subscription_or_local_quota",
+        "execution_enabled": True,
+        "writes_state": False,
+        "evidence_status": "worker_output_not_verification",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "local_openai_compatible": {
+        "status": "supported",
+        "allowed_roles": ("triage", "reader"),
+        "default_roles": ("reader",),
+        "control": "localhost_model_provider",
+        "billing": "local_compute",
+        "execution_enabled": True,
+        "writes_state": False,
+        "evidence_status": "model_output_not_verification",
+        "local_only": True,
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "api_provider": {
+        "status": "metadata_supported",
+        "allowed_roles": ("fanout_worker", "reviewer"),
+        "default_roles": (),
+        "control": "hosted_provider",
+        "billing": "metered_external_account",
+        "execution_enabled": False,
+        "writes_state": False,
+        "evidence_status": "provider_output_not_verification",
+        "explicit_enable_required": True,
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "command": {
+        "status": "supported",
+        "allowed_roles": ("triage", "fanout_worker", "reviewer"),
+        "default_roles": (),
+        "control": "explicit_command",
+        "billing": "user_defined",
+        "execution_enabled": True,
+        "writes_state": False,
+        "evidence_status": "command_output_not_verification",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "local_command": {
+        "status": "supported",
+        "allowed_roles": ("verifier",),
+        "default_roles": ("verifier",),
+        "control": "local_verifier",
+        "billing": "local_compute",
+        "execution_enabled": True,
+        "writes_state": True,
+        "evidence_status": "executed_verification",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+}
 API_PROVIDER_COST_METADATA_FIELDS = (
     "provider",
     "model",
@@ -2015,7 +2085,27 @@ def resolve_role_provider(role):
         "requested_provider": requested or None,
         "status": status,
         "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "provider_profile": role_provider_profile(provider),
         "selection": "advisory_metadata_only",
+    }
+
+
+def role_provider_profile(provider):
+    profile = dict(ROLE_PROVIDER_PROFILES.get(provider, {}))
+    for key in ("allowed_roles", "default_roles"):
+        if key in profile:
+            profile[key] = list(profile[key])
+    if profile:
+        profile["fallback_policy"] = profile.get(
+            "fallback_policy", ROLE_PROVIDER_FALLBACK_POLICY
+        )
+    return profile
+
+
+def role_provider_catalog():
+    return {
+        provider: role_provider_profile(provider)
+        for provider in sorted(ROLE_PROVIDER_PROFILES)
     }
 
 
@@ -2040,6 +2130,7 @@ def build_provider_defaults():
         "version": 1,
         "precedence": ["future_explicit_role_input", "env", "built_in"],
         "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "provider_catalog": role_provider_catalog(),
         "api_provider_contract": api_provider_contract(),
         "roles": {
             role: resolve_role_provider(role)
@@ -2056,6 +2147,7 @@ def role_provider_fields(provider_defaults, role):
         "provider_default": provider["default_provider"],
         "provider_status": provider["status"],
         "provider_fallback_policy": provider["fallback_policy"],
+        "provider_profile": provider.get("provider_profile", {}),
     }
 
 

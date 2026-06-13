@@ -10,6 +10,7 @@ import {
   ROLE_PROVIDER_ALLOWED,
   ROLE_PROVIDER_DEFAULTS,
   ROLE_PROVIDER_ENV_NAMES,
+  ROLE_PROVIDER_PROFILES,
   TRIAGE_ENGINES,
   getHostCapability,
   listAdapterCandidates,
@@ -65,6 +66,19 @@ test("role provider defaults stay explicit", () => {
     "command",
   ]);
   assert.equal(ROLE_PROVIDER_ENV_NAMES.fanout_worker, "MYTHIFY_ROLE_WORKER_PROVIDER");
+  assert.deepEqual(ROLE_PROVIDER_PROFILES.host_cli.default_roles, [
+    "triage",
+    "fanout_worker",
+    "reviewer",
+  ]);
+  assert.deepEqual(ROLE_PROVIDER_PROFILES.api_provider.allowed_roles, [
+    "fanout_worker",
+    "reviewer",
+  ]);
+  assert.equal(ROLE_PROVIDER_PROFILES.api_provider.execution_enabled, false);
+  assert.equal(ROLE_PROVIDER_PROFILES.api_provider.billing, "metered_external_account");
+  assert.equal(ROLE_PROVIDER_PROFILES.local_openai_compatible.local_only, true);
+  assert.equal(ROLE_PROVIDER_PROFILES.local_command.evidence_status, "executed_verification");
 });
 
 test("researched future adapters are candidates, not public host platforms", () => {

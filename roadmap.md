@@ -21,25 +21,24 @@ Status markers:
 
 ### In Progress
 
-- [>] Role defaults per provider.
-  - Current goal: make provider selection explicit per role before hosted API
-    execution exists.
-  - Next step: map role defaults against host CLI, local OpenAI-compatible,
-    API provider, and command providers.
-  - Guardrail: role defaults remain advisory metadata and must not create
-    hidden provider fallback or hidden billing.
+- [>] Antigravity worker adapter after local `agy -p`, model controls,
+  workspace trust, and permissions are verified.
+  - Current goal: turn the probe-only Antigravity adapter into a bounded worker
+    path only if local CLI behavior is explicit and safe.
+  - Next step: map `agy -p` prompt execution, model flags, workspace trust, and
+    permission behavior from local help output and focused probes.
+  - Guardrail: worker output remains material, not verification evidence, and
+    the adapter must refuse when trust or permission posture is unclear.
 
 ### Next To Do
 
-1. [ ] Antigravity worker adapter after local `agy -p`, model controls,
-   workspace trust, and permissions are verified.
-2. [ ] Kimi Work desktop lane after CLI adapters are stable.
-3. [ ] OpenCode Desktop lane after CLI and server adapters prove useful.
+1. [ ] Kimi Work desktop lane after CLI adapters are stable.
+2. [ ] OpenCode Desktop lane after CLI and server adapters prove useful.
+3. [ ] Colab remote execution adapter after explicit billing, data movement,
+   and cleanup posture are designed.
 
 ### Later
 
-- [ ] Colab remote execution adapter after explicit billing, data movement, and
-  cleanup posture are designed.
 - [ ] Workflow dashboard or phase view that reveals evidence without decorating
   self-report.
 - [ ] One-core architecture decision after the registry prototype proves enough
@@ -107,6 +106,9 @@ Status markers:
 - [x] 2026-06-13: add hosted API provider metadata for OpenAI, Anthropic, and
   hosted OpenAI-compatible endpoints, including cost fields, timeout defaults,
   explicit billing posture, and no hidden provider fallback.
+- [x] 2026-06-13: add provider-specific role defaults to `model_policy`,
+  including allowed roles, default roles, billing posture, execution boundary,
+  evidence status, state-write posture, and selected role provider profiles.
 
 ## Track Backlogs
 
@@ -156,6 +158,8 @@ Open:
 
 Done:
 
+- [x] Provider-specific role defaults are exposed in CLI and MCP
+  `model_policy.provider_defaults.provider_catalog`.
 - [x] API provider metadata is exposed through `model_policy` before hosted
   provider execution exists.
 - [x] Stronger reviewer opt-in flow requires explicit classifier or fanout
@@ -389,7 +393,7 @@ Preserve:
 ### v2.8
 
 - [x] API provider adapter path.
-- [>] Per-role provider defaults.
+- [x] Per-role provider defaults.
 - [ ] Cost and timeout metadata in worker records.
 - [x] CLI/MCP interop matrix for shared mutating operations.
 - [x] Kimi Code CLI adapter proof of concept.

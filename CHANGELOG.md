@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenAI-compatible endpoints, including auth env names, timeout defaults, cost
   metadata fields, pricing references, explicit billing posture, and
   `execution_enabled: false`.
+- Role defaults per provider. CLI and MCP `model_policy.provider_defaults` now
+  include a provider catalog for `host`, `host_cli`, `local_openai_compatible`,
+  `api_provider`, `command`, and `local_command`, plus each resolved role's
+  selected provider profile.
 
 ## [2.5.0] - 2026-06-12
 
