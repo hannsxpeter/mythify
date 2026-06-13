@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP `local_model_run` for role-limited localhost OpenAI-compatible reader and
   triage runs. The output is marked as material, not verification evidence,
   and the tool writes no Mythify state.
+- MCP `host_cli_run` for bounded Kimi Code and OpenCode non-interactive worker
+  runs. The output is marked as material, not verification evidence, and the
+  tool writes no Mythify state.
 
 ## [2.5.0] - 2026-06-12
 

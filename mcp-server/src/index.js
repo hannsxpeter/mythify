@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v2.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 24 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 27 tools in total. On-disk formats are
+// reflections) as 25 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 28 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -2746,6 +2746,161 @@ function formatHostCliProbe(result) {
   return lines.join("\n");
 }
 
+const HOST_CLI_RUNNERS = {
+  "kimi-code": {
+    outputMode: "final-message-only",
+    buildArgs: ({ prompt }) => ["--print", "-p", prompt, "--final-message-only"],
+  },
+  opencode: {
+    outputMode: "json",
+    buildArgs: ({ prompt, model, agent }) => {
+      const args = ["run", "--format", "json"];
+      if (model !== "") {
+        args.push("--model", model);
+      }
+      if (agent !== "") {
+        args.push("--agent", agent);
+      }
+      args.push(prompt);
+      return args;
+    },
+  },
+};
+
+function resolveHostCliRunCwd(rawCwd) {
+  const selected = String(rawCwd || "").trim();
+  const resolved = selected === "" ? path.dirname(resolveStateDir()) : path.resolve(selected);
+  try {
+    const stat = fs.statSync(resolved);
+    if (!stat.isDirectory()) {
+      return { ok: false, cwd: resolved, error: `host_cli_run cwd is not a directory: ${resolved}` };
+    }
+  } catch {
+    return { ok: false, cwd: resolved, error: `host_cli_run cwd is not accessible: ${resolved}` };
+  }
+  return { ok: true, cwd: resolved, error: "" };
+}
+
+function runHostCliWorker({ host, bin, prompt, cwd, timeout_seconds, model, agent }) {
+  const selectedHost = host || "opencode";
+  const runner = HOST_CLI_RUNNERS[selectedHost];
+  const timeoutSeconds =
+    typeof timeout_seconds === "number" && timeout_seconds > 0 ? timeout_seconds : 120;
+  const selectedPrompt = String(prompt || "").trim();
+  const selectedModel = String(model || "").trim();
+  const selectedAgent = String(agent || "").trim();
+  const adapter = ADAPTER_CANDIDATES[selectedHost] || {};
+  const resolved = resolveHostCliBinary(selectedHost, bin);
+  const cwdResult = resolveHostCliRunCwd(cwd);
+  const result = {
+    host: selectedHost,
+    host_kind: adapter.kind || "host",
+    status: "blocked",
+    binary: resolved.bin,
+    binary_source: resolved.source,
+    cwd: cwdResult.cwd,
+    material_not_evidence: true,
+    evidence_status: "worker_output_not_verification",
+    writes_state: false,
+    verification_recorded: false,
+    worker_output_is_evidence: false,
+    can_run_noninteractive_prompt: false,
+    timeout_seconds: timeoutSeconds,
+    model: selectedModel,
+    agent: selectedAgent,
+    model_applied: false,
+    agent_applied: false,
+    output_mode: runner ? runner.outputMode : "",
+    command: "",
+    args: [],
+    exit_code: -1,
+    duration_seconds: 0,
+    stdout_tail: "",
+    stderr_tail: "",
+    output_tail: "",
+    error: resolved.error,
+    timed_out: false,
+  };
+  if (!runner) {
+    result.error = `host_cli_run does not support ${selectedHost}.`;
+    return result;
+  }
+  if (selectedPrompt === "") {
+    result.error = "host_cli_run requires prompt.";
+    return result;
+  }
+  if (!cwdResult.ok) {
+    result.error = cwdResult.error;
+    return result;
+  }
+  if (resolved.bin === "") {
+    return result;
+  }
+
+  result.model_applied = selectedHost === "opencode" && selectedModel !== "";
+  result.agent_applied = selectedHost === "opencode" && selectedAgent !== "";
+  result.args = runner.buildArgs({
+    prompt: selectedPrompt,
+    model: selectedModel,
+    agent: selectedAgent,
+  });
+  result.command = [path.basename(resolved.bin), ...result.args].join(" ");
+
+  const startedAt = process.hrtime.bigint();
+  const run = spawnSync(resolved.bin, result.args, {
+    shell: false,
+    encoding: "utf8",
+    cwd: cwdResult.cwd,
+    timeout: Math.round(timeoutSeconds * 1000),
+    maxBuffer: 1024 * 1024,
+  });
+  const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+  const timedOut = Boolean(run.error && run.error.code === "ETIMEDOUT");
+  const exitCode = typeof run.status === "number" ? run.status : -1;
+  result.exit_code = exitCode;
+  result.duration_seconds = Number(durationSeconds.toFixed(3));
+  result.stdout_tail = tailText(run.stdout, 4000);
+  result.stderr_tail = tailText(run.stderr, 4000);
+  result.output_tail = result.stdout_tail || result.stderr_tail;
+  result.timed_out = timedOut;
+  result.can_run_noninteractive_prompt = exitCode === 0;
+  result.status = exitCode === 0 ? "available" : "blocked";
+  if (timedOut) {
+    result.error = `timed out after ${timeoutSeconds} seconds`;
+  } else if (exitCode !== 0) {
+    result.error = result.stderr_tail || `command exited ${exitCode}`;
+  } else if (run.error) {
+    result.error = run.error.message;
+  } else {
+    result.error = "";
+  }
+  return result;
+}
+
+function formatHostCliRun(result) {
+  const prefix = result.status === "available" ? "[OK]" : "[FAIL]";
+  const lines = [
+    `${prefix} Host CLI run ${result.status}.`,
+    `host: ${result.host}`,
+    `binary: ${result.binary || "not found"}`,
+    `binary source: ${result.binary_source}`,
+    `cwd: ${result.cwd || "unset"}`,
+    `model: ${result.model || "unset"} (${result.model_applied ? "applied" : "not applied"})`,
+    `agent: ${result.agent || "unset"} (${result.agent_applied ? "applied" : "not applied"})`,
+    `exit: ${result.exit_code}`,
+    `writes state: ${result.writes_state ? "yes" : "no"}`,
+    `verification recorded: ${result.verification_recorded ? "yes" : "no"}`,
+    "evidence: worker output is material, not verification evidence.",
+  ];
+  if (result.output_tail) {
+    lines.push(`output: ${result.output_tail}`);
+  }
+  if (result.error) {
+    lines.push(`error: ${result.error}`);
+  }
+  return lines.join("\n");
+}
+
 const EXECUTION_PROBES = {
   "google-colab-cli": {
     envName: "MYTHIFY_COLAB_BIN",
@@ -3440,6 +3595,67 @@ server.registerTool(
     });
     const prefix = result.status === "available" ? "[OK] " : "[FAIL] ";
     return format === "json" ? prefix + JSON.stringify(result, null, 2) : formatHostCliProbe(result);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Host CLI worker run tool
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "host_cli_run",
+  {
+    title: "Run a bounded host CLI worker",
+    description:
+      "Run a bounded non-interactive prompt through Kimi Code or OpenCode. " +
+      "Use this only for worker material that the orchestrator will inspect and then verify with commands. The result is material, not verification evidence, and the tool writes no Mythify state.",
+    inputSchema: {
+      host: z
+        .enum(["kimi-code", "opencode"])
+        .optional()
+        .describe("Host CLI worker to run. Defaults to opencode."),
+      bin: z
+        .string()
+        .optional()
+        .describe("Explicit CLI binary path. Defaults to MYTHIFY_KIMI_BIN or MYTHIFY_OPENCODE_BIN, then PATH and common install paths."),
+      prompt: z
+        .string()
+        .describe("Prompt to pass to the host CLI non-interactive runner."),
+      cwd: z
+        .string()
+        .optional()
+        .describe("Working directory for the worker. Defaults to the project root inferred from MYTHIFY_DIR."),
+      timeout_seconds: z
+        .number()
+        .positive()
+        .optional()
+        .describe("Prompt run timeout in seconds. Defaults to 120."),
+      model: z
+        .string()
+        .optional()
+        .describe("Optional OpenCode model id. Kimi Code does not receive a model flag in this adapter."),
+      agent: z
+        .string()
+        .optional()
+        .describe("Optional OpenCode agent id. Kimi Code does not receive an agent flag in this adapter."),
+      format: z
+        .enum(["text", "json"])
+        .optional()
+        .describe("Return text by default, or JSON for machine-readable host CLI runs."),
+    },
+  },
+  guarded(({ host, bin, prompt, cwd, timeout_seconds, model, agent, format }) => {
+    const result = runHostCliWorker({
+      host: host || "opencode",
+      bin: bin || "",
+      prompt,
+      cwd,
+      timeout_seconds,
+      model,
+      agent,
+    });
+    const prefix = result.status === "available" ? "[OK] " : "[FAIL] ";
+    return format === "json" ? prefix + JSON.stringify(result, null, 2) : formatHostCliRun(result);
   })
 );
 

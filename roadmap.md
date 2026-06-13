@@ -21,25 +21,21 @@ Status markers:
 
 ### In Progress
 
-- [>] Kimi Code and OpenCode worker adapter spikes
-  - Current goal: verify real non-interactive worker execution paths before
-    claiming worker support.
-  - Next step: design a bounded prompt execution contract for Kimi and
-    OpenCode.
-  - Guardrail: worker output is material until the orchestrator verifies the
-    merged work with commands.
+- [>] Step-bound verification records
+  - Current goal: make verification evidence easier to audit against the plan
+    step that produced it.
+  - Next step: design the verification record fields and compatibility path.
+  - Guardrail: keep existing verification readers working.
 
 ### Next To Do
 
-1. [ ] Add real Kimi Code and OpenCode worker adapter spikes.
-   - Kimi: verify `kimi -p` behavior locally before claiming worker support.
-   - OpenCode: verify `opencode run` behavior locally before claiming worker
-     support.
-2. [ ] Add step-bound verification records.
+1. [ ] Add step-bound verification records.
    - Bind verification records to plan and step ids.
    - Make completion evidence easier to audit later.
-3. [ ] Expand CLI/MCP interop coverage.
+2. [ ] Expand CLI/MCP interop coverage.
    - Move from spot checks to every mutating operation.
+3. [ ] Add whole-state no-mutation checks for refusal paths.
+   - Prove guarded tools leave project state untouched when they refuse.
 
 ### Later
 
@@ -90,6 +86,7 @@ Status markers:
   and spike plan.
 - [x] 2026-06-13: add role-limited local model backend for localhost
   OpenAI-compatible reader and triage runs.
+- [x] 2026-06-13: add bounded Kimi Code and OpenCode host CLI worker runs.
 
 ## Track Backlogs
 
@@ -208,8 +205,6 @@ official contract proves the capability.
 
 Open:
 
-- [ ] Kimi Code worker adapter proof of concept.
-- [ ] OpenCode worker adapter proof of concept.
 - [ ] Antigravity worker adapter after local prompt, model, workspace, trust,
   and permission behavior is verified.
 - [ ] Kimi Work desktop lane.
@@ -219,6 +214,8 @@ Done:
 
 - [x] Kimi Code CLI probe.
 - [x] OpenCode CLI probe.
+- [x] Kimi Code bounded worker run through `host_cli_run`.
+- [x] OpenCode bounded worker run through `host_cli_run`.
 - [x] Antigravity CLI probe.
 - [x] Antigravity MCP setup guide.
 

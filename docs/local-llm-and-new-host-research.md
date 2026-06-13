@@ -38,6 +38,11 @@ Implementation status:
 - Local model backend slice landed in `local_model_run`: localhost
   OpenAI-compatible providers can run role-limited reader or triage prompts,
   with output marked as material, not verification evidence.
+- Host CLI worker slice landed in `host_cli_run`: Kimi Code can run bounded
+  print-mode prompts with `kimi --print -p PROMPT --final-message-only`, and
+  OpenCode can run bounded headless prompts with `opencode run --format json`.
+  Output is marked as material, not verification evidence, and no Mythify state
+  is written.
 
 Near-term fit:
 
@@ -191,7 +196,8 @@ Why:
 - It can read and edit code, run shell commands, search files, fetch web pages,
   and choose next steps from feedback.
 - It supports an interactive TUI through `kimi`.
-- It supports a single non-interactive instruction through `kimi -p`.
+- It supports a single non-interactive instruction through print mode,
+  `kimi --print -p PROMPT`.
 - It supports current-session model switching through `/model`.
 - It stores long-term configuration in `~/.kimi-code/config.toml`, including
   `default_model`, `default_thinking`, providers, models, permission rules,
@@ -212,13 +218,12 @@ Local probe:
 
 Mythify implication:
 
-- Add a `kimi-code` adapter near OpenCode.
-- First operation can be `run_prompt` with `kimi -p`, a selected working
-  directory, timeout, model or provider override, permission mode, and a clear
-  capture of output.
+- The first `kimi-code` worker operation is now `host_cli_run` with
+  `kimi --print -p PROMPT --final-message-only`, a selected working directory,
+  timeout, and a clear capture of output.
 - Treat `/model` as `manual` for an already-open TUI session unless Mythify is
   driving that process directly.
-- Treat config-file model defaults or `kimi -p` launch options as `applied`
+- Treat config-file model defaults or print-mode launch options as `applied`
   only after a local probe confirms the installed version supports the chosen
   flag or config field.
 - ACP is promising for IDE integration, but it is a separate adapter surface
@@ -462,9 +467,9 @@ This prevents Colab CLI and Agents CLI from being squeezed into the wrong box.
    against a fake server.
 3. Done 2026-06-12: add Kimi Code and OpenCode CLI probe support with offline
    stub tests.
-4. Add a real Kimi Code adapter spike:
-   `kimi -p "summarize this repository"`.
-5. Add a real OpenCode adapter spike:
+4. Done 2026-06-13: add a bounded Kimi Code worker run through
+   `kimi --print -p PROMPT --final-message-only`.
+5. Done 2026-06-13: add a bounded OpenCode worker run through
    `opencode run --format json --model <provider/model>`.
 6. Done 2026-06-12: add Antigravity CLI probe and MCP setup guide.
 7. Done 2026-06-12: create a Colab CLI spike plan without running billable
