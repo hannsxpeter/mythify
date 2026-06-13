@@ -28,7 +28,7 @@ from pathlib import Path
 WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
-PROTOCOL_SOURCE_SHA256 = "3f9bbb0e969daaae1686dd43f7af1d5b99571a4b52616b586368e07abcbc6426"
+PROTOCOL_SOURCE_SHA256 = "8cb2b57cb4b889fc01771ae5e4844de53d3a80592741ed3005ea7d3bb1976129"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -3191,8 +3191,12 @@ def summarize_fanout_job(job):
                 "role": task.get("role", "worker"),
                 "engine": task.get("engine", ""),
                 "model": task.get("model", ""),
+                "started_at": task.get("started_at", ""),
+                "finished_at": task.get("finished_at", ""),
                 "duration_seconds": task.get("duration_seconds", 0),
                 "error": task.get("error"),
+                "output_file": task.get("output_file"),
+                "output_bytes": task.get("output_bytes", 0),
             }
             for task in tasks
         ],
@@ -3397,6 +3401,210 @@ def cmd_background(args, state):
         print(json.dumps(view, indent=2))
     else:
         print(format_background_view(view))
+    return 0
+
+
+TIMELINE_EVENT_ICONS = {
+    "job_created": "[ ]",
+    "task_started": "[>]",
+    "task_pending": "[ ]",
+    "task_finished": "[x]",
+    "task_failed": "[!]",
+    "task_interrupted": "[~]",
+}
+
+
+def selected_recent_fanout_jobs(fanout_jobs, recent):
+    if recent <= 0:
+        return []
+    return list(reversed(fanout_jobs[-recent:]))
+
+
+def timeline_event_time(job, task, event):
+    if event == "task_started":
+        return task.get("started_at") or job.get("created", "")
+    if event in ("task_finished", "task_failed", "task_interrupted"):
+        return task.get("finished_at") or job.get("last_updated", "")
+    return job.get("created", "")
+
+
+def add_timeline_event(events, job, task, event):
+    status = task.get("status", "pending") if task else job.get("status", "unknown")
+    item = {
+        "time": timeline_event_time(job, task or {}, event),
+        "event": event,
+        "job_id": job.get("id", ""),
+        "job_purpose": job.get("purpose", ""),
+        "task_id": task.get("id") if task else None,
+        "task_title": task.get("title", "") if task else "",
+        "status": status,
+        "engine": (task.get("engine") if task else None) or job.get("engine", ""),
+        "model": (task.get("model") if task else None) or job.get("model", ""),
+        "duration_seconds": task.get("duration_seconds", 0) if task else 0,
+        "error": task.get("error") if task else None,
+        "output_file": task.get("output_file") if task else None,
+        "output_bytes": task.get("output_bytes", 0) if task else 0,
+    }
+    events.append(item)
+
+
+def build_fanout_timeline_events(job):
+    events = []
+    events.append(
+        {
+            "time": job.get("created", ""),
+            "event": "job_created",
+            "job_id": job.get("id", ""),
+            "job_purpose": job.get("purpose", ""),
+            "task_id": None,
+            "task_title": "",
+            "status": job.get("status", "unknown"),
+            "engine": job.get("engine", ""),
+            "model": job.get("model", ""),
+            "duration_seconds": 0,
+            "error": None,
+            "output_file": None,
+            "output_bytes": 0,
+        }
+    )
+    for task in job.get("tasks", []):
+        status = task.get("status", "pending")
+        if status == "pending" and not task.get("started_at"):
+            add_timeline_event(events, job, task, "task_pending")
+            continue
+        add_timeline_event(events, job, task, "task_started")
+        if status == "failed":
+            add_timeline_event(events, job, task, "task_failed")
+        elif status == "interrupted":
+            add_timeline_event(events, job, task, "task_interrupted")
+        elif status == "completed":
+            add_timeline_event(events, job, task, "task_finished")
+    return events
+
+
+def sort_timeline_events(events):
+    return sorted(
+        events,
+        key=lambda item: (
+            item.get("time") or "9999-12-31T23:59:59Z",
+            item.get("job_id") or "",
+            item.get("task_id") or 0,
+            item.get("event") or "",
+        ),
+    )
+
+
+def build_fanout_timeline_view(state, recent=5):
+    fanout_jobs = list_fanout_summaries(state)
+    selected_jobs = selected_recent_fanout_jobs(fanout_jobs, recent)
+    selected_ids = {job.get("id") for job in selected_jobs}
+    events = []
+    for job in fanout_jobs:
+        if job.get("id") in selected_ids:
+            events.extend(build_fanout_timeline_events(job))
+    task_counts = {
+        "pending": 0,
+        "running": 0,
+        "completed": 0,
+        "failed": 0,
+        "interrupted": 0,
+    }
+    for job in fanout_jobs:
+        for status, count in job.get("task_counts", {}).items():
+            task_counts[status] = task_counts.get(status, 0) + count
+    job_counts = count_statuses(
+        fanout_jobs, ("active", "completed", "failed", "interrupted", "empty")
+    )
+    return {
+        "state_dir": str(state),
+        "jobs": selected_jobs,
+        "events": sort_timeline_events(events),
+        "counts": {
+            "fanout_jobs": {"total": len(fanout_jobs), **job_counts},
+            "fanout_tasks": task_counts,
+            "timeline_events": len(events),
+        },
+        "guardrail": (
+            "timeline summarizes durable fanout state only; worker output is "
+            "material, not verification evidence"
+        ),
+    }
+
+
+def format_timeline_event(event):
+    icon = TIMELINE_EVENT_ICONS.get(event.get("event"), "[ ]")
+    stamp = event.get("time") or "unknown-time"
+    job_id = event.get("job_id") or "unknown-job"
+    task_id = event.get("task_id")
+    if event.get("event") == "job_created":
+        return "  {0} {1} {2}: job created ({3})".format(
+            icon,
+            stamp,
+            job_id,
+            compact_label(event.get("job_purpose"), "fanout job"),
+        )
+    title = compact_label(event.get("task_title"), "task")
+    prefix = "  {0} {1} {2} task {3}: {4}".format(
+        icon,
+        stamp,
+        job_id,
+        task_id,
+        title,
+    )
+    detail = " ({0}; engine={1}".format(
+        event.get("status", "unknown"),
+        event.get("engine") or "unknown",
+    )
+    if event.get("model"):
+        detail += "; model={0}".format(event.get("model"))
+    if event.get("duration_seconds"):
+        detail += "; duration={0}s".format(event.get("duration_seconds"))
+    if event.get("output_bytes"):
+        detail += "; output={0} bytes".format(event.get("output_bytes"))
+    detail += ")"
+    if event.get("error"):
+        detail += ": {0}".format(compact_label(event.get("error"), "error"))
+    return prefix + detail
+
+
+def format_fanout_timeline_view(view):
+    lines = ["[OK] Fanout timeline: {0}".format(view["state_dir"])]
+    jobs = view["counts"]["fanout_jobs"]
+    tasks = view["counts"]["fanout_tasks"]
+    lines.append(
+        "Fanout jobs: {0} total; {1} active, {2} completed, {3} failed, {4} interrupted".format(
+            jobs["total"],
+            jobs.get("active", 0),
+            jobs.get("completed", 0),
+            jobs.get("failed", 0),
+            jobs.get("interrupted", 0),
+        )
+    )
+    lines.append(
+        "Fanout tasks: {0} running, {1} pending, {2} completed, {3} failed, {4} interrupted".format(
+            tasks.get("running", 0),
+            tasks.get("pending", 0),
+            tasks.get("completed", 0),
+            tasks.get("failed", 0),
+            tasks.get("interrupted", 0),
+        )
+    )
+    if view["events"]:
+        lines.append("Timeline events:")
+        for event in view["events"]:
+            lines.append(format_timeline_event(event))
+    else:
+        lines.append("No fanout timeline events found.")
+    lines.append("Guardrail: {0}.".format(view["guardrail"]))
+    return "\n".join(lines)
+
+
+def cmd_timeline(args, state):
+    view = build_fanout_timeline_view(state, args.recent)
+    if args.json_output:
+        print(json.dumps(view, indent=2))
+    else:
+        print(format_fanout_timeline_view(view))
     return 0
 
 
@@ -4706,6 +4914,24 @@ def build_parser():
     )
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_background)
+
+    p = sub.add_parser(
+        "timeline",
+        help="Show a read-only fanout worker timeline.",
+        description=(
+            "Read-only fanout worker timeline: recent fanout jobs, task start "
+            "and finish events, duration, status, errors, and output metadata "
+            "from durable state."
+        ),
+    )
+    p.add_argument(
+        "--recent",
+        type=int,
+        default=5,
+        help="Number of recent fanout jobs to include. Defaults to 5.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_timeline)
 
     p = sub.add_parser(
         "phase",

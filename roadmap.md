@@ -21,13 +21,12 @@ Status markers:
 
 ## Active Now
 
-- [>] Fanout worker timeline.
-  - Current goal: show worker starts, finishes, duration, status, and errors in
-    a scan-friendly timeline.
-  - Next step: map durable fanout job and task records into chronological
-    events without adding process control.
-  - Guardrail: timeline events summarize recorded worker state; they do not
-    prove merged work or replace executed verification.
+- [>] Verification history.
+  - Current goal: expose recent verification evidence in a scan-friendly view.
+  - Next step: map executed and attested verification records into filterable
+    history without changing verification semantics.
+  - Guardrail: history displays recorded evidence; it does not rerun checks or
+    upgrade attested claims into verified evidence.
 
 ## Next Queue
 
@@ -214,8 +213,7 @@ Already shipped in this track:
 
 What remains:
 
-- [>] Fanout worker timeline.
-- [ ] Verification history.
+- [>] Verification history.
 - [ ] Outcome loop progress.
 - [ ] Release readiness view.
 
@@ -223,6 +221,8 @@ Principle: reveal evidence, do not decorate self-report.
 
 Already shipped in this track:
 
+- [x] Fanout worker timeline through CLI `timeline` and MCP
+  `fanout_timeline`.
 - [x] Phase view for Understand, Design, Build, Judge, Verify through CLI
   `phase` and MCP `phase_status`.
 - [x] Background task view through CLI `background` and MCP
@@ -251,6 +251,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add read-only fanout worker timeline. CLI `timeline` and MCP
+  `fanout_timeline` show durable job creation, task starts, task finishes,
+  duration, status, errors, and output metadata without mutating state or
+  treating worker output as verification evidence.
 - [x] 2026-06-13: add read-only phase view. CLI `phase` and MCP
   `phase_status` group active plan steps into Understand, Design, Build,
   Judge, and Verify with durable evidence counts, without mutating state or

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CLI `timeline` and MCP `fanout_timeline` read-only fanout worker timeline
+  views. The view shows durable job creation, task starts, task finishes,
+  duration, status, errors, and output metadata without mutating state or
+  treating worker output as verification evidence.
 - CLI `phase` and MCP `phase_status` read-only phase views. The view groups
   active plan steps into Understand, Design, Build, Judge, and Verify, adds
   durable evidence counts from memory, lessons, verifications, reflections,

@@ -1730,6 +1730,81 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(payload["counts"]["fanout_tasks"]["running"], 1)
         self.assertEqual(payload["fanout_jobs"][0]["id"], job_id)
 
+    def test_timeline_includes_fanout_worker_events_without_mutation(self):
+        state = self.init_workspace()
+        job_id = "fo-20260613141414-abcd"
+        job_dir = state / "fanout" / job_id
+        job_dir.mkdir(parents=True)
+        job = {
+            "id": job_id,
+            "created": "2026-06-13T14:14:14+00:00",
+            "last_updated": "2026-06-13T14:14:20+00:00",
+            "purpose": "Build a timeline",
+            "engine": "command",
+            "model": "",
+            "visibility": "summary",
+            "tasks": [
+                {
+                    "id": 1,
+                    "title": "Write timeline",
+                    "status": "completed",
+                    "role": "worker",
+                    "engine": "command",
+                    "started_at": "2026-06-13T14:14:15+00:00",
+                    "finished_at": "2026-06-13T14:14:18+00:00",
+                    "duration_seconds": 3.0,
+                    "error": None,
+                    "output_file": "task-1-output.md",
+                    "output_bytes": 42,
+                },
+                {
+                    "id": 2,
+                    "title": "Review timeline",
+                    "status": "failed",
+                    "role": "reviewer",
+                    "engine": "command",
+                    "started_at": "2026-06-13T14:14:16+00:00",
+                    "finished_at": "2026-06-13T14:14:20+00:00",
+                    "duration_seconds": 4.0,
+                    "error": "review failed",
+                    "output_file": "task-2-output.md",
+                    "output_bytes": 0,
+                },
+                {
+                    "id": 3,
+                    "title": "Wait for follow-up",
+                    "status": "pending",
+                    "role": "worker",
+                    "engine": "command",
+                    "duration_seconds": 0,
+                    "error": None,
+                },
+            ],
+        }
+        (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+        before = self.state_snapshot(state)
+        result = self.run_cli("timeline", "--recent", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Fanout timeline", result.stdout)
+        self.assertIn("Fanout jobs: 1 total; 1 active, 0 completed, 0 failed", result.stdout)
+        self.assertIn("job created (Build a timeline)", result.stdout)
+        self.assertIn("Write timeline (completed; engine=command; duration=3.0s; output=42 bytes)", result.stdout)
+        self.assertIn("Review timeline (failed; engine=command; duration=4.0s): review failed", result.stdout)
+        self.assertIn("Wait for follow-up (pending; engine=command)", result.stdout)
+        self.assertEqual(self.state_snapshot(state), before)
+
+        json_result = self.run_cli("timeline", "--json")
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        payload = json.loads(json_result.stdout)
+        event_names = [event["event"] for event in payload["events"]]
+        self.assertIn("job_created", event_names)
+        self.assertIn("task_started", event_names)
+        self.assertIn("task_finished", event_names)
+        self.assertIn("task_failed", event_names)
+        self.assertIn("task_pending", event_names)
+        self.assertEqual(payload["counts"]["timeline_events"], 6)
+
     def test_phase_groups_plan_steps_and_evidence_without_mutation(self):
         state = self.init_workspace()
         steps = json.dumps([

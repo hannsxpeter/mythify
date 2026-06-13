@@ -649,6 +649,69 @@ test("mythify MCP server smoke test", async (t) => {
       assert.ok(parsed.outcomes.length >= 1, "background_status includes outcome summaries");
     });
 
+    await t.test("fanout_timeline shows read-only worker events", async () => {
+      const jobId = "fo-20260613141414-abcd";
+      const jobDir = path.join(stateDir, "fanout", jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(jobDir, "job.json"),
+        JSON.stringify(
+          {
+            id: jobId,
+            created: "2026-06-13T14:14:14+00:00",
+            last_updated: "2026-06-13T14:14:18+00:00",
+            purpose: "Inspect fanout worker timing",
+            engine: "command",
+            model: "",
+            visibility: "summary",
+            tasks: [
+              {
+                id: 1,
+                title: "Collect worker timing",
+                status: "completed",
+                role: "worker",
+                engine: "command",
+                started_at: "2026-06-13T14:14:15+00:00",
+                finished_at: "2026-06-13T14:14:18+00:00",
+                duration_seconds: 3,
+                error: null,
+                output_file: "task-1-output.md",
+                output_bytes: 51,
+              },
+            ],
+          },
+          null,
+          2
+        )
+      );
+
+      const before = snapshotStateDir(stateDir);
+      const text = textOf(
+        await client.callTool({
+          name: "fanout_timeline",
+          arguments: { recent: 1 },
+        })
+      );
+      assert.ok(text.startsWith("[OK] Fanout timeline"), `fanout_timeline reports [OK]: ${text}`);
+      assert.match(text, /job created/);
+      assert.match(text, /Collect worker timing/);
+      assert.match(text, /duration=3s/);
+      assert.match(text, /output=51 bytes/);
+      assert.deepEqual(snapshotStateDir(stateDir), before, "fanout_timeline leaves state unchanged");
+
+      const jsonText = textOf(
+        await client.callTool({
+          name: "fanout_timeline",
+          arguments: { recent: 1, format: "json" },
+        })
+      );
+      const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
+      assert.equal(parsed.events.length, 3);
+      assert.equal(parsed.events[0].event, "job_created");
+      assert.equal(parsed.events[2].event, "task_finished");
+      assert.equal(parsed.counts.timeline_events, 3);
+    });
+
     await t.test("memory_clear with no arguments refuses", async () => {
       const snapshotBeforeRefusal = snapshotStateDir(stateDir);
       const refused = textOf(

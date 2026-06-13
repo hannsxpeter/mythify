@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v2.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 29 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 32 tools in total. On-disk formats are
+// reflections) as 30 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 33 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -1103,8 +1103,12 @@ function summarizeFanoutJob(job) {
       role: task.role || "worker",
       engine: task.engine || "",
       model: task.model || "",
+      started_at: task.started_at || "",
+      finished_at: task.finished_at || "",
       duration_seconds: task.duration_seconds || 0,
       error: task.error || null,
+      output_file: task.output_file || null,
+      output_bytes: task.output_bytes || 0,
     })),
   };
 }
@@ -1287,6 +1291,184 @@ function formatBackgroundView(view) {
   if (view.outcomes.length === 0 && view.fanout_jobs.length === 0) {
     lines.push("No background tasks found.");
   }
+  return lines.join("\n");
+}
+
+const TIMELINE_EVENT_ICONS = {
+  job_created: "[ ]",
+  task_started: "[>]",
+  task_pending: "[ ]",
+  task_finished: "[x]",
+  task_failed: "[!]",
+  task_interrupted: "[~]",
+};
+
+function selectedRecentFanoutJobs(fanoutJobs, recent) {
+  if (recent <= 0) {
+    return [];
+  }
+  return fanoutJobs.slice(Math.max(0, fanoutJobs.length - recent)).reverse();
+}
+
+function timelineEventTime(job, task, event) {
+  if (event === "task_started") {
+    return task.started_at || job.created || "";
+  }
+  if (["task_finished", "task_failed", "task_interrupted"].includes(event)) {
+    return task.finished_at || job.last_updated || "";
+  }
+  return job.created || "";
+}
+
+function addTimelineEvent(events, job, task, event) {
+  const status = task ? task.status || "pending" : job.status || "unknown";
+  events.push({
+    time: timelineEventTime(job, task || {}, event),
+    event,
+    job_id: job.id || "",
+    job_purpose: job.purpose || "",
+    task_id: task ? task.id : null,
+    task_title: task ? task.title || "" : "",
+    status,
+    engine: (task ? task.engine : null) || job.engine || "",
+    model: (task ? task.model : null) || job.model || "",
+    duration_seconds: task ? task.duration_seconds || 0 : 0,
+    error: task ? task.error || null : null,
+    output_file: task ? task.output_file || null : null,
+    output_bytes: task ? task.output_bytes || 0 : 0,
+  });
+}
+
+function buildFanoutTimelineEvents(job) {
+  const events = [
+    {
+      time: job.created || "",
+      event: "job_created",
+      job_id: job.id || "",
+      job_purpose: job.purpose || "",
+      task_id: null,
+      task_title: "",
+      status: job.status || "unknown",
+      engine: job.engine || "",
+      model: job.model || "",
+      duration_seconds: 0,
+      error: null,
+      output_file: null,
+      output_bytes: 0,
+    },
+  ];
+  for (const task of job.tasks || []) {
+    const status = task.status || "pending";
+    if (status === "pending" && !task.started_at) {
+      addTimelineEvent(events, job, task, "task_pending");
+      continue;
+    }
+    addTimelineEvent(events, job, task, "task_started");
+    if (status === "failed") {
+      addTimelineEvent(events, job, task, "task_failed");
+    } else if (status === "interrupted") {
+      addTimelineEvent(events, job, task, "task_interrupted");
+    } else if (status === "completed") {
+      addTimelineEvent(events, job, task, "task_finished");
+    }
+  }
+  return events;
+}
+
+function sortTimelineEvents(events) {
+  return [...events].sort((left, right) => {
+    const leftKey = `${left.time || "9999-12-31T23:59:59Z"}${left.job_id || ""}${left.task_id || 0}${left.event || ""}`;
+    const rightKey = `${right.time || "9999-12-31T23:59:59Z"}${right.job_id || ""}${right.task_id || 0}${right.event || ""}`;
+    return leftKey.localeCompare(rightKey);
+  });
+}
+
+function buildFanoutTimelineView(recent = 5) {
+  const fanoutJobs = listFanoutSummaries();
+  const selectedJobs = selectedRecentFanoutJobs(fanoutJobs, recent);
+  const selectedIds = new Set(selectedJobs.map((job) => job.id));
+  let events = [];
+  for (const job of fanoutJobs) {
+    if (selectedIds.has(job.id)) {
+      events = events.concat(buildFanoutTimelineEvents(job));
+    }
+  }
+  const taskCounts = {
+    pending: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    interrupted: 0,
+  };
+  for (const job of fanoutJobs) {
+    for (const [status, count] of Object.entries(job.task_counts || {})) {
+      taskCounts[status] = (taskCounts[status] || 0) + count;
+    }
+  }
+  const jobCounts = countStatuses(fanoutJobs, ["active", "completed", "failed", "interrupted", "empty"]);
+  return {
+    state_dir: resolveStateDir(),
+    jobs: selectedJobs,
+    events: sortTimelineEvents(events),
+    counts: {
+      fanout_jobs: { total: fanoutJobs.length, ...jobCounts },
+      fanout_tasks: taskCounts,
+      timeline_events: events.length,
+    },
+    guardrail: "timeline summarizes durable fanout state only; worker output is material, not verification evidence",
+  };
+}
+
+function formatTimelineEvent(event) {
+  const icon = TIMELINE_EVENT_ICONS[event.event] || "[ ]";
+  const stamp = event.time || "unknown-time";
+  const jobId = event.job_id || "unknown-job";
+  if (event.event === "job_created") {
+    return `  ${icon} ${stamp} ${jobId}: job created (${compactLabel(event.job_purpose, "fanout job")})`;
+  }
+  let detail =
+    `  ${icon} ${stamp} ${jobId} task ${event.task_id}: ` +
+    `${compactLabel(event.task_title, "task")} (${event.status || "unknown"}; ` +
+    `engine=${event.engine || "unknown"}`;
+  if (event.model) {
+    detail += `; model=${event.model}`;
+  }
+  if (event.duration_seconds) {
+    detail += `; duration=${event.duration_seconds}s`;
+  }
+  if (event.output_bytes) {
+    detail += `; output=${event.output_bytes} bytes`;
+  }
+  detail += ")";
+  if (event.error) {
+    detail += `: ${compactLabel(event.error, "error")}`;
+  }
+  return detail;
+}
+
+function formatFanoutTimelineView(view) {
+  const lines = [`[OK] Fanout timeline: ${view.state_dir}`];
+  const jobs = view.counts.fanout_jobs;
+  const tasks = view.counts.fanout_tasks;
+  lines.push(
+    `Fanout jobs: ${jobs.total} total; ${jobs.active || 0} active, ` +
+      `${jobs.completed || 0} completed, ${jobs.failed || 0} failed, ` +
+      `${jobs.interrupted || 0} interrupted`
+  );
+  lines.push(
+    `Fanout tasks: ${tasks.running || 0} running, ${tasks.pending || 0} pending, ` +
+      `${tasks.completed || 0} completed, ${tasks.failed || 0} failed, ` +
+      `${tasks.interrupted || 0} interrupted`
+  );
+  if (view.events.length > 0) {
+    lines.push("Timeline events:");
+    for (const event of view.events) {
+      lines.push(formatTimelineEvent(event));
+    }
+  } else {
+    lines.push("No fanout timeline events found.");
+  }
+  lines.push(`Guardrail: ${view.guardrail}.`);
   return lines.join("\n");
 }
 
@@ -5222,6 +5404,32 @@ server.registerTool(
       return `[OK] ${JSON.stringify(view, null, 2)}`;
     }
     return formatBackgroundView(view);
+  })
+);
+
+server.registerTool(
+  "fanout_timeline",
+  {
+    title: "Show fanout worker timeline",
+    description:
+      "Show a read-only timeline of fanout worker job creation, task starts, task finishes, duration, status, errors, and output metadata. " +
+      "Use this to inspect durable delegated-worker history without mutating state or treating worker output as verification evidence.",
+    inputSchema: {
+      recent: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Number of recent fanout jobs to include. Defaults to 5."),
+      format: z.enum(["text", "json"]).optional().describe("Return text or JSON. Defaults to text."),
+    },
+  },
+  guarded(({ recent, format }) => {
+    const view = buildFanoutTimelineView(typeof recent === "number" ? recent : 5);
+    if (format === "json") {
+      return `[OK] ${JSON.stringify(view, null, 2)}`;
+    }
+    return formatFanoutTimelineView(view);
   })
 );
 

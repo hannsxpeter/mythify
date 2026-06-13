@@ -215,7 +215,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 29 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 30 core plus 3 fanout count
   split.
 
 Rules:
@@ -251,6 +251,26 @@ running work:
 - Mutation boundary: the normal path must not create, edit, interrupt, stop, or
   otherwise mutate outcome or fanout records. It is an orientation view, not a
   control surface.
+
+## Fanout worker timeline
+
+The fanout worker timeline is a read-only orientation surface for delegated
+worker history:
+
+- CLI command: `timeline [--recent N] [--json]`.
+- MCP tool: `fanout_timeline`.
+- State sources: `.mythify/fanout/<job_id>/job.json`, including job `created`,
+  job `last_updated`, task `started_at`, task `finished_at`, task
+  `duration_seconds`, task `status`, task `error`, and output metadata.
+- Output: fanout job counts, fanout task counts, recent job records, and
+  chronological events for job creation, task starts, task finishes, failures,
+  interruptions, and pending tasks.
+- Evidence boundary: the timeline reports durable worker state. Worker output
+  remains material, not verification evidence, until the orchestrator verifies
+  merged work with an executed check.
+- Mutation boundary: the normal path must not create, edit, interrupt, retry,
+  stop, or otherwise mutate fanout jobs or worker tasks. It is a timeline, not
+  a process-control surface.
 
 ## Phase view
 
@@ -539,6 +559,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It does not mutate state or report model confidence. | 0; 1 if no workspace |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
+| `timeline [--recent N] [--json]` | Read-only fanout worker timeline: recent fanout jobs, task start and finish events, duration, status, errors, and output metadata from durable state. It does not mutate state or report worker output as verification evidence. | 0; 1 if no workspace |
 | `phase [--recent N] [--json]` | Read-only phase view: active plan steps grouped into Understand, Design, Build, Judge, and Verify, with supporting evidence counts from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
 | `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--max-iterations N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start a supervised outcome loop, set it active, and record the verifier, optional metric, allowed path hints, visibility policy, and iteration budget. | 0; 1 if no workspace or invalid budget |
 | `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric for the active or named outcome, append an iteration record, append executed verification evidence, and return the next action. | 0 if verified, 2 if still unmet or failed, 1 if not found |
@@ -582,7 +603,7 @@ a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 32 tools: the 29 core tools below plus the 3 fanout tools defined in the
+Exactly 33 tools: the 30 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -599,6 +620,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `lifecycle_probe` | `{adapter?: enum(google-agents-cli, google-adk-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Agents CLI or ADK CLI availability by running only version, help, and eval-help commands. Defaults to `MYTHIFY_AGENTS_CLI_BIN` or `MYTHIFY_ADK_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_probe_eval: true`, `eval_execution_enabled: false`, `deployment_enabled: false`, and `material_not_evidence: true`. It does not scaffold projects, run agents, execute evals, deploy, publish, mutate cloud resources, write project state, or count as verification evidence. |
 | `workflow_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only dashboard of active plan, current step, next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It must not mutate state and must not report model confidence as evidence. |
 | `background_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only background task view of durable outcome loops and fanout jobs, including task counts, statuses, and next actions. It must not mutate state and must not report model confidence as progress. |
+| `fanout_timeline` | `{recent?: number, format?: enum(text, json)}` | Show a read-only timeline of fanout job creation, task starts, task finishes, duration, status, errors, and output metadata. It must not mutate state and must not treat worker output as verification evidence. |
 | `phase_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only Understand, Design, Build, Judge, Verify phase view of active plan steps and durable evidence counts. It must not mutate state and must not report model confidence as progress. |
 | `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
@@ -835,7 +857,7 @@ document the project. Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 32 tool names for clients using the server instead
+8. A short MCP note listing the 33 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
 ### Protocol handshake
