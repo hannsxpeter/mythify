@@ -173,6 +173,12 @@ ROLE_PROVIDER_ALLOWED = {
     "verifier": ("local_command",),
 }
 ROLE_PROVIDER_FALLBACK_POLICY = "no_implicit_cross_provider_fallback"
+HOSTED_PROVIDER_FANOUT_ENGINES = ("anthropic", "openai")
+HOSTED_PROVIDER_REQUIRED_ACKS = (
+    "hosted_provider_billing_ack",
+    "hosted_provider_data_ack",
+    "hosted_provider_material_ack",
+)
 ROLE_TIMEOUT_METADATA_FIELDS = (
     "timeout_seconds",
     "timeout_source",
@@ -2169,6 +2175,11 @@ def api_provider_contract():
         "version": 1,
         "status": "metadata_supported",
         "execution_enabled": False,
+        "fanout_execution_enabled": True,
+        "fanout_engines": list(HOSTED_PROVIDER_FANOUT_ENGINES),
+        "required_fanout_acknowledgements": list(HOSTED_PROVIDER_REQUIRED_ACKS),
+        "fanout_audit_log": ".mythify/provider-audit.jsonl",
+        "fanout_output_material_status": "material_not_verification",
         "billing_policy": "explicit_provider_required",
         "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
         "timeout_metadata_fields": list(API_PROVIDER_TIMEOUT_METADATA_FIELDS),

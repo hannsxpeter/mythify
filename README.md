@@ -308,7 +308,7 @@ maintenance, not verification evidence.
 | `verify_run` | `{command: string, claim?: string, timeout_seconds?: number = 300}` | Execute through the shell, record an executed verification, return the verdict with output tails. If env `MYTHIFY_DISABLE_RUN=1`, refuse with an explanation and record nothing. |
 | `verify_claim` | `{claim: string, evidence: string}` | Record an attested entry, return the `[WARN] ATTESTED` line. |
 | `reflect` | `{action_taken: string, outcome: enum(success, partial, failure), observation: string, root_cause?: string, next_action: string, lesson?: string}` | Append reflection; auto-record lesson if provided (project scope, tag `auto-reflected`). Note: jsonl field names follow the file format (`action`, `next`), not the tool parameter names. |
-| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], role?: enum(worker, reviewer), model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_allow_stronger?: boolean, timeout_seconds?: number}` | Validate the job (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable, spawned model does not exceed the ceiling unless a reviewer-specific opt-in applies), create `.mythify/fanout/<job_id>/job.json`, return the job id immediately, and run the workers in the background with a concurrency pool. Tasks must be fully independent; each task is a fresh model call that costs real money or subscription quota. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
+| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], role?: enum(worker, reviewer), model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_allow_stronger?: boolean, hosted_provider_billing_ack?: boolean, hosted_provider_data_ack?: boolean, hosted_provider_material_ack?: boolean, timeout_seconds?: number}` | Validate the job (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable, spawned model does not exceed the ceiling unless a reviewer-specific opt-in applies, hosted provider API engines require billing, data, and material-only acknowledgements), create `.mythify/fanout/<job_id>/job.json`, return the job id immediately, and run the workers in the background with a concurrency pool. Tasks must be fully independent; each task is a fresh model call that costs real money or subscription quota. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
 | `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, effort, speed, elapsed, and visibility. Quiet jobs show aggregate progress and failures only. Tasks left running by a restarted server are marked `interrupted` and reported as such. |
 | `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). Per-task text is capped at 20000 characters with a note pointing at the full output file. Warns when tasks are still running. |
 
@@ -357,8 +357,11 @@ have to guess which model setting applies where:
   `provider_defaults.api_provider_contract` lists metadata-supported hosted
   API providers, currently OpenAI, Anthropic, and hosted OpenAI-compatible
   endpoints. It records auth env names, billing posture, timeout fields, cost
-  metadata fields, pricing URLs, and `execution_enabled: false` until a later
-  slice adds explicit hosted execution.
+  metadata fields, pricing URLs, and `execution_enabled: false` for general
+  provider role routing. The explicit fanout API path is recorded separately
+  with `fanout_execution_enabled: true`, engines `anthropic` and `openai`,
+  required acknowledgement fields, `.mythify/provider-audit.jsonl`, and
+  `fanout_output_material_status: "material_not_verification"`.
   `provider_defaults.custom_adapter_contract` records two user-defined adapter
   paths. `command` is enabled only through `MYTHIFY_TRIAGE_COMMAND` or
   `MYTHIFY_FANOUT_COMMAND`, reads the prompt on stdin, obeys role timeouts,
@@ -434,7 +437,7 @@ Built-in role provider catalog:
 | `host` | `session` | `session`, `reader` | Host-selected current conversation | Host output is not verification |
 | `host_cli` | `triage`, `fanout_worker`, `reviewer` | `triage`, `fanout_worker`, `reviewer` | Bounded local host CLI worker | Worker output is material, not verification |
 | `local_openai_compatible` | `reader` | `triage`, `reader` | Localhost OpenAI-compatible model provider | Model output is material, not verification |
-| `api_provider` | none | `fanout_worker`, `reviewer` | Metadata-only until hosted execution is explicit | Provider output will be material, not verification |
+| `api_provider` | none | `fanout_worker`, `reviewer` | Guarded fanout API execution with explicit hosted provider acknowledgements | Provider output is material, not verification |
 | `command` | none | `triage`, `fanout_worker`, `reviewer` | Explicit user command | Command output is material, not verification |
 | `local_command` | `verifier` | `verifier` | Local executed verifier | Exit code is verification evidence |
 
@@ -493,6 +496,13 @@ your terminal.
 The `command` engine is the supported custom command adapter path. Its output
 is still worker material, not verification evidence; the orchestrator must
 inspect it and then run `verify_run` for any completion claim.
+
+The hosted provider engines, `anthropic` and `openai`, require explicit
+acknowledgements before a job starts: `hosted_provider_billing_ack: true`,
+`hosted_provider_data_ack: true`, and `hosted_provider_material_ack: true`.
+The first acknowledges metered external billing, the second acknowledges that
+the prompt and inlined context leave the local machine, and the third
+acknowledges that provider output is material, not verification evidence.
 
 Every spawned fanout task appends redacted start and finish events to
 `.mythify/provider-audit.jsonl`. The audit rows record the fanout surface,
@@ -636,9 +646,9 @@ auditable without Mythify inventing token or dollar math.
 | `MYTHIFY_LLAMA_CPP_MODEL` | unset | llama.cpp model id for probe chat checks and local reader or triage runs. |
 | `MYTHIFY_VLLM_BASE_URL` | `http://localhost:8000/v1` | Local vLLM OpenAI-compatible `/v1` endpoint for `provider: "vllm"`. |
 | `MYTHIFY_VLLM_MODEL` | unset | vLLM model id for probe chat checks and local reader or triage runs. |
-| `OPENAI_API_KEY` | unset | OpenAI API key env name recorded in hosted provider metadata. Not used for execution in the metadata-only slice. |
+| `OPENAI_API_KEY` | unset | OpenAI API key env name recorded in hosted provider metadata. Fanout's OpenAI-compatible engine uses `MYTHIFY_FANOUT_API_KEY` instead. |
 | `MYTHIFY_OPENAI_API_MODEL` | unset | OpenAI API model id env name recorded in hosted provider metadata. |
-| `ANTHROPIC_API_KEY` | unset | Anthropic API key env name recorded in hosted provider metadata. Not used for execution in the metadata-only slice. |
+| `ANTHROPIC_API_KEY` | unset | Anthropic API key env name recorded in hosted provider metadata and used by the guarded `anthropic` fanout engine after hosted provider acknowledgements. |
 | `MYTHIFY_ANTHROPIC_API_MODEL` | unset | Anthropic API model id env name recorded in hosted provider metadata. |
 | `MYTHIFY_HOSTED_OPENAI_COMPAT_BASE_URL` | unset | Hosted OpenAI-compatible `/v1` endpoint env name recorded in provider metadata. |
 | `MYTHIFY_HOSTED_OPENAI_COMPAT_API_KEY` | unset | Hosted OpenAI-compatible API key env name recorded in provider metadata. |

@@ -140,6 +140,27 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.status, "metadata_supported");
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.execution_enabled, false);
+      assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.fanout_execution_enabled, true);
+      assert.deepEqual(parsed.model_policy.provider_defaults.api_provider_contract.fanout_engines, [
+        "anthropic",
+        "openai",
+      ]);
+      assert.deepEqual(
+        parsed.model_policy.provider_defaults.api_provider_contract.required_fanout_acknowledgements,
+        [
+          "hosted_provider_billing_ack",
+          "hosted_provider_data_ack",
+          "hosted_provider_material_ack",
+        ]
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.api_provider_contract.fanout_audit_log,
+        ".mythify/provider-audit.jsonl"
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.api_provider_contract.fanout_output_material_status,
+        "material_not_verification"
+      );
       assert.equal(
         parsed.model_policy.provider_defaults.custom_adapter_contract.execution_policy,
         "explicit_only_no_hidden_fallback"

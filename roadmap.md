@@ -21,14 +21,14 @@ Status markers:
 
 ## Active Now
 
-- [>] Hosted provider execution guardrails.
-  - Current goal: prepare hosted execution for OpenAI, Anthropic, and
-    OpenAI-compatible APIs without surprise billing or evidence upgrades.
-  - Next step: map provider metadata, auth env names, billing posture,
-    provider audit logs, and existing fanout API engine behavior before adding
-    any new hosted execution path.
-  - Guardrail: no implicit cross-provider fallback, no raw secret logging, and
-    provider output remains material until a verifier runs.
+- [>] Host-confirmed model fields.
+  - Current goal: record host-confirmed current model information only where a
+    host can actually provide it.
+  - Next step: map current `host_model_switch` status records, capability
+    registry fields, and host adapter candidates before adding any
+    confirmation fields.
+  - Guardrail: Mythify may record requested model changes, but it must not
+    claim the current host chat changed unless the host confirms it.
 
 ## Next Queue
 
@@ -92,7 +92,7 @@ Role model:
 What remains:
 
 - [ ] Apply model or thinking changes when a host exposes a real capability.
-- [ ] Add host-confirmed current model fields where supported.
+- [>] Add host-confirmed current model fields where supported.
 - [ ] Add adapter execution tests once a host exposes apply or confirm APIs.
 
 Already shipped in this track:
@@ -136,18 +136,19 @@ Already shipped in this track:
 
 What remains:
 
-- [>] Hosted execution for OpenAI, Anthropic, and OpenAI-compatible APIs.
+Nothing open right now.
 
 Already shipped in this track:
 
+- [x] Hosted execution for OpenAI, Anthropic, and OpenAI-compatible APIs.
 - [x] Clear audit logs for spawned provider work.
 - [x] Custom adapter contract separates bounded custom command execution from
   metadata-only custom HTTP.
 - [x] OpenAI, Anthropic, and hosted OpenAI-compatible provider metadata includes
   auth env names, billing posture, timeout defaults, cost metadata fields, and
   pricing references.
-- [x] API provider metadata keeps execution disabled until a later explicit
-  hosted execution slice.
+- [x] API provider metadata keeps general provider role routing disabled unless
+  execution is explicitly guarded.
 - [x] No-surprise cross-provider fallback policy is recorded in API provider
   metadata.
 - [x] Generic OpenAI-compatible probe shape exists.
@@ -283,6 +284,12 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add hosted provider fanout guardrails.
+  The `anthropic` and `openai` fanout engines now require explicit billing,
+  data-transmission, and material-only acknowledgements before a job starts,
+  refuse before writing job or audit state when acknowledgements are missing,
+  and expose the guarded fanout API contract through CLI and MCP
+  `model_policy.provider_defaults`.
 - [x] 2026-06-13: add provider worker audit logs.
   Fanout worker task start and finish events now append to
   `.mythify/provider-audit.jsonl`, recording provider class, engine, model,

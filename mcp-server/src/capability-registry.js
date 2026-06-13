@@ -97,6 +97,14 @@ export const ROLE_PROVIDER_ENV_NAMES = {
 
 export const ROLE_PROVIDER_FALLBACK_POLICY = "no_implicit_cross_provider_fallback";
 
+export const HOSTED_PROVIDER_FANOUT_ENGINES = ["anthropic", "openai"];
+
+export const HOSTED_PROVIDER_REQUIRED_ACKS = [
+  "hosted_provider_billing_ack",
+  "hosted_provider_data_ack",
+  "hosted_provider_material_ack",
+];
+
 export const ROLE_TIMEOUT_METADATA_FIELDS = [
   "timeout_seconds",
   "timeout_source",

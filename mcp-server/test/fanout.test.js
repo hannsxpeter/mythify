@@ -7,6 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -227,6 +228,10 @@ test("fanout with the command engine", async (t) => {
           "pricing_url",
         ]);
         assert.equal(row.cost_metadata.cost_estimate_status, "not_estimated");
+        assert.equal(row.hosted_provider_acknowledgements.required, false);
+        assert.equal(row.hosted_provider_acknowledgements.billing_acknowledged, false);
+        assert.equal(row.hosted_provider_acknowledgements.data_acknowledged, false);
+        assert.equal(row.hosted_provider_acknowledgements.material_acknowledged, false);
         assert.equal(row.output_material_status, "material_not_verification");
         assert.equal(row.records_verification_evidence, false);
         assert.match(row.verification_boundary, /verify_run or outcome_check/);
@@ -580,6 +585,10 @@ test("fanout with the command engine", async (t) => {
           "effort",
           "effort_source",
           "engine",
+          "hosted_provider_billing_acknowledged",
+          "hosted_provider_data_acknowledged",
+          "hosted_provider_engines",
+          "hosted_provider_material_acknowledged",
           "id",
           "last_updated",
           "model",
@@ -632,6 +641,10 @@ test("fanout with the command engine", async (t) => {
       assert.equal(typeof job.visibility_reason, "string");
       assert.equal(job.purpose, "");
       assert.equal(job.reviewer_allow_stronger, false);
+      assert.deepEqual(job.hosted_provider_engines, []);
+      assert.equal(job.hosted_provider_billing_acknowledged, false);
+      assert.equal(job.hosted_provider_data_acknowledged, false);
+      assert.equal(job.hosted_provider_material_acknowledged, false);
       assert.equal(job.timeout_seconds, 600, "the per-worker timeout defaults to 600");
       assert.equal(job.timeout_source, "default");
       assert.equal(typeof job.created, "string");
@@ -1265,6 +1278,134 @@ printf 'AUTO-CODEX\\n' > "$OUT"
     assert.equal(job.engine, "codex-cli");
   } finally {
     await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hosted provider fanout requires explicit acknowledgements", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-fanout-hosted-guard-");
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "anthropic",
+      ANTHROPIC_API_KEY: "stub-key-that-must-not-run",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          model: "haiku",
+          tasks: [{ title: "Hosted guard", prompt: "This should not reach a provider." }],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[FAIL]"), `fanout_start refuses: ${started}`);
+    assert.match(started, /hosted_provider_billing_ack=true/);
+    assert.match(started, /hosted_provider_data_ack=true/);
+    assert.match(started, /hosted_provider_material_ack=true/);
+    assert.equal(fs.existsSync(path.join(stateDir, "fanout")), false);
+    assert.equal(fs.existsSync(path.join(stateDir, "provider-audit.jsonl")), false);
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("openai fanout runs only after hosted provider acknowledgements and audits redacted metadata", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-fanout-openai-guard-");
+  const seen = [];
+  const apiServer = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      seen.push({ url: req.url, authorization: req.headers.authorization || "", body });
+      const parsed = JSON.parse(body);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: `OPENAI-STUB model=${parsed.model}`,
+              },
+            },
+          ],
+        })
+      );
+    });
+  });
+  await new Promise((resolve) => apiServer.listen(0, "127.0.0.1", resolve));
+  const address = apiServer.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "openai",
+      MYTHIFY_FANOUT_BASE_URL: baseUrl,
+      MYTHIFY_FANOUT_API_KEY: "stub-secret-token",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          model: "stub-model",
+          hosted_provider_billing_ack: true,
+          hosted_provider_data_ack: true,
+          hosted_provider_material_ack: true,
+          tasks: [{ title: "OpenAI stub", prompt: "Return the hosted stub marker." }],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+    assert.match(started, /Hosted provider guard: acknowledged for openai/);
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("OPENAI-STUB model=stub-model"), "the OpenAI-compatible stub ran");
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].url, "/chat/completions");
+    assert.equal(seen[0].authorization, "Bearer stub-secret-token");
+
+    const job = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+    );
+    assert.deepEqual(job.hosted_provider_engines, ["openai"]);
+    assert.equal(job.hosted_provider_billing_acknowledged, true);
+    assert.equal(job.hosted_provider_data_acknowledged, true);
+    assert.equal(job.hosted_provider_material_acknowledged, true);
+
+    const audit = readJsonl(path.join(stateDir, "provider-audit.jsonl")).filter(
+      (row) => row.job_id === jobId
+    );
+    assert.equal(audit.length, 2);
+    for (const row of audit) {
+      assert.equal(row.provider, "api_provider");
+      assert.equal(row.engine, "openai");
+      assert.equal(row.billing, "metered_external_account");
+      assert.equal(row.hosted_provider_acknowledgements.required, true);
+      assert.equal(row.hosted_provider_acknowledgements.billing_acknowledged, true);
+      assert.equal(row.hosted_provider_acknowledgements.data_acknowledged, true);
+      assert.equal(row.hosted_provider_acknowledgements.material_acknowledged, true);
+      assert.equal(row.output_material_status, "material_not_verification");
+      assert.equal(JSON.stringify(row).includes("stub-secret-token"), false);
+      assert.equal(JSON.stringify(row).includes("Return the hosted stub marker"), false);
+      assert.equal(JSON.stringify(row).includes("OPENAI-STUB"), false);
+    }
+  } finally {
+    await client.close();
+    await new Promise((resolve) => apiServer.close(resolve));
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

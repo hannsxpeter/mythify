@@ -379,6 +379,18 @@ class TestClassification(CliTestCase):
         custom_contract = policy["provider_defaults"]["custom_adapter_contract"]
         self.assertEqual(api_contract["status"], "metadata_supported")
         self.assertFalse(api_contract["execution_enabled"])
+        self.assertTrue(api_contract["fanout_execution_enabled"])
+        self.assertEqual(api_contract["fanout_engines"], ["anthropic", "openai"])
+        self.assertEqual(
+            api_contract["required_fanout_acknowledgements"],
+            [
+                "hosted_provider_billing_ack",
+                "hosted_provider_data_ack",
+                "hosted_provider_material_ack",
+            ],
+        )
+        self.assertEqual(api_contract["fanout_audit_log"], ".mythify/provider-audit.jsonl")
+        self.assertEqual(api_contract["fanout_output_material_status"], "material_not_verification")
         self.assertEqual(
             api_contract["billing_policy"],
             "explicit_provider_required",

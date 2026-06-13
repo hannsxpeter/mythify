@@ -20,6 +20,12 @@ const SPEED_LEVELS = ["auto", "standard", "fast"];
 const SPAWN_CEILINGS = ["auto", "lower_only", "same_or_lower", "allow_stronger"];
 const TASK_ROLES = ["worker", "reviewer"];
 const FANOUT_VISIBILITY_MODES = ["auto", "quiet", "summary", "verbose", "threaded"];
+const HOSTED_PROVIDER_ENGINES = ["anthropic", "openai"];
+const HOSTED_PROVIDER_REQUIRED_ACKS = [
+  "hosted_provider_billing_ack",
+  "hosted_provider_data_ack",
+  "hosted_provider_material_ack",
+];
 const MODEL_TIER_RANK = {
   unknown: 0,
   small: 1,
@@ -855,6 +861,7 @@ function appendProviderAudit(record) {
 
 function providerAuditBase(job, task, prompt) {
   const cost = auditCostMetadata(task);
+  const hostedProviderRequired = HOSTED_PROVIDER_ENGINES.includes(task.engine);
   return {
     timestamp: io.isoNow(),
     surface: "fanout_worker",
@@ -873,6 +880,13 @@ function providerAuditBase(job, task, prompt) {
     billing: cost.billing,
     cost_metadata: cost,
     cost_metadata_fields: Object.keys(cost).sort(),
+    hosted_provider_acknowledgements: {
+      required: hostedProviderRequired,
+      required_acknowledgements: HOSTED_PROVIDER_REQUIRED_ACKS,
+      billing_acknowledged: Boolean(job.hosted_provider_billing_acknowledged),
+      data_acknowledged: Boolean(job.hosted_provider_data_acknowledged),
+      material_acknowledged: Boolean(job.hosted_provider_material_acknowledged),
+    },
     request_metadata: {
       prompt_sha256: sha256Hex(prompt),
       prompt_bytes: Buffer.byteLength(String(prompt || ""), "utf8"),
@@ -1680,6 +1694,9 @@ function handleFanoutStart({
   session_model,
   spawn_ceiling,
   reviewer_allow_stronger,
+  hosted_provider_billing_ack,
+  hosted_provider_data_ack,
+  hosted_provider_material_ack,
   timeout_seconds,
 }) {
   const disabled = killSwitchText();
@@ -1795,6 +1812,31 @@ function handleFanoutStart({
     });
   }
 
+  const hostedProviderEngines = [
+    ...new Set(
+      resolvedTasks
+        .filter((resolved) => HOSTED_PROVIDER_ENGINES.includes(resolved.engine))
+        .map((resolved) => resolved.engine)
+    ),
+  ].sort();
+  const hostedProviderRequired = hostedProviderEngines.length > 0;
+  const hostedProviderAcks = {
+    hosted_provider_billing_ack: hosted_provider_billing_ack === true,
+    hosted_provider_data_ack: hosted_provider_data_ack === true,
+    hosted_provider_material_ack: hosted_provider_material_ack === true,
+  };
+  const missingHostedProviderAcks = HOSTED_PROVIDER_REQUIRED_ACKS.filter(
+    (name) => hostedProviderAcks[name] !== true
+  );
+  if (hostedProviderRequired && missingHostedProviderAcks.length > 0) {
+    return (
+      "[FAIL] Hosted provider fanout requires explicit acknowledgement before using " +
+      `metered remote engines (${hostedProviderEngines.join(", ")}): ` +
+      `${missingHostedProviderAcks.map((name) => `${name}=true`).join(", ")}. ` +
+      "No job was started."
+    );
+  }
+
   const jobEngineRecord = jobEngine !== "" ? jobEngine : resolvedTasks[0].engine;
   const jobModelSelection = resolveModelSelection(undefined, model, jobEngineRecord);
   const jobSpeedSelection = resolveSpeedSelection(undefined, speed);
@@ -1835,6 +1877,10 @@ function handleFanoutStart({
     spawn_ceiling: spawnCeiling.ceiling,
     spawn_ceiling_source: spawnCeiling.source,
     reviewer_allow_stronger: reviewerAllowStronger,
+    hosted_provider_engines: hostedProviderEngines,
+    hosted_provider_billing_acknowledged: hostedProviderAcks.hosted_provider_billing_ack,
+    hosted_provider_data_acknowledged: hostedProviderAcks.hosted_provider_data_ack,
+    hosted_provider_material_acknowledged: hostedProviderAcks.hosted_provider_material_ack,
     effort: jobEffortSelection.effort,
     effort_source: jobEffortSelection.effortSource,
     speed: jobSpeedSelection.speed,
@@ -1905,6 +1951,11 @@ function handleFanoutStart({
   lines.push(
     `Reviewer stronger opt-in: ${job.reviewer_allow_stronger ? "enabled" : "disabled"}.`
   );
+  if (job.hosted_provider_engines.length > 0) {
+    lines.push(
+      `Hosted provider guard: acknowledged for ${job.hosted_provider_engines.join(", ")}; provider output remains material, not verification.`
+    );
+  }
   lines.push(visibilityGuidance(job.visibility));
   if (job.visibility === "quiet") {
     lines.push("Worker list suppressed by quiet visibility; use fanout_status for aggregate progress.");
@@ -2196,6 +2247,24 @@ export function registerFanoutTools(server, deps) {
           .optional()
           .describe(
             'Reviewer-only opt-in that permits tasks with role: "reviewer" to exceed session_model under same_or_lower. It does not affect worker tasks or lower_only.'
+          ),
+        hosted_provider_billing_ack: z
+          .boolean()
+          .optional()
+          .describe(
+            "Required true before any anthropic or openai fanout task can run, acknowledging hosted providers can bill a metered external account."
+          ),
+        hosted_provider_data_ack: z
+          .boolean()
+          .optional()
+          .describe(
+            "Required true before any anthropic or openai fanout task can run, acknowledging prompts and inlined context are sent to a remote provider."
+          ),
+        hosted_provider_material_ack: z
+          .boolean()
+          .optional()
+          .describe(
+            "Required true before any anthropic or openai fanout task can run, acknowledging provider output is material and not verification evidence."
           ),
         timeout_seconds: z
           .number()

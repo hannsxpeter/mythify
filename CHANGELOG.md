@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Hosted provider fanout guardrails. The `anthropic` and `openai` fanout
+  engines now require explicit billing, data-transmission, and material-only
+  acknowledgements before a job starts; refusal happens before job or audit
+  state is written. CLI and MCP `model_policy.provider_defaults` now expose the
+  guarded fanout API contract, required acknowledgement fields, audit log path,
+  and material-only output status.
 - Fanout provider worker audit logs. Each spawned fanout task now appends
   redacted start and finish rows to `.mythify/provider-audit.jsonl`, recording
   provider class, engine, model, role, billing posture, cost metadata fields,
