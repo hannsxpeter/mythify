@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenAI-compatible `/v1` endpoint, use `MYTHIFY_LM_STUDIO_MODEL`, send no auth
   header by default, and keep output marked as material rather than
   verification evidence.
+- llama.cpp local setup profile. `provider_probe` and `local_model_run` now
+  accept `provider: "llama-cpp"`, default to `http://localhost:8080/v1`, use
+  `MYTHIFY_LLAMA_CPP_MODEL`, send no auth header by default, and keep output
+  marked as material rather than verification evidence.
 
 ## [2.5.0] - 2026-06-12
 

@@ -110,6 +110,15 @@ test("researched future adapters are candidates, not public host platforms", () 
   assert.deepEqual(ADAPTER_CANDIDATES["lm-studio"].local_roles, ["reader", "triage"]);
   assert.equal(ADAPTER_CANDIDATES["lm-studio"].default_base_url, "http://localhost:1234/v1");
   assert.equal(ADAPTER_CANDIDATES["lm-studio"].output_is_evidence, false);
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].status, "local_profile_supported");
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].openai_compatible, true);
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].can_probe, true);
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].can_run_local_roles, true);
+  assert.deepEqual(ADAPTER_CANDIDATES["llama-cpp"].local_roles, ["reader", "triage"]);
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].default_base_url, "http://localhost:8080/v1");
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].model_env, "MYTHIFY_LLAMA_CPP_MODEL");
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].base_url_env, "MYTHIFY_LLAMA_CPP_BASE_URL");
+  assert.equal(ADAPTER_CANDIDATES["llama-cpp"].output_is_evidence, false);
   assert.deepEqual(
     listAdapterCandidates("host").map((candidate) => candidate.name).sort(),
     ["antigravity", "kimi-code", "opencode"]

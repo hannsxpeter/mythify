@@ -21,29 +21,27 @@ Status markers:
 
 ### In Progress
 
-- [>] llama.cpp profile for GGUF power users.
-  - Current goal: add an explicit local profile for users who already run
-    llama.cpp servers.
-  - Next step: map llama.cpp's OpenAI-compatible server defaults against the
-    existing local profile adapter shape.
+- [>] vLLM profile for workstation, server, and team-local inference.
+  - Current goal: add a server-style local inference profile after desktop and
+    GGUF profiles have proven the adapter shape.
+  - Next step: map vLLM OpenAI-compatible defaults against the existing local
+    profile adapter shape.
   - Guardrail: setup support must stay local-only, mark model output as
     material not verification evidence, and avoid provisioning or installing
     anything without an explicit user action.
 
 ### Next To Do
 
-1. [ ] vLLM profile for workstation, server, and team-local inference.
-   - Keep server-style local inference separate from desktop onboarding.
-2. [ ] API provider adapter path with cost and timeout metadata.
+1. [ ] API provider adapter path with cost and timeout metadata.
    - Bring hosted provider work in after the local profiles prove the adapter
      shape.
-3. [ ] Role defaults per provider.
+2. [ ] Role defaults per provider.
    - Make provider selection explicit before widening hosted execution.
+3. [ ] Antigravity worker adapter after local `agy -p`, model controls,
+   workspace trust, and permissions are verified.
 
 ### Later
 
-- [ ] Antigravity worker adapter after local `agy -p`, model controls, workspace
-  trust, and permissions are verified.
 - [ ] Kimi Work desktop lane after CLI adapters are stable.
 - [ ] OpenCode Desktop lane after CLI and server adapters prove useful.
 - [ ] Colab remote execution adapter after explicit billing, data movement, and
@@ -106,6 +104,9 @@ Status markers:
 - [x] 2026-06-13: add LM Studio local setup profile for `provider_probe` and
   `local_model_run`, defaulting to the local `/v1` endpoint with material-only
   output.
+- [x] 2026-06-13: add llama.cpp local setup profile for `provider_probe` and
+  `local_model_run`, defaulting to `http://localhost:8080/v1` with
+  material-only output.
 
 ## Track Backlogs
 
@@ -194,11 +195,13 @@ They should enter through adapters, not special cases.
 
 Open:
 
-- [ ] llama.cpp profile.
 - [ ] vLLM profile.
 
 Done:
 
+- [x] llama.cpp profile defaults to `http://localhost:8080/v1`, uses
+  `MYTHIFY_LLAMA_CPP_MODEL`, sends no auth header by default, and refuses
+  non-local URLs.
 - [x] LM Studio profile defaults to `http://localhost:1234/v1`, uses
   `MYTHIFY_LM_STUDIO_MODEL`, sends no auth header by default, and refuses
   non-local URLs.

@@ -2357,7 +2357,7 @@ function envValue(name) {
   return (process.env[name] || "").trim();
 }
 
-const MODEL_PROVIDER_IDS = ["generic-openai-compatible", "ollama", "lm-studio"];
+const MODEL_PROVIDER_IDS = ["generic-openai-compatible", "ollama", "lm-studio", "llama-cpp"];
 const DEFAULT_MODEL_PROVIDER = "generic-openai-compatible";
 
 function normalizeModelProvider(provider) {
@@ -3726,21 +3726,21 @@ server.registerTool(
   {
     title: "Probe an OpenAI-compatible model provider",
     description:
-      "Probe a configured OpenAI-compatible provider by calling /v1/models and, when requested, /v1/chat/completions. The ollama and lm-studio profiles default to their local /v1 endpoints and send no auth header by default. " +
+      "Probe a configured OpenAI-compatible provider by calling /v1/models and, when requested, /v1/chat/completions. The ollama, lm-studio, and llama-cpp profiles default to their local /v1 endpoints and send no auth header by default. " +
       "Use this before assigning local reader or triage roles to a provider. The result is material, not verification evidence, and does not enable worker execution.",
     inputSchema: {
       provider: z
         .enum(MODEL_PROVIDER_IDS)
         .optional()
-        .describe("Provider adapter to probe. Defaults to generic-openai-compatible; ollama and lm-studio use local /v1 profiles."),
+        .describe("Provider adapter to probe. Defaults to generic-openai-compatible; ollama, lm-studio, and llama-cpp use local /v1 profiles."),
       base_url: z
         .string()
         .optional()
-        .describe("OpenAI-compatible /v1 base URL. Generic defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL; ollama defaults to MYTHIFY_OLLAMA_BASE_URL or http://localhost:11434/v1; lm-studio defaults to MYTHIFY_LM_STUDIO_BASE_URL or http://localhost:1234/v1."),
+        .describe("OpenAI-compatible /v1 base URL. Generic defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL; ollama defaults to MYTHIFY_OLLAMA_BASE_URL or http://localhost:11434/v1; lm-studio defaults to MYTHIFY_LM_STUDIO_BASE_URL or http://localhost:1234/v1; llama-cpp defaults to MYTHIFY_LLAMA_CPP_BASE_URL or http://localhost:8080/v1."),
       model: z
         .string()
         .optional()
-        .describe("Model id for chat probes. Generic defaults to MYTHIFY_OPENAI_COMPAT_MODEL; ollama defaults to MYTHIFY_OLLAMA_MODEL; lm-studio defaults to MYTHIFY_LM_STUDIO_MODEL."),
+        .describe("Model id for chat probes. Generic defaults to MYTHIFY_OPENAI_COMPAT_MODEL; ollama defaults to MYTHIFY_OLLAMA_MODEL; lm-studio defaults to MYTHIFY_LM_STUDIO_MODEL; llama-cpp defaults to MYTHIFY_LLAMA_CPP_MODEL."),
       check: z
         .enum(["models", "chat", "both"])
         .optional()
@@ -3788,13 +3788,13 @@ server.registerTool(
   {
     title: "Run a role-limited local model",
     description:
-      "Run a reader or triage prompt against a localhost OpenAI-compatible model provider. The ollama and lm-studio profiles default to their local /v1 endpoints and send no auth header by default. " +
+      "Run a reader or triage prompt against a localhost OpenAI-compatible model provider. The ollama, lm-studio, and llama-cpp profiles default to their local /v1 endpoints and send no auth header by default. " +
       "Use this for low-risk local model material before the orchestrator verifies claims with commands. The result is material, not verification evidence, and the tool writes no Mythify state.",
     inputSchema: {
       provider: z
         .enum(MODEL_PROVIDER_IDS)
         .optional()
-        .describe("Local provider profile. Defaults to generic-openai-compatible; ollama and lm-studio use local /v1 profiles."),
+        .describe("Local provider profile. Defaults to generic-openai-compatible; ollama, lm-studio, and llama-cpp use local /v1 profiles."),
       role: z
         .enum(LOCAL_MODEL_ROLES)
         .optional()
@@ -3802,11 +3802,11 @@ server.registerTool(
       base_url: z
         .string()
         .optional()
-        .describe("Local OpenAI-compatible /v1 base URL. Generic defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL; ollama defaults to MYTHIFY_OLLAMA_BASE_URL or http://localhost:11434/v1; lm-studio defaults to MYTHIFY_LM_STUDIO_BASE_URL or http://localhost:1234/v1. Must be localhost, 127.0.0.1, ::1, or 0.0.0.0."),
+        .describe("Local OpenAI-compatible /v1 base URL. Generic defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL; ollama defaults to MYTHIFY_OLLAMA_BASE_URL or http://localhost:11434/v1; lm-studio defaults to MYTHIFY_LM_STUDIO_BASE_URL or http://localhost:1234/v1; llama-cpp defaults to MYTHIFY_LLAMA_CPP_BASE_URL or http://localhost:8080/v1. Must be localhost, 127.0.0.1, ::1, or 0.0.0.0."),
       model: z
         .string()
         .optional()
-        .describe("Local model id. Generic defaults to MYTHIFY_OPENAI_COMPAT_MODEL; ollama defaults to MYTHIFY_OLLAMA_MODEL; lm-studio defaults to MYTHIFY_LM_STUDIO_MODEL."),
+        .describe("Local model id. Generic defaults to MYTHIFY_OPENAI_COMPAT_MODEL; ollama defaults to MYTHIFY_OLLAMA_MODEL; lm-studio defaults to MYTHIFY_LM_STUDIO_MODEL; llama-cpp defaults to MYTHIFY_LLAMA_CPP_MODEL."),
       prompt: z
         .string()
         .describe("Prompt or material for the local model."),
