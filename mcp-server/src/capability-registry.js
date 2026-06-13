@@ -202,9 +202,23 @@ export const ADAPTER_CANDIDATES = {
   },
   "google-agents-cli": {
     kind: "agent_lifecycle",
-    status: "candidate",
+    status: "probe_supported",
     local: false,
     openai_compatible: false,
+    can_probe: true,
+    can_probe_eval: true,
+    can_run_eval: false,
+    can_deploy: false,
+  },
+  "google-adk-cli": {
+    kind: "agent_lifecycle",
+    status: "probe_supported",
+    local: false,
+    openai_compatible: false,
+    can_probe: true,
+    can_probe_eval: true,
+    can_run_eval: false,
+    can_deploy: false,
   },
 };
 

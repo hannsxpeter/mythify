@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v2.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 22 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 25 tools in total. On-disk formats are
+// reflections) as 23 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 26 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -2737,6 +2737,178 @@ function formatExecutionProbe(result) {
   return lines.join("\n");
 }
 
+const LIFECYCLE_PROBES = {
+  "google-agents-cli": {
+    envName: "MYTHIFY_AGENTS_CLI_BIN",
+    binaryNames: ["agents-cli"],
+    fallbacks: [
+      path.join(os.homedir(), ".local", "bin", "agents-cli"),
+      "/opt/homebrew/bin/agents-cli",
+      "/usr/local/bin/agents-cli",
+    ],
+    checks: [
+      { name: "version", args: ["--version"] },
+      { name: "help", args: ["--help"] },
+      { name: "eval_help", args: ["eval", "--help"] },
+    ],
+  },
+  "google-adk-cli": {
+    envName: "MYTHIFY_ADK_BIN",
+    binaryNames: ["adk"],
+    fallbacks: [
+      path.join(os.homedir(), ".local", "bin", "adk"),
+      "/opt/homebrew/bin/adk",
+      "/usr/local/bin/adk",
+    ],
+    checks: [
+      { name: "version", args: ["--version"] },
+      { name: "help", args: ["--help"] },
+      { name: "eval_help", args: ["eval", "--help"] },
+    ],
+  },
+};
+
+function resolveLifecycleProbeBinary(adapter, explicitBin) {
+  const config = LIFECYCLE_PROBES[adapter];
+  if (!config) {
+    return { bin: "", source: "unsupported", error: `Unsupported lifecycle adapter ${adapter}.` };
+  }
+  const explicit = String(explicitBin || "").trim();
+  if (explicit !== "") {
+    return isExecutableFile(explicit)
+      ? { bin: explicit, source: "explicit", error: "" }
+      : { bin: "", source: "explicit", error: `Configured binary is not executable: ${explicit}` };
+  }
+  const envBin = envValue(config.envName);
+  if (envBin !== "") {
+    return isExecutableFile(envBin)
+      ? { bin: envBin, source: `env:${config.envName}`, error: "" }
+      : { bin: "", source: `env:${config.envName}`, error: `Configured binary is not executable: ${envBin}` };
+  }
+  for (const binaryName of config.binaryNames) {
+    const found = findExecutableOnPath(binaryName);
+    if (found !== null) {
+      return { bin: found, source: "path", error: "" };
+    }
+  }
+  for (const candidate of config.fallbacks) {
+    if (isExecutableFile(candidate)) {
+      return { bin: candidate, source: "fallback", error: "" };
+    }
+  }
+  return {
+    bin: "",
+    source: "missing",
+    error: `No ${adapter} binary found. Set ${config.envName} or pass bin.`,
+  };
+}
+
+function inferLifecycleProbeFeatures(adapter, checks) {
+  const evalHelp = checks.find((item) => item.name === "eval_help");
+  const checksOk = checks.length > 0 && checks.every((item) => item.ok);
+  if (adapter === "google-agents-cli") {
+    return {
+      can_probe_eval: Boolean(evalHelp && evalHelp.ok),
+      feature_evidence: checksOk
+        ? "version, help, and eval help commands succeeded; no scaffold, run, eval execution, deploy, publish, or cloud mutation was requested"
+        : "version, help, or eval help command failed before any lifecycle action was executed",
+    };
+  }
+  if (adapter === "google-adk-cli") {
+    return {
+      can_probe_eval: Boolean(evalHelp && evalHelp.ok),
+      feature_evidence: checksOk
+        ? "version, help, and eval help commands succeeded; no create, run, eval execution, deploy, web server, or project mutation was requested"
+        : "version, help, or eval help command failed before any lifecycle action was executed",
+    };
+  }
+  return { can_probe_eval: false, feature_evidence: "unsupported lifecycle adapter" };
+}
+
+function probeLifecycleAdapter({ adapter, bin, timeout_seconds }) {
+  const selectedAdapter = adapter || "google-agents-cli";
+  const config = LIFECYCLE_PROBES[selectedAdapter];
+  const timeoutSeconds =
+    typeof timeout_seconds === "number" && timeout_seconds > 0 ? timeout_seconds : 10;
+  const adapterInfo = ADAPTER_CANDIDATES[selectedAdapter] || {};
+  const resolved = resolveLifecycleProbeBinary(selectedAdapter, bin);
+  const result = {
+    adapter: selectedAdapter,
+    adapter_kind: adapterInfo.kind || "agent_lifecycle",
+    status: "blocked",
+    binary: resolved.bin,
+    binary_source: resolved.source,
+    material_not_evidence: true,
+    evidence_status: "probe_only_not_verification",
+    can_probe_eval: false,
+    eval_execution_enabled: false,
+    deployment_enabled: false,
+    scaffold_enabled: false,
+    run_enabled: false,
+    cloud_mutation_enabled: false,
+    project_mutation_enabled: false,
+    billing_guard: "probe_only_no_lifecycle_mutation",
+    feature_evidence: "",
+    checks: [],
+    error: resolved.error,
+  };
+  if (!config) {
+    result.error = `lifecycle_probe does not support ${selectedAdapter}.`;
+    return result;
+  }
+  if (resolved.bin === "") {
+    return result;
+  }
+  result.checks = config.checks.map((check) => ({
+    name: check.name,
+    ...runCliProbeCommand(resolved.bin, check.args, timeoutSeconds),
+  }));
+  const features = inferLifecycleProbeFeatures(selectedAdapter, result.checks);
+  result.can_probe_eval = features.can_probe_eval;
+  result.feature_evidence = features.feature_evidence;
+  const checksOk = result.checks.every((item) => item.ok);
+  result.status = checksOk && result.can_probe_eval ? "available" : "blocked";
+  result.error = result.status === "available"
+    ? ""
+    : result.checks.find((item) => !item.ok)?.error || features.feature_evidence || "lifecycle probe failed";
+  return result;
+}
+
+function formatLifecycleProbe(result) {
+  const prefix = result.status === "available" ? "[OK]" : "[FAIL]";
+  const lines = [
+    `${prefix} Lifecycle probe ${result.status}.`,
+    `adapter: ${result.adapter}`,
+    `binary: ${result.binary || "not found"}`,
+    `binary source: ${result.binary_source}`,
+    `eval help probe: ${result.can_probe_eval ? "yes" : "no"}`,
+    `eval execution enabled: ${result.eval_execution_enabled ? "yes" : "no"}`,
+    `deployment enabled: ${result.deployment_enabled ? "yes" : "no"}`,
+    `scaffold enabled: ${result.scaffold_enabled ? "yes" : "no"}`,
+    `run enabled: ${result.run_enabled ? "yes" : "no"}`,
+    `cloud mutation enabled: ${result.cloud_mutation_enabled ? "yes" : "no"}`,
+    `project mutation enabled: ${result.project_mutation_enabled ? "yes" : "no"}`,
+    `feature evidence: ${result.feature_evidence || "none"}`,
+    `billing guard: ${result.billing_guard}`,
+    "evidence: probe output is material, not verification evidence.",
+  ];
+  for (const item of result.checks || []) {
+    const details = [
+      `${item.name}: ${item.ok ? "ok" : "failed"}`,
+      `exit=${item.exit_code}`,
+      `command=${item.command}`,
+    ];
+    if (item.error) {
+      details.push(`error=${item.error}`);
+    }
+    lines.push(details.join("; "));
+  }
+  if (result.error && (!result.checks || result.checks.length === 0)) {
+    lines.push(`error: ${result.error}`);
+  }
+  return lines.join("\n");
+}
+
 // Handlers never throw on bad state: any unexpected error becomes an
 // explanatory [FAIL] text result.
 function guarded(handler) {
@@ -3092,6 +3264,48 @@ server.registerTool(
     });
     const prefix = result.status === "available" ? "[OK] " : "[FAIL] ";
     return format === "json" ? prefix + JSON.stringify(result, null, 2) : formatExecutionProbe(result);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Lifecycle adapter probe tool
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "lifecycle_probe",
+  {
+    title: "Probe an agent lifecycle adapter",
+    description:
+      "Probe Google Agents CLI or ADK CLI availability by running only version, help, and eval-help commands. " +
+      "Use this before planning agent lifecycle work. The result is material, not verification evidence, and does not scaffold projects, run agents, execute evals, deploy, publish, mutate cloud resources, or write project state.",
+    inputSchema: {
+      adapter: z
+        .enum(["google-agents-cli", "google-adk-cli"])
+        .optional()
+        .describe("Lifecycle adapter to probe. Defaults to google-agents-cli."),
+      bin: z
+        .string()
+        .optional()
+        .describe("Explicit CLI binary path. Defaults to MYTHIFY_AGENTS_CLI_BIN or MYTHIFY_ADK_BIN, then PATH and common install paths."),
+      timeout_seconds: z
+        .number()
+        .positive()
+        .optional()
+        .describe("Timeout per version, help, or eval-help command in seconds. Defaults to 10."),
+      format: z
+        .enum(["text", "json"])
+        .optional()
+        .describe("Return text by default, or JSON for machine-readable probes."),
+    },
+  },
+  guarded(({ adapter, bin, timeout_seconds, format }) => {
+    const result = probeLifecycleAdapter({
+      adapter: adapter || "google-agents-cli",
+      bin: bin || "",
+      timeout_seconds,
+    });
+    const prefix = result.status === "available" ? "[OK] " : "[FAIL] ";
+    return format === "json" ? prefix + JSON.stringify(result, null, 2) : formatLifecycleProbe(result);
   })
 );
 

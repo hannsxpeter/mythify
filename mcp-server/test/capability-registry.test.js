@@ -45,6 +45,7 @@ test("researched future adapters are candidates, not public host platforms", () 
   assert.deepEqual(candidateNames, [
     "antigravity",
     "generic-openai-compatible",
+    "google-adk-cli",
     "google-agents-cli",
     "google-colab-cli",
     "kimi-code",
@@ -86,4 +87,18 @@ test("researched future adapters are candidates, not public host platforms", () 
   assert.equal(ADAPTER_CANDIDATES["google-colab-cli"].can_probe, true);
   assert.equal(ADAPTER_CANDIDATES["google-colab-cli"].can_run_remote_job, false);
   assert.equal(ADAPTER_CANDIDATES["google-colab-cli"].non_billable_probe, true);
+  assert.deepEqual(
+    listAdapterCandidates("agent_lifecycle").map((candidate) => candidate.name).sort(),
+    ["google-adk-cli", "google-agents-cli"]
+  );
+  assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].status, "probe_supported");
+  assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_probe, true);
+  assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_probe_eval, true);
+  assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_run_eval, false);
+  assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_deploy, false);
+  assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].status, "probe_supported");
+  assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_probe, true);
+  assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_probe_eval, true);
+  assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_run_eval, false);
+  assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_deploy, false);
 });

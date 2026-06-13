@@ -21,39 +21,26 @@ Status markers:
 
 ### In Progress
 
-- [>] Agents CLI and ADK lifecycle spike
-  - Current goal: define an eval-first lifecycle adapter path.
-  - Next step: update `docs/design.md` with a non-deploying lifecycle probe or
-    spike contract.
-  - Guardrail: do not enable deployment by default.
-  - Evidence rule: `agents-cli eval`, `adk eval`, or any future lifecycle
-    command result must be recorded as executed verification only when Mythify
-    actually runs the command and reads the exit code.
+- [>] First local model backend
+  - Current goal: turn the generic OpenAI-compatible probe path into a
+    role-limited local reader or triage adapter.
+  - Next step: design the execution boundary so local model output remains
+    material until an executable verifier checks it.
+  - Guardrail: do not let local model output count as proof.
 
 ### Next To Do
 
-1. [ ] Design the Agents CLI and ADK lifecycle contract.
-   - Shape: specialist `agent_lifecycle` adapter, not a coding host and not a
-     model provider.
-   - First slice: eval and help/version probes only, no deploy.
-2. [ ] Implement the first non-deploying lifecycle spike artifact.
-   - Preferred shape: a probe or guide that can be tested offline with stubs.
-   - Required fields: command, args, lifecycle action, deployment enabled flag,
-     material-not-evidence marker, and verification boundary.
-3. [ ] Add focused tests for the lifecycle slice.
-   - Cover available and missing command behavior.
-   - Prove the slice does not deploy or write verification state by accident.
-4. [ ] Add the first local model backend after the lifecycle slice.
+1. [ ] Add the first local model backend.
    - Start with generic OpenAI-compatible local provider support.
    - Keep local model output material until an executable verifier checks it.
-5. [ ] Add real Kimi Code and OpenCode worker adapter spikes.
+2. [ ] Add real Kimi Code and OpenCode worker adapter spikes.
    - Kimi: verify `kimi -p` behavior locally before claiming worker support.
    - OpenCode: verify `opencode run` behavior locally before claiming worker
      support.
-6. [ ] Add step-bound verification records.
+3. [ ] Add step-bound verification records.
    - Bind verification records to plan and step ids.
    - Make completion evidence easier to audit later.
-7. [ ] Expand CLI/MCP interop coverage.
+4. [ ] Expand CLI/MCP interop coverage.
    - Move from spot checks to every mutating operation.
 
 ### Later
@@ -101,6 +88,8 @@ Status markers:
   `codeaudit.md`.
 - [x] 2026-06-13: refactor the roadmap into a scan-first dashboard with visible
   status lanes.
+- [x] 2026-06-13: add non-deploying Google Agents CLI and ADK lifecycle probe
+  and spike plan.
 
 ## Track Backlogs
 
@@ -239,9 +228,6 @@ Some tools are useful to Mythify but are not model providers.
 
 Open:
 
-- [>] Agents CLI and ADK lifecycle spike.
-- [ ] Agents CLI and ADK eval-first contract.
-- [ ] Agents CLI and ADK non-deploying probe or guide.
 - [ ] Colab remote execution adapter, only after explicit billing and data
   movement controls exist.
 
@@ -251,6 +237,12 @@ Done:
 - [x] `execution_probe` checks Google Colab CLI availability with version and
   help commands only.
 - [x] `docs/colab-cli-spike-plan.md` records the non-billable Colab scope.
+- [x] Google Agents CLI and ADK CLI are classified as `agent_lifecycle`
+  adapters.
+- [x] `lifecycle_probe` checks Google Agents CLI and ADK CLI availability with
+  version, help, and eval-help commands only.
+- [x] `docs/agents-cli-adk-spike-plan.md` records the non-deploying lifecycle
+  scope.
 
 Guardrails:
 
@@ -341,11 +333,11 @@ Preserve:
 - [ ] Step-bound verification records.
 - [ ] Whole-state refusal no-mutation checks.
 - [ ] Host model switch capability contract and status model.
-- [>] Agents CLI and ADK lifecycle spike.
+- [x] Agents CLI and ADK lifecycle spike.
 
 ### v2.7
 
-- [ ] First supported local model backend.
+- [>] First supported local model backend.
 - [ ] Local reader or triage role.
 - [ ] Tests proving local output remains material, not evidence.
 - [ ] Generic OpenAI-compatible localhost adapter.

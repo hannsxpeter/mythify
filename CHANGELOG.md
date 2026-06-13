@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no-remote-execution guard fields, and records no verification evidence.
 - `docs/colab-cli-spike-plan.md` to document the safe Colab CLI spike scope
   and the future evidence fields required before any billable remote execution.
+- MCP `lifecycle_probe` for Google Agents CLI and ADK CLI availability checks.
+  The probe runs only version, help, and eval-help commands, returns explicit
+  no-eval and no-deploy guard fields, and records no verification evidence.
+- `docs/agents-cli-adk-spike-plan.md` to document the safe lifecycle probe
+  scope and the future evidence fields required before eval or deployment
+  execution.
 
 ## [2.5.0] - 2026-06-12
 

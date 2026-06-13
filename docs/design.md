@@ -54,6 +54,7 @@ mythify/
 |   |-- test/capability-registry.test.js
 |   |-- test/execution-probe.test.js
 |   |-- test/host-cli-probe.test.js
+|   |-- test/lifecycle-probe.test.js
 |   |-- test/provider-probe.test.js
 |   |-- test/smoke.test.js
 |   `-- test/fanout.test.js
@@ -74,6 +75,7 @@ mythify/
     |-- codex-integrations.md    Codex Desktop, CLI, MCP, and benchmark setup
     |-- claude-integrations.md   Claude Desktop and Claude Code guide
     |-- antigravity-mcp-setup.md Antigravity CLI probe and MCP setup guide
+    |-- agents-cli-adk-spike-plan.md Google Agents CLI and ADK probe plan
     |-- colab-cli-spike-plan.md  Google Colab CLI non-billable spike plan
     `-- research-report.md       preserved research report
 ```
@@ -109,9 +111,9 @@ Adapter kinds:
 The current public host platforms remain `auto`, `unknown`, `codex-desktop`,
 `codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, and `cursor-agent`.
 Future candidates such as local OpenAI-compatible providers, Ollama, LM Studio,
-llama.cpp, vLLM, Kimi Code, OpenCode, Antigravity, Google Colab CLI, and Google
-Agents CLI must enter the registry first, then earn public schema support in a
-separate verified slice.
+llama.cpp, vLLM, Kimi Code, OpenCode, Antigravity, Google Colab CLI, Google
+Agents CLI, and Google ADK CLI must enter the registry first, then earn public
+schema support in a separate verified slice.
 
 ## State model (shared contract)
 
@@ -362,7 +364,7 @@ a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 25 tools: the 22 core tools below plus the 3 fanout tools defined in the
+Exactly 26 tools: the 23 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -373,6 +375,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `provider_probe` | `{provider?: enum(generic-openai-compatible), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe a generic OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
 | `host_cli_probe` | `{host?: enum(kimi-code, opencode, antigravity), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Kimi Code, OpenCode, or Antigravity CLI availability by running only version and help commands. Defaults to `MYTHIFY_KIMI_BIN`, `MYTHIFY_OPENCODE_BIN`, or `MYTHIFY_ANTIGRAVITY_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_run_noninteractive_prompt`, and `material_not_evidence: true`. It does not execute a prompt, write state, spawn workers, or count as verification evidence. Antigravity MCP setup guidance lives in `docs/antigravity-mcp-setup.md`; the probe does not install or mutate MCP config. |
 | `execution_probe` | `{adapter?: enum(google-colab-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Colab CLI availability by running only version and help commands. Defaults to `MYTHIFY_COLAB_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `non_billable: true`, `job_execution_enabled: false`, and `material_not_evidence: true`. It does not provision a runtime, request an accelerator, execute notebooks, upload data, write state, or count as verification evidence. |
+| `lifecycle_probe` | `{adapter?: enum(google-agents-cli, google-adk-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Agents CLI or ADK CLI availability by running only version, help, and eval-help commands. Defaults to `MYTHIFY_AGENTS_CLI_BIN` or `MYTHIFY_ADK_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_probe_eval: true`, `eval_execution_enabled: false`, `deployment_enabled: false`, and `material_not_evidence: true`. It does not scaffold projects, run agents, execute evals, deploy, publish, mutate cloud resources, write project state, or count as verification evidence. |
 | `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
@@ -498,7 +501,7 @@ and must print JSON.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the 25 tool names above (set equality), the 22
+1. `tools/list` returns exactly the 26 tool names above (set equality), the 23
    core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
@@ -542,7 +545,7 @@ document the project. Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 25 tool names for clients using the server instead
+8. A short MCP note listing the 26 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
 ### scripts/build_variants.py

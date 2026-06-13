@@ -30,6 +30,11 @@ Implementation status:
   `docs/colab-cli-spike-plan.md`: Google Colab CLI can be checked through
   version and help commands without provisioning runtimes, requesting
   accelerators, uploading data, or executing jobs.
+- Agents CLI and ADK spike-plan slice landed in `lifecycle_probe` and
+  `docs/agents-cli-adk-spike-plan.md`: Google Agents CLI and ADK CLI can be
+  checked through version, help, and eval-help commands without scaffolding
+  projects, running evals, deploying, publishing, mutating cloud resources, or
+  writing project state.
 - Local provider worker execution is not supported yet. The next slice should
   add a role-limited execution path before claiming reader or triage support.
 
@@ -463,4 +468,5 @@ This prevents Colab CLI and Agents CLI from being squeezed into the wrong box.
 6. Done 2026-06-12: add Antigravity CLI probe and MCP setup guide.
 7. Done 2026-06-12: create a Colab CLI spike plan without running billable
    accelerator work.
-8. Create an Agents CLI spike plan around `agents-cli eval`, not deployment.
+8. Done 2026-06-13: create an Agents CLI and ADK spike plan around eval-help
+   probes, not deployment.
