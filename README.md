@@ -39,13 +39,17 @@ Copy a protocol variant and the CLI into your project, then initialize a workspa
 ```bash
 cp CLAUDE.md /path/to/your/project/          # or AGENTS.md, or .cursorrules
 mkdir -p /path/to/your/project/scripts
+mkdir -p /path/to/your/project/protocol
 cp scripts/mythify.py /path/to/your/project/scripts/
+cp protocol/operation-registry.json /path/to/your/project/protocol/
 cd /path/to/your/project
+python3 scripts/mythify.py protocol check CLAUDE.md
 python3 scripts/mythify.py init
 ```
 
 The protocol file steers the agent; the CLI gives it durable plans, memory, lessons,
-and executed verification.
+and executed verification. `protocol check` confirms the copied protocol file and
+CLI came from the same source protocol before you start relying on them.
 
 ## Quick start B: MCP server
 
@@ -217,6 +221,7 @@ category, and the guarded `memory_clear` refusal text.
 | Command | Behavior | Exit code |
 | :--- | :--- | :--- |
 | `init` | Create `./.mythify` with subdirectories and empty memory.json. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
+| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source repo protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. | 0 if every checked file matches; 1 on missing metadata or drift |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|codex-desktop\|claude-desktop\|cursor-desktop] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, and task-based host recommendation. `--triage auto` runs a local fast model only when the gate is recommended or required. | 0 |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json` and print host-specific switch guidance. This updates Mythify session model policy; the host still owns the actual current chat model. | 0; 1 if no workspace |
@@ -621,9 +626,10 @@ keys. It creates two temporary workspaces for each selected Python bug-fix
 task:
 
 - `bare`: the model gets only the task prompt.
-- `mythify`: the model gets `AGENTS.md`, `scripts/mythify.py`, and an
-  initialized `.mythify/` workspace, then is told to use the selected Mythify
-  profile and record `verify run` evidence.
+- `mythify`: the model gets `AGENTS.md`, `scripts/mythify.py`,
+  `protocol/operation-registry.json`, and an initialized `.mythify/` workspace,
+  then is told to use the selected Mythify profile and record `verify run`
+  evidence.
 
 The harness verifies both workspaces with `python3 -m unittest` and reports
 pass rate, Mythify evidence rate, average duration, and per-run output tails.

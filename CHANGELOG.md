@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `protocol/operation-registry.json` as the first operation registry prototype.
   The Python CLI and MCP server now load the shared memory categories, default
   category, state filename, and no-target `memory_clear` refusal contracts.
+- CLI `protocol check` plus generated protocol hash headers, allowing copied
+  protocol files to prove they came from the same source protocol as the CLI.
 
 ## [2.5.0] - 2026-06-12
 

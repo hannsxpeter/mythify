@@ -117,9 +117,73 @@ class TestInit(CliTestCase):
     def test_help_exits_zero(self):
         result = self.run_cli("--help")
         self.assertEqual(result.returncode, 0)
-        for name in ("init", "status", "classify", "host-model", "outcome", "plan", "step", "memory", "lesson",
-                     "verify", "reflect", "summary"):
+        for name in ("init", "protocol", "status", "classify", "host-model", "outcome", "plan", "step",
+                     "memory", "lesson", "verify", "reflect", "summary"):
             self.assertIn(name, result.stdout)
+
+
+class TestProtocolHandshake(CliTestCase):
+    def test_protocol_check_accepts_repo_protocol_and_generated_variants(self):
+        result = self.run_cli("protocol", "check", cwd=REPO_ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Protocol handshake verified", result.stdout)
+
+    def test_protocol_check_accepts_explicit_generated_copy(self):
+        shutil.copy2(REPO_ROOT / "AGENTS.md", self.project / "AGENTS.md")
+        result = self.run_cli("protocol", "check", "AGENTS.md")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("AGENTS.md", result.stdout)
+
+    def test_protocol_check_works_from_copied_drop_in_install(self):
+        (self.project / "scripts").mkdir()
+        (self.project / "protocol").mkdir()
+        shutil.copy2(REPO_ROOT / "AGENTS.md", self.project / "AGENTS.md")
+        shutil.copy2(CLI, self.project / "scripts" / "mythify.py")
+        shutil.copy2(
+            OPERATION_REGISTRY,
+            self.project / "protocol" / "operation-registry.json",
+        )
+        env = dict(os.environ)
+        env.pop("MYTHIFY_DIR", None)
+        env["HOME"] = str(self.home)
+        result = subprocess.run(
+            [sys.executable, "scripts/mythify.py", "protocol", "check", "AGENTS.md"],
+            cwd=str(self.project),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Protocol handshake verified", result.stdout)
+
+    def test_protocol_check_rejects_drifted_hash(self):
+        text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        marker = "<!-- Mythify protocol-sha256: "
+        start = text.index(marker) + len(marker)
+        end = text.index(" -->", start)
+        drifted = text[:start] + ("0" * 64) + text[end:]
+        path = self.project / "AGENTS.md"
+        path.write_text(drifted, encoding="utf-8")
+        result = self.run_cli("protocol", "check", "AGENTS.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Protocol handshake drift", result.stderr)
+
+    def test_protocol_check_json_failure_exits_nonzero(self):
+        path = self.project / "AGENTS.md"
+        path.write_text("# The Mythify Protocol\n", encoding="utf-8")
+        result = self.run_cli("protocol", "check", "AGENTS.md", "--json")
+        self.assertEqual(result.returncode, 1)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["checked"][0]["status"], "missing_header")
+
+    def test_protocol_check_rejects_missing_hash_header(self):
+        path = self.project / "AGENTS.md"
+        path.write_text("# The Mythify Protocol\n", encoding="utf-8")
+        result = self.run_cli("protocol", "check", "AGENTS.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Protocol handshake missing", result.stderr)
 
 
 class TestWorkspaceResolution(CliTestCase):

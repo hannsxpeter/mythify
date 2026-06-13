@@ -96,6 +96,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | Command | Purpose |
 | :--- | :--- |
 | `init` | Create `./.mythify` for this project. Safe to re-run. |
+| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. |
 | `status` | Orient: active plan, next pending step, state counts. |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`; the host still owns the actual current chat model. |

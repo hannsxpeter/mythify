@@ -6,6 +6,7 @@ marking it as generated, followed by a blank line. The script is idempotent:
 running it twice produces byte-identical output. Standard library only.
 """
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ HEADER = (
     "<!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. "
     "Edit the source, then rebuild. -->"
 )
+HASH_HEADER = "<!-- Mythify protocol-sha256: {0} -->"
 
 TARGETS = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 
@@ -24,7 +26,8 @@ def main():
         print("[FAIL] Protocol source not found: " + str(source), file=sys.stderr)
         return 1
     body = source.read_text(encoding="utf-8")
-    content = HEADER + "\n\n" + body
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    content = HEADER + "\n" + HASH_HEADER.format(digest) + "\n\n" + body
     written = []
     for name in TARGETS:
         target = repo_root / name

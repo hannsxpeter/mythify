@@ -82,6 +82,7 @@ much to build.
 | Command | Purpose |
 | :--- | :--- |
 | `init` | Create `./.mythify` workspace. |
+| `protocol check [PATH ...] [--json]` | Verify copied protocol files match this CLI. |
 | `status` | Orientation: active plan, next step, counts. |
 | `classify TASK [--json] [--triage never\|auto\|always]` | Identify task type, risk, execution profile, verification strategy, fanout fit, model policy, and task-based host recommendation. |
 | `plan create GOAL [--steps JSON] [--name NAME]` | Create a plan, set it active. |
@@ -111,13 +112,14 @@ much to build.
 
 ## MCP clients
 
-Clients wired to the Mythify MCP server instead of the CLI use 22 tools:
-classify_task, host_model_switch, outcome_start, outcome_check,
-outcome_status, outcome_results, outcome_stop, memory_store, memory_recall,
-memory_clear, lesson_record, lesson_recall, plan_create, plan_add_step,
-plan_update_step, plan_status, verify_run, verify_claim, reflect, plus the
-parallel delegation tools fanout_start, fanout_status, and fanout_results. Same
-state directory, same file formats, full interop with the CLI.
+Clients wired to the Mythify MCP server instead of the CLI use 28 tools:
+classify_task, host_model_switch, provider_probe, local_model_run,
+host_cli_probe, host_cli_run, execution_probe, lifecycle_probe, outcome_start,
+outcome_check, outcome_status, outcome_results, outcome_stop, memory_store,
+memory_recall, memory_clear, lesson_record, lesson_recall, plan_create,
+plan_add_step, plan_update_step, plan_status, verify_run, verify_claim,
+reflect, plus fanout_start, fanout_status, and fanout_results. Same state
+directory, same file formats, full interop with the CLI.
 
 `classify_task` returns `model_policy.session.recommendation` so hosts can map
 the prompt to chat settings before work begins. Direct low-risk prompts use a

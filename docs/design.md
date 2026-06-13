@@ -349,6 +349,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | Command | Behavior | Exit code |
 | :--- | :--- | :--- |
 | `init` | Create `./.mythify` with subdirectories and empty memory.json. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
+| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. | 0 if every checked file matches; 1 on missing metadata or drift |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--max-iterations N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start a supervised outcome loop, set it active, and record the verifier, optional metric, allowed path hints, visibility policy, and iteration budget. | 0; 1 if no workspace or invalid budget |
 | `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric for the active or named outcome, append an iteration record, append executed verification evidence, and return the next action. | 0 if verified, 2 if still unmet or failed, 1 if not found |
@@ -577,6 +578,33 @@ document the project. Required structure:
 8. A short MCP note listing the 28 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
+### Protocol handshake
+
+The CLI embeds the SHA-256 hash of `protocol/PROTOCOL.md` in
+`PROTOCOL_SOURCE_SHA256`. Generated protocol variants include the same hash in a
+metadata header:
+
+```
+<!-- Mythify protocol-sha256: HASH -->
+```
+
+`python3 scripts/mythify.py protocol check [PATH ...] [--json]` compares the
+embedded CLI hash with explicit protocol copy paths. With no paths, it checks
+the source repo protocol when present and any `CLAUDE.md`, `AGENTS.md`, and
+`.cursorrules` files in the current working directory.
+
+Failure modes:
+
+- Missing metadata header: print `[FAIL]`, name the path, and exit 1.
+- Hash mismatch: print `[FAIL]`, show the expected and actual short hashes,
+  and exit 1.
+- Source protocol mismatch in a source checkout: print `[FAIL]`, name
+  `protocol/PROTOCOL.md`, and exit 1.
+
+The command reads files only; it does not create `.mythify` state. A copied
+install can therefore verify that its protocol file and CLI came from the same
+source protocol before an agent trusts either one.
+
 ### scripts/build_variants.py
 
 Reads `protocol/PROTOCOL.md`, writes three files at the repo root: `CLAUDE.md`,
@@ -586,8 +614,9 @@ Reads `protocol/PROTOCOL.md`, writes three files at the repo root: `CLAUDE.md`,
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
 ```
 
-followed by a blank line and the protocol body verbatim. Idempotent. Zero
-dependencies. Exit 0 on success with an `[OK]` line listing the files written.
+followed by the protocol hash metadata header, a blank line, and the protocol body
+verbatim. Idempotent. Zero dependencies. Exit 0 on success with an `[OK]` line
+listing the files written.
 
 ## Skill: skills/mythify/
 
@@ -627,8 +656,9 @@ Sections, in order:
    `docs/research-report.md` and state its own caveat (training beats prompting;
    this closes the discipline gap, not the capability gap).
 3. Components table: protocol variants, CLI, MCP server, skill.
-4. Quick start A: drop-in (copy `CLAUDE.md` or `AGENTS.md` plus `scripts/mythify.py`
-   into a project, run `init`).
+4. Quick start A: drop-in (copy `CLAUDE.md` or `AGENTS.md`, `scripts/mythify.py`,
+   and `protocol/operation-registry.json` into a project, run
+   `python3 scripts/mythify.py protocol check FILE`, then `init`).
 5. Quick start B: MCP server (npm install inside `mcp-server/`, then the example
    client config; note `MYTHIFY_DIR` and `MYTHIFY_DISABLE_RUN`).
 6. Quick start C: build the skill (`python3 scripts/package_skill.py`).

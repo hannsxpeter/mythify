@@ -21,21 +21,21 @@ Status markers:
 
 ### In Progress
 
-- [>] Deployed-copy version handshake
-  - Current goal: detect when installed protocol copies drift from the source
-    protocol and runtime version.
-  - Next step: map generated variant, installed copy, CLI, MCP, and README
-    version surfaces.
-  - Guardrail: fail loudly on drift without blocking normal local development.
+- [>] Host model switch capability contract and status model
+  - Current goal: distinguish requested host switches from host-confirmed
+    switches wherever host capabilities can prove the difference.
+  - Next step: map `host-model` CLI, `host_model_switch` MCP, capability
+    registry fields, and status output.
+  - Guardrail: never claim the host changed models unless an adapter confirms it.
 
 ### Next To Do
 
-1. [ ] Add deployed-copy version handshake between protocol text and CLI.
-   - Detect when installed copies drift from the source protocol.
-2. [ ] Add host model switch capability contract and status model.
-   - Keep requested switches separate from host-confirmed switches.
-3. [ ] Add log compaction or rotation for long-lived `.mythify` directories.
+1. [ ] Add log compaction or rotation for long-lived `.mythify` directories.
    - Preserve evidence while keeping state directories readable.
+2. [ ] Generate docs tables, schemas, or fixtures from the registry.
+   - Only after drift tests protect generated output.
+3. [ ] Add per-role provider defaults.
+   - Keep role assignment explicit before provider routing grows.
 
 ### Later
 
@@ -91,6 +91,8 @@ Status markers:
 - [x] 2026-06-13: expand CLI/MCP interop coverage across shared mutating state.
 - [x] 2026-06-13: add whole-state no-mutation checks for refusal paths.
 - [x] 2026-06-13: add the memory operation registry prototype.
+- [x] 2026-06-13: add deployed-copy protocol hash handshake between generated
+  protocol files and the CLI.
 
 ## Track Backlogs
 
@@ -102,7 +104,6 @@ product work.
 
 Open:
 
-- [ ] Deployed-copy version handshake between protocol text and CLI.
 - [ ] Log compaction or rotation for long-lived `.mythify` directories.
 - [ ] Generate docs tables, schemas, or fixtures from the registry only after a
   drift test protects the output.
@@ -116,6 +117,8 @@ Done:
 - [x] Refusal paths have whole-state no-mutation snapshot checks.
 - [x] Memory operation registry powers shared CLI and MCP memory categories,
   default category, state filename, and no-target clear refusals.
+- [x] Generated protocol files carry a source hash, and CLI `protocol check`
+  detects copied-file drift before workspace initialization.
 
 ### Model Assignment
 
@@ -332,6 +335,7 @@ Preserve:
 ### v2.6
 
 - [x] Operation registry prototype for a small surface.
+- [x] Deployed-copy version handshake between protocol text and CLI.
 - [x] Step-bound verification records.
 - [x] Whole-state refusal no-mutation checks.
 - [ ] Host model switch capability contract and status model.

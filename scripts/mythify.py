@@ -12,6 +12,7 @@ MYTHIFY_DIR environment variable (created on demand). Global lessons live in
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -27,6 +28,9 @@ from pathlib import Path
 WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
+PROTOCOL_SOURCE_SHA256 = "2ae980ce81f378aa3871b7430b719b7834069ac026046f5ea105b466bbed0f28"
+PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
+PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init"
 )
@@ -270,6 +274,88 @@ def slugify(text):
         elif chars and chars[-1] != "-":
             chars.append("-")
     return "".join(chars).strip("-")[:40]
+
+
+def sha256_text(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def short_hash(digest):
+    if not digest:
+        return "missing"
+    return digest[:12]
+
+
+def extract_protocol_copy_hash(text):
+    for line in text.splitlines()[:8]:
+        stripped = line.strip()
+        if stripped.startswith(PROTOCOL_HASH_PREFIX) and stripped.endswith("-->"):
+            return stripped[len(PROTOCOL_HASH_PREFIX):-3].strip()
+    return None
+
+
+def source_protocol_path():
+    return REPO_ROOT / "protocol" / "PROTOCOL.md"
+
+
+def default_protocol_check_paths():
+    cwd = Path.cwd()
+    return [cwd / name for name in PROTOCOL_COPY_CANDIDATES if (cwd / name).is_file()]
+
+
+def protocol_source_check():
+    path = source_protocol_path()
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    actual = sha256_text(text)
+    return {
+        "kind": "source",
+        "path": str(path),
+        "expected": PROTOCOL_SOURCE_SHA256,
+        "actual": actual,
+        "status": "ok" if actual == PROTOCOL_SOURCE_SHA256 else "drift",
+    }
+
+
+def protocol_copy_check(path):
+    path = Path(path)
+    result = {
+        "kind": "copy",
+        "path": str(path),
+        "expected": PROTOCOL_SOURCE_SHA256,
+        "actual": None,
+        "status": "ok",
+    }
+    if not path.is_file():
+        result["status"] = "missing_file"
+        return result
+    text = path.read_text(encoding="utf-8")
+    actual = extract_protocol_copy_hash(text)
+    result["actual"] = actual
+    if actual is None:
+        result["status"] = "missing_header"
+    elif actual != PROTOCOL_SOURCE_SHA256:
+        result["status"] = "drift"
+    return result
+
+
+def format_protocol_check_failure(result):
+    path = result["path"]
+    status = result["status"]
+    if status == "missing_file":
+        return "[FAIL] Protocol file not found: {0}".format(path)
+    if status == "missing_header":
+        return (
+            "[FAIL] Protocol handshake missing from {0}. Regenerate with "
+            "scripts/build_variants.py or copy a current protocol variant."
+        ).format(path)
+    if status == "drift":
+        return (
+            "[FAIL] Protocol handshake drift in {0}: expected {1}, found {2}. "
+            "Regenerate variants and copy the matching CLI."
+        ).format(path, short_hash(result["expected"]), short_hash(result["actual"]))
+    return "[FAIL] Protocol check failed for {0}: {1}".format(path, status)
 
 
 def fail(message):
@@ -2146,6 +2232,56 @@ def cmd_init(args, _state):
     return 0
 
 
+def cmd_protocol_check(args, _state):
+    explicit_paths = [Path(item) for item in args.paths]
+    results = []
+    if explicit_paths:
+        results.extend(protocol_copy_check(path) for path in explicit_paths)
+    else:
+        source_result = protocol_source_check()
+        if source_result is not None:
+            results.append(source_result)
+        results.extend(protocol_copy_check(path) for path in default_protocol_check_paths())
+
+    if not results:
+        output = {
+            "status": "no_files",
+            "expected": PROTOCOL_SOURCE_SHA256,
+            "checked": [],
+        }
+        if args.json_output:
+            print(json.dumps(output, indent=2))
+        else:
+            fail(
+                "[FAIL] No protocol files found. Pass PATH or run from a directory "
+                "containing CLAUDE.md, AGENTS.md, or .cursorrules."
+            )
+        return 1
+
+    failures = [item for item in results if item["status"] != "ok"]
+    output = {
+        "status": "ok" if not failures else "failed",
+        "expected": PROTOCOL_SOURCE_SHA256,
+        "checked": results,
+    }
+    if args.json_output:
+        print(json.dumps(output, indent=2))
+        if failures:
+            return 1
+    elif failures:
+        for failure in failures:
+            fail(format_protocol_check_failure(failure))
+        return 1
+    else:
+        names = ", ".join(result["path"] for result in results)
+        print(
+            "[OK] Protocol handshake verified ({0}) for: {1}".format(
+                short_hash(PROTOCOL_SOURCE_SHA256), names
+            )
+        )
+    return 0
+
+
 def cmd_status(args, state):
     print("[OK] Status: {0}".format(state))
     active = get_active_slug(state)
@@ -3025,6 +3161,25 @@ def build_parser():
         ),
     )
     p.set_defaults(handler=cmd_init, needs_state=False)
+
+    protocol = sub.add_parser(
+        "protocol",
+        help="Protocol copy checks.",
+        description="Check copied protocol files against the CLI's embedded source protocol hash.",
+    )
+    protocol_sub = protocol.add_subparsers(dest="protocol_command", metavar="ACTION", required=True)
+    p = protocol_sub.add_parser(
+        "check",
+        help="Verify copied protocol files match this CLI.",
+        description=(
+            "Verify copied protocol files match this CLI's embedded source protocol "
+            "hash. With no paths, check source protocol when present and local "
+            "CLAUDE.md, AGENTS.md, and .cursorrules files."
+        ),
+    )
+    p.add_argument("paths", nargs="*", help="Protocol copy files to check.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_protocol_check, needs_state=False)
 
     p = sub.add_parser(
         "status",
