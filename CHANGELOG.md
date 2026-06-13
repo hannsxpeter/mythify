@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Step-bound verification record fields. CLI and MCP verification entries now
   include active plan and in-progress step context when available, while older
   logs and null-context records remain compatible.
+- Expanded CLI/MCP interop coverage for shared mutating state: host-model
+  records, memory, lessons, plans and steps, outcomes, verification records,
+  and reflections.
 
 ## [2.5.0] - 2026-06-12
 

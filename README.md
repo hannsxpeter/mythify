@@ -684,9 +684,10 @@ Run the MCP server smoke test:
 cd mcp-server && npm ci && npm test
 ```
 
-`tests/test_interop.py` exercises the CLI and the MCP server against the same state
-directory; it skips automatically when `node` is not on PATH or
-`mcp-server/node_modules` is missing.
+`tests/test_interop.py` exercises the CLI and the MCP server against the same
+state directory across host-model state, memory, lessons, plans and steps,
+outcomes, verification records, and reflections. It skips automatically when
+`node` is not on PATH or `mcp-server/node_modules` is missing.
 
 ## Limitations
 

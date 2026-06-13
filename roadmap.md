@@ -21,20 +21,20 @@ Status markers:
 
 ### In Progress
 
-- [>] CLI/MCP interop coverage
-  - Current goal: prove mutating operations behave the same through the CLI and
-    MCP server.
-  - Next step: map every mutating operation and current spot-check coverage.
-  - Guardrail: keep tests focused on shared state contracts.
+- [>] Whole-state no-mutation checks for refusal paths
+  - Current goal: prove guarded tools leave project state untouched when they
+    refuse.
+  - Next step: map refusal paths that should preserve all state files.
+  - Guardrail: compare state snapshots, not just target files.
 
 ### Next To Do
 
-1. [ ] Expand CLI/MCP interop coverage.
-   - Move from spot checks to every mutating operation.
-2. [ ] Add whole-state no-mutation checks for refusal paths.
+1. [ ] Add whole-state no-mutation checks for refusal paths.
    - Prove guarded tools leave project state untouched when they refuse.
-3. [ ] Add operation registry prototype for a small surface.
+2. [ ] Add operation registry prototype for a small surface.
    - Use it only where it reduces drift.
+3. [ ] Add deployed-copy version handshake between protocol text and CLI.
+   - Detect when installed copies drift from the source protocol.
 
 ### Later
 
@@ -87,6 +87,7 @@ Status markers:
   OpenAI-compatible reader and triage runs.
 - [x] 2026-06-13: add bounded Kimi Code and OpenCode host CLI worker runs.
 - [x] 2026-06-13: add step-bound verification records for CLI and MCP evidence.
+- [x] 2026-06-13: expand CLI/MCP interop coverage across shared mutating state.
 
 ## Track Backlogs
 
@@ -102,7 +103,6 @@ Open:
 - [ ] Whole-state no-mutation checks for refusal paths.
 - [ ] Deployed-copy version handshake between protocol text and CLI.
 - [ ] Log compaction or rotation for long-lived `.mythify` directories.
-- [ ] Full CLI/MCP interop matrix for mutating operations.
 - [ ] Generate docs tables, schemas, or fixtures from the registry only after a
   drift test protects the output.
 
@@ -111,6 +111,7 @@ Done:
 - [x] Capability registry exists in `mcp-server/src/capability-registry.js`.
 - [x] Registry data is shown in `host_model_switch` status output.
 - [x] Verification records include active plan and in-progress step context.
+- [x] Full CLI/MCP interop matrix covers shared mutating operations.
 
 ### Model Assignment
 
@@ -347,7 +348,7 @@ Preserve:
 - [ ] API provider adapter path.
 - [ ] Per-role provider defaults.
 - [ ] Cost and timeout metadata in worker records.
-- [ ] CLI/MCP interop matrix for every mutating operation.
+- [x] CLI/MCP interop matrix for shared mutating operations.
 - [x] Kimi Code CLI adapter proof of concept.
 - [x] OpenCode CLI adapter proof of concept.
 

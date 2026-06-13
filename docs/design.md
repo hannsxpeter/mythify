@@ -692,18 +692,23 @@ behavior and requires both plan and verification evidence.
 ### tests/test_interop.py
 
 Stdlib only. Skips (unittest skip, not failure) unless `node` is on PATH and
-`mcp-server/node_modules` exists. Flow:
+`mcp-server/node_modules` exists. It runs the Python CLI and the Node MCP server
+against one temp `.mythify` directory and covers the shared mutating state
+surface, not probes or MCP-only fanout.
 
-1. Temp project dir and temp HOME. Via the CLI: `init`, `plan create "Interop goal"
-   --steps '[{"title": "A", "success_criteria": "x"}]'`, `memory set color blue`.
-2. Spawn `node mcp-server/src/index.js` with `MYTHIFY_DIR` pointing at the project's
-   `.mythify`. Speak newline-delimited JSON-RPC 2.0 over stdio: `initialize` (accept
-   whatever protocolVersion the server negotiates), `notifications/initialized`,
-   then `tools/call`:
-   - `plan_status` result text contains "Interop goal".
-   - `memory_recall` with query "blue" finds the key color.
-   - `memory_store` writes key `from_mcp`.
-3. Terminate the server. Via the CLI: `memory get from_mcp` finds the entry.
+Coverage matrix:
+
+- CLI writes, MCP reads: `host-model switch`, `plan create`, `step in_progress`,
+  `memory set`, `lesson add`, and `outcome start`.
+- MCP writes, CLI reads: `host_model_switch`, `plan_add_step`,
+  `plan_update_step`, `memory_store`, `memory_clear`, `lesson_record`,
+  `outcome_check`, `outcome_start`, `outcome_stop`, `verify_run`,
+  `verify_claim`, and `reflect`.
+- CLI writes after MCP writes, MCP reads: `host-model clear` is checked so the
+  host model state contract is bidirectional.
+- Verification records and reflection records are checked on disk because both
+  APIs intentionally append logs rather than exposing a read tool for individual
+  log entries.
 
 ## Fanout: parallel delegation (MCP only)
 
