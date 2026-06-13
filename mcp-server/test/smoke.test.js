@@ -112,6 +112,8 @@ test("mythify MCP server smoke test", async (t) => {
       HOME: homeDir,
       MYTHIFY_TRIAGE_ENGINE: "command",
       MYTHIFY_TRIAGE_COMMAND: `${process.execPath} ${triageStub}`,
+      MYTHIFY_ROLE_READER_PROVIDER: "host",
+      MYTHIFY_ROLE_REVIEWER_PROVIDER: "surprise-cloud",
     },
   });
   const client = new Client({ name: "mythify-smoke-test", version: "2.4.0" });
@@ -153,6 +155,13 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(parsed.model_policy.fanout_worker.visibility, "summary");
       assert.equal(parsed.model_policy.verifier.engine, "local_command");
       assert.equal(parsed.model_policy.session.recommendation.target_profile, "fast");
+      assert.equal(parsed.model_policy.provider_defaults.fallback_policy, "no_implicit_cross_provider_fallback");
+      assert.equal(parsed.model_policy.provider_defaults.roles.reader.provider, "host");
+      assert.equal(parsed.model_policy.provider_defaults.roles.reader.provider_source, "env:MYTHIFY_ROLE_READER_PROVIDER");
+      assert.equal(parsed.model_policy.provider_defaults.roles.reviewer.provider, "host_cli");
+      assert.equal(parsed.model_policy.provider_defaults.roles.reviewer.status, "invalid_env_ignored");
+      assert.equal(parsed.model_policy.reader.provider, "host");
+      assert.equal(parsed.model_policy.reader.evidence_status, "model_output_not_verification");
 
       const directText = textOf(
         await client.callTool({

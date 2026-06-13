@@ -7,6 +7,9 @@ import {
   HOST_CAPABILITIES,
   HOST_MODEL_DEFAULTS,
   HOST_PLATFORMS,
+  ROLE_PROVIDER_ALLOWED,
+  ROLE_PROVIDER_DEFAULTS,
+  ROLE_PROVIDER_ENV_NAMES,
   TRIAGE_ENGINES,
   getHostCapability,
   listAdapterCandidates,
@@ -45,6 +48,23 @@ test("current host model defaults stay stable", () => {
   assert.equal(HOST_MODEL_DEFAULTS["codex-cli"].strong, "gpt-5.5");
   assert.equal(HOST_MODEL_DEFAULTS["claude-desktop"].standard, "sonnet");
   assert.equal(HOST_MODEL_DEFAULTS["cursor-agent"].fast, "gpt-5.3-codex-low-fast");
+});
+
+test("role provider defaults stay explicit", () => {
+  assert.deepEqual(ROLE_PROVIDER_DEFAULTS, {
+    session: "host",
+    triage: "host_cli",
+    reader: "local_openai_compatible",
+    fanout_worker: "host_cli",
+    reviewer: "host_cli",
+    verifier: "local_command",
+  });
+  assert.deepEqual(ROLE_PROVIDER_ALLOWED.triage, [
+    "host_cli",
+    "local_openai_compatible",
+    "command",
+  ]);
+  assert.equal(ROLE_PROVIDER_ENV_NAMES.fanout_worker, "MYTHIFY_ROLE_WORKER_PROVIDER");
 });
 
 test("researched future adapters are candidates, not public host platforms", () => {

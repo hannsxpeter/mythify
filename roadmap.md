@@ -21,25 +21,25 @@ Status markers:
 
 ### In Progress
 
-- [>] Add per-role provider defaults
-  - Current goal: make role assignment explicit before provider routing grows.
-  - Next step: map current session, triage, reader, worker, reviewer, and
-    verifier defaults across CLI and MCP policy outputs.
-  - Guardrail: defaults guide selection only; no surprise cross-provider
-    fallback and no hidden model upgrades.
+- [>] Add stronger reviewer opt-in flow
+  - Current goal: require explicit permission before stronger reviewer models
+    can exceed the initiating session model.
+  - Next step: map current reviewer spawn policy, spawn ceiling behavior, and
+    fanout model validation paths.
+  - Guardrail: stronger reviewer paths must be opt-in, visible, and verified
+    without weakening same-or-lower worker defaults.
 
 ### Next To Do
 
-1. [ ] Add stronger reviewer opt-in flow.
-   - Require explicit permission before spawning stronger reviewer models.
-2. [ ] Ollama setup profile.
+1. [ ] Ollama setup profile.
    - Start local model onboarding with the most common developer path.
-3. [ ] LM Studio setup profile.
+2. [ ] LM Studio setup profile.
    - Follow Ollama with an OpenAI-compatible local desktop path.
+3. [ ] llama.cpp profile for GGUF power users.
+   - Keep an explicit path for users who already manage GGUF models.
 
 ### Later
 
-- [ ] llama.cpp profile for GGUF power users.
 - [ ] vLLM profile for workstation, server, and team-local inference.
 - [ ] API provider adapter path with cost and timeout metadata.
 - [ ] Role defaults per provider.
@@ -97,6 +97,8 @@ Status markers:
   reflection logs, with raw archives under `.mythify/logs/archive/`.
 - [x] 2026-06-13: generate adapter candidate docs from the capability registry,
   protected by Node and CI drift checks.
+- [x] 2026-06-13: add advisory per-role provider defaults to CLI and MCP
+  `model_policy`, including reader role metadata and no implicit fallback.
 
 ## Track Backlogs
 
@@ -142,13 +144,13 @@ Roles:
 
 Open:
 
-- [>] Per-role provider defaults.
 - [ ] Provider-neutral role assignment.
 - [ ] Stronger reviewer opt-in flow.
 - [ ] Cost and timeout controls per role.
 
 Done:
 
+- [x] Per-role provider defaults are explicit in CLI and MCP `model_policy`.
 - [x] Platform-aware model policy.
 - [x] Task-based host model recommendations.
 - [x] Same-or-lower default worker spawning.

@@ -347,6 +347,58 @@ class TestClassification(CliTestCase):
         self.assertEqual(policy["fanout_worker"]["speed"], "fast")
         self.assertEqual(policy["fanout_worker"]["speed_policy"], "explicit")
 
+    def test_classify_includes_per_role_provider_defaults(self):
+        result = self.run_cli(
+            "classify",
+            "summarize this codebase",
+            "--json",
+            "--platform",
+            "codex-desktop",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        policy = payload["model_policy"]
+        providers = policy["provider_defaults"]["roles"]
+        self.assertEqual(
+            policy["provider_defaults"]["fallback_policy"],
+            "no_implicit_cross_provider_fallback",
+        )
+        self.assertEqual(providers["session"]["provider"], "host")
+        self.assertEqual(providers["triage"]["provider"], "host_cli")
+        self.assertEqual(providers["reader"]["provider"], "local_openai_compatible")
+        self.assertEqual(providers["fanout_worker"]["provider"], "host_cli")
+        self.assertEqual(providers["reviewer"]["provider"], "host_cli")
+        self.assertEqual(providers["verifier"]["provider"], "local_command")
+        self.assertEqual(policy["reader"]["provider"], "local_openai_compatible")
+        self.assertFalse(policy["reader"]["writes_state"])
+        self.assertEqual(
+            policy["reader"]["evidence_status"],
+            "model_output_not_verification",
+        )
+
+    def test_classify_role_provider_env_override_and_invalid_guard(self):
+        result = self.run_cli(
+            "classify",
+            "make this better",
+            "--json",
+            env_extra={
+                "MYTHIFY_ROLE_TRIAGE_PROVIDER": "local_openai_compatible",
+                "MYTHIFY_ROLE_REVIEWER_PROVIDER": "surprise-cloud",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        providers = payload["model_policy"]["provider_defaults"]["roles"]
+        self.assertEqual(providers["triage"]["provider"], "local_openai_compatible")
+        self.assertEqual(
+            providers["triage"]["provider_source"],
+            "env:MYTHIFY_ROLE_TRIAGE_PROVIDER",
+        )
+        self.assertEqual(providers["triage"]["status"], "selected")
+        self.assertEqual(providers["reviewer"]["provider"], "host_cli")
+        self.assertEqual(providers["reviewer"]["requested_provider"], "surprise-cloud")
+        self.assertEqual(providers["reviewer"]["status"], "invalid_env_ignored")
+
     def test_host_model_switch_feeds_classify_session_model(self):
         state = self.init_workspace()
         switched = self.run_cli(

@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated `docs/adapter-candidates.md`, built from the capability registry
   by `node scripts/build_registry_docs.mjs` and protected by Node and CI drift
   checks.
+- Per-role provider defaults in CLI and MCP `model_policy`, covering session,
+  triage, reader, fanout worker, reviewer, and verifier roles with explicit
+  no-implicit-fallback metadata.
 
 ## [2.5.0] - 2026-06-12
 

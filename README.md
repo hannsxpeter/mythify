@@ -321,6 +321,10 @@ reflection, and summary.
 Classification also returns a `model_policy` object so Desktop clients do not
 have to guess which model setting applies where:
 
+- `provider_defaults`: advisory provider defaults for session, triage, reader,
+  fanout worker, reviewer, and verifier roles. These fields do not route work
+  by themselves. They make the default provider posture explicit and use
+  `fallback_policy: "no_implicit_cross_provider_fallback"`.
 - `session`: the active conversation model is host-selected. Codex Desktop,
   Claude Desktop, Cursor Desktop, and CLI hosts own that dropdown or command
   flag. `host_model_switch` and `host-model switch` can record the intended
@@ -330,6 +334,9 @@ have to guess which model setting applies where:
   downgrade, upgrade, or set the host model.
 - `triage`: the optional fast problem-framing worker, including spawned engine,
   spawned model policy, effort, timeout, and sandbox.
+- `reader`: optional read-only model role for inspecting supplied material.
+  It defaults to the localhost OpenAI-compatible provider path and returns
+  material, not verification evidence.
 - `fanout_worker`: the default policy for independent spawned workers.
   Includes the recommended chat visibility mode, defaulting to `summary`
   unless the prompt asks for quiet, verbose, or threaded reporting.
@@ -360,6 +367,12 @@ recorded `.mythify/host-model.json` target from `host_model_switch` or
 `--spawn-ceiling` or `MYTHIFY_SPAWN_CEILING`. The default ceiling is
 `same_or_lower`: spawned workers should be equivalent to or lower than the
 session model. `allow_stronger` is explicit opt-in for reviewers or arbiters.
+
+Provider defaults can be made explicit with environment variables:
+`MYTHIFY_ROLE_SESSION_PROVIDER`, `MYTHIFY_ROLE_TRIAGE_PROVIDER`,
+`MYTHIFY_ROLE_READER_PROVIDER`, `MYTHIFY_ROLE_WORKER_PROVIDER`,
+`MYTHIFY_ROLE_REVIEWER_PROVIDER`, and `MYTHIFY_ROLE_VERIFIER_PROVIDER`.
+Invalid values are ignored and reported in `model_policy.provider_defaults`.
 
 Fast triage engines are local-first and do not require API keys:
 
@@ -524,6 +537,12 @@ Platform mapping:
 | `MYTHIFY_HOST_FAST_MODEL` | platform default | Host recommendation model for direct, trivial, or focused low-risk prompts. |
 | `MYTHIFY_HOST_STANDARD_MODEL` | platform default | Host recommendation model for balanced implementation, debugging, review, and docs prompts. |
 | `MYTHIFY_HOST_STRONG_MODEL` | platform default | Host recommendation model for research, benchmarks, design, release, migration, and security prompts. |
+| `MYTHIFY_ROLE_SESSION_PROVIDER` | `host` | Advisory provider default for the session role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_TRIAGE_PROVIDER` | `host_cli` | Advisory provider default for the triage role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_READER_PROVIDER` | `local_openai_compatible` | Advisory provider default for the reader role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_WORKER_PROVIDER` | `host_cli` | Advisory provider default for the fanout worker role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_REVIEWER_PROVIDER` | `host_cli` | Advisory provider default for the reviewer role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_VERIFIER_PROVIDER` | `local_command` | Advisory provider default for the verifier role. Invalid values are ignored. |
 | `MYTHIFY_FANOUT_EFFORT` | model-derived | Default worker effort: `auto`, `low`, `medium`, or `high`. |
 | `MYTHIFY_FANOUT_SPEED` | auto | Default worker speed: `auto`, `standard`, or `fast`. Auto preserves platform defaults; fast enables Codex fast mode where supported. |
 | `MYTHIFY_FANOUT_VISIBILITY` | auto | Worker visibility mode: `auto`, `quiet`, `summary`, `verbose`, or `threaded`. Auto infers from `purpose` and task prompts, then defaults to summary. |

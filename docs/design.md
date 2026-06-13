@@ -515,6 +515,12 @@ Classification is two-stage:
 
 Classification always returns `model_policy`. It separates:
 
+- `provider_defaults`: advisory provider defaults for each role. These are
+  policy metadata only and do not route work by themselves. Precedence is
+  future explicit role input, `MYTHIFY_ROLE_<ROLE>_PROVIDER`, then built-in
+  defaults. Invalid env values are ignored with `status:
+  "invalid_env_ignored"`. Every role uses `fallback_policy:
+  "no_implicit_cross_provider_fallback"`.
 - `session`: host-selected current conversation model, model source, rough
   tier, effort policy, spawn ceiling, and `recommendation`.
   `host_model_switch` records intended host model changes in
@@ -526,14 +532,28 @@ Classification always returns `model_policy`. It separates:
   of `keep`, `downgrade`, `upgrade`, or `recommend_set`.
 - `spawn_ceiling`: policy object with `policy`, `source`, `session_model`,
   `session_model_source`, `session_model_tier`, default, and opt-in rule.
+- `reader`: optional read-only model role for inspecting supplied material.
+  It defaults to the localhost OpenAI-compatible provider path and returns
+  material, not verification evidence.
 - `triage`: spawned problem-framing worker, engine, spawned model policy,
-  model tier, relation to the session model, effort, timeout, max turns, and
-  sandbox.
+  model tier, relation to the session model, provider default, effort,
+  timeout, max turns, and sandbox.
 - `fanout_worker`: default policy for independent fanout tasks, including
   chat visibility (`quiet`, `summary`, `verbose`, or `threaded`).
 - `reviewer`: whether a separate reviewer worker is useful and its effort.
 - `verifier`: command-first verification policy, no model when an executable
   check exists.
+
+Built-in role provider defaults:
+
+| Role | Default provider | Allowed provider values |
+| :--- | :--- | :--- |
+| `session` | `host` | `host` |
+| `triage` | `host_cli` | `host_cli`, `local_openai_compatible`, `command` |
+| `reader` | `local_openai_compatible` | `local_openai_compatible`, `host` |
+| `fanout_worker` | `host_cli` | `host_cli`, `api_provider`, `command` |
+| `reviewer` | `host_cli` | `host_cli`, `api_provider`, `command` |
+| `verifier` | `local_command` | `local_command` |
 
 `--platform` and MCP `platform` may be `auto`, `unknown`, `codex-desktop`,
 `codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, or
@@ -1019,6 +1039,12 @@ job.json (atomic writes on every transition):
 | `MYTHIFY_HOST_FAST_MODEL` | platform default | Host recommendation model for direct, trivial, or focused low-risk prompts. |
 | `MYTHIFY_HOST_STANDARD_MODEL` | platform default | Host recommendation model for balanced implementation, debugging, review, and docs prompts. |
 | `MYTHIFY_HOST_STRONG_MODEL` | platform default | Host recommendation model for research, benchmarks, design, release, migration, and security prompts. |
+| `MYTHIFY_ROLE_SESSION_PROVIDER` | `host` | Advisory provider default for the session role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_TRIAGE_PROVIDER` | `host_cli` | Advisory provider default for the triage role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_READER_PROVIDER` | `local_openai_compatible` | Advisory provider default for the reader role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_WORKER_PROVIDER` | `host_cli` | Advisory provider default for the fanout worker role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_REVIEWER_PROVIDER` | `host_cli` | Advisory provider default for the reviewer role. Invalid values are ignored. |
+| `MYTHIFY_ROLE_VERIFIER_PROVIDER` | `local_command` | Advisory provider default for the verifier role. Invalid values are ignored. |
 | `MYTHIFY_FANOUT_EFFORT` | model-derived | Default worker effort: `auto`, `low`, `medium`, or `high`. |
 | `MYTHIFY_FANOUT_SPEED` | auto | Default worker speed: `auto`, `standard`, or `fast`. Auto preserves platform defaults; fast enables Codex fast mode where supported. |
 | `MYTHIFY_FANOUT_VISIBILITY` | auto | Worker visibility mode: `auto`, `quiet`, `summary`, `verbose`, or `threaded`. Auto infers from `purpose` and task prompts, then defaults to summary. |

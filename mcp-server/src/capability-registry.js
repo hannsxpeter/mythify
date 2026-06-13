@@ -67,6 +67,35 @@ export const HOST_MODEL_DEFAULTS = {
   },
 };
 
+export const ROLE_PROVIDER_DEFAULTS = {
+  session: "host",
+  triage: "host_cli",
+  reader: "local_openai_compatible",
+  fanout_worker: "host_cli",
+  reviewer: "host_cli",
+  verifier: "local_command",
+};
+
+export const ROLE_PROVIDER_ALLOWED = {
+  session: ["host"],
+  triage: ["host_cli", "local_openai_compatible", "command"],
+  reader: ["local_openai_compatible", "host"],
+  fanout_worker: ["host_cli", "api_provider", "command"],
+  reviewer: ["host_cli", "api_provider", "command"],
+  verifier: ["local_command"],
+};
+
+export const ROLE_PROVIDER_ENV_NAMES = {
+  session: "MYTHIFY_ROLE_SESSION_PROVIDER",
+  triage: "MYTHIFY_ROLE_TRIAGE_PROVIDER",
+  reader: "MYTHIFY_ROLE_READER_PROVIDER",
+  fanout_worker: "MYTHIFY_ROLE_WORKER_PROVIDER",
+  reviewer: "MYTHIFY_ROLE_REVIEWER_PROVIDER",
+  verifier: "MYTHIFY_ROLE_VERIFIER_PROVIDER",
+};
+
+export const ROLE_PROVIDER_FALLBACK_POLICY = "no_implicit_cross_provider_fallback";
+
 export const STRONG_HOST_TASK_TYPES = [
   "research",
   "benchmark",

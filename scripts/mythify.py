@@ -139,6 +139,39 @@ HOST_MODEL_DEFAULTS = {
         "strong": "gpt-5.3-codex-high",
     },
 }
+ROLE_PROVIDER_ORDER = (
+    "session",
+    "triage",
+    "reader",
+    "fanout_worker",
+    "reviewer",
+    "verifier",
+)
+ROLE_PROVIDER_ENV_NAMES = {
+    "session": "MYTHIFY_ROLE_SESSION_PROVIDER",
+    "triage": "MYTHIFY_ROLE_TRIAGE_PROVIDER",
+    "reader": "MYTHIFY_ROLE_READER_PROVIDER",
+    "fanout_worker": "MYTHIFY_ROLE_WORKER_PROVIDER",
+    "reviewer": "MYTHIFY_ROLE_REVIEWER_PROVIDER",
+    "verifier": "MYTHIFY_ROLE_VERIFIER_PROVIDER",
+}
+ROLE_PROVIDER_DEFAULTS = {
+    "session": "host",
+    "triage": "host_cli",
+    "reader": "local_openai_compatible",
+    "fanout_worker": "host_cli",
+    "reviewer": "host_cli",
+    "verifier": "local_command",
+}
+ROLE_PROVIDER_ALLOWED = {
+    "session": ("host",),
+    "triage": ("host_cli", "local_openai_compatible", "command"),
+    "reader": ("local_openai_compatible", "host"),
+    "fanout_worker": ("host_cli", "api_provider", "command"),
+    "reviewer": ("host_cli", "api_provider", "command"),
+    "verifier": ("local_command",),
+}
+ROLE_PROVIDER_FALLBACK_POLICY = "no_implicit_cross_provider_fallback"
 NO_HOST_CAPABILITY = {
     "kind": "host",
     "status": "unsupported",
@@ -1409,6 +1442,18 @@ def format_classification(result):
     policy = result.get("model_policy")
     if policy:
         recommendation = policy.get("session", {}).get("recommendation", {})
+        roles = policy.get("provider_defaults", {}).get("roles", {})
+        if roles:
+            lines.append(
+                "providers: session={0}; triage={1}; reader={2}; worker={3}; reviewer={4}; verifier={5}".format(
+                    roles.get("session", {}).get("provider", "host"),
+                    roles.get("triage", {}).get("provider", "host_cli"),
+                    roles.get("reader", {}).get("provider", "local_openai_compatible"),
+                    roles.get("fanout_worker", {}).get("provider", "host_cli"),
+                    roles.get("reviewer", {}).get("provider", "host_cli"),
+                    roles.get("verifier", {}).get("provider", "local_command"),
+                )
+            )
         lines.append(
             "model policy: session={0}/{1}; ceiling={2}; triage={3}/{4}/{5}/{6}; fanout={7}/{8}/{9}/{10}; verifier={11}".format(
                 policy.get("session", {}).get("control", "host_selected"),
@@ -1854,6 +1899,56 @@ def host_prompt_recommendation(classification, platform, session_model, session_
     }
 
 
+def resolve_role_provider(role):
+    default_provider = ROLE_PROVIDER_DEFAULTS[role]
+    allowed = ROLE_PROVIDER_ALLOWED[role]
+    env_name = ROLE_PROVIDER_ENV_NAMES[role]
+    requested = os.environ.get(env_name, "").strip()
+    status = "selected"
+    provider = default_provider
+    source = "built_in"
+    if requested:
+        if requested in allowed:
+            provider = requested
+            source = "env:" + env_name
+        else:
+            status = "invalid_env_ignored"
+    return {
+        "role": role,
+        "provider": provider,
+        "provider_source": source,
+        "default_provider": default_provider,
+        "allowed_providers": list(allowed),
+        "requested_provider": requested or None,
+        "status": status,
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "selection": "advisory_metadata_only",
+    }
+
+
+def build_provider_defaults():
+    return {
+        "version": 1,
+        "precedence": ["future_explicit_role_input", "env", "built_in"],
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "roles": {
+            role: resolve_role_provider(role)
+            for role in ROLE_PROVIDER_ORDER
+        },
+    }
+
+
+def role_provider_fields(provider_defaults, role):
+    provider = provider_defaults["roles"][role]
+    return {
+        "provider": provider["provider"],
+        "provider_source": provider["provider_source"],
+        "provider_default": provider["default_provider"],
+        "provider_status": provider["status"],
+        "provider_fallback_policy": provider["fallback_policy"],
+    }
+
+
 def build_model_policy(classification, args):
     platform = normalize_platform(getattr(args, "platform", "auto"))
     requested_effort = getattr(args, "effort", "auto")
@@ -1896,11 +1991,14 @@ def build_model_policy(classification, args):
     host_recommendation = host_prompt_recommendation(
         classification, platform, session_model, session_tier
     )
+    provider_defaults = build_provider_defaults()
     return {
+        "provider_defaults": provider_defaults,
         "session": {
             "role": "current_conversation",
             "control": "host_selected",
             "platform": platform,
+            **role_provider_fields(provider_defaults, "session"),
             "model": session_model,
             "model_source": session_model_source,
             "model_tier": session_tier,
@@ -1927,6 +2025,7 @@ def build_model_policy(classification, args):
         "triage": {
             "role": "problem_framing",
             "spawn": classification.get("model_triage", "skip"),
+            **role_provider_fields(provider_defaults, "triage"),
             "engine": triage_engine or "auto",
             "engine_policy": triage_engine_source,
             "model": triage_model,
@@ -1944,9 +2043,27 @@ def build_model_policy(classification, args):
             "sandbox": "read-only",
             "reason": "Use a cheap local CLI or command pass to frame the problem before planning.",
         },
+        "reader": {
+            "role": "read_only_material_inspection",
+            "spawn": "optional",
+            **role_provider_fields(provider_defaults, "reader"),
+            "model_policy": "local_openai_compatible_when_configured",
+            "model_relation_to_session": "lower_preferred",
+            "effort": "low",
+            "effort_policy": "role_default",
+            "speed": "auto",
+            "speed_policy": "provider_default",
+            "writes_state": False,
+            "evidence_status": "model_output_not_verification",
+            "reason": (
+                "Reader output is material for the orchestrator, not "
+                "verification evidence."
+            ),
+        },
         "fanout_worker": {
             "role": "independent_subtask",
             "spawn": classification.get("fanout", "not_recommended"),
+            **role_provider_fields(provider_defaults, "fanout_worker"),
             "engine": "auto",
             "engine_policy": "local_first",
             "model_policy": "per_task_over_job_over_env_over_engine_default",
@@ -1975,6 +2092,7 @@ def build_model_policy(classification, args):
         "reviewer": {
             "role": "independent_review",
             "spawn": reviewer_spawn_policy(classification),
+            **role_provider_fields(provider_defaults, "reviewer"),
             "engine": "auto",
             "engine_policy": "local_first",
             "model_policy": "prefer_stronger_than_worker_when_available",
@@ -1990,6 +2108,7 @@ def build_model_policy(classification, args):
         "verifier": {
             "role": "evidence",
             "spawn": "not_model_based",
+            **role_provider_fields(provider_defaults, "verifier"),
             "engine": "local_command",
             "model_policy": "none_when_executable_check_exists",
             "model_relation_to_session": role_model_relation(

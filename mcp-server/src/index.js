@@ -25,6 +25,10 @@ import {
   HOST_PROFILE_RANK,
   HOST_THINKING_LEVELS,
   MODEL_TIER_RANK,
+  ROLE_PROVIDER_ALLOWED,
+  ROLE_PROVIDER_DEFAULTS,
+  ROLE_PROVIDER_ENV_NAMES,
+  ROLE_PROVIDER_FALLBACK_POLICY,
   SPAWN_CEILINGS,
   SPEED_LEVELS,
   STRONG_HOST_TASK_TYPES,
@@ -1248,6 +1252,17 @@ function formatClassification(result) {
   const policy = result.model_policy;
   if (policy) {
     const recommendation = policy.session?.recommendation || {};
+    const roles = policy.provider_defaults?.roles || {};
+    if (Object.keys(roles).length > 0) {
+      lines.push(
+        `providers: session=${roles.session?.provider || "host"}; ` +
+        `triage=${roles.triage?.provider || "host_cli"}; ` +
+        `reader=${roles.reader?.provider || "local_openai_compatible"}; ` +
+        `worker=${roles.fanout_worker?.provider || "host_cli"}; ` +
+        `reviewer=${roles.reviewer?.provider || "host_cli"}; ` +
+        `verifier=${roles.verifier?.provider || "local_command"}`
+      );
+    }
     lines.push(
       `model policy: session=${policy.session?.control || "host_selected"}/${policy.session?.model_tier || "unknown"}; ` +
       `ceiling=${policy.spawn_ceiling?.policy || "same_or_lower"}; ` +
@@ -1794,6 +1809,68 @@ function hostPromptRecommendation(classification, platform, sessionModel, sessio
   };
 }
 
+const ROLE_PROVIDER_ORDER = [
+  "session",
+  "triage",
+  "reader",
+  "fanout_worker",
+  "reviewer",
+  "verifier",
+];
+
+function resolveRoleProvider(role) {
+  const defaultProvider = ROLE_PROVIDER_DEFAULTS[role];
+  const allowed = ROLE_PROVIDER_ALLOWED[role] || [];
+  const envName = ROLE_PROVIDER_ENV_NAMES[role];
+  const requested = (process.env[envName] || "").trim();
+  let provider = defaultProvider;
+  let source = "built_in";
+  let status = "selected";
+  if (requested !== "") {
+    if (allowed.includes(requested)) {
+      provider = requested;
+      source = `env:${envName}`;
+    } else {
+      status = "invalid_env_ignored";
+    }
+  }
+  return {
+    role,
+    provider,
+    provider_source: source,
+    default_provider: defaultProvider,
+    allowed_providers: allowed,
+    requested_provider: requested || null,
+    status,
+    fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    selection: "advisory_metadata_only",
+  };
+}
+
+function buildProviderDefaults() {
+  const roles = {};
+  for (const role of ROLE_PROVIDER_ORDER) {
+    roles[role] = resolveRoleProvider(role);
+  }
+  return {
+    version: 1,
+    precedence: ["future_explicit_role_input", "env", "built_in"],
+    fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    roles,
+  };
+}
+
+function roleProviderFields(providerDefaults, role) {
+  const provider = providerDefaults.roles[role];
+  return {
+    provider: provider.provider,
+    provider_source: provider.provider_source,
+    provider_default: provider.default_provider,
+    provider_status: provider.status,
+    provider_fallback_policy: provider.fallback_policy,
+  };
+}
+
 function buildModelPolicy(classification, options) {
   const platform = normalizePlatform(options.platform || "auto");
   const requestedEffort = options.effort || "auto";
@@ -1825,11 +1902,14 @@ function buildModelPolicy(classification, options) {
     sessionModel.model,
     sessionTier
   );
+  const providerDefaults = buildProviderDefaults();
   return {
+    provider_defaults: providerDefaults,
     session: {
       role: "current_conversation",
       control: "host_selected",
       platform,
+      ...roleProviderFields(providerDefaults, "session"),
       model: sessionModel.model,
       model_source: sessionModel.source,
       model_tier: sessionTier,
@@ -1854,6 +1934,7 @@ function buildModelPolicy(classification, options) {
     triage: {
       role: "problem_framing",
       spawn: classification.model_triage || "skip",
+      ...roleProviderFields(providerDefaults, "triage"),
       engine: triageEngine || "auto",
       engine_policy: triageEnginePolicy,
       model: triageModel,
@@ -1869,9 +1950,24 @@ function buildModelPolicy(classification, options) {
       sandbox: "read-only",
       reason: "Use a cheap local CLI or command pass to frame the problem before planning.",
     },
+    reader: {
+      role: "read_only_material_inspection",
+      spawn: "optional",
+      ...roleProviderFields(providerDefaults, "reader"),
+      model_policy: "local_openai_compatible_when_configured",
+      model_relation_to_session: "lower_preferred",
+      effort: "low",
+      effort_policy: "role_default",
+      speed: "auto",
+      speed_policy: "provider_default",
+      writes_state: false,
+      evidence_status: "model_output_not_verification",
+      reason: "Reader output is material for the orchestrator, not verification evidence.",
+    },
     fanout_worker: {
       role: "independent_subtask",
       spawn: classification.fanout || "not_recommended",
+      ...roleProviderFields(providerDefaults, "fanout_worker"),
       engine: "auto",
       engine_policy: "local_first",
       model_policy: "per_task_over_job_over_env_over_engine_default",
@@ -1896,6 +1992,7 @@ function buildModelPolicy(classification, options) {
     reviewer: {
       role: "independent_review",
       spawn: reviewerSpawnPolicy(classification),
+      ...roleProviderFields(providerDefaults, "reviewer"),
       engine: "auto",
       engine_policy: "local_first",
       model_policy: "prefer_stronger_than_worker_when_available",
@@ -1909,6 +2006,7 @@ function buildModelPolicy(classification, options) {
     verifier: {
       role: "evidence",
       spawn: "not_model_based",
+      ...roleProviderFields(providerDefaults, "verifier"),
       engine: "local_command",
       model_policy: "none_when_executable_check_exists",
       model_relation_to_session: roleModelRelation("verifier", sessionTier, spawnCeiling.ceiling),
