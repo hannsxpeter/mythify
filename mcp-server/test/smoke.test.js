@@ -156,6 +156,24 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(parsed.model_policy.verifier.engine, "local_command");
       assert.equal(parsed.model_policy.session.recommendation.target_profile, "fast");
       assert.equal(parsed.model_policy.provider_defaults.fallback_policy, "no_implicit_cross_provider_fallback");
+      assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.status, "metadata_supported");
+      assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.execution_enabled, false);
+      assert.equal(
+        parsed.model_policy.provider_defaults.api_provider_contract.billing_policy,
+        "explicit_provider_required"
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.api_provider_contract.providers["openai-api"].api_key_env,
+        "OPENAI_API_KEY"
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.api_provider_contract.providers["anthropic-api"].auth_header,
+        "x-api-key"
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.api_provider_contract.providers["openai-compatible-hosted"].base_url_env,
+        "MYTHIFY_HOSTED_OPENAI_COMPAT_BASE_URL"
+      );
       assert.equal(parsed.model_policy.provider_defaults.roles.reader.provider, "host");
       assert.equal(parsed.model_policy.provider_defaults.roles.reader.provider_source, "env:MYTHIFY_ROLE_READER_PROVIDER");
       assert.equal(parsed.model_policy.provider_defaults.roles.reviewer.provider, "host_cli");

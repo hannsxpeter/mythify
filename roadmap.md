@@ -21,25 +21,23 @@ Status markers:
 
 ### In Progress
 
-- [>] API provider adapter path with cost and timeout metadata.
-  - Current goal: design the hosted provider path after local OpenAI-compatible
-    profiles have proven the adapter shape.
-  - Next step: define OpenAI, Anthropic, OpenAI-compatible hosted provider,
-    cost, timeout, and audit metadata contracts.
-  - Guardrail: hosted provider work must be explicit, bounded, auditable, and
-    must not create surprise cross-provider fallback or hidden billing.
+- [>] Role defaults per provider.
+  - Current goal: make provider selection explicit per role before hosted API
+    execution exists.
+  - Next step: map role defaults against host CLI, local OpenAI-compatible,
+    API provider, and command providers.
+  - Guardrail: role defaults remain advisory metadata and must not create
+    hidden provider fallback or hidden billing.
 
 ### Next To Do
 
-1. [ ] Role defaults per provider.
-   - Make provider selection explicit before widening hosted execution.
-2. [ ] Antigravity worker adapter after local `agy -p`, model controls,
+1. [ ] Antigravity worker adapter after local `agy -p`, model controls,
    workspace trust, and permissions are verified.
-3. [ ] Kimi Work desktop lane after CLI adapters are stable.
+2. [ ] Kimi Work desktop lane after CLI adapters are stable.
+3. [ ] OpenCode Desktop lane after CLI and server adapters prove useful.
 
 ### Later
 
-- [ ] OpenCode Desktop lane after CLI and server adapters prove useful.
 - [ ] Colab remote execution adapter after explicit billing, data movement, and
   cleanup posture are designed.
 - [ ] Workflow dashboard or phase view that reveals evidence without decorating
@@ -106,6 +104,9 @@ Status markers:
 - [x] 2026-06-13: add vLLM local setup profile for `provider_probe` and
   `local_model_run`, defaulting to `http://localhost:8000/v1` with
   material-only output.
+- [x] 2026-06-13: add hosted API provider metadata for OpenAI, Anthropic, and
+  hosted OpenAI-compatible endpoints, including cost fields, timeout defaults,
+  explicit billing posture, and no hidden provider fallback.
 
 ## Track Backlogs
 
@@ -151,11 +152,12 @@ Roles:
 
 Open:
 
-- [ ] Provider-neutral role assignment.
 - [ ] Cost and timeout controls per role.
 
 Done:
 
+- [x] API provider metadata is exposed through `model_policy` before hosted
+  provider execution exists.
 - [x] Stronger reviewer opt-in flow requires explicit classifier or fanout
   policy before review tasks can exceed the initiating session model.
 - [x] Per-role provider defaults are explicit in CLI and MCP `model_policy`.
@@ -222,15 +224,19 @@ API users need reliable orchestration, cost control, and auditability.
 
 Open:
 
-- [ ] OpenAI adapter path.
-- [ ] Anthropic adapter path.
-- [ ] OpenAI-compatible hosted provider path.
 - [ ] Custom command or HTTP adapter path.
 - [ ] Clear audit logs for spawned provider work.
-- [ ] No-surprise cross-provider fallback policy.
+- [ ] Hosted execution for OpenAI, Anthropic, and OpenAI-compatible APIs.
 
 Done:
 
+- [x] OpenAI, Anthropic, and hosted OpenAI-compatible provider metadata includes
+  auth env names, billing posture, timeout defaults, cost metadata fields, and
+  pricing references.
+- [x] API provider metadata keeps execution disabled until a later explicit
+  hosted execution slice.
+- [x] No-surprise cross-provider fallback policy is recorded in API provider
+  metadata.
 - [x] Generic OpenAI-compatible probe shape exists.
 
 ### Host Adapter Candidates
@@ -382,8 +388,8 @@ Preserve:
 
 ### v2.8
 
-- [ ] API provider adapter path.
-- [ ] Per-role provider defaults.
+- [x] API provider adapter path.
+- [>] Per-role provider defaults.
 - [ ] Cost and timeout metadata in worker records.
 - [x] CLI/MCP interop matrix for shared mutating operations.
 - [x] Kimi Code CLI adapter proof of concept.

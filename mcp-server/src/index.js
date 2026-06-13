@@ -1864,6 +1864,53 @@ function resolveRoleProvider(role) {
   };
 }
 
+function apiProviderContract() {
+  const providers = {};
+  for (const [name, candidate] of Object.entries(ADAPTER_CANDIDATES).sort(([left], [right]) =>
+    left.localeCompare(right)
+  )) {
+    if (candidate.kind !== "api_provider") {
+      continue;
+    }
+    providers[name] = {
+      status: candidate.status,
+      protocol: candidate.protocol || "unknown",
+      openai_compatible: Boolean(candidate.openai_compatible),
+      default_base_url: candidate.default_base_url || "",
+      base_url_env: candidate.base_url_env || "",
+      api_key_env: candidate.api_key_env || "",
+      model_env: candidate.model_env || "",
+      auth_header: candidate.auth_header || "",
+      version_header: candidate.version_header || "",
+      billing: candidate.billing || "unknown",
+      explicit_enable_required: candidate.explicit_enable_required === true,
+      execution_enabled: candidate.can_run_api_worker === true,
+      default_timeout_seconds: candidate.default_timeout_seconds || 600,
+      cost_metadata_supported: candidate.cost_metadata_supported === true,
+      pricing_url: candidate.pricing_url || "",
+      pricing_url_env: candidate.pricing_url_env || "",
+      fallback_policy: candidate.fallback_policy || ROLE_PROVIDER_FALLBACK_POLICY,
+    };
+  }
+  return {
+    version: 1,
+    status: "metadata_supported",
+    execution_enabled: false,
+    billing_policy: "explicit_provider_required",
+    fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    timeout_metadata_fields: ["provider", "timeout_seconds", "timeout_source"],
+    cost_metadata_fields: [
+      "provider",
+      "model",
+      "input_tokens",
+      "cached_input_tokens",
+      "output_tokens",
+      "pricing_url",
+    ],
+    providers,
+  };
+}
+
 function buildProviderDefaults() {
   const roles = {};
   for (const role of ROLE_PROVIDER_ORDER) {
@@ -1873,6 +1920,7 @@ function buildProviderDefaults() {
     version: 1,
     precedence: ["future_explicit_role_input", "env", "built_in"],
     fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    api_provider_contract: apiProviderContract(),
     roles,
   };
 }

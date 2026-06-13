@@ -173,6 +173,78 @@ ROLE_PROVIDER_ALLOWED = {
     "verifier": ("local_command",),
 }
 ROLE_PROVIDER_FALLBACK_POLICY = "no_implicit_cross_provider_fallback"
+API_PROVIDER_COST_METADATA_FIELDS = (
+    "provider",
+    "model",
+    "input_tokens",
+    "cached_input_tokens",
+    "output_tokens",
+    "pricing_url",
+)
+API_PROVIDER_TIMEOUT_METADATA_FIELDS = (
+    "provider",
+    "timeout_seconds",
+    "timeout_source",
+)
+API_PROVIDER_METADATA = {
+    "anthropic-api": {
+        "status": "metadata_supported",
+        "protocol": "anthropic_messages",
+        "openai_compatible": False,
+        "default_base_url": "https://api.anthropic.com/v1",
+        "base_url_env": "",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "model_env": "MYTHIFY_ANTHROPIC_API_MODEL",
+        "auth_header": "x-api-key",
+        "version_header": "anthropic-version:2023-06-01",
+        "billing": "metered_external_account",
+        "explicit_enable_required": True,
+        "execution_enabled": False,
+        "default_timeout_seconds": 600,
+        "cost_metadata_supported": True,
+        "pricing_url": "https://docs.anthropic.com/en/docs/about-claude/pricing",
+        "pricing_url_env": "",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "openai-api": {
+        "status": "metadata_supported",
+        "protocol": "openai_responses_or_chat",
+        "openai_compatible": True,
+        "default_base_url": "https://api.openai.com/v1",
+        "base_url_env": "",
+        "api_key_env": "OPENAI_API_KEY",
+        "model_env": "MYTHIFY_OPENAI_API_MODEL",
+        "auth_header": "authorization_bearer",
+        "version_header": "",
+        "billing": "metered_external_account",
+        "explicit_enable_required": True,
+        "execution_enabled": False,
+        "default_timeout_seconds": 600,
+        "cost_metadata_supported": True,
+        "pricing_url": "https://openai.com/api/pricing/",
+        "pricing_url_env": "",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+    "openai-compatible-hosted": {
+        "status": "metadata_supported",
+        "protocol": "openai_compatible",
+        "openai_compatible": True,
+        "default_base_url": "",
+        "base_url_env": "MYTHIFY_HOSTED_OPENAI_COMPAT_BASE_URL",
+        "api_key_env": "MYTHIFY_HOSTED_OPENAI_COMPAT_API_KEY",
+        "model_env": "MYTHIFY_HOSTED_OPENAI_COMPAT_MODEL",
+        "auth_header": "authorization_bearer",
+        "version_header": "",
+        "billing": "metered_external_account",
+        "explicit_enable_required": True,
+        "execution_enabled": False,
+        "default_timeout_seconds": 600,
+        "cost_metadata_supported": True,
+        "pricing_url": "",
+        "pricing_url_env": "MYTHIFY_HOSTED_OPENAI_COMPAT_PRICING_URL",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+    },
+}
 NO_HOST_CAPABILITY = {
     "kind": "host",
     "status": "unsupported",
@@ -1947,11 +2019,28 @@ def resolve_role_provider(role):
     }
 
 
+def api_provider_contract():
+    return {
+        "version": 1,
+        "status": "metadata_supported",
+        "execution_enabled": False,
+        "billing_policy": "explicit_provider_required",
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "timeout_metadata_fields": list(API_PROVIDER_TIMEOUT_METADATA_FIELDS),
+        "cost_metadata_fields": list(API_PROVIDER_COST_METADATA_FIELDS),
+        "providers": {
+            name: dict(API_PROVIDER_METADATA[name])
+            for name in sorted(API_PROVIDER_METADATA)
+        },
+    }
+
+
 def build_provider_defaults():
     return {
         "version": 1,
         "precedence": ["future_explicit_role_input", "env", "built_in"],
         "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "api_provider_contract": api_provider_contract(),
         "roles": {
             role: resolve_role_provider(role)
             for role in ROLE_PROVIDER_ORDER

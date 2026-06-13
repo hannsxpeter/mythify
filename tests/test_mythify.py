@@ -363,6 +363,26 @@ class TestClassification(CliTestCase):
             policy["provider_defaults"]["fallback_policy"],
             "no_implicit_cross_provider_fallback",
         )
+        api_contract = policy["provider_defaults"]["api_provider_contract"]
+        self.assertEqual(api_contract["status"], "metadata_supported")
+        self.assertFalse(api_contract["execution_enabled"])
+        self.assertEqual(
+            api_contract["billing_policy"],
+            "explicit_provider_required",
+        )
+        self.assertIn("pricing_url", api_contract["cost_metadata_fields"])
+        self.assertEqual(
+            api_contract["providers"]["openai-api"]["api_key_env"],
+            "OPENAI_API_KEY",
+        )
+        self.assertEqual(
+            api_contract["providers"]["anthropic-api"]["auth_header"],
+            "x-api-key",
+        )
+        self.assertEqual(
+            api_contract["providers"]["openai-compatible-hosted"]["base_url_env"],
+            "MYTHIFY_HOSTED_OPENAI_COMPAT_BASE_URL",
+        )
         self.assertEqual(providers["session"]["provider"], "host")
         self.assertEqual(providers["triage"]["provider"], "host_cli")
         self.assertEqual(providers["reader"]["provider"], "local_openai_compatible")

@@ -73,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `provider: "vllm"`, default to `http://localhost:8000/v1`, use
   `MYTHIFY_VLLM_MODEL`, send no auth header by default, and keep output marked
   as material rather than verification evidence.
+- API provider adapter metadata path. CLI and MCP `model_policy` now expose
+  hosted provider metadata for OpenAI, Anthropic, and hosted
+  OpenAI-compatible endpoints, including auth env names, timeout defaults, cost
+  metadata fields, pricing references, explicit billing posture, and
+  `execution_enabled: false`.
 
 ## [2.5.0] - 2026-06-12
 

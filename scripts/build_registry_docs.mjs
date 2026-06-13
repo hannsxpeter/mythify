@@ -25,9 +25,17 @@ function escapeCell(value) {
 
 function runPath(candidate) {
   const parts = [];
+  if (candidate.metadata_only) {
+    parts.push("metadata only");
+  }
   if (candidate.can_run_local_roles) {
     const roles = Array.isArray(candidate.local_roles) ? candidate.local_roles.join(", ") : "configured";
     parts.push("local roles: " + roles);
+  }
+  if (candidate.can_run_api_worker === true) {
+    parts.push("API worker");
+  } else if (candidate.can_run_api_worker === false) {
+    parts.push("no API worker");
   }
   if (candidate.can_run_bounded_worker) {
     parts.push("bounded worker");
@@ -56,6 +64,9 @@ function runPath(candidate) {
 }
 
 function evidenceStatus(candidate) {
+  if (candidate.metadata_only) {
+    return "metadata only, not evidence";
+  }
   if (candidate.output_is_evidence === false || candidate.worker_output_is_evidence === false) {
     return "material, not evidence";
   }

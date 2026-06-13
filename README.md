@@ -325,6 +325,11 @@ have to guess which model setting applies where:
   fanout worker, reviewer, and verifier roles. These fields do not route work
   by themselves. They make the default provider posture explicit and use
   `fallback_policy: "no_implicit_cross_provider_fallback"`.
+  `provider_defaults.api_provider_contract` lists metadata-supported hosted
+  API providers, currently OpenAI, Anthropic, and hosted OpenAI-compatible
+  endpoints. It records auth env names, billing posture, timeout fields, cost
+  metadata fields, pricing URLs, and `execution_enabled: false` until a later
+  slice adds explicit hosted execution.
 - `session`: the active conversation model is host-selected. Codex Desktop,
   Claude Desktop, Cursor Desktop, and CLI hosts own that dropdown or command
   flag. `host_model_switch` and `host-model switch` can record the intended
@@ -554,6 +559,15 @@ Platform mapping:
 | `MYTHIFY_LLAMA_CPP_MODEL` | unset | llama.cpp model id for probe chat checks and local reader or triage runs. |
 | `MYTHIFY_VLLM_BASE_URL` | `http://localhost:8000/v1` | Local vLLM OpenAI-compatible `/v1` endpoint for `provider: "vllm"`. |
 | `MYTHIFY_VLLM_MODEL` | unset | vLLM model id for probe chat checks and local reader or triage runs. |
+| `OPENAI_API_KEY` | unset | OpenAI API key env name recorded in hosted provider metadata. Not used for execution in the metadata-only slice. |
+| `MYTHIFY_OPENAI_API_MODEL` | unset | OpenAI API model id env name recorded in hosted provider metadata. |
+| `ANTHROPIC_API_KEY` | unset | Anthropic API key env name recorded in hosted provider metadata. Not used for execution in the metadata-only slice. |
+| `MYTHIFY_ANTHROPIC_API_MODEL` | unset | Anthropic API model id env name recorded in hosted provider metadata. |
+| `MYTHIFY_HOSTED_OPENAI_COMPAT_BASE_URL` | unset | Hosted OpenAI-compatible `/v1` endpoint env name recorded in provider metadata. |
+| `MYTHIFY_HOSTED_OPENAI_COMPAT_API_KEY` | unset | Hosted OpenAI-compatible API key env name recorded in provider metadata. |
+| `MYTHIFY_HOSTED_OPENAI_COMPAT_MODEL` | unset | Hosted OpenAI-compatible model id env name recorded in provider metadata. |
+| `MYTHIFY_HOSTED_OPENAI_COMPAT_PROVIDER` | unset | Optional hosted OpenAI-compatible provider label env name recorded in provider metadata. |
+| `MYTHIFY_HOSTED_OPENAI_COMPAT_PRICING_URL` | unset | Optional hosted OpenAI-compatible pricing URL env name recorded in provider metadata. |
 | `MYTHIFY_HOST_FAST_MODEL` | platform default | Host recommendation model for direct, trivial, or focused low-risk prompts. |
 | `MYTHIFY_HOST_STANDARD_MODEL` | platform default | Host recommendation model for balanced implementation, debugging, review, and docs prompts. |
 | `MYTHIFY_HOST_STRONG_MODEL` | platform default | Host recommendation model for research, benchmarks, design, release, migration, and security prompts. |

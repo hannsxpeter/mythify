@@ -70,6 +70,7 @@ test("role provider defaults stay explicit", () => {
 test("researched future adapters are candidates, not public host platforms", () => {
   const candidateNames = Object.keys(ADAPTER_CANDIDATES).sort();
   assert.deepEqual(candidateNames, [
+    "anthropic-api",
     "antigravity",
     "generic-openai-compatible",
     "google-adk-cli",
@@ -79,6 +80,8 @@ test("researched future adapters are candidates, not public host platforms", () 
     "llama-cpp",
     "lm-studio",
     "ollama",
+    "openai-api",
+    "openai-compatible-hosted",
     "opencode",
     "vllm",
   ]);
@@ -91,6 +94,31 @@ test("researched future adapters are candidates, not public host platforms", () 
     listAdapterCandidates("model_provider").map((candidate) => candidate.name).sort(),
     ["generic-openai-compatible", "llama-cpp", "lm-studio", "ollama", "vllm"]
   );
+  assert.deepEqual(
+    listAdapterCandidates("api_provider").map((candidate) => candidate.name).sort(),
+    ["anthropic-api", "openai-api", "openai-compatible-hosted"]
+  );
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].status, "metadata_supported");
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].openai_compatible, true);
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].default_base_url, "https://api.openai.com/v1");
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].api_key_env, "OPENAI_API_KEY");
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].billing, "metered_external_account");
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].explicit_enable_required, true);
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].can_run_api_worker, false);
+  assert.equal(ADAPTER_CANDIDATES["openai-api"].fallback_policy, "no_implicit_cross_provider_fallback");
+  assert.equal(ADAPTER_CANDIDATES["anthropic-api"].status, "metadata_supported");
+  assert.equal(ADAPTER_CANDIDATES["anthropic-api"].openai_compatible, false);
+  assert.equal(ADAPTER_CANDIDATES["anthropic-api"].default_base_url, "https://api.anthropic.com/v1");
+  assert.equal(ADAPTER_CANDIDATES["anthropic-api"].api_key_env, "ANTHROPIC_API_KEY");
+  assert.equal(ADAPTER_CANDIDATES["anthropic-api"].auth_header, "x-api-key");
+  assert.equal(ADAPTER_CANDIDATES["anthropic-api"].version_header, "anthropic-version:2023-06-01");
+  assert.equal(ADAPTER_CANDIDATES["openai-compatible-hosted"].status, "metadata_supported");
+  assert.equal(ADAPTER_CANDIDATES["openai-compatible-hosted"].openai_compatible, true);
+  assert.equal(
+    ADAPTER_CANDIDATES["openai-compatible-hosted"].base_url_env,
+    "MYTHIFY_HOSTED_OPENAI_COMPAT_BASE_URL"
+  );
+  assert.equal(ADAPTER_CANDIDATES["openai-compatible-hosted"].pricing_url_env, "MYTHIFY_HOSTED_OPENAI_COMPAT_PRICING_URL");
   assert.equal(ADAPTER_CANDIDATES["generic-openai-compatible"].status, "local_backend_supported");
   assert.equal(ADAPTER_CANDIDATES["generic-openai-compatible"].can_probe, true);
   assert.equal(ADAPTER_CANDIDATES["generic-openai-compatible"].can_run_local_roles, true);

@@ -6,6 +6,7 @@ This file is generated from `mcp-server/src/capability-registry.js`. Do not edit
 
 | Adapter | Kind | Status | Local | OpenAI Compatible | Probe | Run Path | Evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| anthropic-api | api_provider | metadata_supported | no | no | no | metadata only; no API worker | metadata only, not evidence |
 | antigravity | host | probe_supported | no | no | yes | none | probe material, not evidence |
 | generic-openai-compatible | model_provider | local_backend_supported | yes | yes | yes | local roles: reader, triage | material, not evidence |
 | google-adk-cli | agent_lifecycle | probe_supported | no | no | yes | eval probe; no eval run; no deploy | probe material, not evidence |
@@ -15,5 +16,7 @@ This file is generated from `mcp-server/src/capability-registry.js`. Do not edit
 | llama-cpp | model_provider | local_profile_supported | yes | yes | yes | local roles: reader, triage | material, not evidence |
 | lm-studio | model_provider | local_profile_supported | yes | yes | yes | local roles: reader, triage | material, not evidence |
 | ollama | model_provider | local_profile_supported | yes | yes | yes | local roles: reader, triage | material, not evidence |
+| openai-api | api_provider | metadata_supported | no | yes | no | metadata only; no API worker | metadata only, not evidence |
+| openai-compatible-hosted | api_provider | metadata_supported | no | yes | no | metadata only; no API worker | metadata only, not evidence |
 | opencode | host | worker_supported | no | no | yes | bounded worker | material, not evidence |
 | vllm | model_provider | local_profile_supported | yes | yes | yes | local roles: reader, triage | material, not evidence |
