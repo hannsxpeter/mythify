@@ -2357,22 +2357,60 @@ function envValue(name) {
   return (process.env[name] || "").trim();
 }
 
-function providerBaseUrl(input) {
-  return String(input || "").trim() || envValue("MYTHIFY_OPENAI_COMPAT_BASE_URL") || envValue("MYTHIFY_PROVIDER_BASE_URL");
+const MODEL_PROVIDER_IDS = ["generic-openai-compatible", "ollama"];
+const DEFAULT_MODEL_PROVIDER = "generic-openai-compatible";
+
+function normalizeModelProvider(provider) {
+  return MODEL_PROVIDER_IDS.includes(provider) ? provider : DEFAULT_MODEL_PROVIDER;
 }
 
-function providerModel(input) {
-  return String(input || "").trim() || envValue("MYTHIFY_OPENAI_COMPAT_MODEL") || envValue("MYTHIFY_PROVIDER_MODEL");
+function modelProviderProfile(provider) {
+  const name = normalizeModelProvider(provider);
+  return {
+    name,
+    adapter: ADAPTER_CANDIDATES[name] || ADAPTER_CANDIDATES[DEFAULT_MODEL_PROVIDER] || {},
+  };
 }
 
-function providerApiKeyEnv(input) {
-  return String(input || "").trim() || "MYTHIFY_OPENAI_COMPAT_API_KEY";
+function providerBaseUrl(input, provider) {
+  const explicit = String(input || "").trim();
+  if (explicit !== "") {
+    return explicit;
+  }
+  const profile = modelProviderProfile(provider);
+  if (profile.name === "ollama") {
+    return envValue("MYTHIFY_OLLAMA_BASE_URL") || profile.adapter.default_base_url || "";
+  }
+  return envValue("MYTHIFY_OPENAI_COMPAT_BASE_URL") || envValue("MYTHIFY_PROVIDER_BASE_URL");
 }
 
-function normalizeProviderBaseUrl(raw) {
+function providerModel(input, provider) {
+  const explicit = String(input || "").trim();
+  if (explicit !== "") {
+    return explicit;
+  }
+  const profile = modelProviderProfile(provider);
+  if (profile.name === "ollama") {
+    return envValue("MYTHIFY_OLLAMA_MODEL");
+  }
+  return envValue("MYTHIFY_OPENAI_COMPAT_MODEL") || envValue("MYTHIFY_PROVIDER_MODEL");
+}
+
+function providerApiKeyEnv(input, provider) {
+  if (input !== undefined && input !== null) {
+    return String(input).trim();
+  }
+  const profile = modelProviderProfile(provider);
+  if (profile.name === "ollama") {
+    return profile.adapter.api_key_env || "";
+  }
+  return "MYTHIFY_OPENAI_COMPAT_API_KEY";
+}
+
+function normalizeProviderBaseUrl(raw, toolName = "provider_probe") {
   const value = String(raw || "").trim();
   if (value === "") {
-    return { ok: false, baseUrl: "", error: "provider_probe requires base_url or MYTHIFY_OPENAI_COMPAT_BASE_URL." };
+    return { ok: false, baseUrl: "", error: `${toolName} requires base_url or provider profile base URL env.` };
   }
   let parsed;
   try {
@@ -2381,9 +2419,30 @@ function normalizeProviderBaseUrl(raw) {
     return { ok: false, baseUrl: "", error: `Invalid provider base_url: ${value}` };
   }
   if (!["http:", "https:"].includes(parsed.protocol)) {
-    return { ok: false, baseUrl: "", error: "provider_probe base_url must use http or https." };
+    return { ok: false, baseUrl: "", error: `${toolName} base_url must use http or https.` };
   }
   return { ok: true, baseUrl: parsed.toString().replace(/\/+$/, ""), error: "" };
+}
+
+function isLocalProviderBaseUrl(baseUrl) {
+  const parsed = new URL(baseUrl);
+  return LOCAL_MODEL_HOSTS.has(parsed.hostname);
+}
+
+function normalizeProfileProviderBaseUrl(raw, provider, toolName) {
+  const profile = modelProviderProfile(provider);
+  const base = normalizeProviderBaseUrl(providerBaseUrl(raw, profile.name), toolName);
+  if (!base.ok) {
+    return base;
+  }
+  if (profile.adapter.local_only === true && !isLocalProviderBaseUrl(base.baseUrl)) {
+    return {
+      ok: false,
+      baseUrl: base.baseUrl,
+      error: `${toolName} provider ${profile.name} requires a localhost, 127.0.0.1, ::1, or 0.0.0.0 base_url.`,
+    };
+  }
+  return base;
 }
 
 function providerEndpoint(baseUrl, pathSuffix) {
@@ -2455,19 +2514,23 @@ function chatContentFromCompletion(json) {
   return String(message && message.content ? message.content : "");
 }
 
-async function probeOpenAICompatibleProvider({ base_url, model, timeout_seconds, api_key_env, check, prompt }) {
+async function probeOpenAICompatibleProvider({ provider, base_url, model, timeout_seconds, api_key_env, check, prompt }) {
+  const selectedProvider = normalizeModelProvider(provider);
   const selectedCheck = check || "both";
   const timeoutSeconds =
     typeof timeout_seconds === "number" && timeout_seconds > 0 ? timeout_seconds : 10;
-  const base = normalizeProviderBaseUrl(providerBaseUrl(base_url));
-  const selectedModel = providerModel(model);
-  const keyEnv = providerApiKeyEnv(api_key_env);
-  const adapter = ADAPTER_CANDIDATES["generic-openai-compatible"] || {};
+  const base = normalizeProfileProviderBaseUrl(base_url, selectedProvider, "provider_probe");
+  const selectedModel = providerModel(model, selectedProvider);
+  const keyEnv = providerApiKeyEnv(api_key_env, selectedProvider);
+  const adapter = ADAPTER_CANDIDATES[selectedProvider] || {};
   const result = {
-    provider: "generic-openai-compatible",
+    provider: selectedProvider,
     provider_kind: adapter.kind || "model_provider",
     status: "blocked",
+    openai_compatible: adapter.openai_compatible === true,
+    local_only: adapter.local_only === true,
     base_url: base.baseUrl,
+    default_base_url: adapter.default_base_url || "",
     model: selectedModel,
     check: selectedCheck,
     api_key_env: keyEnv,
@@ -2487,7 +2550,9 @@ async function probeOpenAICompatibleProvider({ base_url, model, timeout_seconds,
     return result;
   }
   if (["chat", "both"].includes(selectedCheck) && selectedModel === "") {
-    result.error = "provider_probe check=chat or both requires model or MYTHIFY_OPENAI_COMPAT_MODEL.";
+    result.error = selectedProvider === "ollama"
+      ? "provider_probe provider=ollama check=chat or both requires model or MYTHIFY_OLLAMA_MODEL."
+      : "provider_probe check=chat or both requires model or MYTHIFY_OPENAI_COMPAT_MODEL.";
     return result;
   }
   const headersResult = providerHeaders(keyEnv);
@@ -2592,17 +2657,12 @@ function formatProviderProbe(result) {
 const LOCAL_MODEL_ROLES = ["reader", "triage"];
 const LOCAL_MODEL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
 
-function normalizeLocalProviderBaseUrl(raw) {
-  const base = normalizeProviderBaseUrl(providerBaseUrl(raw));
+function normalizeLocalProviderBaseUrl(raw, provider) {
+  const base = normalizeProfileProviderBaseUrl(raw, provider, "local_model_run");
   if (!base.ok) {
-    return {
-      ok: false,
-      baseUrl: "",
-      error: base.error.replace(/^provider_probe/, "local_model_run"),
-    };
+    return base;
   }
-  const parsed = new URL(base.baseUrl);
-  if (!LOCAL_MODEL_HOSTS.has(parsed.hostname)) {
+  if (!isLocalProviderBaseUrl(base.baseUrl)) {
     return {
       ok: false,
       baseUrl: base.baseUrl,
@@ -2627,22 +2687,25 @@ function localModelSystemPrompt(role) {
   ].join(" ");
 }
 
-async function runLocalModelRole({ role, base_url, model, api_key_env, timeout_seconds, prompt, max_tokens }) {
+async function runLocalModelRole({ provider, role, base_url, model, api_key_env, timeout_seconds, prompt, max_tokens }) {
+  const selectedProvider = normalizeModelProvider(provider);
   const selectedRole = role || "reader";
   const timeoutSeconds =
     typeof timeout_seconds === "number" && timeout_seconds > 0 ? timeout_seconds : 30;
   const selectedMaxTokens =
     typeof max_tokens === "number" && max_tokens > 0 ? Math.min(Math.floor(max_tokens), 2048) : 512;
-  const base = normalizeLocalProviderBaseUrl(base_url);
-  const selectedModel = providerModel(model);
-  const keyEnv = providerApiKeyEnv(api_key_env);
-  const adapter = ADAPTER_CANDIDATES["generic-openai-compatible"] || {};
+  const base = normalizeLocalProviderBaseUrl(base_url, selectedProvider);
+  const selectedModel = providerModel(model, selectedProvider);
+  const keyEnv = providerApiKeyEnv(api_key_env, selectedProvider);
+  const adapter = ADAPTER_CANDIDATES[selectedProvider] || {};
   const result = {
-    provider: "generic-openai-compatible",
+    provider: selectedProvider,
     provider_kind: adapter.kind || "model_provider",
     role: selectedRole,
     status: "blocked",
+    openai_compatible: adapter.openai_compatible === true,
     base_url: base.baseUrl,
+    default_base_url: adapter.default_base_url || "",
     model: selectedModel,
     local_only: true,
     material_not_evidence: true,
@@ -2664,7 +2727,9 @@ async function runLocalModelRole({ role, base_url, model, api_key_env, timeout_s
     return result;
   }
   if (selectedModel === "") {
-    result.error = "local_model_run requires model or MYTHIFY_OPENAI_COMPAT_MODEL.";
+    result.error = selectedProvider === "ollama"
+      ? "local_model_run provider=ollama requires model or MYTHIFY_OLLAMA_MODEL."
+      : "local_model_run requires model or MYTHIFY_OPENAI_COMPAT_MODEL.";
     return result;
   }
   const userPrompt = String(prompt || "").trim();
@@ -3657,21 +3722,21 @@ server.registerTool(
   {
     title: "Probe an OpenAI-compatible model provider",
     description:
-      "Probe a configured generic OpenAI-compatible provider by calling /v1/models and, when requested, /v1/chat/completions. " +
+      "Probe a configured OpenAI-compatible provider by calling /v1/models and, when requested, /v1/chat/completions. The ollama profile defaults to the local Ollama /v1 endpoint and sends no auth header by default. " +
       "Use this before assigning local reader or triage roles to a provider. The result is material, not verification evidence, and does not enable worker execution.",
     inputSchema: {
       provider: z
-        .enum(["generic-openai-compatible"])
+        .enum(MODEL_PROVIDER_IDS)
         .optional()
-        .describe("Provider adapter to probe. Currently only generic-openai-compatible is supported."),
+        .describe("Provider adapter to probe. Defaults to generic-openai-compatible; ollama uses the local Ollama /v1 profile."),
       base_url: z
         .string()
         .optional()
-        .describe("OpenAI-compatible /v1 base URL. Defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL."),
+        .describe("OpenAI-compatible /v1 base URL. Generic defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL; ollama defaults to MYTHIFY_OLLAMA_BASE_URL or http://localhost:11434/v1."),
       model: z
         .string()
         .optional()
-        .describe("Model id for chat probes. Defaults to MYTHIFY_OPENAI_COMPAT_MODEL."),
+        .describe("Model id for chat probes. Generic defaults to MYTHIFY_OPENAI_COMPAT_MODEL; ollama defaults to MYTHIFY_OLLAMA_MODEL."),
       check: z
         .enum(["models", "chat", "both"])
         .optional()
@@ -3696,19 +3761,8 @@ server.registerTool(
     },
   },
   guarded(async ({ provider, base_url, model, check, api_key_env, timeout_seconds, prompt, format }) => {
-    const selectedProvider = provider || "generic-openai-compatible";
-    if (selectedProvider !== "generic-openai-compatible") {
-      const blocked = {
-        provider: selectedProvider,
-        status: "blocked",
-        material_not_evidence: true,
-        evidence_status: "probe_only_not_verification",
-        error: "provider_probe currently supports only generic-openai-compatible.",
-        checks: [],
-      };
-      return format === "json" ? "[FAIL] " + JSON.stringify(blocked, null, 2) : formatProviderProbe(blocked);
-    }
     const result = await probeOpenAICompatibleProvider({
+      provider: provider || DEFAULT_MODEL_PROVIDER,
       base_url,
       model,
       check: check || "both",
@@ -3730,9 +3784,13 @@ server.registerTool(
   {
     title: "Run a role-limited local model",
     description:
-      "Run a reader or triage prompt against a localhost OpenAI-compatible model provider. " +
+      "Run a reader or triage prompt against a localhost OpenAI-compatible model provider. The ollama profile defaults to the local Ollama /v1 endpoint and sends no auth header by default. " +
       "Use this for low-risk local model material before the orchestrator verifies claims with commands. The result is material, not verification evidence, and the tool writes no Mythify state.",
     inputSchema: {
+      provider: z
+        .enum(MODEL_PROVIDER_IDS)
+        .optional()
+        .describe("Local provider profile. Defaults to generic-openai-compatible; ollama uses MYTHIFY_OLLAMA_MODEL and http://localhost:11434/v1."),
       role: z
         .enum(LOCAL_MODEL_ROLES)
         .optional()
@@ -3740,11 +3798,11 @@ server.registerTool(
       base_url: z
         .string()
         .optional()
-        .describe("Local OpenAI-compatible /v1 base URL. Defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL and must be localhost, 127.0.0.1, ::1, or 0.0.0.0."),
+        .describe("Local OpenAI-compatible /v1 base URL. Generic defaults to MYTHIFY_OPENAI_COMPAT_BASE_URL; ollama defaults to MYTHIFY_OLLAMA_BASE_URL or http://localhost:11434/v1. Must be localhost, 127.0.0.1, ::1, or 0.0.0.0."),
       model: z
         .string()
         .optional()
-        .describe("Local model id. Defaults to MYTHIFY_OPENAI_COMPAT_MODEL."),
+        .describe("Local model id. Generic defaults to MYTHIFY_OPENAI_COMPAT_MODEL; ollama defaults to MYTHIFY_OLLAMA_MODEL."),
       prompt: z
         .string()
         .describe("Prompt or material for the local model."),
@@ -3768,8 +3826,9 @@ server.registerTool(
         .describe("Return text by default, or JSON for machine-readable local model runs."),
     },
   },
-  guarded(async ({ role, base_url, model, prompt, api_key_env, timeout_seconds, max_tokens, format }) => {
+  guarded(async ({ provider, role, base_url, model, prompt, api_key_env, timeout_seconds, max_tokens, format }) => {
     const result = await runLocalModelRole({
+      provider: provider || DEFAULT_MODEL_PROVIDER,
       role: role || "reader",
       base_url,
       model,

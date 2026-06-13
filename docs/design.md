@@ -122,11 +122,13 @@ Adapter kinds:
 - `agent_lifecycle`: scaffold, test, deploy, or observe tools for agents.
 
 The current public host platforms remain `auto`, `unknown`, `codex-desktop`,
-`codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, and `cursor-agent`.
-Future candidates such as local OpenAI-compatible providers, Ollama, LM Studio,
-llama.cpp, vLLM, Kimi Code, OpenCode, Antigravity, Google Colab CLI, Google
-Agents CLI, and Google ADK CLI must enter the registry first, then earn public
-schema support in a separate verified slice.
+`codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, and
+`cursor-agent`. Adapter profiles such as generic OpenAI-compatible local
+providers, Ollama, Kimi Code, OpenCode, Antigravity, Google Colab CLI, Google
+Agents CLI, and Google ADK CLI live in the registry instead of the host
+platform enum. Future candidates such as LM Studio, llama.cpp, and vLLM must
+enter the registry first, then earn public schema support in a separate
+verified slice.
 
 ## Operation registry
 
@@ -460,8 +462,8 @@ does AND when to use it, since descriptions drive tool selection.
 | :--- | :--- | :--- |
 | `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. With `triage: auto`, run one fast local model only when the deterministic gate recommends it. |
 | `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance, registry-backed `host_capability`, and `switch_result`, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate the current host chat unless a future host integration exposes that capability and confirms the result. |
-| `provider_probe` | `{provider?: enum(generic-openai-compatible), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe a generic OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
-| `local_model_run` | `{role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
+| `provider_probe` | `{provider?: enum(generic-openai-compatible, ollama), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe an OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `provider: "ollama"` defaults to `MYTHIFY_OLLAMA_BASE_URL` or `http://localhost:11434/v1`, `MYTHIFY_OLLAMA_MODEL`, and no auth header. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
+| `local_model_run` | `{provider?: enum(generic-openai-compatible, ollama), role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `provider: "ollama"` defaults to the local Ollama profile. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
 | `host_cli_probe` | `{host?: enum(kimi-code, opencode, antigravity), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Kimi Code, OpenCode, or Antigravity CLI availability by running only version and help commands. Defaults to `MYTHIFY_KIMI_BIN`, `MYTHIFY_OPENCODE_BIN`, or `MYTHIFY_ANTIGRAVITY_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_run_noninteractive_prompt`, and `material_not_evidence: true`. It does not execute a prompt, write state, spawn workers, or count as verification evidence. Antigravity MCP setup guidance lives in `docs/antigravity-mcp-setup.md`; the probe does not install or mutate MCP config. |
 | `host_cli_run` | `{host?: enum(kimi-code, opencode), bin?: string, prompt: string, cwd?: string, timeout_seconds?: number, model?: string, agent?: string, format?: enum(text, json)}` | Run a bounded non-interactive prompt through Kimi Code or OpenCode. Kimi uses `kimi --print -p PROMPT --final-message-only`. OpenCode uses `opencode run --format json [--model MODEL] [--agent AGENT] PROMPT`. Defaults to `MYTHIFY_KIMI_BIN` or `MYTHIFY_OPENCODE_BIN`, then PATH and common install paths. Returns stdout and stderr tails, timeout and exit metadata, `material_not_evidence: true`, `evidence_status: "worker_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files directly, write Mythify state, or count worker output as verification evidence; merged work must still be verified with `verify_run`. |
 | `execution_probe` | `{adapter?: enum(google-colab-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Colab CLI availability by running only version and help commands. Defaults to `MYTHIFY_COLAB_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `non_billable: true`, `job_execution_enabled: false`, and `material_not_evidence: true`. It does not provision a runtime, request an accelerator, execute notebooks, upload data, write state, or count as verification evidence. |
@@ -533,8 +535,8 @@ Classification always returns `model_policy`. It separates:
 - `spawn_ceiling`: policy object with `policy`, `source`, `session_model`,
   `session_model_source`, `session_model_tier`, default, and opt-in rule.
 - `reader`: optional read-only model role for inspecting supplied material.
-  It defaults to the localhost OpenAI-compatible provider path and returns
-  material, not verification evidence.
+  It defaults to the localhost OpenAI-compatible provider path and can use the
+  explicit Ollama profile. It returns material, not verification evidence.
 - `triage`: spawned problem-framing worker, engine, spawned model policy,
   model tier, relation to the session model, provider default, effort,
   timeout, max turns, and sandbox.
@@ -1049,6 +1051,8 @@ job.json (atomic writes on every transition):
 | `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |
 | `MYTHIFY_SPAWN_CEILING` | `same_or_lower` | Spawn ceiling: `auto`, `lower_only`, `same_or_lower`, or `allow_stronger`. |
 | `MYTHIFY_REVIEWER_STRENGTH` | `same_or_lower` | Reviewer strength policy: `auto`, `same_or_lower`, or `allow_stronger`. |
+| `MYTHIFY_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Local Ollama OpenAI-compatible `/v1` endpoint for `provider: "ollama"`. |
+| `MYTHIFY_OLLAMA_MODEL` | unset | Ollama model id for probe chat checks and local reader or triage runs. |
 | `MYTHIFY_HOST_FAST_MODEL` | platform default | Host recommendation model for direct, trivial, or focused low-risk prompts. |
 | `MYTHIFY_HOST_STANDARD_MODEL` | platform default | Host recommendation model for balanced implementation, debugging, review, and docs prompts. |
 | `MYTHIFY_HOST_STRONG_MODEL` | platform default | Host recommendation model for research, benchmarks, design, release, migration, and security prompts. |

@@ -135,6 +135,92 @@ test("provider_probe probes an OpenAI-compatible server without recording verifi
   }
 });
 
+test("provider_probe uses the Ollama local profile without auth by default", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-provider-ollama-");
+  const provider = await startProviderServer();
+  try {
+    await withClient(
+      cleanEnv({
+        MYTHIFY_DIR: stateDir,
+        HOME: homeDir,
+        MYTHIFY_OLLAMA_BASE_URL: provider.baseUrl,
+        MYTHIFY_OLLAMA_MODEL: "local-test",
+        MYTHIFY_OPENAI_COMPAT_API_KEY: "generic-secret",
+      }),
+      async (client) => {
+        const probedText = textOf(
+          await client.callTool({
+            name: "provider_probe",
+            arguments: {
+              provider: "ollama",
+              format: "json",
+            },
+          })
+        );
+        assert.ok(probedText.startsWith("[OK]"), `provider_probe reports [OK]: ${probedText}`);
+        const probed = JSON.parse(probedText.replace(/^\[OK\] /, ""));
+        assert.equal(probed.status, "available");
+        assert.equal(probed.provider, "ollama");
+        assert.equal(probed.openai_compatible, true);
+        assert.equal(probed.local_only, true);
+        assert.equal(probed.base_url, provider.baseUrl);
+        assert.equal(probed.default_base_url, "http://localhost:11434/v1");
+        assert.equal(probed.model, "local-test");
+        assert.equal(probed.api_key_env, "");
+        assert.equal(probed.api_key_present, false);
+        assert.equal(probed.material_not_evidence, true);
+        assert.equal(probed.evidence_status, "probe_only_not_verification");
+        assert.equal(probed.checks.length, 2);
+        assert.equal(fs.existsSync(path.join(stateDir, "verifications.jsonl")), false);
+
+        assert.equal(provider.requests.length, 2);
+        assert.equal(provider.requests[0].authorization, "");
+        assert.equal(provider.requests[1].authorization, "");
+        const chatBody = JSON.parse(provider.requests[1].body);
+        assert.equal(chatBody.model, "local-test");
+      }
+    );
+  } finally {
+    await provider.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("provider_probe refuses non-local Ollama base URLs without writing state", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-provider-ollama-refuse-");
+  try {
+    await withClient(
+      cleanEnv({
+        MYTHIFY_DIR: stateDir,
+        HOME: homeDir,
+        MYTHIFY_OLLAMA_MODEL: "local-test",
+      }),
+      async (client) => {
+        const refused = textOf(
+          await client.callTool({
+            name: "provider_probe",
+            arguments: {
+              provider: "ollama",
+              base_url: "https://example.com/v1",
+              format: "json",
+            },
+          })
+        );
+        assert.ok(refused.startsWith("[FAIL]"), `provider_probe refuses: ${refused}`);
+        const parsed = JSON.parse(refused.replace(/^\[FAIL\] /, ""));
+        assert.equal(parsed.status, "blocked");
+        assert.equal(parsed.provider, "ollama");
+        assert.equal(parsed.material_not_evidence, true);
+        assert.match(parsed.error, /requires a localhost/);
+        assert.equal(parsed.checks.length, 0);
+        assert.equal(fs.existsSync(path.join(stateDir, "verifications.jsonl")), false);
+      }
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("provider_probe refuses missing base URL without writing state", async () => {
   const { root, stateDir, homeDir } = makeProject("mythify-provider-probe-refuse-");
   try {

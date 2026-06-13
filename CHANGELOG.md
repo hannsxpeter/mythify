@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   models only when the task is marked `role: "reviewer"` and the job sets
   `reviewer_allow_stronger: true`, unless the broader spawn ceiling opt-in is
   used.
+- Ollama local setup profile. `provider_probe` and `local_model_run` now accept
+  `provider: "ollama"`, default to the local Ollama OpenAI-compatible `/v1`
+  endpoint, use `MYTHIFY_OLLAMA_MODEL`, send no auth header by default, and keep
+  output marked as material rather than verification evidence.
 
 ## [2.5.0] - 2026-06-12
 

@@ -180,6 +180,55 @@ test("local_model_run runs triage role with capped max tokens", async () => {
   }
 });
 
+test("local_model_run uses the Ollama profile without auth by default", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-local-model-ollama-");
+  const provider = await startLocalProviderServer();
+  try {
+    await withClient(
+      cleanEnv({
+        MYTHIFY_DIR: stateDir,
+        HOME: homeDir,
+        MYTHIFY_OLLAMA_BASE_URL: provider.baseUrl,
+        MYTHIFY_OLLAMA_MODEL: "local-test",
+        MYTHIFY_OPENAI_COMPAT_API_KEY: "generic-secret",
+      }),
+      async (client) => {
+        const runText = textOf(
+          await client.callTool({
+            name: "local_model_run",
+            arguments: {
+              provider: "ollama",
+              role: "reader",
+              prompt: "Summarize this with Ollama.",
+              format: "json",
+            },
+          })
+        );
+        assert.ok(runText.startsWith("[OK]"), `local_model_run reports [OK]: ${runText}`);
+        const parsed = JSON.parse(runText.replace(/^\[OK\] /, ""));
+        assert.equal(parsed.status, "available");
+        assert.equal(parsed.provider, "ollama");
+        assert.equal(parsed.openai_compatible, true);
+        assert.equal(parsed.base_url, provider.baseUrl);
+        assert.equal(parsed.default_base_url, "http://localhost:11434/v1");
+        assert.equal(parsed.model, "local-test");
+        assert.equal(parsed.output_tail, "local-reader-material");
+        assertMaterialOnly(parsed);
+        assert.equal(fs.existsSync(path.join(stateDir, "verifications.jsonl")), false);
+
+        assert.equal(provider.requests.length, 1);
+        assert.equal(provider.requests[0].authorization, "");
+        const chatBody = JSON.parse(provider.requests[0].body);
+        assert.equal(chatBody.model, "local-test");
+        assert.equal(chatBody.messages[1].content, "Summarize this with Ollama.");
+      }
+    );
+  } finally {
+    await provider.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("local_model_run refuses non-local base URLs without writing state", async () => {
   const { root, stateDir, homeDir } = makeProject("mythify-local-model-refuse-");
   try {

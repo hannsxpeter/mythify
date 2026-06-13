@@ -21,26 +21,26 @@ Status markers:
 
 ### In Progress
 
-- [>] Ollama setup profile.
-  - Current goal: make Ollama the first explicit local-model onboarding path.
-  - Next step: map existing OpenAI-compatible local model probe and
-    `local_model_run` behavior against Ollama's local API shape.
+- [>] LM Studio setup profile.
+  - Current goal: make LM Studio the next explicit local desktop model profile.
+  - Next step: map the Ollama profile pattern against LM Studio's local
+    OpenAI-compatible API shape.
   - Guardrail: setup support must stay local-only, mark model output as
     material not verification evidence, and avoid provisioning or installing
     anything without an explicit user action.
 
 ### Next To Do
 
-1. [ ] LM Studio setup profile.
-   - Follow Ollama with an OpenAI-compatible local desktop path.
-2. [ ] llama.cpp profile for GGUF power users.
+1. [ ] llama.cpp profile for GGUF power users.
    - Keep an explicit path for users who already manage GGUF models.
-3. [ ] vLLM profile for workstation, server, and team-local inference.
+2. [ ] vLLM profile for workstation, server, and team-local inference.
    - Keep server-style local inference separate from desktop onboarding.
+3. [ ] API provider adapter path with cost and timeout metadata.
+   - Bring hosted provider work in after the local profiles prove the adapter
+     shape.
 
 ### Later
 
-- [ ] API provider adapter path with cost and timeout metadata.
 - [ ] Role defaults per provider.
 - [ ] Antigravity worker adapter after local `agy -p`, model controls, workspace
   trust, and permissions are verified.
@@ -100,6 +100,9 @@ Status markers:
   `model_policy`, including reader role metadata and no implicit fallback.
 - [x] 2026-06-13: add stronger reviewer opt-in policy for classifier output
   and fanout tasks, keeping ordinary workers same-or-lower by default.
+- [x] 2026-06-13: add Ollama local setup profile for `provider_probe` and
+  `local_model_run`, defaulting to the local `/v1` endpoint with material-only
+  output.
 
 ## Track Backlogs
 
@@ -188,13 +191,15 @@ They should enter through adapters, not special cases.
 
 Open:
 
-- [ ] Ollama profile.
 - [ ] LM Studio profile.
 - [ ] llama.cpp profile.
 - [ ] vLLM profile.
 
 Done:
 
+- [x] Ollama profile defaults to `http://localhost:11434/v1`, uses
+  `MYTHIFY_OLLAMA_MODEL`, sends no auth header by default, and refuses
+  non-local URLs.
 - [x] Generic OpenAI-compatible provider probe can call `/v1/models` and
   `/v1/chat/completions`.
 - [x] Generic OpenAI-compatible local adapter can run localhost reader and
@@ -362,7 +367,8 @@ Preserve:
 - [x] Local reader and triage roles.
 - [x] Tests proving local output remains material, not evidence.
 - [x] Generic OpenAI-compatible localhost adapter.
-- [ ] Ollama and LM Studio setup profiles.
+- [x] Ollama setup profile.
+- [ ] LM Studio setup profile.
 - [ ] Host adapter proof of concept for model and thinking overrides where the
   host exposes them.
 
