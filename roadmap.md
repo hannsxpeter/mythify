@@ -21,21 +21,21 @@ Status markers:
 
 ### In Progress
 
-- [>] Operation registry prototype
-  - Current goal: reduce duplicated operation contracts for a small, proven
-    surface.
-  - Next step: choose the narrowest shared surface for the first registry
-    prototype.
-  - Guardrail: add the registry only where it reduces drift.
+- [>] Deployed-copy version handshake
+  - Current goal: detect when installed protocol copies drift from the source
+    protocol and runtime version.
+  - Next step: map generated variant, installed copy, CLI, MCP, and README
+    version surfaces.
+  - Guardrail: fail loudly on drift without blocking normal local development.
 
 ### Next To Do
 
-1. [ ] Add operation registry prototype for a small surface.
-   - Use it only where it reduces drift.
-2. [ ] Add deployed-copy version handshake between protocol text and CLI.
+1. [ ] Add deployed-copy version handshake between protocol text and CLI.
    - Detect when installed copies drift from the source protocol.
-3. [ ] Add host model switch capability contract and status model.
+2. [ ] Add host model switch capability contract and status model.
    - Keep requested switches separate from host-confirmed switches.
+3. [ ] Add log compaction or rotation for long-lived `.mythify` directories.
+   - Preserve evidence while keeping state directories readable.
 
 ### Later
 
@@ -90,6 +90,7 @@ Status markers:
 - [x] 2026-06-13: add step-bound verification records for CLI and MCP evidence.
 - [x] 2026-06-13: expand CLI/MCP interop coverage across shared mutating state.
 - [x] 2026-06-13: add whole-state no-mutation checks for refusal paths.
+- [x] 2026-06-13: add the memory operation registry prototype.
 
 ## Track Backlogs
 
@@ -101,7 +102,6 @@ product work.
 
 Open:
 
-- [ ] Operation registry prototype for a small surface.
 - [ ] Deployed-copy version handshake between protocol text and CLI.
 - [ ] Log compaction or rotation for long-lived `.mythify` directories.
 - [ ] Generate docs tables, schemas, or fixtures from the registry only after a
@@ -114,6 +114,8 @@ Done:
 - [x] Verification records include active plan and in-progress step context.
 - [x] Full CLI/MCP interop matrix covers shared mutating operations.
 - [x] Refusal paths have whole-state no-mutation snapshot checks.
+- [x] Memory operation registry powers shared CLI and MCP memory categories,
+  default category, state filename, and no-target clear refusals.
 
 ### Model Assignment
 
@@ -329,7 +331,7 @@ Preserve:
 
 ### v2.6
 
-- [ ] Operation registry prototype for a small surface.
+- [x] Operation registry prototype for a small surface.
 - [x] Step-bound verification records.
 - [x] Whole-state refusal no-mutation checks.
 - [ ] Host model switch capability contract and status model.

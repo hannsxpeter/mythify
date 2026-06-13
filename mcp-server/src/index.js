@@ -32,6 +32,11 @@ import {
   TRIAGE_MODES,
   getHostCapability,
 } from "./capability-registry.js";
+import {
+  MEMORY_CATEGORIES,
+  MEMORY_CLEAR_MCP_REFUSAL,
+  MEMORY_DEFAULT_CATEGORY,
+} from "./operation-registry.js";
 
 const VERSION = "2.5.0";
 const TAIL_CHARS = 4000;
@@ -3804,8 +3809,8 @@ server.registerTool(
       key: z.string().describe("Unique key for the entry; storing an existing key overwrites it."),
       value: z.string().describe("The content to remember."),
       category: z
-        .enum(["fact", "decision", "discovery", "state"])
-        .default("fact")
+        .enum(MEMORY_CATEGORIES)
+        .default(MEMORY_DEFAULT_CATEGORY)
         .describe("Entry category: fact, decision, discovery, or state. Defaults to fact."),
     },
   },
@@ -3838,7 +3843,7 @@ server.registerTool(
         .optional()
         .describe("Case-insensitive substring matched against keys and values. Omit to list every entry."),
       category: z
-        .enum(["fact", "decision", "discovery", "state", "all"])
+        .enum([...MEMORY_CATEGORIES, "all"])
         .optional()
         .describe("Restrict results to one category, or 'all' for no filter."),
     },
@@ -3901,10 +3906,7 @@ server.registerTool(
       saveMemory(data);
       return `[OK] Cleared all memory entries (${count} removed).`;
     }
-    return (
-      "[FAIL] Refusing to clear memory: no key was given and confirm_clear_all is not true. " +
-      "Pass key to remove a single entry, or set confirm_clear_all to true to wipe everything. Nothing was cleared."
-    );
+    return MEMORY_CLEAR_MCP_REFUSAL;
   })
 );
 

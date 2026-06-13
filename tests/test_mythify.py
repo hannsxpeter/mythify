@@ -17,6 +17,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
+OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init"
@@ -809,6 +810,9 @@ class TestStepUpdates(CliTestCase):
 
 
 class TestMemory(CliTestCase):
+    def load_operation_registry(self):
+        return self.read_json(OPERATION_REGISTRY)
+
     def test_set_and_get(self):
         self.init_workspace()
         result = self.run_cli("memory", "set", "color", "blue")
@@ -857,6 +861,24 @@ class TestMemory(CliTestCase):
         result = self.run_cli("memory", "clear")
         self.assertEqual(result.returncode, 1)
         self.assertIn("[FAIL]", result.stderr)
+
+    def test_memory_cli_uses_operation_registry_contract(self):
+        state = self.init_workspace()
+        registry = self.load_operation_registry()
+        memory = registry["surfaces"]["memory"]
+        categories = memory["categories"]
+        self.assertEqual(memory["default_category"], "fact")
+
+        for category in categories:
+            result = self.run_cli("memory", "set", category, "value", "--category", category)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        stored = self.read_json(state / memory["state_file"])
+        self.assertEqual([entry["category"] for entry in stored["entries"]], categories)
+
+        result = self.run_cli("memory", "clear")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(memory["operations"]["memory_clear"]["cli"]["refusal"], result.stderr)
 
     def test_clear_all_empties_store(self):
         state = self.init_workspace()

@@ -38,7 +38,8 @@ mythify/
 |-- AGENTS.md                    generated from protocol/PROTOCOL.md
 |-- .cursorrules                 generated from protocol/PROTOCOL.md
 |-- protocol/
-|   `-- PROTOCOL.md              canonical protocol source
+|   |-- PROTOCOL.md              canonical protocol source
+|   `-- operation-registry.json  shared operation metadata
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
@@ -116,6 +117,24 @@ Future candidates such as local OpenAI-compatible providers, Ollama, LM Studio,
 llama.cpp, vLLM, Kimi Code, OpenCode, Antigravity, Google Colab CLI, Google
 Agents CLI, and Google ADK CLI must enter the registry first, then earn public
 schema support in a separate verified slice.
+
+## Operation registry
+
+Shared operation metadata lives in `protocol/operation-registry.json`. This is a
+runtime contract for duplicated operation facts that have already caused drift,
+not a broad router or code generation layer.
+
+Prototype scope:
+
+- The first registered surface is `memory`.
+- The registry owns memory categories, the default category, the memory state
+  filename, and the no-target `memory_clear` refusal strings for CLI and MCP.
+- The Python CLI and Node MCP server both load the registry at runtime.
+- Tests compare runtime behavior against the registry before any generated docs
+  or schemas are allowed to depend on it.
+
+Keep new surfaces out of the registry until duplication has been observed and a
+focused drift test proves the shared contract reduces maintenance risk.
 
 ## State model (shared contract)
 

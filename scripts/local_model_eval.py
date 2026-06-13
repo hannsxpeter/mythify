@@ -4,7 +4,7 @@
 The harness creates two temporary copies of a tiny Python bug-fix task:
 
 - bare: no protocol files, just the task prompt
-- mythify: AGENTS.md plus scripts/mythify.py, with .mythify initialized
+- mythify: AGENTS.md plus scripts/mythify.py and protocol data, with .mythify initialized
 
 It then runs a local worker engine in each workspace and verifies the result
 with `python3 -m unittest`. The local engines use the user's installed CLIs
@@ -254,7 +254,12 @@ def create_task_workspace(parent, scenario_name, mode, iteration):
 def install_mythify(workspace):
     root = repo_root()
     (workspace / "scripts").mkdir(exist_ok=True)
+    (workspace / "protocol").mkdir(exist_ok=True)
     shutil.copy2(root / "AGENTS.md", workspace / "AGENTS.md")
+    shutil.copy2(
+        root / "protocol" / "operation-registry.json",
+        workspace / "protocol" / "operation-registry.json",
+    )
     shutil.copy2(root / "scripts" / "mythify.py", workspace / "scripts" / "mythify.py")
     init = subprocess.run(
         [sys.executable, "scripts/mythify.py", "init"],

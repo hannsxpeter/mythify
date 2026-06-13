@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { MEMORY_CLEAR_MCP_REFUSAL } from "../src/operation-registry.js";
 
 const SERVER_PATH = fileURLToPath(new URL("../src/index.js", import.meta.url));
 
@@ -455,8 +456,7 @@ test("mythify MCP server smoke test", async (t) => {
       const refused = textOf(
         await client.callTool({ name: "memory_clear", arguments: {} })
       );
-      assert.ok(refused.startsWith("[FAIL]"), `clear-all refusal starts with [FAIL]: ${refused}`);
-      assert.match(refused, /confirm_clear_all/, "refusal explains the guard");
+      assert.equal(refused, MEMORY_CLEAR_MCP_REFUSAL);
       assert.deepEqual(
         snapshotStateDir(stateDir),
         snapshotBeforeRefusal,

@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init"
 )
@@ -50,7 +52,20 @@ STATUS_ICONS = {
     "failed": "[!]",
     "skipped": "[~]",
 }
-MEMORY_CATEGORIES = ("fact", "decision", "discovery", "state")
+
+
+def load_operation_registry():
+    with OPERATION_REGISTRY_PATH.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+OPERATION_REGISTRY = load_operation_registry()
+MEMORY_OPERATION_REGISTRY = OPERATION_REGISTRY["surfaces"]["memory"]
+MEMORY_CATEGORIES = tuple(MEMORY_OPERATION_REGISTRY["categories"])
+MEMORY_DEFAULT_CATEGORY = MEMORY_OPERATION_REGISTRY["default_category"]
+MEMORY_CLEAR_CLI_REFUSAL = (
+    MEMORY_OPERATION_REGISTRY["operations"]["memory_clear"]["cli"]["refusal"]
+)
 REFLECT_OUTCOMES = ("success", "partial", "failure")
 TAIL_CHARS = 4000
 DEFAULT_VERIFY_TIMEOUT = 300.0
@@ -2519,10 +2534,7 @@ def cmd_memory_get(args, state):
 
 def cmd_memory_clear(args, state):
     if not args.key and not args.clear_all:
-        fail(
-            "[FAIL] Refusing to clear memory: pass KEY to remove a single entry, "
-            "or --all to clear every entry."
-        )
+        fail(MEMORY_CLEAR_CLI_REFUSAL)
         return 1
     memory = load_memory(state)
     if args.clear_all:
@@ -3371,8 +3383,8 @@ def build_parser():
     p.add_argument(
         "--category",
         choices=MEMORY_CATEGORIES,
-        default="fact",
-        help="Entry category (default: fact).",
+        default=MEMORY_DEFAULT_CATEGORY,
+        help="Entry category (default: {0}).".format(MEMORY_DEFAULT_CATEGORY),
     )
     p.set_defaults(handler=cmd_memory_set)
 

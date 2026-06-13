@@ -208,6 +208,10 @@ The only global state is the cross-project lessons store in `~/.mythify/lessons/
 All JSON writes are atomic, and corrupt files are renamed aside with a `[WARN]`
 instead of crashing.
 
+`protocol/operation-registry.json` backs the shared memory operation contract.
+The Python CLI and MCP server both read it for memory categories, the default
+category, and the guarded `memory_clear` refusal text.
+
 ## CLI command reference
 
 | Command | Behavior | Exit code |
@@ -692,6 +696,10 @@ outcomes, verification records, and reflections. It skips automatically when
 Whole-state no-mutation tests snapshot every file under `.mythify` before and
 after representative refusal paths, proving guarded failures do not create,
 delete, or rewrite unrelated state.
+
+Operation registry tests compare the memory CLI and MCP behavior with
+`protocol/operation-registry.json` so duplicated operation contracts cannot
+quietly drift.
 
 ## Limitations
 
