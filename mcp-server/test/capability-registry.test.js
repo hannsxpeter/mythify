@@ -142,6 +142,14 @@ test("stable adapter interface normalizes candidate lanes", () => {
   assert.deepEqual(catalog["google-colab-cli"].roles, ["remote_execution"]);
   assert.ok(catalog["google-colab-cli"].guardrails.includes("billing_ack_required"));
 
+  assert.equal(catalog["google-agents-cli"].kind, "agent_lifecycle");
+  assert.equal(
+    catalog["google-agents-cli"].evidence_status,
+    "lifecycle_probe_output_not_verification"
+  );
+  assert.ok(catalog["google-agents-cli"].guardrails.includes("no_eval_execution"));
+  assert.ok(catalog["google-agents-cli"].guardrails.includes("no_deploy"));
+
   assert.deepEqual(
     adapterInterfaceForCandidate("custom-http", ADAPTER_CANDIDATES["custom-http"]).roles,
     []
@@ -336,11 +344,38 @@ test("researched future adapters are candidates, not public host platforms", () 
   assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_probe_eval, true);
   assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_run_eval, false);
   assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].can_deploy, false);
+  assert.equal(ADAPTER_CANDIDATES["google-agents-cli"].output_is_evidence, false);
+  assert.equal(
+    ADAPTER_CANDIDATES["google-agents-cli"].lifecycle_mutation_policy,
+    "probe_only_no_project_or_cloud_mutation"
+  );
+  assert.deepEqual(ADAPTER_CANDIDATES["google-agents-cli"].lifecycle_allowed_probe_commands, [
+    "--version",
+    "--help",
+    "eval --help",
+  ]);
+  assert.ok(ADAPTER_CANDIDATES["google-agents-cli"].lifecycle_disabled_actions.includes("setup"));
+  assert.ok(
+    ADAPTER_CANDIDATES["google-agents-cli"].lifecycle_future_guarded_actions.includes(
+      "deployment"
+    )
+  );
   assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].status, "probe_supported");
   assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_probe, true);
   assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_probe_eval, true);
   assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_run_eval, false);
   assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].can_deploy, false);
+  assert.equal(ADAPTER_CANDIDATES["google-adk-cli"].output_is_evidence, false);
+  assert.equal(
+    ADAPTER_CANDIDATES["google-adk-cli"].lifecycle_mutation_policy,
+    "probe_only_no_project_or_cloud_mutation"
+  );
+  assert.ok(ADAPTER_CANDIDATES["google-adk-cli"].lifecycle_disabled_actions.includes("web"));
+  assert.ok(
+    ADAPTER_CANDIDATES["google-adk-cli"].lifecycle_future_guarded_actions.includes(
+      "eval_execution"
+    )
+  );
 });
 
 test("generated adapter candidate docs stay in sync with registry", () => {

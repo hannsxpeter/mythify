@@ -5482,6 +5482,79 @@ const LIFECYCLE_PROBES = {
     ],
   },
 };
+const LIFECYCLE_CONTRACT_VERSION = 1;
+const LIFECYCLE_REQUIRED_BEFORE_EVAL_EXECUTION = [
+  "explicit_user_request",
+  "agent_project_path",
+  "eval_dataset_or_eval_set",
+  "bounded_timeout",
+  "credential_source_summary",
+  "project_mutation_ack",
+  "material_not_verification",
+  "artifact_or_report_path",
+];
+const LIFECYCLE_REQUIRED_BEFORE_DEPLOYMENT = [
+  "explicit_user_request",
+  "target_platform",
+  "project_id",
+  "region",
+  "billing_ack",
+  "data_movement_ack",
+  "cloud_mutation_ack",
+  "rollback_or_teardown_posture",
+  "material_not_verification",
+];
+
+function lifecycleLaneContract(adapter, adapterInfo = {}) {
+  const commonDisabledActions = [
+    "project_scaffold",
+    "project_create",
+    "agent_run",
+    "eval_execution",
+    "deployment",
+    "publishing",
+    "cloud_mutation",
+    "project_mutation",
+  ];
+  const adapterDisabledActions = adapterInfo.lifecycle_disabled_actions || [];
+  return {
+    version: LIFECYCLE_CONTRACT_VERSION,
+    adapter,
+    lane: "agent_lifecycle",
+    status: adapterInfo.status || "probe_supported",
+    current_policy: "probe_only",
+    allowed_probe_actions: adapterInfo.lifecycle_allowed_probe_actions || [
+      "probe_version",
+      "probe_help",
+      "probe_eval_help",
+    ],
+    allowed_probe_commands: adapterInfo.lifecycle_allowed_probe_commands || [
+      "--version",
+      "--help",
+      "eval --help",
+    ],
+    adapter_specific_disabled_actions: adapterDisabledActions,
+    disabled_actions: [...new Set([...commonDisabledActions, ...adapterDisabledActions])],
+    future_guarded_actions: adapterInfo.lifecycle_future_guarded_actions || [
+      "eval_execution",
+      "deployment",
+      "publishing",
+    ],
+    required_before_eval_execution: LIFECYCLE_REQUIRED_BEFORE_EVAL_EXECUTION,
+    required_before_deployment: LIFECYCLE_REQUIRED_BEFORE_DEPLOYMENT,
+    mutation_policy: adapterInfo.lifecycle_mutation_policy || "probe_only_no_project_or_cloud_mutation",
+    material_not_evidence: true,
+    evidence_status: adapterInfo.evidence_status || "lifecycle_probe_output_not_verification",
+    writes_state: false,
+    verification_recorded: false,
+    eval_execution_enabled: false,
+    deployment_enabled: false,
+    scaffold_enabled: false,
+    run_enabled: false,
+    cloud_mutation_enabled: false,
+    project_mutation_enabled: false,
+  };
+}
 
 function resolveLifecycleProbeBinary(adapter, explicitBin) {
   const config = LIFECYCLE_PROBES[adapter];
@@ -5546,6 +5619,7 @@ function probeLifecycleAdapter({ adapter, bin, timeout_seconds }) {
   const timeoutSeconds =
     typeof timeout_seconds === "number" && timeout_seconds > 0 ? timeout_seconds : 10;
   const adapterInfo = ADAPTER_CANDIDATES[selectedAdapter] || {};
+  const lifecycleContract = lifecycleLaneContract(selectedAdapter, adapterInfo);
   const resolved = resolveLifecycleProbeBinary(selectedAdapter, bin);
   const result = {
     adapter: selectedAdapter,
@@ -5554,15 +5628,22 @@ function probeLifecycleAdapter({ adapter, bin, timeout_seconds }) {
     binary: resolved.bin,
     binary_source: resolved.source,
     material_not_evidence: true,
-    evidence_status: "probe_only_not_verification",
+    evidence_status: lifecycleContract.evidence_status,
+    writes_state: lifecycleContract.writes_state,
+    verification_recorded: lifecycleContract.verification_recorded,
+    lifecycle_lane_contract: lifecycleContract,
+    allowed_probe_actions: lifecycleContract.allowed_probe_actions,
+    allowed_probe_commands: lifecycleContract.allowed_probe_commands,
+    disabled_lifecycle_actions: lifecycleContract.disabled_actions,
+    future_guarded_actions: lifecycleContract.future_guarded_actions,
     can_probe_eval: false,
-    eval_execution_enabled: false,
-    deployment_enabled: false,
-    scaffold_enabled: false,
-    run_enabled: false,
-    cloud_mutation_enabled: false,
-    project_mutation_enabled: false,
-    billing_guard: "probe_only_no_lifecycle_mutation",
+    eval_execution_enabled: lifecycleContract.eval_execution_enabled,
+    deployment_enabled: lifecycleContract.deployment_enabled,
+    scaffold_enabled: lifecycleContract.scaffold_enabled,
+    run_enabled: lifecycleContract.run_enabled,
+    cloud_mutation_enabled: lifecycleContract.cloud_mutation_enabled,
+    project_mutation_enabled: lifecycleContract.project_mutation_enabled,
+    billing_guard: lifecycleContract.mutation_policy,
     feature_evidence: "",
     checks: [],
     error: resolved.error,
@@ -5603,6 +5684,11 @@ function formatLifecycleProbe(result) {
     `run enabled: ${result.run_enabled ? "yes" : "no"}`,
     `cloud mutation enabled: ${result.cloud_mutation_enabled ? "yes" : "no"}`,
     `project mutation enabled: ${result.project_mutation_enabled ? "yes" : "no"}`,
+    `writes state: ${result.writes_state ? "yes" : "no"}`,
+    `verification recorded: ${result.verification_recorded ? "yes" : "no"}`,
+    `allowed probe actions: ${result.allowed_probe_actions.join(", ")}`,
+    `disabled lifecycle actions: ${result.disabled_lifecycle_actions.join(", ")}`,
+    `future guarded actions: ${result.future_guarded_actions.join(", ")}`,
     `feature evidence: ${result.feature_evidence || "none"}`,
     `billing guard: ${result.billing_guard}`,
     "evidence: probe output is material, not verification evidence.",

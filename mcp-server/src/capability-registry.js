@@ -651,6 +651,41 @@ export const ADAPTER_CANDIDATES = {
     can_probe_eval: true,
     can_run_eval: false,
     can_deploy: false,
+    can_publish: false,
+    can_scaffold: false,
+    can_run_agent: false,
+    can_mutate_project: false,
+    can_mutate_cloud: false,
+    writes_state: false,
+    output_is_evidence: false,
+    evidence_status: "lifecycle_probe_output_not_verification",
+    lifecycle_allowed_probe_actions: ["probe_version", "probe_help", "probe_eval_help"],
+    lifecycle_allowed_probe_commands: ["--version", "--help", "eval --help"],
+    lifecycle_disabled_actions: [
+      "setup",
+      "scaffold",
+      "project_create",
+      "agent_run",
+      "eval_execution",
+      "deployment",
+      "publishing",
+      "cloud_mutation",
+      "project_mutation",
+    ],
+    lifecycle_future_guarded_actions: ["eval_execution", "deployment", "publishing"],
+    lifecycle_mutation_policy: "probe_only_no_project_or_cloud_mutation",
+    guardrails: [
+      "probe_only",
+      "no_scaffold",
+      "no_agent_run",
+      "no_eval_execution",
+      "no_deploy",
+      "no_publish",
+      "no_cloud_mutation",
+      "no_project_mutation",
+      "material_not_verification",
+      "no_mythify_state_write",
+    ],
   },
   "google-adk-cli": {
     kind: "agent_lifecycle",
@@ -661,6 +696,40 @@ export const ADAPTER_CANDIDATES = {
     can_probe_eval: true,
     can_run_eval: false,
     can_deploy: false,
+    can_publish: false,
+    can_scaffold: false,
+    can_run_agent: false,
+    can_mutate_project: false,
+    can_mutate_cloud: false,
+    writes_state: false,
+    output_is_evidence: false,
+    evidence_status: "lifecycle_probe_output_not_verification",
+    lifecycle_allowed_probe_actions: ["probe_version", "probe_help", "probe_eval_help"],
+    lifecycle_allowed_probe_commands: ["--version", "--help", "eval --help"],
+    lifecycle_disabled_actions: [
+      "create",
+      "run",
+      "web",
+      "eval_execution",
+      "deployment",
+      "publishing",
+      "cloud_mutation",
+      "project_mutation",
+    ],
+    lifecycle_future_guarded_actions: ["eval_execution", "deployment", "publishing"],
+    lifecycle_mutation_policy: "probe_only_no_project_or_cloud_mutation",
+    guardrails: [
+      "probe_only",
+      "no_create",
+      "no_agent_run",
+      "no_eval_execution",
+      "no_deploy",
+      "no_publish",
+      "no_cloud_mutation",
+      "no_project_mutation",
+      "material_not_verification",
+      "no_mythify_state_write",
+    ],
   },
 };
 
@@ -756,6 +825,9 @@ function adapterRoles(name, candidate) {
 
 function adapterGuardrails(candidate) {
   const guardrails = [ROLE_PROVIDER_FALLBACK_POLICY];
+  if (Array.isArray(candidate.guardrails)) {
+    guardrails.push(...candidate.guardrails);
+  }
   if (candidate.metadata_only) {
     guardrails.push("metadata_only");
   }

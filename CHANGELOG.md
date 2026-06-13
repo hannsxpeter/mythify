@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent lifecycle lane contract. MCP `lifecycle_probe` now returns
+  `lifecycle_lane_contract` with allowed probe commands, disabled lifecycle
+  actions, future guarded actions, eval and deployment prerequisites, mutation
+  policy, write-state posture, and material-only evidence status. Google
+  Agents CLI and ADK registry entries now carry the same probe-only guardrails
+  into generated adapter docs.
 - Stable cross-platform role assignment metadata. CLI and MCP
   `model_policy.provider_defaults` now expose `role_assignment_contract`,
   mapping session, triage, reader, fanout worker, reviewer, verifier, remote

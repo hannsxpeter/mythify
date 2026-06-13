@@ -59,14 +59,39 @@ async function withClient(env, fn) {
 
 function assertProbeOnlyLifecycle(parsed) {
   assert.equal(parsed.material_not_evidence, true);
-  assert.equal(parsed.evidence_status, "probe_only_not_verification");
+  assert.equal(parsed.evidence_status, "lifecycle_probe_output_not_verification");
+  assert.equal(parsed.writes_state, false);
+  assert.equal(parsed.verification_recorded, false);
   assert.equal(parsed.eval_execution_enabled, false);
   assert.equal(parsed.deployment_enabled, false);
   assert.equal(parsed.scaffold_enabled, false);
   assert.equal(parsed.run_enabled, false);
   assert.equal(parsed.cloud_mutation_enabled, false);
   assert.equal(parsed.project_mutation_enabled, false);
-  assert.equal(parsed.billing_guard, "probe_only_no_lifecycle_mutation");
+  assert.equal(parsed.billing_guard, "probe_only_no_project_or_cloud_mutation");
+  assert.deepEqual(parsed.allowed_probe_actions, [
+    "probe_version",
+    "probe_help",
+    "probe_eval_help",
+  ]);
+  assert.deepEqual(parsed.allowed_probe_commands, ["--version", "--help", "eval --help"]);
+  assert.ok(parsed.disabled_lifecycle_actions.includes("eval_execution"));
+  assert.ok(parsed.disabled_lifecycle_actions.includes("deployment"));
+  assert.ok(parsed.disabled_lifecycle_actions.includes("cloud_mutation"));
+  assert.ok(parsed.future_guarded_actions.includes("eval_execution"));
+  assert.ok(parsed.future_guarded_actions.includes("deployment"));
+  assert.equal(parsed.lifecycle_lane_contract.version, 1);
+  assert.equal(parsed.lifecycle_lane_contract.lane, "agent_lifecycle");
+  assert.equal(parsed.lifecycle_lane_contract.current_policy, "probe_only");
+  assert.equal(parsed.lifecycle_lane_contract.material_not_evidence, true);
+  assert.equal(parsed.lifecycle_lane_contract.writes_state, false);
+  assert.equal(parsed.lifecycle_lane_contract.verification_recorded, false);
+  assert.ok(
+    parsed.lifecycle_lane_contract.required_before_eval_execution.includes(
+      "eval_dataset_or_eval_set"
+    )
+  );
+  assert.ok(parsed.lifecycle_lane_contract.required_before_deployment.includes("billing_ack"));
 }
 
 test("lifecycle_probe detects Google Agents CLI without running lifecycle actions", async () => {
@@ -108,6 +133,14 @@ test("lifecycle_probe detects Google Agents CLI without running lifecycle action
         assert.equal(probed.status, "available");
         assert.equal(probed.can_probe_eval, true);
         assertProbeOnlyLifecycle(probed);
+        assert.ok(
+          probed.lifecycle_lane_contract.adapter_specific_disabled_actions.includes("setup")
+        );
+        assert.ok(
+          probed.lifecycle_lane_contract.adapter_specific_disabled_actions.includes("scaffold")
+        );
+        assert.ok(probed.disabled_lifecycle_actions.includes("setup"));
+        assert.ok(probed.disabled_lifecycle_actions.includes("scaffold"));
         assert.match(probed.feature_evidence, /no scaffold/);
         assert.deepEqual(probed.checks.map((item) => item.args), [["--version"], ["--help"], ["eval", "--help"]]);
         assert.equal(fs.existsSync(path.join(stateDir, "verifications.jsonl")), false);
@@ -160,6 +193,14 @@ test("lifecycle_probe detects ADK CLI eval help without running evals", async ()
         assert.equal(probed.status, "available");
         assert.equal(probed.can_probe_eval, true);
         assertProbeOnlyLifecycle(probed);
+        assert.ok(
+          probed.lifecycle_lane_contract.adapter_specific_disabled_actions.includes("create")
+        );
+        assert.ok(
+          probed.lifecycle_lane_contract.adapter_specific_disabled_actions.includes("web")
+        );
+        assert.ok(probed.disabled_lifecycle_actions.includes("create"));
+        assert.ok(probed.disabled_lifecycle_actions.includes("web"));
         assert.match(probed.feature_evidence, /no create/);
         assert.deepEqual(probed.checks.map((item) => item.args), [["--version"], ["--help"], ["eval", "--help"]]);
         assert.equal(fs.existsSync(path.join(stateDir, "verifications.jsonl")), false);

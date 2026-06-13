@@ -21,13 +21,13 @@ Status markers:
 
 ## Active Now
 
-- [>] Agent lifecycle lane hardening.
-  - Current goal: make the Google Agents CLI and ADK lifecycle lane clearer for
-    probe-only, future eval, and future deploy boundaries.
-  - Next step: map lifecycle actions that remain probe-only versus future
-    guarded actions.
-  - Guardrail: do not run evals, deploy, publish, scaffold projects, mutate
-    cloud resources, or write project state.
+- [>] CLI-only to model-runtime orchestration migration guide.
+  - Current goal: write the path from today's CLI-first workflow to optional
+    host, local model, API provider, execution substrate, and lifecycle lanes.
+  - Next step: map the current CLI-only entry points to the new provider and
+    adapter contracts.
+  - Guardrail: keep migration guidance opt-in and operational; do not imply
+    hidden model routing, automatic spending, remote execution, or deployment.
 
 ## Next Queue
 
@@ -180,6 +180,9 @@ Already shipped in this track:
   adapters.
 - [x] `lifecycle_probe` checks Google Agents CLI and ADK CLI availability with
   version, help, and eval-help commands only.
+- [x] `lifecycle_probe` returns `lifecycle_lane_contract` with allowed probe
+  commands, disabled lifecycle actions, future guarded actions, eval and
+  deployment prerequisites, mutation policy, and material-only evidence status.
 - [x] `docs/agents-cli-adk-spike-plan.md` records the non-deploying lifecycle
   scope.
 
@@ -292,6 +295,12 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add agent lifecycle lane contract. MCP `lifecycle_probe`
+  now returns `lifecycle_lane_contract` with allowed probe commands, disabled
+  lifecycle actions, future guarded actions, eval and deployment prerequisites,
+  mutation policy, write-state posture, and material-only evidence status.
+  Google Agents CLI and ADK registry entries now carry the same probe-only
+  guardrails into generated adapter docs.
 - [x] 2026-06-13: add stable cross-platform role assignment metadata. CLI and
   MCP `model_policy.provider_defaults` now expose `role_assignment_contract`,
   mapping session, triage, reader, fanout worker, reviewer, verifier, remote
@@ -574,10 +583,10 @@ Preserve:
 - [x] Desktop local-agent lane for Kimi Work and OpenCode Desktop style
   workflows.
 - [x] Execution adapter lane for Colab CLI style remote jobs.
-- [>] Agent lifecycle lane for Agents CLI and ADK style workflows.
+- [x] Agent lifecycle lane for Agents CLI and ADK style workflows.
 - [x] One-core architecture decision based on the registry prototype.
 - [x] Stronger workflow surfaces.
-- [ ] Clear migration guide from CLI-only usage to model-runtime orchestration.
+- [>] Clear migration guide from CLI-only usage to model-runtime orchestration.
 
 ## References
 
