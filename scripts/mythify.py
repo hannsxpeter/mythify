@@ -193,6 +193,32 @@ ROLE_COST_METADATA_FIELDS = (
     "pricing_url",
     "usage_metadata_fields",
 )
+ADAPTER_INTERFACE_VERSION = 1
+ADAPTER_INTERFACE_FIELDS = (
+    "id",
+    "kind",
+    "status",
+    "locality",
+    "openai_compatible",
+    "probe_supported",
+    "run_supported",
+    "execution_enabled",
+    "writes_state",
+    "evidence_status",
+    "material_not_evidence",
+    "billing",
+    "roles",
+    "guardrails",
+)
+ADAPTER_INTERFACE_LANES = (
+    "host",
+    "desktop_agent",
+    "model_provider",
+    "api_provider",
+    "custom_adapter",
+    "execution_substrate",
+    "agent_lifecycle",
+)
 ROLE_TIMEOUT_DEFAULTS = {
     "session": {
         "timeout_seconds": None,
@@ -2359,6 +2385,18 @@ def custom_adapter_contract():
     }
 
 
+def adapter_interface_contract():
+    return {
+        "version": ADAPTER_INTERFACE_VERSION,
+        "status": "metadata_supported",
+        "fields": list(ADAPTER_INTERFACE_FIELDS),
+        "lanes": list(ADAPTER_INTERFACE_LANES),
+        "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
+        "execution_policy": "metadata_shape_only_no_runtime_change",
+        "guardrail": "interface_does_not_enable_fallback_or_state_writes",
+    }
+
+
 def build_provider_defaults():
     return {
         "version": 1,
@@ -2367,6 +2405,7 @@ def build_provider_defaults():
         "timeout_metadata_fields": list(ROLE_TIMEOUT_METADATA_FIELDS),
         "cost_metadata_fields": list(ROLE_COST_METADATA_FIELDS),
         "provider_catalog": role_provider_catalog(),
+        "adapter_interface_contract": adapter_interface_contract(),
         "api_provider_contract": api_provider_contract(),
         "custom_adapter_contract": custom_adapter_contract(),
         "roles": {

@@ -354,6 +354,11 @@ have to guess which model setting applies where:
   and `local_command`: allowed roles, default roles, billing posture,
   execution boundary, evidence status, state-write posture, and fallback
   policy. Each resolved role also includes its selected `provider_profile`.
+  `provider_defaults.adapter_interface_contract` defines the shared adapter
+  metadata shape across host, desktop agent, model provider, API provider,
+  custom adapter, execution substrate, and agent lifecycle lanes. It is a
+  metadata contract only: it does not enable runtime routing, fallback, or new
+  state writes.
   `provider_defaults.api_provider_contract` lists metadata-supported hosted
   API providers, currently OpenAI, Anthropic, and hosted OpenAI-compatible
   endpoints. It records auth env names, billing posture, timeout fields, cost
@@ -882,6 +887,9 @@ registrations, public docs, and CLI help output.
 `mcp-server/src/capability-registry.js` by `node scripts/build_registry_docs.mjs`.
 The Node suite and CI hygiene job compare the committed file with fresh
 registry output, so adapter docs cannot quietly drift from the registry.
+Every generated row includes the stable adapter interface version, locality,
+probe and run support, execution boundary, state-write posture, evidence
+status, roles, and guardrails.
 Some candidates are metadata-only: Kimi Work and OpenCode Desktop are tracked
 as `desktop_agent` entries, but Mythify does not run or automate them until a
 documented or locally probeable automation contract exists.

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Stable adapter interface metadata. CLI and MCP `model_policy.provider_defaults`
+  now expose `adapter_interface_contract`, and generated adapter candidate docs
+  normalize every registry lane to shared interface, locality, execution,
+  state-write, evidence, role, and guardrail fields without changing runtime
+  routing.
 - Host adapter proof scans. CLI and MCP host-model status now include
   `adapter_proof_scan`, and MCP `host_cli_probe` reports current-chat apply,
   current-chat confirm, worker model override, and thinking override proof

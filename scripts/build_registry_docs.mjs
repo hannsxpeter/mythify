@@ -2,7 +2,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ADAPTER_CANDIDATES } from "../mcp-server/src/capability-registry.js";
+import {
+  ADAPTER_CANDIDATES,
+  adapterInterfaceForCandidate,
+} from "../mcp-server/src/capability-registry.js";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
@@ -83,20 +86,29 @@ function proofStatus(candidate, field) {
 export function renderAdapterCandidatesDoc(candidates = ADAPTER_CANDIDATES) {
   const rows = Object.entries(candidates)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, candidate]) => [
-      name,
-      candidate.kind,
-      candidate.status,
-      yesNo(candidate.local),
-      yesNo(candidate.openai_compatible),
-      yesNo(candidate.can_probe),
-      runPath(candidate),
-      proofStatus(candidate, "current_chat_model_apply_status"),
-      proofStatus(candidate, "current_chat_model_confirm_status"),
-      proofStatus(candidate, "worker_model_override_status"),
-      proofStatus(candidate, "thinking_override_status"),
-      evidenceStatus(candidate),
-    ]);
+    .map(([name, candidate]) => {
+      const adapterInterface = adapterInterfaceForCandidate(name, candidate);
+      return [
+        name,
+        "v" + adapterInterface.interface_version,
+        adapterInterface.kind,
+        adapterInterface.status,
+        adapterInterface.locality,
+        yesNo(adapterInterface.probe_supported),
+        yesNo(adapterInterface.run_supported),
+        yesNo(adapterInterface.execution_enabled),
+        yesNo(adapterInterface.writes_state),
+        adapterInterface.evidence_status,
+        adapterInterface.roles.length ? adapterInterface.roles.join(", ") : "none",
+        adapterInterface.guardrails.length ? adapterInterface.guardrails.join(", ") : "none",
+        runPath(candidate),
+        proofStatus(candidate, "current_chat_model_apply_status"),
+        proofStatus(candidate, "current_chat_model_confirm_status"),
+        proofStatus(candidate, "worker_model_override_status"),
+        proofStatus(candidate, "thinking_override_status"),
+        evidenceStatus(candidate),
+      ];
+    });
   const lines = [
     "<!-- Generated from mcp-server/src/capability-registry.js by scripts/build_registry_docs.mjs. Edit the registry, then rebuild. -->",
     "",
@@ -104,8 +116,8 @@ export function renderAdapterCandidatesDoc(candidates = ADAPTER_CANDIDATES) {
     "",
     "This file is generated from `mcp-server/src/capability-registry.js`. Do not edit it by hand.",
     "",
-    "| Adapter | Kind | Status | Local | OpenAI Compatible | Probe | Run Path | Current Chat Apply | Current Chat Confirm | Worker Model Override | Thinking Override | Evidence |",
-    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    "| Adapter | Interface | Kind | Status | Locality | Probe | Run | Execution Enabled | Writes State | Evidence Status | Roles | Guardrails | Run Path | Current Chat Apply | Current Chat Confirm | Worker Model Override | Thinking Override | Evidence |",
+    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
   ];
   for (const row of rows) {
     lines.push("| " + row.map(escapeCell).join(" | ") + " |");

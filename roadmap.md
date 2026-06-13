@@ -21,13 +21,14 @@ Status markers:
 
 ## Active Now
 
-- [>] Stable adapter interface draft.
-  - Current goal: turn the host, host CLI, local model, API provider,
-    execution, and lifecycle lanes into one small adapter interface.
-  - Next step: design the shared fields every adapter lane should expose
-    without changing runtime behavior.
-  - Guardrail: this run should standardize metadata shape only; it must not
-    add automatic provider fallback or new write-enabled worker behavior.
+- [>] Stable cross-platform role assignment.
+  - Current goal: use the stable adapter interface to make role assignment
+    consistent across host, local model, API provider, custom command,
+    execution, and lifecycle lanes.
+  - Next step: map each role to adapter interface constraints before changing
+    any runtime routing.
+  - Guardrail: role assignment must remain explicit and no-surprise; do not
+    add hidden provider fallback or write-enabled spawned workers.
 
 ## Next Queue
 
@@ -76,6 +77,8 @@ Already shipped in this track:
 - [x] Provider-specific role defaults in CLI and MCP `model_policy`.
 - [x] API provider metadata exposed before hosted execution exists.
 - [x] Cost and timeout metadata per role and fanout worker records.
+- [x] Stable adapter interface metadata for role, execution, evidence,
+  state-write, locality, and guardrail fields.
 
 Role model:
 
@@ -288,6 +291,11 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add stable adapter interface metadata. CLI and MCP
+  `model_policy.provider_defaults` now expose `adapter_interface_contract`,
+  and generated adapter candidate docs normalize every registry lane to shared
+  interface, locality, execution, state-write, evidence, role, and guardrail
+  fields without changing runtime routing.
 - [x] 2026-06-13: add host adapter proof scans. Host model status now includes
   `adapter_proof_scan`, and `host_cli_probe` reports current-chat apply,
   current-chat confirm, worker model override, and thinking override proof
@@ -554,8 +562,8 @@ Preserve:
 
 ### v3.0
 
-- [ ] Stable cross-platform role assignment.
-- [>] Stable adapter interface.
+- [>] Stable cross-platform role assignment.
+- [x] Stable adapter interface.
 - [x] Desktop local-agent lane for Kimi Work and OpenCode Desktop style
   workflows.
 - [x] Execution adapter lane for Colab CLI style remote jobs.

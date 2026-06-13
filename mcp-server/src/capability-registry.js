@@ -121,6 +121,33 @@ export const ROLE_COST_METADATA_FIELDS = [
   "usage_metadata_fields",
 ];
 
+export const ADAPTER_INTERFACE_VERSION = 1;
+export const ADAPTER_INTERFACE_FIELDS = [
+  "id",
+  "kind",
+  "status",
+  "locality",
+  "openai_compatible",
+  "probe_supported",
+  "run_supported",
+  "execution_enabled",
+  "writes_state",
+  "evidence_status",
+  "material_not_evidence",
+  "billing",
+  "roles",
+  "guardrails",
+];
+export const ADAPTER_INTERFACE_LANES = [
+  "host",
+  "desktop_agent",
+  "model_provider",
+  "api_provider",
+  "custom_adapter",
+  "execution_substrate",
+  "agent_lifecycle",
+];
+
 export const ROLE_TIMEOUT_DEFAULTS = {
   session: {
     timeout_seconds: null,
@@ -645,4 +672,140 @@ export function listAdapterCandidates(kind = "") {
   return Object.entries(ADAPTER_CANDIDATES)
     .filter(([, candidate]) => kind === "" || candidate.kind === kind)
     .map(([name, candidate]) => ({ name, ...candidate }));
+}
+
+function adapterLocality(candidate) {
+  if (candidate.local === true || candidate.local_only === true) {
+    return "local";
+  }
+  if (candidate.local === false) {
+    return "remote_or_hosted";
+  }
+  return "unknown";
+}
+
+function adapterRunSupported(candidate) {
+  return Boolean(
+    candidate.can_run_local_roles ||
+      candidate.can_run_noninteractive_prompt ||
+      candidate.can_run_bounded_worker ||
+      candidate.can_run_api_worker ||
+      candidate.can_run_http_worker ||
+      candidate.can_run_remote_job ||
+      candidate.can_run_eval ||
+      candidate.can_deploy
+  );
+}
+
+function adapterExecutionEnabled(candidate) {
+  if (candidate.execution_enabled === true) {
+    return true;
+  }
+  if (candidate.execution_enabled === false || candidate.metadata_only) {
+    return false;
+  }
+  return adapterRunSupported(candidate);
+}
+
+function adapterMaterialNotEvidence(candidate) {
+  return Boolean(
+    candidate.metadata_only ||
+      candidate.output_is_evidence === false ||
+      candidate.worker_output_is_evidence === false ||
+      candidate.evidence_status?.endsWith("_not_verification")
+  );
+}
+
+function adapterEvidenceStatus(candidate) {
+  if (candidate.evidence_status) {
+    return candidate.evidence_status;
+  }
+  if (candidate.metadata_only) {
+    return "metadata_not_verification";
+  }
+  if (candidate.worker_output_is_evidence === false) {
+    return "worker_output_not_verification";
+  }
+  if (candidate.output_is_evidence === false) {
+    return "adapter_output_not_verification";
+  }
+  return "unknown";
+}
+
+function adapterRoles(name, candidate) {
+  if (Array.isArray(candidate.local_roles)) {
+    return candidate.local_roles;
+  }
+  if (candidate.kind === "host") {
+    return ["triage", "fanout_worker", "reviewer"];
+  }
+  if (candidate.kind === "api_provider") {
+    return ["fanout_worker", "reviewer"];
+  }
+  if (name === "custom-command") {
+    return ["triage", "fanout_worker", "reviewer"];
+  }
+  if (candidate.kind === "execution_substrate") {
+    return ["remote_execution"];
+  }
+  if (candidate.kind === "agent_lifecycle") {
+    return ["agent_lifecycle"];
+  }
+  return [];
+}
+
+function adapterGuardrails(candidate) {
+  const guardrails = [ROLE_PROVIDER_FALLBACK_POLICY];
+  if (candidate.metadata_only) {
+    guardrails.push("metadata_only");
+  }
+  if (candidate.explicit_enable_required) {
+    guardrails.push("explicit_enable_required");
+  }
+  if (candidate.requires_billing_ack) {
+    guardrails.push("billing_ack_required");
+  }
+  if (candidate.requires_data_movement_ack) {
+    guardrails.push("data_movement_ack_required");
+  }
+  if (candidate.requires_cleanup_ack) {
+    guardrails.push("cleanup_ack_required");
+  }
+  if (adapterMaterialNotEvidence(candidate)) {
+    guardrails.push("material_not_verification");
+  }
+  if (candidate.writes_state !== true) {
+    guardrails.push("no_mythify_state_write");
+  }
+  return [...new Set(guardrails)];
+}
+
+export function adapterInterfaceForCandidate(name, candidate) {
+  return {
+    interface_version: ADAPTER_INTERFACE_VERSION,
+    id: name,
+    kind: candidate.kind || "unknown",
+    status: candidate.status || "unknown",
+    locality: adapterLocality(candidate),
+    openai_compatible: candidate.openai_compatible === true,
+    probe_supported: Boolean(candidate.can_probe || candidate.non_billable_probe || candidate.can_probe_eval),
+    run_supported: adapterRunSupported(candidate),
+    execution_enabled: adapterExecutionEnabled(candidate),
+    writes_state: candidate.writes_state === true,
+    evidence_status: adapterEvidenceStatus(candidate),
+    material_not_evidence: adapterMaterialNotEvidence(candidate),
+    billing: candidate.billing || "unknown",
+    roles: adapterRoles(name, candidate),
+    guardrails: adapterGuardrails(candidate),
+  };
+}
+
+export function buildAdapterInterfaceCatalog(candidates = ADAPTER_CANDIDATES) {
+  const catalog = {};
+  for (const [name, candidate] of Object.entries(candidates).sort(([left], [right]) =>
+    left.localeCompare(right)
+  )) {
+    catalog[name] = adapterInterfaceForCandidate(name, candidate);
+  }
+  return catalog;
 }

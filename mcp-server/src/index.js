@@ -18,6 +18,9 @@ import { z } from "zod";
 import { registerFanoutTools } from "./fanout.js";
 import {
   ADAPTER_CANDIDATES,
+  ADAPTER_INTERFACE_FIELDS,
+  ADAPTER_INTERFACE_LANES,
+  ADAPTER_INTERFACE_VERSION,
   EFFORT_LEVELS,
   FANOUT_VISIBILITY_MODES,
   HOST_MODEL_DEFAULTS,
@@ -41,6 +44,7 @@ import {
   STRONG_HOST_TASK_TYPES,
   TRIAGE_ENGINES,
   TRIAGE_MODES,
+  buildAdapterInterfaceCatalog,
   getHostCapability,
 } from "./capability-registry.js";
 import {
@@ -3436,6 +3440,19 @@ function customAdapterContract() {
   };
 }
 
+function adapterInterfaceContract() {
+  return {
+    version: ADAPTER_INTERFACE_VERSION,
+    status: "metadata_supported",
+    fields: ADAPTER_INTERFACE_FIELDS,
+    lanes: ADAPTER_INTERFACE_LANES,
+    fallback_policy: ROLE_PROVIDER_FALLBACK_POLICY,
+    execution_policy: "metadata_shape_only_no_runtime_change",
+    guardrail: "interface_does_not_enable_fallback_or_state_writes",
+    candidates: buildAdapterInterfaceCatalog(),
+  };
+}
+
 function buildProviderDefaults() {
   const roles = {};
   for (const role of ROLE_PROVIDER_ORDER) {
@@ -3448,6 +3465,7 @@ function buildProviderDefaults() {
     timeout_metadata_fields: ROLE_TIMEOUT_METADATA_FIELDS,
     cost_metadata_fields: ROLE_COST_METADATA_FIELDS,
     provider_catalog: roleProviderCatalog(),
+    adapter_interface_contract: adapterInterfaceContract(),
     api_provider_contract: apiProviderContract(),
     custom_adapter_contract: customAdapterContract(),
     roles,

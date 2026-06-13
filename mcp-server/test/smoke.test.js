@@ -138,6 +138,32 @@ test("mythify MCP server smoke test", async (t) => {
         parsed.model_policy.provider_defaults.provider_catalog.local_openai_compatible.evidence_status,
         "model_output_not_verification"
       );
+      assert.equal(parsed.model_policy.provider_defaults.adapter_interface_contract.version, 1);
+      assert.equal(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.execution_policy,
+        "metadata_shape_only_no_runtime_change"
+      );
+      assert.ok(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.fields.includes("evidence_status")
+      );
+      assert.ok(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.fields.includes("guardrails")
+      );
+      assert.ok(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.lanes.includes("execution_substrate")
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.candidates.opencode.execution_enabled,
+        true
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.candidates["openai-api"].execution_enabled,
+        false
+      );
+      assert.equal(
+        parsed.model_policy.provider_defaults.adapter_interface_contract.candidates["google-colab-cli"].writes_state,
+        false
+      );
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.status, "metadata_supported");
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.execution_enabled, false);
       assert.equal(parsed.model_policy.provider_defaults.api_provider_contract.fanout_execution_enabled, true);

@@ -4,6 +4,9 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   ADAPTER_CANDIDATES,
+  ADAPTER_INTERFACE_FIELDS,
+  ADAPTER_INTERFACE_LANES,
+  ADAPTER_INTERFACE_VERSION,
   HOST_CAPABILITIES,
   HOST_MODEL_DEFAULTS,
   HOST_PLATFORMS,
@@ -15,6 +18,8 @@ import {
   ROLE_TIMEOUT_DEFAULTS,
   ROLE_TIMEOUT_METADATA_FIELDS,
   TRIAGE_ENGINES,
+  adapterInterfaceForCandidate,
+  buildAdapterInterfaceCatalog,
   getHostCapability,
   listAdapterCandidates,
 } from "../src/capability-registry.js";
@@ -99,6 +104,48 @@ test("role provider defaults stay explicit", () => {
   assert.equal(ROLE_TIMEOUT_DEFAULTS.triage.timeout_seconds, 120);
   assert.equal(ROLE_TIMEOUT_DEFAULTS.fanout_worker.timeout_enforced_by, "fanout_worker");
   assert.equal(ROLE_TIMEOUT_DEFAULTS.verifier.timeout_source, "verify_run_default");
+});
+
+test("stable adapter interface normalizes candidate lanes", () => {
+  assert.equal(ADAPTER_INTERFACE_VERSION, 1);
+  assert.deepEqual(ADAPTER_INTERFACE_LANES, [
+    "host",
+    "desktop_agent",
+    "model_provider",
+    "api_provider",
+    "custom_adapter",
+    "execution_substrate",
+    "agent_lifecycle",
+  ]);
+  assert.ok(ADAPTER_INTERFACE_FIELDS.includes("evidence_status"));
+  assert.ok(ADAPTER_INTERFACE_FIELDS.includes("guardrails"));
+
+  const catalog = buildAdapterInterfaceCatalog();
+  assert.equal(catalog.opencode.interface_version, 1);
+  assert.equal(catalog.opencode.kind, "host");
+  assert.equal(catalog.opencode.probe_supported, true);
+  assert.equal(catalog.opencode.run_supported, true);
+  assert.equal(catalog.opencode.execution_enabled, true);
+  assert.equal(catalog.opencode.writes_state, false);
+  assert.equal(catalog.opencode.evidence_status, "worker_output_not_verification");
+  assert.deepEqual(catalog.opencode.roles, ["triage", "fanout_worker", "reviewer"]);
+  assert.ok(catalog.opencode.guardrails.includes("material_not_verification"));
+
+  assert.equal(catalog["openai-api"].kind, "api_provider");
+  assert.equal(catalog["openai-api"].run_supported, false);
+  assert.equal(catalog["openai-api"].execution_enabled, false);
+  assert.ok(catalog["openai-api"].guardrails.includes("explicit_enable_required"));
+
+  assert.equal(catalog["google-colab-cli"].kind, "execution_substrate");
+  assert.equal(catalog["google-colab-cli"].run_supported, true);
+  assert.equal(catalog["google-colab-cli"].writes_state, false);
+  assert.deepEqual(catalog["google-colab-cli"].roles, ["remote_execution"]);
+  assert.ok(catalog["google-colab-cli"].guardrails.includes("billing_ack_required"));
+
+  assert.deepEqual(
+    adapterInterfaceForCandidate("custom-http", ADAPTER_CANDIDATES["custom-http"]).roles,
+    []
+  );
 });
 
 test("researched future adapters are candidates, not public host platforms", () => {

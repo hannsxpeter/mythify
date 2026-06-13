@@ -375,6 +375,21 @@ class TestClassification(CliTestCase):
             provider_catalog["local_openai_compatible"]["evidence_status"],
             "model_output_not_verification",
         )
+        adapter_interface = policy["provider_defaults"]["adapter_interface_contract"]
+        self.assertEqual(adapter_interface["version"], 1)
+        self.assertEqual(adapter_interface["status"], "metadata_supported")
+        self.assertEqual(
+            adapter_interface["execution_policy"],
+            "metadata_shape_only_no_runtime_change",
+        )
+        self.assertEqual(
+            adapter_interface["fallback_policy"],
+            "no_implicit_cross_provider_fallback",
+        )
+        self.assertIn("execution_substrate", adapter_interface["lanes"])
+        self.assertIn("agent_lifecycle", adapter_interface["lanes"])
+        self.assertIn("evidence_status", adapter_interface["fields"])
+        self.assertIn("guardrails", adapter_interface["fields"])
         api_contract = policy["provider_defaults"]["api_provider_contract"]
         custom_contract = policy["provider_defaults"]["custom_adapter_contract"]
         self.assertEqual(api_contract["status"], "metadata_supported")

@@ -169,13 +169,27 @@ Registry rules:
 
 Adapter kinds:
 
-- `host`: coding host, desktop app, or agent CLI.
+- `host`: host CLI or app-backed coding agents used for bounded worker output.
 - `desktop_agent`: local desktop agent surface without a stable automation
   contract.
-- `model_provider`: API or local model endpoint.
+- `model_provider`: local OpenAI-compatible model backends for reader and
+  triage roles.
+- `api_provider`: hosted model APIs that need explicit billing and data
+  movement posture before execution.
+- `custom_adapter`: user-defined command or future HTTP adapters.
 - `execution_substrate`: runtime that executes remote or local jobs and returns logs,
   files, or artifacts.
 - `agent_lifecycle`: scaffold, test, deploy, or observe tools for agents.
+
+Stable adapter interface v1:
+
+All candidates can be normalized to the same metadata fields: `id`, `kind`,
+`status`, `locality`, `openai_compatible`, `probe_supported`,
+`run_supported`, `execution_enabled`, `writes_state`, `evidence_status`,
+`material_not_evidence`, `billing`, `roles`, and `guardrails`.
+This interface is descriptive only. It does not add hidden provider fallback,
+does not turn metadata-only candidates into runnable adapters, and does not
+grant permission for workers to write state.
 
 The current public host platforms remain `auto`, `unknown`, `codex-desktop`,
 `codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, and
@@ -794,6 +808,12 @@ Classification always returns `model_policy`. It separates:
   posture, execution boundary, evidence status, state-write posture, and
   fallback policy. Each resolved role also includes its selected
   `provider_profile`.
+- `provider_defaults.adapter_interface_contract`: stable metadata shape shared
+  by the registry-backed adapter lanes. It records version, fields, lanes,
+  fallback policy, and an execution policy of
+  `metadata_shape_only_no_runtime_change`. MCP also includes a normalized
+  candidate catalog from the capability registry; CLI exposes the same
+  contract fields without using them as a router.
 - `provider_defaults.api_provider_contract`: metadata for hosted providers
   before Mythify can spend API credits. It currently covers OpenAI, Anthropic,
   and hosted OpenAI-compatible endpoints. It records auth env names, billing
