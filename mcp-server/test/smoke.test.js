@@ -244,6 +244,8 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.ok(switched.startsWith("[OK]"), `host_model_switch reports [OK]: ${switched}`);
       assert.match(switched, /target model: gpt-5\.4/, "text includes the target model");
+      assert.match(switched, /switch status: manual/, "text reports manual switch status");
+      assert.match(switched, /current-chat confirmed: no/, "text does not claim confirmation");
       assert.match(switched, /current-chat switch: no/, "text does not claim current-chat switching");
       assert.match(switched, /new-thread model: yes/, "text exposes new-thread model capability");
       assert.match(switched, /worker model: yes/, "text exposes worker model capability");
@@ -259,6 +261,14 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(status.platform, "codex-desktop");
       assert.equal(status.status, "recorded_requires_host_action");
       assert.equal(status.can_apply_current_chat, false);
+      assert.equal(status.switch_result.status, "manual");
+      assert.equal(status.switch_result.requested_model, "gpt-5.4");
+      assert.equal(status.switch_result.requested_thinking, "high");
+      assert.equal(status.switch_result.requested_speed, "fast");
+      assert.equal(status.switch_result.current_chat_supported, false);
+      assert.equal(status.switch_result.current_chat_confirmed, false);
+      assert.equal(status.switch_result.manual_action_required, true);
+      assert.equal(status.switch_result.applied_by, "none");
       assert.equal(status.host_capability.kind, "host");
       assert.equal(status.host_capability.status, "supported");
       assert.equal(status.host_capability.can_switch_current_thread, false);

@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   category, state filename, and no-target `memory_clear` refusal contracts.
 - CLI `protocol check` plus generated protocol hash headers, allowing copied
   protocol files to prove they came from the same source protocol as the CLI.
+- Host model switch capability status. CLI and MCP host-model records now
+  include `host_capability` and `switch_result`, keeping requested model state
+  separate from host-confirmed current-chat changes.
 
 ## [2.5.0] - 2026-06-12
 

@@ -137,6 +137,59 @@ HOST_MODEL_DEFAULTS = {
         "strong": "gpt-5.3-codex-high",
     },
 }
+NO_HOST_CAPABILITY = {
+    "kind": "host",
+    "status": "unsupported",
+    "can_switch_current_thread": False,
+    "can_set_new_thread_model": False,
+    "can_set_worker_model": False,
+    "can_set_thinking": False,
+    "can_list_models": False,
+    "can_confirm_current_model": False,
+}
+HOST_CAPABILITIES = {
+    "unknown": dict(NO_HOST_CAPABILITY, status="unknown"),
+    "codex-desktop": dict(
+        NO_HOST_CAPABILITY,
+        status="supported",
+        can_set_new_thread_model=True,
+        can_set_worker_model=True,
+        can_set_thinking=True,
+    ),
+    "codex-cli": dict(
+        NO_HOST_CAPABILITY,
+        status="supported",
+        can_set_new_thread_model=True,
+        can_set_worker_model=True,
+        can_set_thinking=True,
+    ),
+    "claude-desktop": dict(
+        NO_HOST_CAPABILITY,
+        status="supported",
+        can_set_new_thread_model=True,
+        can_set_worker_model=True,
+    ),
+    "claude-code": dict(
+        NO_HOST_CAPABILITY,
+        status="supported",
+        can_set_new_thread_model=True,
+        can_set_worker_model=True,
+    ),
+    "cursor-desktop": dict(
+        NO_HOST_CAPABILITY,
+        status="supported",
+        can_set_new_thread_model=True,
+        can_set_worker_model=True,
+        can_set_thinking=True,
+    ),
+    "cursor-agent": dict(
+        NO_HOST_CAPABILITY,
+        status="supported",
+        can_set_new_thread_model=True,
+        can_set_worker_model=True,
+        can_set_thinking=True,
+    ),
+}
 STRONG_HOST_TASK_TYPES = (
     "research",
     "benchmark",
@@ -566,16 +619,60 @@ def host_switch_actions(platform, target_model, thinking, speed):
     return actions
 
 
+def host_capability_for_record(platform):
+    return dict(HOST_CAPABILITIES.get(platform, HOST_CAPABILITIES["unknown"]))
+
+
+def build_host_switch_result(platform, target_model, current_model, thinking, speed, capability):
+    return {
+        "status": "manual",
+        "requested_model": target_model,
+        "requested_thinking": thinking,
+        "requested_speed": speed,
+        "current_model": current_model,
+        "current_thinking": "",
+        "current_chat_supported": bool(capability.get("can_switch_current_thread")),
+        "current_chat_confirmed": False,
+        "manual_action_required": True,
+        "applied_by": "none",
+        "reason": "host_current_chat_unconfirmed",
+    }
+
+
+def with_host_capability(record):
+    if not isinstance(record, dict):
+        return record
+    platform = str(record.get("platform", "") or "unknown").strip() or "unknown"
+    enriched = dict(record)
+    capability = enriched.get("host_capability")
+    if not isinstance(capability, dict):
+        capability = host_capability_for_record(platform)
+    enriched["host_capability"] = capability
+    enriched["can_apply_current_chat"] = False
+    if not isinstance(enriched.get("switch_result"), dict):
+        enriched["switch_result"] = build_host_switch_result(
+            platform,
+            str(enriched.get("target_model", "") or "").strip(),
+            str(enriched.get("current_model", "") or "").strip(),
+            normalize_host_thinking(enriched.get("thinking", "auto")),
+            normalize_host_speed(enriched.get("speed", "auto")),
+            capability,
+        )
+    return enriched
+
+
 def build_host_model_record(args):
     target_model = str(getattr(args, "target_model", "") or "").strip()
     platform = detect_host_platform(getattr(args, "platform", "auto"))
     thinking = normalize_host_thinking(getattr(args, "thinking", "auto"))
     speed = normalize_host_speed(getattr(args, "speed", "auto"))
-    return {
+    current_model = str(getattr(args, "current_model", "") or "").strip()
+    capability = host_capability_for_record(platform)
+    record = {
         "platform": platform,
         "requested_platform": normalize_host_platform(getattr(args, "platform", "auto")),
         "target_model": target_model,
-        "current_model": str(getattr(args, "current_model", "") or "").strip(),
+        "current_model": current_model,
         "target_model_tier": classify_model_tier(target_model),
         "thinking": thinking,
         "speed": speed,
@@ -583,25 +680,52 @@ def build_host_model_record(args):
         "status": "recorded_requires_host_action",
         "control": "host_selected",
         "can_apply_current_chat": False,
+        "host_capability": capability,
+        "switch_result": build_host_switch_result(
+            platform, target_model, current_model, thinking, speed, capability
+        ),
         "updated": now_iso(),
         "host_actions": host_switch_actions(platform, target_model, thinking, speed),
     }
+    return record
 
 
 def format_host_model_record(record):
+    enriched = with_host_capability(record)
+    capability = enriched.get("host_capability", host_capability_for_record("unknown"))
+    switch_result = enriched.get("switch_result", {})
     lines = [
-        "[OK] Host model switch {0}.".format(record.get("status", "recorded")),
-        "platform: {0}".format(record.get("platform", "unknown")),
+        "[OK] Host model switch {0}.".format(enriched.get("status", "recorded")),
+        "platform: {0}".format(enriched.get("platform", "unknown")),
         "target model: {0} (tier {1})".format(
-            record.get("target_model", ""), record.get("target_model_tier", "unknown")
+            enriched.get("target_model", ""), enriched.get("target_model_tier", "unknown")
         ),
-        "current model: {0}".format(record.get("current_model") or "unknown"),
-        "thinking: {0}".format(record.get("thinking", "auto")),
-        "speed: {0}".format(record.get("speed", "auto")),
+        "current model: {0}".format(enriched.get("current_model") or "unknown"),
+        "thinking: {0}".format(enriched.get("thinking", "auto")),
+        "speed: {0}".format(enriched.get("speed", "auto")),
+        "switch status: {0}".format(switch_result.get("status", "manual")),
+        "current-chat confirmed: {0}".format(
+            "yes" if switch_result.get("current_chat_confirmed") else "no"
+        ),
+        "manual action required: {0}".format(
+            "yes" if switch_result.get("manual_action_required", True) else "no"
+        ),
+        "current-chat switch: {0}".format(
+            "yes" if capability.get("can_switch_current_thread") else "no"
+        ),
+        "new-thread model: {0}".format(
+            "yes" if capability.get("can_set_new_thread_model") else "no"
+        ),
+        "worker model: {0}".format(
+            "yes" if capability.get("can_set_worker_model") else "no"
+        ),
+        "thinking control: {0}".format(
+            "yes" if capability.get("can_set_thinking") else "no"
+        ),
         "scope: Mythify recorded the requested host model for model_policy and spawn ceiling checks.",
         "host action required:",
     ]
-    for action in record.get("host_actions", []):
+    for action in enriched.get("host_actions", []):
         lines.append("- " + action)
     return "\n".join(lines)
 
@@ -2367,6 +2491,7 @@ def cmd_host_model_status(args, state):
         else:
             print("[OK] No host model switch is recorded.")
         return 0
+    record = with_host_capability(record)
     if args.json_output:
         print(json.dumps(record, indent=2))
     else:

@@ -21,21 +21,20 @@ Status markers:
 
 ### In Progress
 
-- [>] Host model switch capability contract and status model
-  - Current goal: distinguish requested host switches from host-confirmed
-    switches wherever host capabilities can prove the difference.
-  - Next step: map `host-model` CLI, `host_model_switch` MCP, capability
-    registry fields, and status output.
-  - Guardrail: never claim the host changed models unless an adapter confirms it.
+- [>] Log compaction or rotation
+  - Current goal: keep long-lived `.mythify` directories readable without
+    losing verification evidence.
+  - Next step: map growth-prone jsonl files, state readers, and audit needs.
+  - Guardrail: preserve evidence and corrupt-file recovery behavior.
 
 ### Next To Do
 
-1. [ ] Add log compaction or rotation for long-lived `.mythify` directories.
-   - Preserve evidence while keeping state directories readable.
-2. [ ] Generate docs tables, schemas, or fixtures from the registry.
+1. [ ] Generate docs tables, schemas, or fixtures from the registry.
    - Only after drift tests protect generated output.
-3. [ ] Add per-role provider defaults.
+2. [ ] Add per-role provider defaults.
    - Keep role assignment explicit before provider routing grows.
+3. [ ] Add stronger reviewer opt-in flow.
+   - Require explicit permission before spawning stronger reviewer models.
 
 ### Later
 
@@ -93,6 +92,8 @@ Status markers:
 - [x] 2026-06-13: add the memory operation registry prototype.
 - [x] 2026-06-13: add deployed-copy protocol hash handshake between generated
   protocol files and the CLI.
+- [x] 2026-06-13: add host model switch capability status with `switch_result`
+  and current-chat confirmation fields.
 
 ## Track Backlogs
 
@@ -156,15 +157,19 @@ Open:
 
 - [ ] Apply model or thinking changes when a host exposes a real capability.
 - [ ] Add host-confirmed current model fields where supported.
-- [ ] Add exact manual instructions for hosts without a switch API.
-- [ ] Add adapter-specific tests for `can_switch_current_thread`,
-  `can_set_new_thread_model`, `can_set_worker_model`, and `can_set_thinking`.
+- [ ] Add adapter execution tests once a host exposes apply or confirm APIs.
 
 Done:
 
 - [x] `host_model_switch` records requested model state.
 - [x] Status output includes registry-backed host capability information.
 - [x] Recorded desired model is not treated as proof that the host switched.
+- [x] `switch_result` separates manual requested state from applied or
+  host-confirmed current-chat state.
+- [x] CLI and MCP text output show current-chat confirmation, manual-action
+  status, and per-host capability fields.
+- [x] Focused tests cover current public capability fields for requested host
+  switch records.
 
 ### Local Model Support
 
@@ -338,7 +343,7 @@ Preserve:
 - [x] Deployed-copy version handshake between protocol text and CLI.
 - [x] Step-bound verification records.
 - [x] Whole-state refusal no-mutation checks.
-- [ ] Host model switch capability contract and status model.
+- [x] Host model switch capability contract and status model.
 - [x] Agents CLI and ADK lifecycle spike.
 
 ### v2.7

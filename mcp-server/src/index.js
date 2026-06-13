@@ -345,15 +345,47 @@ function hostCapabilityForRecord(platform) {
   };
 }
 
+function buildHostSwitchResult(platform, targetModel, currentModel, thinking, speed, capability) {
+  return {
+    status: "manual",
+    requested_model: targetModel,
+    requested_thinking: thinking,
+    requested_speed: speed,
+    current_model: currentModel,
+    current_thinking: "",
+    current_chat_supported: Boolean(capability.can_switch_current_thread),
+    current_chat_confirmed: false,
+    manual_action_required: true,
+    applied_by: "none",
+    reason: "host_current_chat_unconfirmed",
+  };
+}
+
 function withHostCapability(record) {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     return record;
   }
   const platform = String(record.platform || "unknown").trim() || "unknown";
+  const capability = record.host_capability && typeof record.host_capability === "object"
+    ? record.host_capability
+    : hostCapabilityForRecord(platform);
+  const thinking = normalizeHostThinking(record.thinking || "auto");
+  const speed = normalizeHostSpeed(record.speed || "auto");
   return {
     ...record,
-    host_capability: hostCapabilityForRecord(platform),
+    host_capability: capability,
     can_apply_current_chat: false,
+    switch_result:
+      record.switch_result && typeof record.switch_result === "object"
+        ? record.switch_result
+        : buildHostSwitchResult(
+            platform,
+            String(record.target_model || "").trim(),
+            String(record.current_model || "").trim(),
+            thinking,
+            speed,
+            capability
+          ),
   };
 }
 
@@ -362,12 +394,14 @@ function buildHostModelRecord({ platform, target_model, current_model, thinking,
   const resolvedPlatform = detectHostPlatform(platform || "auto");
   const resolvedThinking = normalizeHostThinking(thinking || "auto");
   const resolvedSpeed = normalizeHostSpeed(speed || "auto");
+  const currentModel = String(current_model || "").trim();
   const actions = hostSwitchActions(resolvedPlatform, targetModel, resolvedThinking, resolvedSpeed);
+  const capability = hostCapabilityForRecord(resolvedPlatform);
   return {
     platform: resolvedPlatform,
     requested_platform: normalizeHostPlatform(platform || "auto"),
     target_model: targetModel,
-    current_model: String(current_model || "").trim(),
+    current_model: currentModel,
     target_model_tier: classifyModelTier(targetModel),
     thinking: resolvedThinking,
     speed: resolvedSpeed,
@@ -375,7 +409,15 @@ function buildHostModelRecord({ platform, target_model, current_model, thinking,
     status: "recorded_requires_host_action",
     control: "host_selected",
     can_apply_current_chat: false,
-    host_capability: hostCapabilityForRecord(resolvedPlatform),
+    host_capability: capability,
+    switch_result: buildHostSwitchResult(
+      resolvedPlatform,
+      targetModel,
+      currentModel,
+      resolvedThinking,
+      resolvedSpeed,
+      capability
+    ),
     updated: isoNow(),
     host_actions: actions,
   };
@@ -388,6 +430,7 @@ function formatBool(value) {
 function formatHostModelRecord(record) {
   const withCapability = withHostCapability(record);
   const capability = withCapability.host_capability || hostCapabilityForRecord(withCapability.platform);
+  const switchResult = withCapability.switch_result || {};
   const lines = [
     `[OK] Host model switch ${withCapability.status}.`,
     `platform: ${withCapability.platform}`,
@@ -395,6 +438,9 @@ function formatHostModelRecord(record) {
     `current model: ${withCapability.current_model || "unknown"}`,
     `thinking: ${withCapability.thinking}`,
     `speed: ${withCapability.speed}`,
+    `switch status: ${switchResult.status || "manual"}`,
+    `current-chat confirmed: ${formatBool(switchResult.current_chat_confirmed)}`,
+    `manual action required: ${formatBool(switchResult.manual_action_required !== false)}`,
     `current-chat switch: ${formatBool(capability.can_switch_current_thread)}`,
     `new-thread model: ${formatBool(capability.can_set_new_thread_model)}`,
     `worker model: ${formatBool(capability.can_set_worker_model)}`,

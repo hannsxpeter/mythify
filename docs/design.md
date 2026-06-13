@@ -212,6 +212,19 @@ host-model.json:
     "can_list_models": false,
     "can_confirm_current_model": false
   },
+  "switch_result": {
+    "status": "manual",
+    "requested_model": "str",
+    "requested_thinking": "auto|low|medium|high|xhigh|max",
+    "requested_speed": "auto|standard|fast",
+    "current_model": "str",
+    "current_thinking": "",
+    "current_chat_supported": false,
+    "current_chat_confirmed": false,
+    "manual_action_required": true,
+    "applied_by": "none",
+    "reason": "host_current_chat_unconfirmed"
+  },
   "updated": "ISO-8601",
   "host_actions": ["str"]
 }
@@ -220,6 +233,22 @@ host-model.json:
 `host-model.json` is optional. Explicit `session_model` and
 `MYTHIFY_SESSION_MODEL` beat it; otherwise it supplies the default session model
 for `classify_task` and `fanout_start`.
+
+Host model switch status rules:
+
+- `switch_result.status` is `manual` when Mythify recorded a target model but no
+  host adapter applied or confirmed the current chat.
+- `switch_result.status` is `requested` only when a future host adapter accepts a
+  request but cannot yet confirm the current chat.
+- `switch_result.status` is `applied` only when a host adapter confirms the
+  current chat model or thinking changed.
+- `switch_result.status` is `blocked` only when an adapter proves the requested
+  change cannot be requested or applied.
+- `current_chat_confirmed` must stay `false` unless `host_capability` has
+  `can_confirm_current_model: true` and the host returns positive evidence.
+- CLI and MCP status output must expose `host_capability`, `can_apply_current_chat`,
+  and `switch_result` so callers can distinguish desired state from host-confirmed
+  state.
 
 outcomes/&lt;slug&gt;/goal.json:
 
@@ -399,7 +428,7 @@ does AND when to use it, since descriptions drive tool selection.
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
 | `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. With `triage: auto`, run one fast local model only when the deterministic gate recommends it. |
-| `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance and registry-backed `host_capability`, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate the current host chat unless a future host integration exposes that capability. |
+| `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance, registry-backed `host_capability`, and `switch_result`, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate the current host chat unless a future host integration exposes that capability and confirms the result. |
 | `provider_probe` | `{provider?: enum(generic-openai-compatible), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe a generic OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
 | `local_model_run` | `{role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
 | `host_cli_probe` | `{host?: enum(kimi-code, opencode, antigravity), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Kimi Code, OpenCode, or Antigravity CLI availability by running only version and help commands. Defaults to `MYTHIFY_KIMI_BIN`, `MYTHIFY_OPENCODE_BIN`, or `MYTHIFY_ANTIGRAVITY_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_run_noninteractive_prompt`, and `material_not_evidence: true`. It does not execute a prompt, write state, spawn workers, or count as verification evidence. Antigravity MCP setup guidance lives in `docs/antigravity-mcp-setup.md`; the probe does not install or mutate MCP config. |

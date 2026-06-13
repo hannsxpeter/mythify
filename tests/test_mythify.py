@@ -368,7 +368,32 @@ class TestClassification(CliTestCase):
         self.assertEqual(record["target_model"], "gpt-5.4")
         self.assertEqual(record["platform"], "codex-desktop")
         self.assertEqual(record["status"], "recorded_requires_host_action")
+        self.assertEqual(record["host_capability"]["status"], "supported")
+        self.assertFalse(record["host_capability"]["can_switch_current_thread"])
+        self.assertTrue(record["host_capability"]["can_set_new_thread_model"])
+        self.assertTrue(record["host_capability"]["can_set_worker_model"])
+        self.assertTrue(record["host_capability"]["can_set_thinking"])
+        self.assertFalse(record["can_apply_current_chat"])
+        self.assertEqual(record["switch_result"]["status"], "manual")
+        self.assertEqual(record["switch_result"]["requested_model"], "gpt-5.4")
+        self.assertEqual(record["switch_result"]["requested_thinking"], "high")
+        self.assertEqual(record["switch_result"]["requested_speed"], "fast")
+        self.assertFalse(record["switch_result"]["current_chat_supported"])
+        self.assertFalse(record["switch_result"]["current_chat_confirmed"])
+        self.assertTrue(record["switch_result"]["manual_action_required"])
+        self.assertEqual(record["switch_result"]["applied_by"], "none")
         self.assertTrue((state / "host-model.json").exists())
+
+        status_json = self.run_cli("host-model", "status", "--json")
+        self.assertEqual(status_json.returncode, 0, status_json.stderr)
+        status_record = json.loads(status_json.stdout)
+        self.assertEqual(status_record["switch_result"]["status"], "manual")
+        status_text = self.run_cli("host-model", "status")
+        self.assertEqual(status_text.returncode, 0, status_text.stderr)
+        self.assertIn("switch status: manual", status_text.stdout)
+        self.assertIn("current-chat confirmed: no", status_text.stdout)
+        self.assertIn("current-chat switch: no", status_text.stdout)
+        self.assertIn("new-thread model: yes", status_text.stdout)
 
         result = self.run_cli(
             "classify",
@@ -389,6 +414,31 @@ class TestClassification(CliTestCase):
         status = self.run_cli("host-model", "status")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("No host model switch", status.stdout)
+
+    def test_host_model_status_enriches_legacy_records(self):
+        state = self.init_workspace()
+        legacy = {
+            "platform": "codex-cli",
+            "requested_platform": "codex-cli",
+            "target_model": "gpt-5.4",
+            "current_model": "",
+            "target_model_tier": "frontier",
+            "thinking": "auto",
+            "speed": "auto",
+            "reason": "",
+            "status": "recorded_requires_host_action",
+            "control": "host_selected",
+            "can_apply_current_chat": False,
+            "updated": "2026-06-13T00:00:00+00:00",
+            "host_actions": [],
+        }
+        (state / "host-model.json").write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+        status = self.run_cli("host-model", "status", "--json")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        record = json.loads(status.stdout)
+        self.assertEqual(record["host_capability"]["status"], "supported")
+        self.assertEqual(record["switch_result"]["status"], "manual")
+        self.assertFalse(record["switch_result"]["current_chat_confirmed"])
 
     def test_classify_vague_short_request_recommends_model_triage(self):
         result = self.run_cli("classify", "make this better", "--json")
