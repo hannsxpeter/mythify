@@ -168,6 +168,9 @@ variable when it is set (Python `Path.home()`, Node `os.homedir()` both already 
 |       `-- <slug>.json
 |-- lessons/
 |   `-- <slug>.json
+|-- logs/
+|   `-- archive/
+|       `-- <log-stem>-<YYYYMMDDHHMMSS>.jsonl
 |-- verifications.jsonl
 `-- reflections.jsonl
 ```
@@ -344,6 +347,18 @@ reflections.jsonl, one JSON object per line:
 {"action": "str", "outcome": "success|partial|failure", "observation": "str", "root_cause": "str or null", "next": "str", "lesson": "str or null", "timestamp": "ISO-8601"}
 ```
 
+logs/archive/*.jsonl:
+
+- Raw snapshots created by `logs compact`.
+- Names are `<log-stem>-<YYYYMMDDHHMMSS>.jsonl`, with a numeric suffix on
+  collision.
+- The first compacted logs are the top-level `verifications.jsonl` and
+  `reflections.jsonl` files. Outcome iteration logs stay in their outcome
+  directories.
+- Archives preserve the original bytes of the active log before compaction,
+  including unparseable lines. The compacted active log keeps only the most
+  recent valid JSONL records.
+
 ### Durability rules
 
 - All JSON file writes are atomic: write to a temp file in the same directory, then
@@ -351,6 +366,11 @@ reflections.jsonl, one JSON object per line:
 - Corrupt JSON on read: rename the bad file to `<filename>.corrupt-<YYYYMMDDHHMMSS>`,
   print `[WARN]` to stderr, and continue with a fresh default. Never crash.
 - jsonl logs are plain appends.
+- `logs compact [--keep N] [--dry-run] [--json]` is maintenance, not
+  verification evidence. Default `--keep` is 1000. When a target log has more
+  than `N` valid records, write a raw archive first, then atomically replace
+  the active log with the most recent `N` valid records. `--dry-run` reports
+  candidates and counts without writing files.
 
 ### Slugs
 
@@ -397,6 +417,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `memory clear [KEY] [--all]` | KEY removes one entry. `--all` clears everything. Neither: `[FAIL]` explaining the guard, exit 1. | 0 |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson in the project store, or the global store with `--global`. | 0 |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | Default scope all; label each lesson `(project)` or `(global)`; `--tag` filters. | 0 |
+| `logs compact [--keep N] [--dry-run] [--json]` | Archive raw top-level verification and reflection logs, then keep the most recent valid records in active logs. Default keep is 1000. `--dry-run` writes nothing. | 0; 1 if keep is invalid |
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and output tails, append an executed record, print the verdict. Default timeout 300 seconds. If `MYTHIFY_DISABLE_RUN=1`, refuse: execute nothing, record nothing, print `[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed and nothing was recorded. Unset it to enable execution, or use verify claim to record a self-reported attestation.` and exit 2 (the unverified code, so callers branching on verify run treat a disabled run as not verified). | 0 if verified, 2 if unverified or disabled |
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |

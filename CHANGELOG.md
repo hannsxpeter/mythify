@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Host model switch capability status. CLI and MCP host-model records now
   include `host_capability` and `switch_result`, keeping requested model state
   separate from host-confirmed current-chat changes.
+- CLI `logs compact` maintenance command for top-level verification and
+  reflection logs. It archives raw originals, keeps recent valid active
+  records, supports dry runs, and records no verification evidence.
 
 ## [2.5.0] - 2026-06-12
 

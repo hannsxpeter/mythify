@@ -119,6 +119,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a project lesson, or a global one. |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | List lessons, labeled by scope. |
+| `logs compact [--keep N] [--dry-run] [--json]` | Archive raw verification and reflection logs, then keep recent active records. |
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute a check and record the verdict. Exit 0 verified, 2 unverified. |
 | `verify claim CLAIM EVIDENCE` | Record a self-attested claim, marked as such. |
 | `reflect [JSON]` | Record a structured reflection from a JSON object. |

@@ -28,7 +28,7 @@ from pathlib import Path
 WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
-PROTOCOL_SOURCE_SHA256 = "2ae980ce81f378aa3871b7430b719b7834069ac026046f5ea105b466bbed0f28"
+PROTOCOL_SOURCE_SHA256 = "b19f80f85d0a17ac2cdbb909596a1f2b1a9ef572dc4c85bf480d5aebe2020de5"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -73,6 +73,8 @@ MEMORY_CLEAR_CLI_REFUSAL = (
 REFLECT_OUTCOMES = ("success", "partial", "failure")
 TAIL_CHARS = 4000
 DEFAULT_VERIFY_TIMEOUT = 300.0
+DEFAULT_LOG_COMPACT_KEEP = 1000
+LOG_COMPACT_TARGETS = ("verifications.jsonl", "reflections.jsonl")
 TRIAGE_ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
 TRIAGE_MODES = ("never", "auto", "always")
 PLATFORMS = (
@@ -476,6 +478,11 @@ def append_jsonl(path, record):
         handle.write(json.dumps(record) + "\n")
 
 
+def write_jsonl_atomic(path, records):
+    text = "".join(json.dumps(record) + "\n" for record in records)
+    _write_text_atomic(path, text)
+
+
 def read_jsonl(path):
     """Parse a jsonl file, skipping blank or unparseable lines."""
     path = Path(path)
@@ -503,6 +510,7 @@ def ensure_layout(state):
     (state / "plans" / "archive").mkdir(parents=True, exist_ok=True)
     (state / "lessons").mkdir(parents=True, exist_ok=True)
     (state / "outcomes").mkdir(parents=True, exist_ok=True)
+    (state / "logs" / "archive").mkdir(parents=True, exist_ok=True)
 
 
 def discover_state_dir():
@@ -3222,6 +3230,96 @@ def cmd_reflect(args, state):
     return 0
 
 
+def compact_archive_path(state, log_name):
+    archive_dir = state / "logs" / "archive"
+    stamp = now_stamp()
+    stem = Path(log_name).stem
+    candidate = archive_dir / "{0}-{1}.jsonl".format(stem, stamp)
+    counter = 2
+    while candidate.exists():
+        candidate = archive_dir / "{0}-{1}-{2}.jsonl".format(stem, stamp, counter)
+        counter += 1
+    return candidate
+
+
+def compact_jsonl_log(state, log_name, keep, dry_run):
+    path = state / log_name
+    result = {
+        "log": log_name,
+        "path": str(path),
+        "status": "missing",
+        "raw_lines": 0,
+        "total_records": 0,
+        "retained_records": 0,
+        "removed_records": 0,
+        "archived": False,
+        "archive_path": None,
+    }
+    if not path.exists():
+        return result
+    raw_text = path.read_text(encoding="utf-8")
+    records = read_jsonl(path)
+    total = len(records)
+    retained = min(total, keep)
+    removed = max(0, total - keep)
+    result.update({
+        "status": "unchanged" if removed == 0 else "would_compact",
+        "raw_lines": len(raw_text.splitlines()),
+        "total_records": total,
+        "retained_records": retained,
+        "removed_records": removed,
+    })
+    if removed == 0:
+        return result
+    archive_path = compact_archive_path(state, log_name)
+    result["archive_path"] = str(archive_path)
+    if dry_run:
+        return result
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_text_atomic(archive_path, raw_text)
+    write_jsonl_atomic(path, records[-keep:])
+    result["status"] = "compacted"
+    result["archived"] = True
+    return result
+
+
+def format_log_compaction_result(result):
+    before = result["total_records"]
+    after = result["retained_records"]
+    line = "{0}: {1}, records {2} -> {3}".format(
+        result["log"], result["status"], before, after
+    )
+    if result["archive_path"]:
+        line += ", archive {0}".format(result["archive_path"])
+    if result["raw_lines"] != before:
+        line += ", raw lines {0}".format(result["raw_lines"])
+    return line
+
+
+def cmd_logs_compact(args, state):
+    if args.keep < 1:
+        fail("[FAIL] logs compact requires --keep >= 1.")
+        return 1
+    results = [
+        compact_jsonl_log(state, log_name, args.keep, args.dry_run)
+        for log_name in LOG_COMPACT_TARGETS
+    ]
+    payload = {
+        "status": "ok",
+        "dry_run": args.dry_run,
+        "keep": args.keep,
+        "logs": results,
+    }
+    if args.json_output:
+        print(json.dumps(payload, indent=2))
+    else:
+        label = "dry run" if args.dry_run else "complete"
+        print("[OK] Log compaction {0}.".format(label))
+        for result in results:
+            print(format_log_compaction_result(result))
+    return 0
+
+
 def cmd_summary(args, state):
     slugs = list_plan_slugs(state)
     active = get_active_slug(state)
@@ -3733,6 +3831,35 @@ def build_parser():
         help="Which store to list (default: all).",
     )
     p.set_defaults(handler=cmd_lesson_list)
+
+    logs = sub.add_parser(
+        "logs",
+        help="Maintain Mythify jsonl logs.",
+        description="Maintain Mythify jsonl logs without treating maintenance as verification.",
+    )
+    logs_sub = logs.add_subparsers(dest="logs_command", metavar="ACTION", required=True)
+
+    p = logs_sub.add_parser(
+        "compact",
+        help="Archive and trim top-level verification and reflection logs.",
+        description=(
+            "Archive raw top-level verification and reflection logs, then keep "
+            "only the most recent valid records in the active files."
+        ),
+    )
+    p.add_argument(
+        "--keep",
+        type=int,
+        default=DEFAULT_LOG_COMPACT_KEEP,
+        help="Number of recent valid records to keep per active log.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what would be compacted without writing files.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_logs_compact)
 
     verify = sub.add_parser(
         "verify",

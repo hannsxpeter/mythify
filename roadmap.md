@@ -21,24 +21,25 @@ Status markers:
 
 ### In Progress
 
-- [>] Log compaction or rotation
-  - Current goal: keep long-lived `.mythify` directories readable without
-    losing verification evidence.
-  - Next step: map growth-prone jsonl files, state readers, and audit needs.
-  - Guardrail: preserve evidence and corrupt-file recovery behavior.
+- [>] Generate docs tables, schemas, or fixtures from the registry
+  - Current goal: reduce docs and schema drift by deriving one protected surface
+    from registry data.
+  - Next step: choose the smallest duplicated registry-backed docs table or
+    fixture and add a drift check before generation grows.
+  - Guardrail: generate only from an existing registry contract and keep the
+    first slice small.
 
 ### Next To Do
 
-1. [ ] Generate docs tables, schemas, or fixtures from the registry.
-   - Only after drift tests protect generated output.
-2. [ ] Add per-role provider defaults.
+1. [ ] Add per-role provider defaults.
    - Keep role assignment explicit before provider routing grows.
-3. [ ] Add stronger reviewer opt-in flow.
+2. [ ] Add stronger reviewer opt-in flow.
    - Require explicit permission before spawning stronger reviewer models.
+3. [ ] Ollama setup profile.
+   - Start local model onboarding with the most common developer path.
 
 ### Later
 
-- [ ] Ollama setup profile.
 - [ ] LM Studio setup profile.
 - [ ] llama.cpp profile for GGUF power users.
 - [ ] vLLM profile for workstation, server, and team-local inference.
@@ -94,6 +95,8 @@ Status markers:
   protocol files and the CLI.
 - [x] 2026-06-13: add host model switch capability status with `switch_result`
   and current-chat confirmation fields.
+- [x] 2026-06-13: add CLI log compaction for top-level verification and
+  reflection logs, with raw archives under `.mythify/logs/archive/`.
 
 ## Track Backlogs
 
@@ -105,12 +108,13 @@ product work.
 
 Open:
 
-- [ ] Log compaction or rotation for long-lived `.mythify` directories.
 - [ ] Generate docs tables, schemas, or fixtures from the registry only after a
   drift test protects the output.
 
 Done:
 
+- [x] Log compaction archives raw top-level verification and reflection logs
+  before trimming active logs to recent valid records.
 - [x] Capability registry exists in `mcp-server/src/capability-registry.js`.
 - [x] Registry data is shown in `host_model_switch` status output.
 - [x] Verification records include active plan and in-progress step context.

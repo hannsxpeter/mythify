@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 2ae980ce81f378aa3871b7430b719b7834069ac026046f5ea105b466bbed0f28 -->
+<!-- Mythify protocol-sha256: b19f80f85d0a17ac2cdbb909596a1f2b1a9ef572dc4c85bf480d5aebe2020de5 -->
 
 # The Mythify Protocol
 
@@ -122,6 +122,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a project lesson, or a global one. |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | List lessons, labeled by scope. |
+| `logs compact [--keep N] [--dry-run] [--json]` | Archive raw verification and reflection logs, then keep recent active records. |
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute a check and record the verdict. Exit 0 verified, 2 unverified. |
 | `verify claim CLAIM EVIDENCE` | Record a self-attested claim, marked as such. |
 | `reflect [JSON]` | Record a structured reflection from a JSON object. |

@@ -105,6 +105,7 @@ much to build.
 | `outcome stop [NAME] --reason TEXT` | Stop an outcome loop. |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson. |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | List lessons by scope. |
+| `logs compact [--keep N] [--dry-run] [--json]` | Archive raw verification and reflection logs, then keep recent active records. |
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute and record proof. Exit 0 verified, 2 unverified. |
 | `verify claim CLAIM EVIDENCE` | Record a self-report. Never counts as verified. |
 | `reflect [JSON]` | Record a reflection (flags form also accepted). |

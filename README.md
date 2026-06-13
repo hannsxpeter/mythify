@@ -204,6 +204,9 @@ Each project owns a `.mythify/` directory:
 |       `-- <slug>.json
 |-- lessons/
 |   `-- <slug>.json
+|-- logs/
+|   `-- archive/
+|       `-- <log-stem>-<YYYYMMDDHHMMSS>.jsonl
 |-- verifications.jsonl
 `-- reflections.jsonl
 ```
@@ -215,6 +218,11 @@ instead of crashing.
 `protocol/operation-registry.json` backs the shared memory operation contract.
 The Python CLI and MCP server both read it for memory categories, the default
 category, and the guarded `memory_clear` refusal text.
+
+Use `logs compact` to keep long-lived workspaces readable. It archives the raw
+top-level verification and reflection logs under `.mythify/logs/archive/`, then
+keeps the most recent valid records in the active logs. Compaction is
+maintenance, not verification evidence.
 
 ## CLI command reference
 
@@ -244,6 +252,7 @@ category, and the guarded `memory_clear` refusal text.
 | `memory clear [KEY] [--all]` | KEY removes one entry. `--all` clears everything. Neither: `[FAIL]` explaining the guard, exit 1. | 0 |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson in the project store, or the global store with `--global`. | 0 |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | Default scope all; label each lesson `(project)` or `(global)`; `--tag` filters. | 0 |
+| `logs compact [--keep N] [--dry-run] [--json]` | Archive raw top-level verification and reflection logs, then keep the most recent valid records in active logs. Default keep is 1000. `--dry-run` writes nothing. | 0; 1 if keep is invalid |
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and output tails, append an executed record, print the verdict. Default timeout 300 seconds. | 0 if verified, 2 if unverified |
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |

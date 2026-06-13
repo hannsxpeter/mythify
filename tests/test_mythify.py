@@ -118,7 +118,7 @@ class TestInit(CliTestCase):
         result = self.run_cli("--help")
         self.assertEqual(result.returncode, 0)
         for name in ("init", "protocol", "status", "classify", "host-model", "outcome", "plan", "step",
-                     "memory", "lesson", "verify", "reflect", "summary"):
+                     "memory", "lesson", "logs", "verify", "reflect", "summary"):
             self.assertIn(name, result.stdout)
 
 
@@ -1350,6 +1350,70 @@ class TestReflect(CliTestCase):
         self.assertEqual(record["tags"], ["auto-reflected"])
         listed = self.run_cli("lesson", "list", "--tag", "auto-reflected")
         self.assertIn("Never share fixtures across workers", listed.stdout)
+
+
+class TestLogsCompact(CliTestCase):
+    def test_logs_compact_archives_and_keeps_recent_records(self):
+        state = self.init_workspace()
+        for index in range(5):
+            result = self.run_cli(
+                "verify", "claim", "claim-{0}".format(index), "evidence"
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        for index in range(3):
+            result = self.run_cli(
+                "reflect",
+                "--action", "action-{0}".format(index),
+                "--outcome", "success",
+                "--observation", "observed",
+                "--next", "continue",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        result = self.run_cli("logs", "compact", "--keep", "2", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "ok")
+        by_log = {item["log"]: item for item in payload["logs"]}
+        self.assertEqual(by_log["verifications.jsonl"]["status"], "compacted")
+        self.assertEqual(by_log["reflections.jsonl"]["status"], "compacted")
+        self.assertTrue(by_log["verifications.jsonl"]["archived"])
+        self.assertTrue(by_log["reflections.jsonl"]["archived"])
+
+        verifications = self.read_jsonl(state / "verifications.jsonl")
+        reflections = self.read_jsonl(state / "reflections.jsonl")
+        self.assertEqual([item["claim"] for item in verifications], ["claim-3", "claim-4"])
+        self.assertEqual([item["action"] for item in reflections], ["action-1", "action-2"])
+
+        verification_archive = Path(by_log["verifications.jsonl"]["archive_path"])
+        reflection_archive = Path(by_log["reflections.jsonl"]["archive_path"])
+        self.assertTrue(verification_archive.exists())
+        self.assertTrue(reflection_archive.exists())
+        self.assertIn("claim-0", verification_archive.read_text(encoding="utf-8"))
+        self.assertIn("action-0", reflection_archive.read_text(encoding="utf-8"))
+
+    def test_logs_compact_dry_run_writes_nothing(self):
+        state = self.init_workspace()
+        for index in range(3):
+            result = self.run_cli(
+                "verify", "claim", "claim-{0}".format(index), "evidence"
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        before = self.state_snapshot(state)
+
+        result = self.run_cli("logs", "compact", "--keep", "1", "--dry-run", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        by_log = {item["log"]: item for item in payload["logs"]}
+        self.assertEqual(by_log["verifications.jsonl"]["status"], "would_compact")
+        self.assertFalse(by_log["verifications.jsonl"]["archived"])
+        self.assertEqual(self.state_snapshot(state), before)
+
+    def test_logs_compact_rejects_invalid_keep(self):
+        self.init_workspace()
+        result = self.run_cli("logs", "compact", "--keep", "0")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("[FAIL] logs compact requires --keep >= 1.", result.stderr)
 
 
 class TestStatusAndSummary(CliTestCase):
