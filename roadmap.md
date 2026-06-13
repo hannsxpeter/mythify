@@ -21,13 +21,13 @@ Status markers:
 
 ## Active Now
 
-- [>] Phase view for Understand, Design, Build, Judge, Verify.
-  - Current goal: expose the current work phase and supporting evidence in a
-    scan-friendly view.
-  - Next step: map existing plan, step, verification, reflection, and
-    background task state into phase buckets without adding ceremony.
-  - Guardrail: phases summarize recorded state; they do not grade model
-    confidence or replace executed verification.
+- [>] Fanout worker timeline.
+  - Current goal: show worker starts, finishes, duration, status, and errors in
+    a scan-friendly timeline.
+  - Next step: map durable fanout job and task records into chronological
+    events without adding process control.
+  - Guardrail: timeline events summarize recorded worker state; they do not
+    prove merged work or replace executed verification.
 
 ## Next Queue
 
@@ -214,8 +214,7 @@ Already shipped in this track:
 
 What remains:
 
-- [>] Phase view for Understand, Design, Build, Judge, Verify.
-- [ ] Fanout worker timeline.
+- [>] Fanout worker timeline.
 - [ ] Verification history.
 - [ ] Outcome loop progress.
 - [ ] Release readiness view.
@@ -224,6 +223,8 @@ Principle: reveal evidence, do not decorate self-report.
 
 Already shipped in this track:
 
+- [x] Phase view for Understand, Design, Build, Judge, Verify through CLI
+  `phase` and MCP `phase_status`.
 - [x] Background task view through CLI `background` and MCP
   `background_status`.
 - [x] Status dashboard through CLI `dashboard` and MCP `workflow_status`.
@@ -250,6 +251,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add read-only phase view. CLI `phase` and MCP
+  `phase_status` group active plan steps into Understand, Design, Build,
+  Judge, and Verify with durable evidence counts, without mutating state or
+  treating model confidence as progress.
 - [x] 2026-06-13: add read-only background task view. CLI `background` and MCP
   `background_status` summarize durable outcome loops and fanout jobs with
   statuses, task counts, recent jobs, and next actions without mutating state

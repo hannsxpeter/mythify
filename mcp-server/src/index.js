@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v2.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 28 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 31 tools in total. On-disk formats are
+// reflections) as 29 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 32 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -1287,6 +1287,240 @@ function formatBackgroundView(view) {
   if (view.outcomes.length === 0 && view.fanout_jobs.length === 0) {
     lines.push("No background tasks found.");
   }
+  return lines.join("\n");
+}
+
+const PHASE_CONFIG = [
+  {
+    id: "understand",
+    label: "Understand",
+    keywords: [
+      "understand",
+      "map",
+      "inspect",
+      "research",
+      "audit",
+      "classify",
+      "discover",
+      "probe",
+      "investigate",
+      "analyze",
+      "orient",
+    ],
+  },
+  {
+    id: "design",
+    label: "Design",
+    keywords: ["design", "plan", "spec", "contract", "architecture", "outline", "docs design"],
+  },
+  {
+    id: "build",
+    label: "Build",
+    keywords: ["implement", "build", "add", "create", "update", "write", "edit", "refactor", "wire"],
+  },
+  {
+    id: "judge",
+    label: "Judge",
+    keywords: ["judge", "review", "evaluate", "assess", "reflect", "decide"],
+  },
+  {
+    id: "verify",
+    label: "Verify",
+    keywords: ["verify", "test", "check", "gate", "lint", "suite"],
+  },
+];
+
+const PHASE_STATUS_ICONS = {
+  empty: "[ ]",
+  pending: "[ ]",
+  in_progress: "[>]",
+  completed: "[x]",
+  failed: "[!]",
+  skipped: "[~]",
+};
+
+function phaseIdForStep(step) {
+  const title = step.title || "";
+  for (const phase of PHASE_CONFIG) {
+    if (containsAny(title, phase.keywords).length > 0) {
+      return phase.id;
+    }
+  }
+  const criteria = step.success_criteria || "";
+  for (const phase of PHASE_CONFIG) {
+    if (containsAny(criteria, phase.keywords).length > 0) {
+      return phase.id;
+    }
+  }
+  return "build";
+}
+
+function summarizePhaseStep(step) {
+  return {
+    id: step.id,
+    title: step.title || "",
+    status: step.status || "pending",
+    success_criteria: step.success_criteria || "",
+    result: step.result,
+  };
+}
+
+function phaseStepCounts(steps) {
+  return {
+    total: steps.length,
+    pending: steps.filter((step) => step.status === "pending").length,
+    in_progress: steps.filter((step) => step.status === "in_progress").length,
+    completed: steps.filter((step) => step.status === "completed").length,
+    failed: steps.filter((step) => step.status === "failed").length,
+    skipped: steps.filter((step) => step.status === "skipped").length,
+  };
+}
+
+function phaseStatus(steps) {
+  if (steps.length === 0) {
+    return "empty";
+  }
+  const statuses = steps.map((step) => step.status || "pending");
+  if (statuses.includes("in_progress")) {
+    return "in_progress";
+  }
+  if (statuses.includes("failed")) {
+    return "failed";
+  }
+  if (statuses.every((status) => status === "completed")) {
+    return "completed";
+  }
+  if (statuses.every((status) => status === "skipped")) {
+    return "skipped";
+  }
+  return "pending";
+}
+
+function phaseNextAction(steps) {
+  for (const status of ["in_progress", "pending"]) {
+    const step = steps.find((candidate) => candidate.status === status);
+    if (step) {
+      return `continue step ${step.id}: ${step.title}`;
+    }
+  }
+  return null;
+}
+
+function buildPhaseEvidence(phaseId, dashboard, background) {
+  const plan = dashboard.active_plan;
+  const counts = dashboard.counts;
+  const verification = dashboard.verification_summary;
+  const reflections = dashboard.reflection_summary;
+  const evidence = [];
+  if (phaseId === "understand") {
+    evidence.push(plan ? `active plan goal: ${plan.goal || ""}` : "active plan: none");
+    evidence.push(
+      `memory ${counts.memory}, lessons ${counts.project_lessons} project + ${counts.global_lessons} global`
+    );
+  } else if (phaseId === "design") {
+    if (plan) {
+      evidence.push(`plan progress ${plan.completed_steps}/${plan.total_steps} completed`);
+      if (plan.next_pending_step) {
+        evidence.push(`next pending step ${plan.next_pending_step.id}: ${plan.next_pending_step.title || ""}`);
+      }
+    } else {
+      evidence.push("no active plan");
+    }
+  } else if (phaseId === "build") {
+    const outcomes = background.counts.outcomes;
+    const tasks = background.counts.fanout_tasks;
+    evidence.push(`outcomes ${outcomes.total} total, ${outcomes.active || 0} active`);
+    evidence.push(
+      `fanout tasks ${tasks.running || 0} running, ${tasks.pending || 0} pending, ` +
+        `${tasks.completed || 0} completed`
+    );
+  } else if (phaseId === "judge") {
+    evidence.push(`reflections ${reflections.total} total`);
+    if (reflections.recent.length > 0) {
+      const latest = reflections.recent[reflections.recent.length - 1];
+      evidence.push(`latest reflection: ${latest.outcome || "unknown"}; next ${latest.next || ""}`);
+    }
+  } else if (phaseId === "verify") {
+    evidence.push(
+      `executed checks ${verification.executed} total, ${verification.executed_passed} passed, ` +
+        `${verification.executed_failed} failed`
+    );
+    evidence.push(`attested claims ${verification.attested}`);
+    if (dashboard.active_outcome) {
+      evidence.push(`active outcome ${dashboard.active_outcome.slug} is ${dashboard.active_outcome.status}`);
+    }
+  }
+  return evidence;
+}
+
+function buildPhaseView(recent = 3) {
+  const dashboard = buildWorkflowDashboard(recent);
+  const background = buildBackgroundView(recent);
+  const stepBuckets = Object.fromEntries(PHASE_CONFIG.map((phase) => [phase.id, []]));
+  if (dashboard.active_plan) {
+    for (const step of dashboard.active_plan.steps || []) {
+      stepBuckets[phaseIdForStep(step)].push(summarizePhaseStep(step));
+    }
+  }
+  const phases = PHASE_CONFIG.map((phase) => {
+    const steps = stepBuckets[phase.id];
+    return {
+      id: phase.id,
+      label: phase.label,
+      status: phaseStatus(steps),
+      steps,
+      step_counts: phaseStepCounts(steps),
+      evidence: buildPhaseEvidence(phase.id, dashboard, background),
+      next_action: phaseNextAction(steps),
+    };
+  });
+  return {
+    state_dir: resolveStateDir(),
+    active_plan: dashboard.active_plan,
+    active_outcome: dashboard.active_outcome,
+    phases,
+    counts: {
+      memory: dashboard.counts.memory,
+      project_lessons: dashboard.counts.project_lessons,
+      global_lessons: dashboard.counts.global_lessons,
+      verifications: dashboard.counts.verifications,
+      reflections: dashboard.counts.reflections,
+      outcomes: background.counts.outcomes,
+      fanout_jobs: background.counts.fanout_jobs,
+      fanout_tasks: background.counts.fanout_tasks,
+    },
+    guardrail: "phase view summarizes durable state only; verification still requires executed checks",
+  };
+}
+
+function formatPhaseView(view) {
+  const lines = [`[OK] Phase view: ${view.state_dir}`];
+  const plan = view.active_plan;
+  if (plan) {
+    lines.push(`Active plan: ${plan.slug} (${plan.completed_steps}/${plan.total_steps} completed)`);
+    lines.push(`Goal: ${plan.goal || ""}`);
+  } else {
+    lines.push("Active plan: none");
+  }
+  lines.push("Phases:");
+  for (const phase of view.phases) {
+    const counts = phase.step_counts;
+    const icon = PHASE_STATUS_ICONS[phase.status] || "[ ]";
+    lines.push(
+      `  ${icon} ${phase.label}: ${phase.status}; ${counts.total} plan steps ` +
+        `(${counts.completed} completed, ${counts.in_progress} in progress, ${counts.pending} pending)`
+    );
+    for (const item of phase.evidence) {
+      lines.push(`      evidence: ${item}`);
+    }
+    for (const step of phase.steps) {
+      lines.push(`      step: ${PHASE_STATUS_ICONS[step.status] || "[ ]"} ${step.id}. ${step.title}`);
+    }
+    if (phase.next_action) {
+      lines.push(`      next: ${phase.next_action}`);
+    }
+  }
+  lines.push(`Guardrail: ${view.guardrail}.`);
   return lines.join("\n");
 }
 
@@ -4988,6 +5222,32 @@ server.registerTool(
       return `[OK] ${JSON.stringify(view, null, 2)}`;
     }
     return formatBackgroundView(view);
+  })
+);
+
+server.registerTool(
+  "phase_status",
+  {
+    title: "Show workflow phase state",
+    description:
+      "Show a read-only Understand, Design, Build, Judge, Verify phase view of active plan steps and supporting durable evidence counts. " +
+      "Use this to orient on where the current work sits without mutating state or treating model confidence as evidence.",
+    inputSchema: {
+      recent: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Number of recent verification and reflection records to consider. Defaults to 3."),
+      format: z.enum(["text", "json"]).optional().describe("Return text or JSON. Defaults to text."),
+    },
+  },
+  guarded(({ recent, format }) => {
+    const view = buildPhaseView(typeof recent === "number" ? recent : 3);
+    if (format === "json") {
+      return `[OK] ${JSON.stringify(view, null, 2)}`;
+    }
+    return formatPhaseView(view);
   })
 );
 

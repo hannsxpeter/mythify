@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CLI `phase` and MCP `phase_status` read-only phase views. The view groups
+  active plan steps into Understand, Design, Build, Judge, and Verify, adds
+  durable evidence counts from memory, lessons, verifications, reflections,
+  outcomes, and fanout jobs, and does not mutate state or treat model
+  confidence as progress.
 - CLI `background` and MCP `background_status` read-only background task
   views. The view summarizes durable outcome loops and fanout jobs with
   statuses, task counts, recent jobs, and next actions without mutating state

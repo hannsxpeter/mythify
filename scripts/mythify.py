@@ -28,7 +28,7 @@ from pathlib import Path
 WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
-PROTOCOL_SOURCE_SHA256 = "62dba2a9ca0deb34d48f511421e11b2c05cc7de8ce12263b7f9f13d4c45fcaa2"
+PROTOCOL_SOURCE_SHA256 = "3f9bbb0e969daaae1686dd43f7af1d5b99571a4b52616b586368e07abcbc6426"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -3400,6 +3400,328 @@ def cmd_background(args, state):
     return 0
 
 
+PHASE_CONFIG = (
+    {
+        "id": "understand",
+        "label": "Understand",
+        "keywords": (
+            "understand",
+            "map",
+            "inspect",
+            "research",
+            "audit",
+            "classify",
+            "discover",
+            "probe",
+            "investigate",
+            "analyze",
+            "orient",
+        ),
+    },
+    {
+        "id": "design",
+        "label": "Design",
+        "keywords": (
+            "design",
+            "plan",
+            "spec",
+            "contract",
+            "architecture",
+            "outline",
+            "docs design",
+        ),
+    },
+    {
+        "id": "build",
+        "label": "Build",
+        "keywords": (
+            "implement",
+            "build",
+            "add",
+            "create",
+            "update",
+            "write",
+            "edit",
+            "refactor",
+            "wire",
+        ),
+    },
+    {
+        "id": "judge",
+        "label": "Judge",
+        "keywords": (
+            "judge",
+            "review",
+            "evaluate",
+            "assess",
+            "reflect",
+            "decide",
+        ),
+    },
+    {
+        "id": "verify",
+        "label": "Verify",
+        "keywords": (
+            "verify",
+            "test",
+            "check",
+            "gate",
+            "lint",
+            "suite",
+        ),
+    },
+)
+
+PHASE_STATUS_ICONS = {
+    "empty": "[ ]",
+    "pending": "[ ]",
+    "in_progress": "[>]",
+    "completed": "[x]",
+    "failed": "[!]",
+    "skipped": "[~]",
+}
+
+
+def phase_id_for_step(step):
+    title = step.get("title", "")
+    for phase in PHASE_CONFIG:
+        if _contains_any(title, phase["keywords"]):
+            return phase["id"]
+    criteria = step.get("success_criteria", "")
+    for phase in PHASE_CONFIG:
+        if _contains_any(criteria, phase["keywords"]):
+            return phase["id"]
+    return "build"
+
+
+def summarize_phase_step(step):
+    return {
+        "id": step.get("id"),
+        "title": step.get("title", ""),
+        "status": step.get("status", "pending"),
+        "success_criteria": step.get("success_criteria", ""),
+        "result": step.get("result"),
+    }
+
+
+def phase_step_counts(steps):
+    return {
+        "total": len(steps),
+        "pending": sum(1 for step in steps if step.get("status") == "pending"),
+        "in_progress": sum(1 for step in steps if step.get("status") == "in_progress"),
+        "completed": sum(1 for step in steps if step.get("status") == "completed"),
+        "failed": sum(1 for step in steps if step.get("status") == "failed"),
+        "skipped": sum(1 for step in steps if step.get("status") == "skipped"),
+    }
+
+
+def phase_status(steps):
+    if not steps:
+        return "empty"
+    statuses = [step.get("status", "pending") for step in steps]
+    if "in_progress" in statuses:
+        return "in_progress"
+    if "failed" in statuses:
+        return "failed"
+    if all(status == "completed" for status in statuses):
+        return "completed"
+    if all(status == "skipped" for status in statuses):
+        return "skipped"
+    return "pending"
+
+
+def phase_next_action(steps):
+    for status in ("in_progress", "pending"):
+        for step in steps:
+            if step.get("status") == status:
+                return "continue step {0}: {1}".format(
+                    step.get("id"),
+                    step.get("title", ""),
+                )
+    return None
+
+
+def build_phase_evidence(phase_id, dashboard, background):
+    plan = dashboard.get("active_plan")
+    counts = dashboard["counts"]
+    verification = dashboard["verification_summary"]
+    reflections = dashboard["reflection_summary"]
+    evidence = []
+    if phase_id == "understand":
+        if plan:
+            evidence.append("active plan goal: {0}".format(plan.get("goal", "")))
+        else:
+            evidence.append("active plan: none")
+        evidence.append(
+            "memory {0}, lessons {1} project + {2} global".format(
+                counts["memory"],
+                counts["project_lessons"],
+                counts["global_lessons"],
+            )
+        )
+    elif phase_id == "design":
+        if plan:
+            evidence.append(
+                "plan progress {0}/{1} completed".format(
+                    plan["completed_steps"],
+                    plan["total_steps"],
+                )
+            )
+            next_step = plan.get("next_pending_step")
+            if next_step:
+                evidence.append(
+                    "next pending step {0}: {1}".format(
+                        next_step.get("id"),
+                        next_step.get("title", ""),
+                    )
+                )
+        else:
+            evidence.append("no active plan")
+    elif phase_id == "build":
+        outcomes = background["counts"]["outcomes"]
+        tasks = background["counts"]["fanout_tasks"]
+        evidence.append(
+            "outcomes {0} total, {1} active".format(
+                outcomes["total"],
+                outcomes.get("active", 0),
+            )
+        )
+        evidence.append(
+            "fanout tasks {0} running, {1} pending, {2} completed".format(
+                tasks.get("running", 0),
+                tasks.get("pending", 0),
+                tasks.get("completed", 0),
+            )
+        )
+    elif phase_id == "judge":
+        evidence.append("reflections {0} total".format(reflections["total"]))
+        if reflections["recent"]:
+            latest = reflections["recent"][-1]
+            evidence.append(
+                "latest reflection: {0}; next {1}".format(
+                    latest.get("outcome", "unknown"),
+                    latest.get("next", ""),
+                )
+            )
+    elif phase_id == "verify":
+        evidence.append(
+            "executed checks {0} total, {1} passed, {2} failed".format(
+                verification["executed"],
+                verification["executed_passed"],
+                verification["executed_failed"],
+            )
+        )
+        evidence.append("attested claims {0}".format(verification["attested"]))
+        outcome = dashboard.get("active_outcome")
+        if outcome:
+            evidence.append(
+                "active outcome {0} is {1}".format(
+                    outcome["slug"],
+                    outcome["status"],
+                )
+            )
+    return evidence
+
+
+def build_phase_view(state, recent=3):
+    dashboard = build_dashboard(state, recent)
+    background = build_background_view(state, recent)
+    plan = dashboard.get("active_plan")
+    step_buckets = {phase["id"]: [] for phase in PHASE_CONFIG}
+    if plan:
+        for step in plan.get("steps", []):
+            step_buckets[phase_id_for_step(step)].append(summarize_phase_step(step))
+    phases = []
+    for phase in PHASE_CONFIG:
+        steps = step_buckets[phase["id"]]
+        status = phase_status(steps)
+        phases.append(
+            {
+                "id": phase["id"],
+                "label": phase["label"],
+                "status": status,
+                "steps": steps,
+                "step_counts": phase_step_counts(steps),
+                "evidence": build_phase_evidence(phase["id"], dashboard, background),
+                "next_action": phase_next_action(steps),
+            }
+        )
+    return {
+        "state_dir": str(state),
+        "active_plan": dashboard.get("active_plan"),
+        "active_outcome": dashboard.get("active_outcome"),
+        "phases": phases,
+        "counts": {
+            "memory": dashboard["counts"]["memory"],
+            "project_lessons": dashboard["counts"]["project_lessons"],
+            "global_lessons": dashboard["counts"]["global_lessons"],
+            "verifications": dashboard["counts"]["verifications"],
+            "reflections": dashboard["counts"]["reflections"],
+            "outcomes": background["counts"]["outcomes"],
+            "fanout_jobs": background["counts"]["fanout_jobs"],
+            "fanout_tasks": background["counts"]["fanout_tasks"],
+        },
+        "guardrail": (
+            "phase view summarizes durable state only; verification still "
+            "requires executed checks"
+        ),
+    }
+
+
+def format_phase_view(view):
+    lines = ["[OK] Phase view: {0}".format(view["state_dir"])]
+    plan = view.get("active_plan")
+    if plan:
+        lines.append(
+            "Active plan: {0} ({1}/{2} completed)".format(
+                plan["slug"],
+                plan["completed_steps"],
+                plan["total_steps"],
+            )
+        )
+        lines.append("Goal: {0}".format(plan.get("goal", "")))
+    else:
+        lines.append("Active plan: none")
+    lines.append("Phases:")
+    for phase in view["phases"]:
+        counts = phase["step_counts"]
+        icon = PHASE_STATUS_ICONS.get(phase["status"], "[ ]")
+        lines.append(
+            "  {0} {1}: {2}; {3} plan steps ({4} completed, {5} in progress, {6} pending)".format(
+                icon,
+                phase["label"],
+                phase["status"],
+                counts["total"],
+                counts["completed"],
+                counts["in_progress"],
+                counts["pending"],
+            )
+        )
+        for item in phase["evidence"]:
+            lines.append("      evidence: {0}".format(item))
+        for step in phase["steps"]:
+            lines.append(
+                "      step: {0} {1}. {2}".format(
+                    PHASE_STATUS_ICONS.get(step["status"], "[ ]"),
+                    step["id"],
+                    step["title"],
+                )
+            )
+        if phase.get("next_action"):
+            lines.append("      next: {0}".format(phase["next_action"]))
+    lines.append("Guardrail: {0}.".format(view["guardrail"]))
+    return "\n".join(lines)
+
+
+def cmd_phase(args, state):
+    view = build_phase_view(state, args.recent)
+    if args.json_output:
+        print(json.dumps(view, indent=2))
+    else:
+        print(format_phase_view(view))
+    return 0
+
+
 def cmd_classify(args, _state):
     result = classify_task_text(args.task)
     result["model_policy"] = build_model_policy(result, args)
@@ -4384,6 +4706,24 @@ def build_parser():
     )
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_background)
+
+    p = sub.add_parser(
+        "phase",
+        help="Show a read-only Understand, Design, Build, Judge, Verify phase view.",
+        description=(
+            "Read-only phase view: active plan steps grouped into Understand, "
+            "Design, Build, Judge, and Verify, with supporting evidence counts "
+            "from durable state."
+        ),
+    )
+    p.add_argument(
+        "--recent",
+        type=int,
+        default=3,
+        help="Number of recent verification and reflection records to consider. Defaults to 3.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_phase)
 
     p = sub.add_parser(
         "classify",

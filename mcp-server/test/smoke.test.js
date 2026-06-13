@@ -484,6 +484,33 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(parsed.counts.memory, 1);
     });
 
+    await t.test("phase_status groups plan steps without mutation", async () => {
+      const before = snapshotStateDir(stateDir);
+      const text = textOf(
+        await client.callTool({
+          name: "phase_status",
+          arguments: { recent: 1 },
+        })
+      );
+      assert.ok(text.startsWith("[OK] Phase view"), `phase_status reports [OK]: ${text}`);
+      assert.match(text, /Active plan: smoke-goal/);
+      assert.match(text, /Build: completed; 1 plan steps/);
+      assert.match(text, /Guardrail: phase view summarizes durable state only/);
+      assert.deepEqual(snapshotStateDir(stateDir), before, "phase_status leaves state unchanged");
+
+      const jsonText = textOf(
+        await client.callTool({
+          name: "phase_status",
+          arguments: { recent: 1, format: "json" },
+        })
+      );
+      const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
+      const phases = Object.fromEntries(parsed.phases.map((phase) => [phase.id, phase]));
+      assert.equal(phases.build.status, "completed");
+      assert.equal(phases.build.step_counts.total, 1);
+      assert.equal(parsed.counts.memory, 1);
+    });
+
     await t.test("outcome tools track success and bounded failure", async () => {
       const passCommand = `${JSON.stringify(process.execPath)} -e "process.exit(0)"`;
       const metricCommand = `${JSON.stringify(process.execPath)} -e "process.stdout.write('9.5')"`;

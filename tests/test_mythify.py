@@ -1730,6 +1730,58 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(payload["counts"]["fanout_tasks"]["running"], 1)
         self.assertEqual(payload["fanout_jobs"][0]["id"], job_id)
 
+    def test_phase_groups_plan_steps_and_evidence_without_mutation(self):
+        state = self.init_workspace()
+        steps = json.dumps([
+            {"title": "Map current state", "success_criteria": "inputs known"},
+            {"title": "Design phase view", "success_criteria": "contract written"},
+            {"title": "Implement phase view", "success_criteria": "command works"},
+            {"title": "Review phase output", "success_criteria": "shape is honest"},
+            {"title": "Verify phase view", "success_criteria": "tests pass"},
+        ])
+        created = self.run_cli("plan", "create", "Ship phase view", "--steps", steps)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        completed = self.run_cli("step", "1", "completed", "inputs mapped")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        in_progress = self.run_cli("step", "2", "in_progress")
+        self.assertEqual(in_progress.returncode, 0, in_progress.stderr)
+        self.assertEqual(self.run_cli("memory", "set", "surface", "phase").returncode, 0)
+        self.assertEqual(
+            self.run_cli("lesson", "add", "Keep views read-only", "Status views must not mutate").returncode,
+            0,
+        )
+        self.assertEqual(self.run_cli("verify", "run", shell_py("raise SystemExit(0)")).returncode, 0)
+        reflected = self.run_cli(
+            "reflect",
+            "--action", "reviewed phase view",
+            "--outcome", "success",
+            "--observation", "phase buckets are scan-friendly",
+            "--next", "run focused tests",
+        )
+        self.assertEqual(reflected.returncode, 0, reflected.stderr)
+
+        before = self.state_snapshot(state)
+        result = self.run_cli("phase", "--recent", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Phase view", result.stdout)
+        self.assertIn("Active plan: ship-phase-view (1/5 completed)", result.stdout)
+        self.assertIn("[x] Understand: completed; 1 plan steps", result.stdout)
+        self.assertIn("[>] Design: in_progress; 1 plan steps", result.stdout)
+        self.assertIn("[ ] Build: pending; 1 plan steps", result.stdout)
+        self.assertIn("[ ] Judge: pending; 1 plan steps", result.stdout)
+        self.assertIn("[ ] Verify: pending; 1 plan steps", result.stdout)
+        self.assertIn("Guardrail: phase view summarizes durable state only", result.stdout)
+        self.assertEqual(self.state_snapshot(state), before)
+
+        json_result = self.run_cli("phase", "--json")
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        payload = json.loads(json_result.stdout)
+        phases = {phase["id"]: phase for phase in payload["phases"]}
+        self.assertEqual(phases["understand"]["status"], "completed")
+        self.assertEqual(phases["design"]["status"], "in_progress")
+        self.assertEqual(phases["verify"]["step_counts"]["pending"], 1)
+        self.assertEqual(payload["counts"]["verifications"], 1)
+
 
 class TestCorruptRecovery(CliTestCase):
     def test_corrupt_memory_json_is_quarantined_with_warning(self):
