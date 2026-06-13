@@ -157,6 +157,12 @@ class LocalModelEvalTests(unittest.TestCase):
         self.assertEqual(false_claims["conclusion"], "no_change")
         self.assertEqual(false_claims["modes"]["bare"]["false_completion_claims"], 0)
         self.assertEqual(false_claims["modes"]["mythify"]["false_completion_claims"], 0)
+        overhead = report["profile_overhead"]
+        self.assertEqual(overhead["metric"], "avg_model_duration_seconds")
+        self.assertEqual(overhead["evidence_source"], "measured model process duration_seconds from local harness subprocess runs")
+        self.assertEqual(overhead["bare_speed"], "auto")
+        self.assertEqual(overhead["mythify_speed"], "auto")
+        self.assertIn("fast", overhead["profiles"])
 
     def test_command_engine_runs_all_scenarios_with_summary(self):
         worker = self.write_worker()
@@ -194,6 +200,7 @@ class LocalModelEvalTests(unittest.TestCase):
         self.assertEqual(report["verified_task_success"]["paired_task_count"], 3)
         self.assertEqual(report["verified_task_success"]["winner"], "tie")
         self.assertEqual(report["false_completion_claims"]["winner_by_lower_false_completion_rate"], "tie")
+        self.assertEqual(report["profile_overhead"]["profiles"]["fast"]["attempted"], 3)
 
     def test_verified_task_success_effect_uses_verifier_exit_codes(self):
         runs = [
@@ -249,6 +256,34 @@ class LocalModelEvalTests(unittest.TestCase):
         self.assertEqual(effect["false_completion_rate_delta"], -1.0)
         self.assertEqual(effect["modes"]["bare"]["false_completion_claims"], 1)
         self.assertEqual(effect["modes"]["mythify"]["verifier_backed_claims"], 1)
+
+    def test_profile_overhead_effect_uses_measured_durations(self):
+        runs = [
+            {
+                "mode": "bare",
+                "model_exit_code": 0,
+                "verify_exit_code": 0,
+                "model_duration_seconds": 1.0,
+                "mythify_records": {"verifications": 0, "plans": 0},
+            },
+            {
+                "mode": "mythify",
+                "mythify_profile": "fast",
+                "model_exit_code": 0,
+                "verify_exit_code": 0,
+                "model_duration_seconds": 2.5,
+                "mythify_records": {"verifications": 1, "plans": 0},
+            },
+        ]
+        summary = local_model_eval.summarize_runs(runs)
+        effect = local_model_eval.profile_overhead_effect(summary, runs)
+
+        self.assertEqual(effect["winner_by_lower_avg_duration"], "bare")
+        self.assertEqual(effect["conclusion"], "overhead")
+        self.assertEqual(effect["avg_model_duration_delta_seconds"], 1.5)
+        self.assertEqual(effect["avg_model_duration_ratio"], 2.5)
+        self.assertEqual(effect["profiles"]["fast"]["delta_vs_bare_avg_seconds"], 1.5)
+        self.assertEqual(effect["profiles"]["fast"]["ratio_vs_bare_avg"], 2.5)
 
     def test_standard_profile_requires_plan_evidence(self):
         worker = self.write_worker()

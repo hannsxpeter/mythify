@@ -618,6 +618,66 @@ def false_completion_claims_effect(runs):
     }
 
 
+def duration_ratio(numerator, denominator):
+    if denominator == 0:
+        return None
+    return round(numerator / denominator, 3)
+
+
+def profile_overhead_effect(summary, runs):
+    bare = summary["bare"]
+    mythify = summary["mythify"]
+    bare_avg = bare["avg_model_duration_seconds"]
+    mythify_avg = mythify["avg_model_duration_seconds"]
+    delta = round(mythify_avg - bare_avg, 3)
+    if delta > 0:
+        conclusion = "overhead"
+        winner = "bare"
+    elif delta < 0:
+        conclusion = "faster"
+        winner = "mythify"
+    else:
+        conclusion = "no_change"
+        winner = "tie"
+
+    profiles = {}
+    for run in runs:
+        if run["mode"] != "mythify":
+            continue
+        profile = run.get("mythify_profile") or "unknown"
+        profiles.setdefault(profile, []).append(run)
+    profile_rows = {}
+    for profile, selected in sorted(profiles.items()):
+        attempted = len(selected)
+        avg_duration = round(
+            sum(run["model_duration_seconds"] for run in selected) / attempted,
+            3,
+        ) if attempted else 0
+        profile_rows[profile] = {
+            "attempted": attempted,
+            "avg_model_duration_seconds": avg_duration,
+            "delta_vs_bare_avg_seconds": round(avg_duration - bare_avg, 3),
+            "ratio_vs_bare_avg": duration_ratio(avg_duration, bare_avg),
+        }
+
+    return {
+        "metric": "avg_model_duration_seconds",
+        "comparison": "mythify_profile_vs_bare",
+        "evidence_source": "measured model process duration_seconds from local harness subprocess runs",
+        "bare_avg_model_duration_seconds": bare_avg,
+        "mythify_avg_model_duration_seconds": mythify_avg,
+        "avg_model_duration_delta_seconds": delta,
+        "avg_model_duration_ratio": duration_ratio(mythify_avg, bare_avg),
+        "winner_by_lower_avg_duration": winner,
+        "conclusion": conclusion,
+        "profiles": profile_rows,
+        "bare_speed": "",
+        "mythify_speed": "",
+        "statistical_strength": "local_smoke",
+        "caveat": "Durations are local subprocess wall-clock measurements and include CLI startup, prompt handling, and protocol work.",
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Run a local bare-vs-Mythify model comparison using installed CLI subscriptions."
@@ -694,6 +754,11 @@ def main(argv=None):
             "summary": summary,
             "verified_task_success": verified_task_success_effect(summary),
             "false_completion_claims": false_completion_claims_effect(runs),
+            "profile_overhead": {
+                **profile_overhead_effect(summary, runs),
+                "bare_speed": bare_speed,
+                "mythify_speed": mythify_speed,
+            },
             "runs": runs,
         }
         text = json.dumps(report, indent=2)

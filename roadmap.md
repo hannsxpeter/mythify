@@ -21,13 +21,12 @@ Status markers:
 
 ## Active Now
 
-- [>] Profile overhead evaluation.
-  - Current goal: measure how much time overhead each Mythify profile adds in
-    the local evaluation harness.
-  - Next step: map current duration fields, profile selection, and speed
-    controls before adding any new overhead report.
-  - Guardrail: overhead evidence comes from measured run durations, not
-    estimates or model self-report.
+- [>] Local model benefit evaluation.
+  - Current goal: identify which task types benefit from local model support.
+  - Next step: map local provider roles, scenario metadata, and current eval
+    result fields before adding any task-benefit report.
+  - Guardrail: local model benefit evidence must come from rerunnable harness
+    or provider checks, not generic model marketing claims.
 
 ## Next Queue
 
@@ -238,13 +237,17 @@ Already shipped in this track:
 
 What remains:
 
-- [>] How much overhead does each profile add?
-- [ ] Which tasks benefit from local models?
+- [>] Which tasks benefit from local models?
 - [ ] Which roles require stronger models?
 - [ ] Where does fanout help, and where does it waste tokens?
 
 Already shipped in this track:
 
+- [x] Profile overhead is reported through the local eval harness
+  `profile_overhead` JSON block, comparing measured Mythify profile
+  `model_duration_seconds` against bare runs with average duration delta,
+  ratio, lower-duration winner, per-profile rows, speed fields, and a local
+  wall-clock smoke-test caveat.
 - [x] False completion claims are reported through the local eval harness
   `false_completion_claims` JSON block, comparing model process exit code 0
   with executed verifier results and reporting verifier-backed claims, false
@@ -263,6 +266,11 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: add profile overhead evaluation reporting.
+  `scripts/local_model_eval.py` now emits `profile_overhead`, a
+  bare-vs-Mythify smoke comparison based on measured model subprocess
+  durations. It reports average duration delta, ratio, lower-duration winner,
+  per-profile rows, speed fields, and a local wall-clock caveat.
 - [x] 2026-06-13: add false completion claim evaluation reporting.
   `scripts/local_model_eval.py` now emits `false_completion_claims`, a
   bare-vs-Mythify smoke comparison that counts model process exit code 0 as a

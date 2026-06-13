@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `scripts/local_model_eval.py` now emits a `profile_overhead` report block.
+  It compares measured Mythify profile `model_duration_seconds` against bare
+  runs, reporting average duration delta, ratio, lower-duration winner,
+  per-profile rows, speed fields, and a local wall-clock smoke-test caveat.
 - `scripts/local_model_eval.py` now emits a `false_completion_claims` report
   block. It compares the bounded completion signal of model process exit code
   0 with per-workspace `python3 -m unittest` exit codes, reporting

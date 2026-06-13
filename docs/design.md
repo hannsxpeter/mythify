@@ -1049,6 +1049,13 @@ The JSON report must include:
   verifier-backed claims, false completion claims, false-completion rates,
   rate delta, lower-rate winner, conclusion, and the local smoke-test caveat.
   The harness must not classify tone or confidence in model prose as evidence.
+- `profile_overhead`: the direct answer to the profile-overhead question. It
+  records `metric: "avg_model_duration_seconds"`, `comparison:
+  "mythify_profile_vs_bare"`, measured duration evidence source, bare and
+  Mythify average model durations, delta, ratio, lower-duration winner,
+  conclusion, per-profile attempts, per-profile duration deltas, speed fields,
+  and the local smoke-test caveat. The harness must not estimate timing or use
+  model-reported timing as evidence.
 - `runs`: per-workspace model exit details, verifier exit details, output
   tails, and Mythify evidence counts.
 
