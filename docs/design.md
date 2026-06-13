@@ -87,6 +87,56 @@ mythify/
 
 `dist/` (built skill packages) and `node_modules/` are build outputs, ignored by git.
 
+## One-core architecture decision
+
+Decision: Mythify will move toward one shared contract core, but it will not do a
+whole-runtime rewrite yet. The Python CLI and Node MCP server stay as separate
+host adapters. Shared behavior moves behind small, checked contract artifacts
+only after duplication has produced drift or maintenance pressure.
+
+Evidence for the decision:
+
+- The CLI and MCP already duplicate state I/O, JSONL reads, atomic writes,
+  shell verification, plan updates, outcome loops, model policy, host-model
+  records, and dashboard formatting. Examples include `build_dashboard` in
+  `scripts/mythify.py` and `buildWorkflowDashboard` in
+  `mcp-server/src/index.js`, plus parallel `run_shell_capture` and
+  `runShellCapture` implementations.
+- The shared registries are working where the duplicated facts are narrow:
+  `protocol/operation-registry.json` owns memory operation metadata, and
+  `mcp-server/src/capability-registry.js` owns host, provider, execution, and
+  lifecycle capability metadata.
+- Drift is still easy to create in prose and copied surface metadata. The
+  dashboard slice raised the MCP tool contract to 30 tools, while the README
+  component summary still said 29 until this decision pass.
+- `tests/test_interop.py` proves the two runtimes can share one `.mythify`
+  state directory for mutating state families, so migration can be incremental
+  without breaking existing users.
+
+Policy:
+
+- Keep Python CLI command handling, Node MCP handler wiring, host CLI process
+  execution, and MCP fanout runtime code in their native adapters for now.
+- Put shared facts into explicit artifacts first: protocol files, operation
+  registries, capability registries, generated docs, schemas, or manifests.
+- Add or expand a shared artifact only when a focused drift test protects the
+  generated or shared output.
+- Prefer data contracts and generation over a cross-language runtime dependency
+  until at least two more duplicated surfaces demonstrate recurring drift.
+- Every migration slice must preserve the on-disk state contract, evidence
+  boundaries, no-mutation guarantees, and CLI/MCP interop tests.
+
+Migration guardrails:
+
+- `docs/design.md` leads. The contract changes before implementation.
+- One surface per slice. Do not combine a registry move with unrelated feature
+  work.
+- Each shared artifact needs an executable check, not reviewer memory.
+- Generated files must carry either a source hash or a check command.
+- Runtime output remains material unless an executed verifier records it.
+- Rollback must be simple: adapters can keep their local implementation while
+  the shared artifact is corrected.
+
 ## Capability registry
 
 The MCP server keeps host, provider, execution, and lifecycle capability metadata in

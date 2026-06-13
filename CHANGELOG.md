@@ -110,6 +110,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   toward the existing OpenCode CLI worker plus future server or SDK slices
   instead of driving the desktop app directly.
 
+### Changed
+
+- One-core architecture direction is now explicit: keep the Python CLI and
+  Node MCP server as native adapters while moving duplicated facts into checked
+  protocol files, registries, generated docs, schemas, or manifests one surface
+  at a time.
+
 ## [2.5.0] - 2026-06-12
 
 ### Added

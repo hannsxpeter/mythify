@@ -18,12 +18,17 @@ capability gap.
 | :--- | :--- | :--- |
 | Protocol variants | `CLAUDE.md`, `AGENTS.md`, `.cursorrules` | Drop-in rules files, generated from `protocol/PROTOCOL.md` by `scripts/build_variants.py`. |
 | CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, memory, lessons, outcome loops, verification, and reflection. |
-| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 29 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, and parallel delegation (fanout). |
+| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 30 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, and parallel delegation (fanout). |
 | Skill | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
 
 All components read and write the same per-project `.mythify/` state directory, so
 they interoperate: a plan created by the CLI is visible to the MCP server and vice
 versa.
+
+Architecture posture: Mythify is moving toward one shared contract core, not a
+single runtime. The Python CLI and Node MCP server remain native adapters, while
+duplicated facts move into checked protocol files, registries, generated docs,
+schemas, or manifests one surface at a time.
 
 Each quick start begins from a local clone:
 

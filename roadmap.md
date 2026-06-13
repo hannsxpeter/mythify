@@ -21,14 +21,13 @@ Status markers:
 
 ## Active Now
 
-- [>] One-core architecture decision after the registry prototype proves
-  enough value.
-  - Current goal: decide whether the CLI and MCP should keep parallel
-    implementations or move more behavior behind one shared core.
-  - Next step: map duplicated logic, generated surfaces, test coverage, and
-    migration risk.
-  - Guardrail: do not refactor architecture before the decision has concrete
-    drift, maintenance, and test evidence.
+- [>] Registry-backed surface manifest for duplicated CLI and MCP metadata.
+  - Current goal: move one small public-surface metadata set behind a checked
+    manifest before sharing more runtime behavior.
+  - Next step: identify a recently drifting surface, likely tool and command
+    count metadata, and define the smallest manifest plus drift test.
+  - Guardrail: do not generate runtime handlers or schemas until the manifest
+    is protected by focused checks.
 
 ## Next Queue
 
@@ -186,13 +185,13 @@ Guardrails:
 
 What remains:
 
-- [ ] Expand registry-backed generation only when another duplicated surface
+- [>] Expand registry-backed generation only when another duplicated surface
   has a focused drift test.
-- [>] One-core architecture decision after the registry prototype proves enough
-  value.
 
 Already shipped in this track:
 
+- [x] One-core architecture decision keeps CLI and MCP as native adapters while
+  moving duplicated facts into checked contract artifacts one surface at a time.
 - [x] Read-only workflow dashboard exposes plan, outcome, verification, and
   reflection state without model-confidence fields.
 - [x] Capability registry exists in `mcp-server/src/capability-registry.js`.
@@ -214,7 +213,6 @@ Already shipped in this track:
 
 What remains:
 
-- [ ] Status dashboard.
 - [ ] Background task view.
 - [ ] Phase view for Understand, Design, Build, Judge, Verify.
 - [ ] Fanout worker timeline.
@@ -223,6 +221,10 @@ What remains:
 - [ ] Release readiness view.
 
 Principle: reveal evidence, do not decorate self-report.
+
+Already shipped in this track:
+
+- [x] Status dashboard through CLI `dashboard` and MCP `workflow_status`.
 
 ### Evaluation
 
@@ -246,6 +248,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-13: decide one-core architecture direction. Mythify keeps the
+  Python CLI and Node MCP server as native adapters while moving duplicated
+  facts into checked protocol files, registries, generated docs, schemas, or
+  manifests one surface at a time.
 - [x] 2026-06-13: add read-only workflow dashboard surfaces. CLI `dashboard`
   and MCP `workflow_status` now show active plan, current and next step,
   active outcome, evidence counts, recent verification records, and recent
@@ -427,7 +433,7 @@ Preserve:
   workflows.
 - [x] Execution adapter lane for Colab CLI style remote jobs.
 - [ ] Agent lifecycle lane for Agents CLI and ADK style workflows.
-- [ ] One-core architecture decision based on the registry prototype.
+- [x] One-core architecture decision based on the registry prototype.
 - [x] Stronger workflow surfaces.
 - [ ] Clear migration guide from CLI-only usage to model-runtime orchestration.
 
