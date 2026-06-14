@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Design documentation no longer includes the literal pending-work marker text
+  that the repository hygiene scan is meant to catch.
 
 ## [3.2.2] - 2026-06-14
 
