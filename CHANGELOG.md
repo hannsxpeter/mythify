@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [3.2.1] - 2026-06-14
+
+### Changed
+
+- CLI `report --mark` and MCP `work_report` mark mode now confirm the cursor is
+  ready for future updates instead of using absence-focused no-event wording.
+
 ## [3.2.0] - 2026-06-14
 
 ### Added
@@ -470,7 +477,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/aihxp/mythify/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/aihxp/mythify/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/aihxp/mythify/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/aihxp/mythify/compare/v3.0.0...v3.0.1
