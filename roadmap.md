@@ -21,11 +21,12 @@ Status markers:
 
 ## Active Now
 
-- [>] release version alignment decision.
-  - Current goal: decide whether the next release artifact should stay on
-    `2.5.x`, move to `2.6.0`, or intentionally bump to `3.0.0`.
-  - Next step: inspect package metadata, changelog anchors, tag history, and
-    semantic-version impact before any release-candidate tag.
+- [>] v3.0.0 release metadata alignment.
+  - Current goal: align package metadata, changelog anchors, and
+    release-facing docs to the intended `3.0.0` release line.
+  - Next step: update `mcp-server/package.json`,
+    `mcp-server/package-lock.json`, `CHANGELOG.md`, and release-facing docs
+    that still describe the current server version as `2.5.0`.
   - Guardrail: do not tag or publish until package metadata, changelog anchors,
     release docs, and executed release gates all point at the same intended
     release version.
@@ -297,6 +298,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-14: decide release version alignment.
+  `docs/release-version-alignment-decision.md` records `3.0.0` as the intended
+  next release version and identifies package metadata, lockfile, changelog,
+  docs, and final release gates as the required pre-tag alignment work.
 - [x] 2026-06-14: record v3.0 release-candidate tag decision.
   `docs/v3-release-candidate-decision.md` records that a v3.0
   release-candidate tag should wait until release version metadata is aligned;
@@ -609,7 +614,8 @@ Preserve:
 
 ### v3.1
 
-- [>] release version alignment decision.
+- [>] v3.0.0 release metadata alignment.
+- [x] release version alignment decision.
 - [x] v3.0 release candidate tag decision.
 - [x] v3.0 release readiness sweep.
 - [x] Host apply or confirm API proof watchlist.
@@ -620,6 +626,7 @@ Preserve:
 
 - `docs/host-model-switching-research.md`
 - `docs/host-apply-confirm-proof-watchlist.md`
+- `docs/release-version-alignment-decision.md`
 - `docs/v3-release-candidate-decision.md`
 - `docs/v3-release-readiness-sweep.md`
 - `docs/local-llm-and-new-host-research.md`

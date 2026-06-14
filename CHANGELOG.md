@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Release version alignment decision record.
+  `docs/release-version-alignment-decision.md` records `3.0.0` as the intended
+  next release version before any release-candidate tag, with package metadata,
+  lockfile, changelog, docs, and final release gates still requiring alignment.
 - v3.0 release-candidate decision record.
   `docs/v3-release-candidate-decision.md` records that a v3.0
   release-candidate tag should wait until package metadata, changelog anchors,
