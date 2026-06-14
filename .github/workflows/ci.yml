@@ -84,6 +84,40 @@ jobs:
           node scripts/build_registry_docs.mjs
           git diff --exit-code docs/adapter-candidates.md
           node scripts/check_surface_manifest.mjs
+          node scripts/check_classification_rules_manifest.mjs
+      - name: Installer smoke
+        run: |
+          mkdir -p "$RUNNER_TEMP/mythify-project"
+          XDG_DATA_HOME="$RUNNER_TEMP/mythify-data" scripts/install_user.sh \
+            --prefix "$RUNNER_TEMP/mythify-install" \
+            --project "$RUNNER_TEMP/mythify-project"
+          "$RUNNER_TEMP/mythify-install/bin/mythify" status
+          test -x "$RUNNER_TEMP/mythify-install/bin/mythify-mcp"
+          VERSION="$(node -p "require('./mcp-server/package.json').version")"
+          MCP_DIR="$RUNNER_TEMP/mythify-data/mythify/$VERSION/mcp-server"
+          cd "$MCP_DIR"
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import fs from "node:fs";
+          import os from "node:os";
+          import path from "node:path";
+          import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+          import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+          const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-ci-install-"));
+          const transport = new StdioClientTransport({
+            command: process.env.RUNNER_TEMP + "/mythify-install/bin/mythify-mcp",
+            env: { ...process.env, MYTHIFY_DIR: stateDir },
+          });
+          const client = new Client({ name: "mythify-ci-install", version: "1.0.0" });
+          await client.connect(transport);
+          try {
+            const listed = await client.listTools();
+            assert.equal(listed.tools.length, 36);
+          } finally {
+            await client.close();
+          }
+          NODE
       - name: ASCII rules
         run: |
           python - <<'PY'

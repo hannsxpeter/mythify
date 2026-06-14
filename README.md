@@ -3,13 +3,41 @@
 [![CI](https://github.com/aihxp/mythify/actions/workflows/ci.yml/badge.svg)](https://github.com/aihxp/mythify/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Give any model Mythos-class operational discipline.
+Evidence protocol for AI coding agents.
 
-Mythify improves the harness, not the underlying model. A weaker model with
-disciplined planning, executed verification, and persistent memory completes more
-long-horizon work than the same model without them. The patterns are distilled from
-the research in [docs/research-report.md](docs/research-report.md), which carries its
-own caveat: training beats prompting. Mythify closes the discipline gap, not the
+Mythify improves the harness, not the underlying model. It makes agents plan
+when the work needs it, persist state outside the chat, verify claims with real
+commands, and leave an audit trail of what passed, what failed, and what remains.
+
+The shortest path is in [docs/start-here.md](docs/start-here.md). Start there if
+you want to use Mythify before learning the full command surface.
+
+## Start Here
+
+From a local clone, install user-local launchers and initialize a project:
+
+```bash
+./scripts/install_user.sh --project /path/to/your/project
+cd /path/to/your/project
+mythify classify "Fix the failing parser test"
+mythify plan create "Fix the failing parser test" --steps '[{"title":"Reproduce and fix","success_criteria":"parser tests pass"}]'
+mythify step 1 in_progress
+```
+
+Then do the work and record evidence:
+
+```bash
+mythify verify run "python3 -m unittest discover -s tests" --claim "parser tests pass"
+mythify step 1 completed "verify run exit 0: parser tests pass"
+mythify summary
+```
+
+That loop is the product: goal, action, executed verification, durable record.
+The rest of the CLI and MCP surface exists for larger workflows.
+
+The patterns are distilled from the research in
+[docs/research-report.md](docs/research-report.md), which carries its own
+caveat: training beats prompting. Mythify closes the discipline gap, not the
 capability gap.
 
 ## Components
@@ -18,6 +46,7 @@ capability gap.
 | :--- | :--- | :--- |
 | Protocol variants | `CLAUDE.md`, `AGENTS.md`, `.cursorrules` | Drop-in rules files, generated from `protocol/PROTOCOL.md` by `scripts/build_variants.py`. |
 | CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, memory, lessons, outcome loops, verification, and reflection. |
+| User installer | `scripts/install_user.sh` | User-local launcher installer for the CLI and packaged MCP server from a checkout. |
 | Shared manifests | `protocol/operation-registry.json`, `protocol/classification-rules.json`, `protocol/surface-manifest.json` | Shared facts used by the CLI, MCP server, tests, and docs to prevent drift. |
 | MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 36 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, background task status, outcome progress, release readiness, fanout worker timeline, phase status, and parallel delegation (fanout). |
 | Skill | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
@@ -925,9 +954,10 @@ documented or locally probeable automation contract exists.
 
 ## Limitations
 
-- No published npm package yet. You can get the code by cloning the repository or
-  downloading a GitHub release, but the MCP server is still configured by local
-  absolute path; there are no `npx` instructions because nothing is published to npm.
+- No npm registry package yet. The supported install path is a local checkout
+  with `scripts/install_user.sh`, plus GitHub release assets for the skill and
+  MCP package. MCP clients still use a local absolute path; there are no `npx`
+  instructions because no package is published to npm.
 - No large benchmark eval has been run yet. The `verified_task_success`,
   `false_completion_claims`, `profile_overhead`, `local_model_benefit`, and
   `fanout_value` report blocks, plus the `role_strength` policy report, are

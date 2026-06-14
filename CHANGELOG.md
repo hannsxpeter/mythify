@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Start-here guide focused on Mythify's shortest useful loop, three concrete
+  workflows, and which advanced surfaces new users can ignore at first.
+- User-local installer script for CLI and MCP launchers from a checkout.
+
+### Changed
+
+- README positioning now leads with Mythify as an evidence protocol for AI
+  coding agents and places the minimal plan, verify, step, summary loop before
+  the full component surface.
+- Distribution docs now name the supported checkout-plus-installer path and
+  keep npm registry publishing as an explicit future package-identity decision.
+
 ## [3.0.1] - 2026-06-14
 
 ### Fixed

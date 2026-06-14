@@ -50,6 +50,19 @@ The npm tarball must include package-local copies of
 `mcp-server/protocol/surface-manifest.json` because the packaged MCP server
 loads these manifests at runtime.
 
+## Install Path
+
+The supported user install path is a local checkout plus:
+
+```bash
+./scripts/install_user.sh --project /absolute/path/to/project
+```
+
+The script installs `mythify` and `mythify-mcp` launchers under
+`$HOME/.local/bin` by default, installs the packaged MCP server under
+`$XDG_DATA_HOME/mythify/VERSION` or `$HOME/.local/share/mythify/VERSION`, and
+prints the Codex MCP registration command for the selected project.
+
 ## Publish
 
 Create the GitHub release only after the final commit is pushed and CI is green:
@@ -66,10 +79,17 @@ The release workflow also builds and uploads the same assets on
 `release.published`, so manually supplied assets and workflow assets must be
 identical or safely overwritten by the workflow.
 
-## GitHub Package Status
+## Package Distribution Status
 
 The current npm package name is unscoped: `mythify-mcp`. This repository
 currently produces a GitHub release package artifact
 (`mythify-mcp-3.0.1.tgz`) rather than publishing an npm package to the GitHub
-Packages registry. Add a scoped package name and publish workflow only if
-registry publishing becomes a product requirement.
+Packages registry. The current product promise is therefore:
+
+- Source checkout plus `scripts/install_user.sh` for user-local installation.
+- GitHub release assets for the skill archive and MCP package tarball.
+- No `npx` path until the package identity is scoped and a registry publish
+  workflow exists.
+
+Add a scoped package name and publish workflow only if registry publishing
+becomes a product requirement.

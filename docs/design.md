@@ -47,6 +47,7 @@ mythify/
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
 |   |-- build_registry_docs.mjs  generates registry-backed docs
 |   |-- check_surface_manifest.mjs checks public surface metadata drift
+|   |-- install_user.sh          user-local CLI and MCP launcher installer
 |   |-- local_model_eval.py      local bare-vs-Mythify comparison harness
 |   `-- package_skill.py         builds dist/mythify.skill from skills/mythify/
 |-- mcp-server/
@@ -1111,27 +1112,31 @@ Sections, in order:
    memory completes more long-horizon work than the same model without them; link
    `docs/research-report.md` and state its own caveat (training beats prompting;
    this closes the discipline gap, not the capability gap).
-3. Components table: protocol variants, CLI, MCP server, skill.
-4. Quick start A: drop-in (copy `CLAUDE.md` or `AGENTS.md`, `scripts/mythify.py`,
+3. Components table: protocol variants, CLI, user installer, MCP server, skill.
+4. Start Here section: position Mythify as an evidence protocol for AI coding
+   agents, link `docs/start-here.md`, show `scripts/install_user.sh --project`,
+   then show the minimal plan, verify, step, summary loop.
+5. Quick start A: drop-in (copy `CLAUDE.md` or `AGENTS.md`, `scripts/mythify.py`,
    `protocol/operation-registry.json`, and
    `protocol/classification-rules.json` into a project, run
    `python3 scripts/mythify.py protocol check FILE`, then `init`).
-5. Quick start B: MCP server (npm install inside `mcp-server/`, then the example
+6. Quick start B: MCP server (npm install inside `mcp-server/`, then the example
    client config; note `MYTHIFY_DIR` and `MYTHIFY_DISABLE_RUN`).
-6. Quick start C: build the skill (`python3 scripts/package_skill.py`).
-7. How it works: proportional ceremony including the fast profile, the autonomy
+7. Quick start C: build the skill (`python3 scripts/package_skill.py`).
+8. How it works: proportional ceremony including the fast profile, the autonomy
    loop, then "Verification: evidence over attestation" with a short example
    transcript showing `verify run` on a failing then passing test command.
-8. State layout tree.
-9. CLI command reference table and MCP tool table (matching this spec exactly).
-10. Compatibility table: Claude Code, Cursor, Windsurf, VS Code Copilot,
+9. State layout tree.
+10. CLI command reference table and MCP tool table (matching this spec exactly).
+11. Compatibility table: Claude Code, Cursor, Windsurf, VS Code Copilot,
     Claude Desktop, Manus, any CLI agent, custom MCP clients.
-11. Development: `python3 -m unittest discover -s tests -v` and
+12. Development: `python3 -m unittest discover -s tests -v` and
     `cd mcp-server && npm ci && npm test`.
-12. Limitations, honest: no published npm package yet (local path config), evals not
-    yet run (claims are design rationale, not measured results), protocol adherence
+13. Limitations, honest: no npm registry package yet (`scripts/install_user.sh`
+    from a checkout is the supported user-local path), evals not yet run
+    (claims are design rationale, not measured results), protocol adherence
     varies by model strength.
-13. License: MIT.
+14. License: MIT.
 
 The README also links `docs/cli-to-model-runtime-migration.md`, which explains
 the opt-in path from CLI-only usage to host, local model, API provider,

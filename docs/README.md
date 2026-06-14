@@ -7,6 +7,8 @@ decision records.
 
 - `design.md`: system architecture, command and MCP surface, state model, and
   version notes.
+- `start-here.md`: shortest happy path, three concrete workflows, and what to
+  ignore at first.
 - `release.md`: current release process, package artifacts, and publish checks.
 - `adapter-candidates.md`: generated adapter capability registry output.
 - `cli-to-model-runtime-migration.md`: migration path from drop-in CLI use to
@@ -31,6 +33,8 @@ decision records.
 - Keep current setup instructions in sync with the required drop-in files:
   protocol variant, `scripts/mythify.py`, `protocol/operation-registry.json`,
   and `protocol/classification-rules.json`.
+- Keep first-run instructions focused on one happy path before listing advanced
+  surfaces.
 - Keep MCP public surface claims at 36 tools: 33 core tools plus 3 fanout tools.
 - Keep release claims aligned to `mcp-server/package.json`,
   `mcp-server/package-lock.json`, `CHANGELOG.md`, and the latest GitHub
