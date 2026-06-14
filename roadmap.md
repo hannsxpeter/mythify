@@ -21,14 +21,14 @@ Status markers:
 
 ## Active Now
 
-- [>] Host apply or confirm API proof watchlist.
-  - Current goal: keep the host model switching backlog honest until a host
-    exposes real current-chat apply, current-chat confirm, worker model, or
-    thinking APIs.
-  - Next step: map the current unsupported apply and confirm surfaces to proof
-    criteria and future tests.
-  - Guardrail: do not mutate host state or claim a host switch happened unless
-    a host adapter proves it.
+- [>] v3.0 release readiness sweep.
+  - Current goal: verify that the roadmap, changelog, generated docs, tests,
+    and release readiness view are coherent after the model-runtime roadmap
+    slices.
+  - Next step: map release gates and current git state before deciding whether
+    a release tag is warranted.
+  - Guardrail: do not tag, publish, or claim release readiness without an
+    executed release gate.
 
 ## Next Queue
 
@@ -95,7 +95,7 @@ Role model:
 
 What remains:
 
-- [>] Host apply or confirm API proof watchlist.
+- [x] Host apply or confirm API proof watchlist.
 - [~] Apply model or thinking changes when a host exposes a real capability.
 - [~] Add adapter execution tests once a host exposes apply or confirm APIs.
 
@@ -297,6 +297,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-14: add host apply and confirm proof watchlist.
+  `docs/host-apply-confirm-proof-watchlist.md` now defines proof gates for
+  current-chat model apply, current-chat model confirm, worker model override,
+  and thinking override before host mutation can become actionable.
 - [x] 2026-06-13: add CLI-only to model-runtime migration guide.
   `docs/cli-to-model-runtime-migration.md` now documents the opt-in path from
   the CLI baseline to MCP, host model policy, local models, host CLI workers,
@@ -597,13 +601,15 @@ Preserve:
 
 ### v3.1
 
-- [>] Host apply or confirm API proof watchlist.
+- [>] v3.0 release readiness sweep.
+- [x] Host apply or confirm API proof watchlist.
 - [~] Apply model or thinking changes when a host exposes a real capability.
 - [~] Add adapter execution tests once a host exposes apply or confirm APIs.
 
 ## References
 
 - `docs/host-model-switching-research.md`
+- `docs/host-apply-confirm-proof-watchlist.md`
 - `docs/local-llm-and-new-host-research.md`
 - `docs/colab-cli-spike-plan.md`
 - `docs/antigravity-mcp-setup.md`

@@ -526,6 +526,9 @@ Host model switch status rules:
   `switch_result`, `host_confirmation`, and `adapter_proof_scan` so callers can
   distinguish desired state, user-reported state, host-confirmed state, and
   future apply or confirm paths.
+- `docs/host-apply-confirm-proof-watchlist.md` names the proof gates for
+  current-chat apply, current-chat confirm, worker model override, and thinking
+  override before any host mutation path can be enabled.
 
 outcomes/&lt;slug&gt;/goal.json:
 

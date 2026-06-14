@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Host apply and confirm proof watchlist.
+  `docs/host-apply-confirm-proof-watchlist.md` now defines proof gates for
+  current-chat model apply, current-chat model confirm, worker model override,
+  and thinking override before host mutation can become actionable.
 - CLI-only to model-runtime migration guide. `docs/cli-to-model-runtime-migration.md`
   now documents the opt-in path from the CLI baseline to MCP, host model
   policy, local models, host CLI workers, hosted provider fanout, remote

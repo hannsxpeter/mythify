@@ -400,6 +400,9 @@ have to guess which model setting applies where:
   separate from any future host-confirmed current model evidence.
   The `adapter_proof_scan` record reports supported, unsupported, or unknown
   apply and confirm paths without mutating host state.
+  The future proof criteria for current-chat apply, current-chat confirm,
+  worker model override, and thinking override are tracked in
+  [docs/host-apply-confirm-proof-watchlist.md](docs/host-apply-confirm-proof-watchlist.md).
   `session.recommendation` maps the classified prompt to host settings:
   target profile, target model, thinking, speed, and whether to keep,
   downgrade, upgrade, or set the host model.
