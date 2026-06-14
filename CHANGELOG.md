@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No entries yet.
+
+## [3.0.0] - 2026-06-14
+
 ### Added
 
+- v3.0.0 release metadata alignment.
+  `docs/v3-release-metadata-alignment.md` records package metadata, lockfile,
+  changelog anchors, and release-facing docs aligned to `3.0.0` before any
+  release-candidate tag or publish action.
 - Release version alignment decision record.
   `docs/release-version-alignment-decision.md` records `3.0.0` as the intended
   next release version before any release-candidate tag, with package metadata,
@@ -403,7 +411,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/aihxp/mythify/compare/v2.5.0...v3.0.0
 [2.5.0]: https://github.com/aihxp/mythify/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/aihxp/mythify/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/aihxp/mythify/compare/v2.2.0...v2.3.0

@@ -21,12 +21,11 @@ Status markers:
 
 ## Active Now
 
-- [>] v3.0.0 release metadata alignment.
-  - Current goal: align package metadata, changelog anchors, and
-    release-facing docs to the intended `3.0.0` release line.
-  - Next step: update `mcp-server/package.json`,
-    `mcp-server/package-lock.json`, `CHANGELOG.md`, and release-facing docs
-    that still describe the current server version as `2.5.0`.
+- [>] v3.0.0 final release gate and tag decision.
+  - Current goal: run the final release gate on the metadata-aligned commit and
+    decide whether to create a `v3.0.0` release-candidate tag.
+  - Next step: rerun the full release gate after the metadata alignment commit
+    is on `main`.
   - Guardrail: do not tag or publish until package metadata, changelog anchors,
     release docs, and executed release gates all point at the same intended
     release version.
@@ -298,6 +297,10 @@ Evidence should come from rerunning verifiers, not from model self-ratings.
 
 ### Recent Completed Slices
 
+- [x] 2026-06-14: align v3.0.0 release metadata.
+  `docs/v3-release-metadata-alignment.md` records package metadata, lockfile,
+  changelog anchors, and release-facing docs aligned to `3.0.0`; no tag or
+  publish was performed.
 - [x] 2026-06-14: decide release version alignment.
   `docs/release-version-alignment-decision.md` records `3.0.0` as the intended
   next release version and identifies package metadata, lockfile, changelog,
@@ -614,7 +617,8 @@ Preserve:
 
 ### v3.1
 
-- [>] v3.0.0 release metadata alignment.
+- [>] v3.0.0 final release gate and tag decision.
+- [x] v3.0.0 release metadata alignment.
 - [x] release version alignment decision.
 - [x] v3.0 release candidate tag decision.
 - [x] v3.0 release readiness sweep.
@@ -626,6 +630,7 @@ Preserve:
 
 - `docs/host-model-switching-research.md`
 - `docs/host-apply-confirm-proof-watchlist.md`
+- `docs/v3-release-metadata-alignment.md`
 - `docs/release-version-alignment-decision.md`
 - `docs/v3-release-candidate-decision.md`
 - `docs/v3-release-readiness-sweep.md`

@@ -719,7 +719,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (3.x). package.json: name `mythify-mcp`, version `2.5.0`,
+(current 1.x) and `zod` (3.x). package.json: name `mythify-mcp`, version `3.0.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1617,12 +1617,16 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v2.5.0. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.0.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
 initiating-model awareness, spawn ceiling checks, and additive fanout model and
 effort metadata; 2.5.0 makes the CLI `verify run` honor `MYTHIFY_DISABLE_RUN`
 for parity with the MCP server, and adds the opt-in `MYTHIFY_REQUIRE_VERIFIED_STEP`
-gate to both the CLI `step` command and the MCP `plan_update_step` tool. The CLI
-prints no version banner; the MCP server reports 2.5.0 through its server info.
+gate to both the CLI `step` command and the MCP `plan_update_step` tool; 3.0.0
+aligns the model-runtime orchestration surface, local model lane, host CLI
+worker lane, hosted provider fanout guardrails, execution substrate lane, agent
+lifecycle lane, registry-generated adapter docs, and release-readiness surfaces
+under the v3 roadmap. The CLI prints no version banner; the MCP server reports
+3.0.0 through its server info.
