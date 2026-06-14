@@ -35,7 +35,7 @@ decision records.
   and `protocol/classification-rules.json`.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
-- Keep MCP public surface claims at 36 tools: 33 core tools plus 3 fanout tools.
+- Keep MCP public surface claims at 37 tools: 34 core tools plus 3 fanout tools.
 - Keep release claims aligned to `mcp-server/package.json`,
   `mcp-server/package-lock.json`, `CHANGELOG.md`, and the latest GitHub
   release.

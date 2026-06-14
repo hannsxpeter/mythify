@@ -29,7 +29,7 @@ WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
-PROTOCOL_SOURCE_SHA256 = "dc66fde7face3d68e20d4699b4a13f2c1cc214a696800477ec200ab5a3a11540"
+PROTOCOL_SOURCE_SHA256 = "d99dbfd49bb9ba63ec9c62d4348a0a3195aec9e653ebe89fc4dd99d19e53fbe3"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -50,6 +50,9 @@ VERIFY_RUN_DISABLED_MESSAGE = (
 )
 STEP_STATUSES = ("pending", "in_progress", "completed", "failed", "skipped")
 OUTCOME_STATUSES = ("active", "succeeded", "failed", "stopped")
+REPORT_SINCE_MODES = ("last", "start")
+REPORT_FORMATS = ("chat", "json")
+DEFAULT_REPORT_RECENT = 8
 STATUS_ICONS = {
     "pending": "[ ]",
     "in_progress": "[>]",
@@ -791,6 +794,7 @@ def ensure_layout(state):
     (state / "plans" / "archive").mkdir(parents=True, exist_ok=True)
     (state / "lessons").mkdir(parents=True, exist_ok=True)
     (state / "outcomes").mkdir(parents=True, exist_ok=True)
+    (state / "reports").mkdir(parents=True, exist_ok=True)
     (state / "logs" / "archive").mkdir(parents=True, exist_ok=True)
 
 
@@ -3533,6 +3537,239 @@ def cmd_history(args, state):
     return 0
 
 
+def reports_dir(state):
+    return state / "reports"
+
+
+def report_cursor_name(name):
+    return slugify(name or "default") or "default"
+
+
+def report_cursor_path(state, cursor):
+    return reports_dir(state) / (report_cursor_name(cursor) + ".json")
+
+
+def report_event_sort_key(event):
+    return (
+        event.get("timestamp", ""),
+        event.get("order", 0),
+        event.get("key", ""),
+    )
+
+
+def compact_report_detail(text):
+    value = str(text or "").strip()
+    return value if len(value) <= 140 else value[:137] + "..."
+
+
+def build_report_events(state):
+    events = []
+    for slug in list_plan_slugs(state):
+        plan = load_plan(state, slug)
+        if plan is None:
+            continue
+        created = plan.get("created") or plan.get("last_updated") or ""
+        steps = plan.get("steps", [])
+        events.append(
+            {
+                "key": "plan:{0}:created".format(slug),
+                "timestamp": created,
+                "order": 10,
+                "kind": "plan_created",
+                "summary": "Plan created: {0} ({1} steps)".format(slug, len(steps)),
+                "detail": plan.get("goal", ""),
+                "plan": slug,
+                "step_id": None,
+                "verified": None,
+            }
+        )
+        for step in steps:
+            updated = step.get("updated_at")
+            if not updated:
+                continue
+            status = step.get("status", "pending")
+            detail = step.get("result") or step.get("success_criteria") or ""
+            events.append(
+                {
+                    "key": "step:{0}:{1}:{2}:{3}".format(
+                        slug, step.get("id"), status, updated
+                    ),
+                    "timestamp": updated,
+                    "order": 20,
+                    "kind": "step_" + status,
+                    "summary": "Step {0}: {1}. {2}".format(
+                        status, step.get("id"), step.get("title")
+                    ),
+                    "detail": detail,
+                    "plan": slug,
+                    "step_id": step.get("id"),
+                    "verified": None,
+                }
+            )
+    verifications = read_jsonl(state / "verifications.jsonl")
+    for index, record in enumerate(verifications, start=1):
+        kind = record.get("kind", "unknown")
+        if kind == "executed":
+            passed = record.get("verified") is True
+            verdict = "passed" if passed else "failed"
+            label = record.get("claim") or record.get("command") or "executed check"
+            summary = "Verification {0}: {1}".format(verdict, compact_report_detail(label))
+            detail = "exit {0}".format(record.get("exit_code"))
+            verified = passed
+        elif kind == "attested":
+            label = record.get("claim") or "claim"
+            summary = "Verification attested: {0}".format(compact_report_detail(label))
+            detail = "self-reported, not machine-checked"
+            verified = None
+        else:
+            summary = "Verification recorded"
+            detail = ""
+            verified = None
+        events.append(
+            {
+                "key": "verification:{0}:{1}".format(index, record.get("timestamp", "")),
+                "timestamp": record.get("timestamp", ""),
+                "order": 30,
+                "kind": "verification_" + verification_verdict(record),
+                "summary": summary,
+                "detail": detail,
+                "plan": record.get("plan"),
+                "step_id": record.get("step_id"),
+                "verified": verified,
+            }
+        )
+    reflections = read_jsonl(state / "reflections.jsonl")
+    for index, record in enumerate(reflections, start=1):
+        summary = "Reflection {0}: {1}".format(
+            record.get("outcome", "unknown"),
+            compact_report_detail(record.get("action", "action")),
+        )
+        events.append(
+            {
+                "key": "reflection:{0}:{1}".format(index, record.get("timestamp", "")),
+                "timestamp": record.get("timestamp", ""),
+                "order": 40,
+                "kind": "reflection_" + str(record.get("outcome", "unknown")),
+                "summary": summary,
+                "detail": "next: {0}".format(record.get("next", "")),
+                "plan": None,
+                "step_id": None,
+                "verified": None,
+            }
+        )
+    return sorted(events, key=report_event_sort_key)
+
+
+def events_after_marker(events, marker):
+    last_event = marker.get("last_event") if isinstance(marker, dict) else None
+    if not isinstance(last_event, dict):
+        return events
+    last_key = last_event.get("key")
+    if last_key:
+        for index, event in enumerate(events):
+            if event.get("key") == last_key:
+                return events[index + 1:]
+    last_timestamp = last_event.get("timestamp") or ""
+    if last_timestamp:
+        return [event for event in events if event.get("timestamp", "") > last_timestamp]
+    return events
+
+
+def build_work_report(state, since="last", recent=DEFAULT_REPORT_RECENT, cursor="default", peek=False):
+    if recent < 0:
+        fail("[FAIL] Invalid --recent: use 0 or a positive integer.")
+        return None
+    cursor_name = report_cursor_name(cursor)
+    marker_path = report_cursor_path(state, cursor_name)
+    marker = read_json(marker_path, {})
+    if not isinstance(marker, dict):
+        marker = {}
+    all_events = build_report_events(state)
+    if since == "last":
+        candidate_events = events_after_marker(all_events, marker)
+    else:
+        candidate_events = all_events
+    if recent == 0:
+        visible_events = []
+    else:
+        visible_events = candidate_events[-recent:]
+    omitted = max(0, len(candidate_events) - len(visible_events))
+    if not peek:
+        last_event = all_events[-1] if all_events else marker.get("last_event")
+        write_json_atomic(
+            marker_path,
+            {
+                "cursor": cursor_name,
+                "updated_at": now_iso(),
+                "last_event": last_event,
+            },
+        )
+    return {
+        "state_dir": str(state),
+        "cursor": cursor_name,
+        "since": since,
+        "format": "chat",
+        "peek": peek,
+        "events": visible_events,
+        "new_event_count": len(candidate_events),
+        "shown_event_count": len(visible_events),
+        "omitted_new_events": omitted,
+        "cursor_updated": not peek,
+        "last_event": all_events[-1] if all_events else None,
+        "guardrail": (
+            "report summarizes durable Mythify state only; it does not rerun "
+            "checks or prove work beyond recorded evidence"
+        ),
+    }
+
+
+def format_work_report(view):
+    lines = ["[OK] Live work report: {0}".format(view["state_dir"])]
+    lines.append(
+        "Scope: since {0}, cursor {1}, {2} new events ({3} shown, {4} omitted)".format(
+            view["since"],
+            view["cursor"],
+            view["new_event_count"],
+            view["shown_event_count"],
+            view["omitted_new_events"],
+        )
+    )
+    if view["events"]:
+        for event in view["events"]:
+            detail = event.get("detail")
+            line = "- {0}".format(event.get("summary", "Event recorded"))
+            if detail:
+                line += ", {0}".format(compact_report_detail(detail))
+            lines.append(line)
+    else:
+        lines.append("No new Mythify events to report.")
+    if view["cursor_updated"]:
+        lines.append("Cursor advanced: {0}".format(view["cursor"]))
+    else:
+        lines.append("Cursor unchanged: --peek")
+    lines.append("Guardrail: {0}.".format(view["guardrail"]))
+    return "\n".join(lines)
+
+
+def cmd_report(args, state):
+    view = build_work_report(
+        state,
+        since=args.since,
+        recent=args.recent,
+        cursor=args.cursor,
+        peek=args.peek,
+    )
+    if view is None:
+        return 1
+    if args.report_format == "json":
+        payload = dict(view)
+        payload["format"] = "json"
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_work_report(view))
+    return 0
+
+
 BACKGROUND_STATUS_ICONS = {
     "active": "[>]",
     "running": "[>]",
@@ -5829,6 +6066,47 @@ def build_parser():
     )
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_history)
+
+    p = sub.add_parser(
+        "report",
+        help="Show a chat-ready live work report from durable Mythify events.",
+        description=(
+            "Chat-ready live work report: plan creation, step updates, "
+            "verification records, and reflections from durable state. By "
+            "default it advances a cursor so repeated calls with --since last "
+            "only show new events; use --peek to leave the cursor unchanged."
+        ),
+    )
+    p.add_argument(
+        "--since",
+        choices=REPORT_SINCE_MODES,
+        default="last",
+        help="Event window to report: last cursor or start of state. Defaults to last.",
+    )
+    p.add_argument(
+        "--format",
+        dest="report_format",
+        choices=REPORT_FORMATS,
+        default="chat",
+        help="Output format: chat or json. Defaults to chat.",
+    )
+    p.add_argument(
+        "--recent",
+        type=int,
+        default=DEFAULT_REPORT_RECENT,
+        help="Maximum events to show. Defaults to {0}.".format(DEFAULT_REPORT_RECENT),
+    )
+    p.add_argument(
+        "--cursor",
+        default="default",
+        help="Report cursor name. Defaults to default.",
+    )
+    p.add_argument(
+        "--peek",
+        action="store_true",
+        help="Do not advance the report cursor.",
+    )
+    p.set_defaults(handler=cmd_report)
 
     p = sub.add_parser(
         "background",

@@ -654,6 +654,50 @@ test("mythify MCP server smoke test", async (t) => {
       );
     });
 
+    await t.test("work_report shows chat-ready updates and supports cursors", async () => {
+      const before = snapshotStateDir(stateDir);
+      const peek = textOf(
+        await client.callTool({
+          name: "work_report",
+          arguments: { since: "start", recent: 10, peek: true },
+        })
+      );
+      assert.ok(peek.startsWith("[OK] Live work report"), `work_report reports [OK]: ${peek}`);
+      assert.match(peek, /Plan created: smoke-goal/);
+      assert.match(peek, /Step completed: 1. First step/);
+      assert.match(peek, /Verification passed: node can exit zero/);
+      assert.match(peek, /Cursor unchanged: --peek/);
+      assert.deepEqual(snapshotStateDir(stateDir), before, "work_report peek leaves state unchanged");
+
+      const first = textOf(
+        await client.callTool({
+          name: "work_report",
+          arguments: { since: "last", recent: 10, cursor: "chat" },
+        })
+      );
+      assert.match(first, /Cursor advanced: chat/);
+      assert.ok(fs.existsSync(path.join(stateDir, "reports", "chat.json")), "work_report writes cursor");
+
+      const second = textOf(
+        await client.callTool({
+          name: "work_report",
+          arguments: { since: "last", cursor: "chat", peek: true },
+        })
+      );
+      assert.match(second, /No new Mythify events to report/);
+
+      const jsonText = textOf(
+        await client.callTool({
+          name: "work_report",
+          arguments: { since: "start", recent: 2, peek: true, format: "json" },
+        })
+      );
+      const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
+      assert.equal(parsed.shown_event_count, 2);
+      assert.ok(parsed.new_event_count >= 4);
+      assert.equal(parsed.cursor_updated, false);
+    });
+
     await t.test("phase_status groups plan steps without mutation", async () => {
       const before = snapshotStateDir(stateDir);
       const text = textOf(

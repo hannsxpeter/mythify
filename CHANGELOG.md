@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Start-here guide focused on Mythify's shortest useful loop, three concrete
   workflows, and which advanced surfaces new users can ignore at first.
 - User-local installer script for CLI and MCP launchers from a checkout.
+- Chat-ready live work reports through the CLI `report` command and MCP
+  `work_report` tool, with cursors that suppress repeated progress updates.
 
 ### Changed
 

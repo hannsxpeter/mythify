@@ -25,12 +25,19 @@ mythify step 1 in_progress
 Then do the normal engineering work. When you have a check:
 
 ```bash
+mythify report --since last --format chat
 mythify verify run "python3 -m unittest discover -s tests" --claim "parser tests pass"
 mythify step 1 completed "verify run exit 0: parser tests pass"
+mythify report --since last --format chat
 mythify summary
 ```
 
 That is the core product. Everything else is optional.
+
+Use `report` while you work, not only at the end. It turns new Mythify events
+into short chat-ready updates, then advances a cursor so repeated calls do not
+repeat the same evidence. Use `--peek` when you want to inspect the report
+without moving the cursor.
 
 ## Three Workflows Worth Learning
 
@@ -54,9 +61,11 @@ Use this when the work has multiple steps or could regress behavior.
 ```bash
 mythify plan create "Add package installer" --steps '[{"title":"Implement installer","success_criteria":"installer smoke test passes"},{"title":"Document installer","success_criteria":"docs link check passes"}]'
 mythify step 1 in_progress
+mythify report --since last --format chat
 # implement
 mythify verify run "rm -rf /tmp/mythify-install /tmp/mythify-project && mkdir -p /tmp/mythify-project && scripts/install_user.sh --prefix /tmp/mythify-install --project /tmp/mythify-project" --claim "installer smoke test passes"
 mythify step 1 completed "verify run exit 0: installer smoke test passes"
+mythify report --since last --format chat
 ```
 
 Each completed step gets evidence, not just confidence.

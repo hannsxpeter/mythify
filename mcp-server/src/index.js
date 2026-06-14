@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server v3.0.1
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 33 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 36 tools in total. On-disk formats are
+// reflections) as 34 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 37 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -58,6 +58,9 @@ const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json
 const TAIL_CHARS = 4000;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
 const OUTCOME_STATUSES = ["active", "succeeded", "failed", "stopped"];
+const REPORT_SINCE_MODES = ["last", "start"];
+const REPORT_FORMATS = ["chat", "json"];
+const DEFAULT_REPORT_RECENT = 8;
 const STEP_ICONS = {
   pending: "[ ]",
   in_progress: "[>]",
@@ -644,6 +647,18 @@ function plansDir() {
 
 function planPath(slug) {
   return path.join(plansDir(), `${slug}.json`);
+}
+
+function listPlanSlugs() {
+  try {
+    return fs
+      .readdirSync(plansDir())
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => name.slice(0, -5))
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 function activePointerPath() {
@@ -1272,6 +1287,200 @@ function formatVerificationHistoryView(view) {
   } else {
     lines.push("No verification records found.");
   }
+  lines.push(`Guardrail: ${view.guardrail}.`);
+  return lines.join("\n");
+}
+
+function reportsDir() {
+  return path.join(resolveStateDir(), "reports");
+}
+
+function reportCursorName(name) {
+  return slugify(name || "default") || "default";
+}
+
+function reportCursorPath(cursor) {
+  return path.join(reportsDir(), `${reportCursorName(cursor)}.json`);
+}
+
+function reportEventSortKey(event) {
+  return [event.timestamp || "", event.order || 0, event.key || ""];
+}
+
+function compareReportEvents(left, right) {
+  const leftKey = reportEventSortKey(left);
+  const rightKey = reportEventSortKey(right);
+  for (let index = 0; index < leftKey.length; index += 1) {
+    if (leftKey[index] < rightKey[index]) {
+      return -1;
+    }
+    if (leftKey[index] > rightKey[index]) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+function compactReportDetail(text) {
+  const value = String(text || "").trim();
+  return value.length <= 140 ? value : `${value.slice(0, 137)}...`;
+}
+
+function buildReportEvents() {
+  const events = [];
+  for (const slug of listPlanSlugs()) {
+    const plan = readJsonRecover(planPath(slug), () => null);
+    if (!plan || !Array.isArray(plan.steps)) {
+      continue;
+    }
+    const steps = plan.steps || [];
+    const created = plan.created || plan.last_updated || "";
+    events.push({
+      key: `plan:${slug}:created`,
+      timestamp: created,
+      order: 10,
+      kind: "plan_created",
+      summary: `Plan created: ${slug} (${steps.length} steps)`,
+      detail: plan.goal || "",
+      plan: slug,
+      step_id: null,
+      verified: null,
+    });
+    for (const step of steps) {
+      const updated = step.updated_at;
+      if (!updated) {
+        continue;
+      }
+      const status = step.status || "pending";
+      events.push({
+        key: `step:${slug}:${step.id}:${status}:${updated}`,
+        timestamp: updated,
+        order: 20,
+        kind: `step_${status}`,
+        summary: `Step ${status}: ${step.id}. ${step.title}`,
+        detail: step.result || step.success_criteria || "",
+        plan: slug,
+        step_id: step.id,
+        verified: null,
+      });
+    }
+  }
+  const verifications = readJsonl(verificationsPath());
+  verifications.forEach((record, index) => {
+    let summary;
+    let detail;
+    let verified = null;
+    if (record.kind === "executed") {
+      verified = record.verified === true;
+      const verdict = verified ? "passed" : "failed";
+      const label = record.claim || record.command || "executed check";
+      summary = `Verification ${verdict}: ${compactReportDetail(label)}`;
+      detail = `exit ${record.exit_code}`;
+    } else if (record.kind === "attested") {
+      const label = record.claim || "claim";
+      summary = `Verification attested: ${compactReportDetail(label)}`;
+      detail = "self-reported, not machine-checked";
+    } else {
+      summary = "Verification recorded";
+      detail = "";
+    }
+    events.push({
+      key: `verification:${index + 1}:${record.timestamp || ""}`,
+      timestamp: record.timestamp || "",
+      order: 30,
+      kind: `verification_${verificationVerdict(record)}`,
+      summary,
+      detail,
+      plan: record.plan,
+      step_id: record.step_id,
+      verified,
+    });
+  });
+  const reflections = readJsonl(reflectionsPath());
+  reflections.forEach((record, index) => {
+    events.push({
+      key: `reflection:${index + 1}:${record.timestamp || ""}`,
+      timestamp: record.timestamp || "",
+      order: 40,
+      kind: `reflection_${record.outcome || "unknown"}`,
+      summary: `Reflection ${record.outcome || "unknown"}: ${compactReportDetail(record.action || "action")}`,
+      detail: `next: ${record.next || ""}`,
+      plan: null,
+      step_id: null,
+      verified: null,
+    });
+  });
+  return events.sort(compareReportEvents);
+}
+
+function eventsAfterMarker(events, marker) {
+  const lastEvent = marker && typeof marker === "object" ? marker.last_event : null;
+  if (!lastEvent || typeof lastEvent !== "object") {
+    return events;
+  }
+  if (lastEvent.key) {
+    const index = events.findIndex((event) => event.key === lastEvent.key);
+    if (index >= 0) {
+      return events.slice(index + 1);
+    }
+  }
+  if (lastEvent.timestamp) {
+    return events.filter((event) => (event.timestamp || "") > lastEvent.timestamp);
+  }
+  return events;
+}
+
+function buildWorkReport({ since = "last", recent = DEFAULT_REPORT_RECENT, cursor = "default", peek = false } = {}) {
+  if (!Number.isInteger(recent) || recent < 0) {
+    return { error: "[FAIL] Invalid recent: use 0 or a positive integer." };
+  }
+  const cursorName = reportCursorName(cursor);
+  const marker = readJsonRecover(reportCursorPath(cursorName), () => ({}));
+  const allEvents = buildReportEvents();
+  const candidateEvents = since === "last" ? eventsAfterMarker(allEvents, marker) : allEvents;
+  const visibleEvents = recent === 0 ? [] : candidateEvents.slice(Math.max(0, candidateEvents.length - recent));
+  if (!peek) {
+    writeJsonAtomic(reportCursorPath(cursorName), {
+      cursor: cursorName,
+      updated_at: isoNow(),
+      last_event: allEvents.length > 0 ? allEvents[allEvents.length - 1] : marker.last_event,
+    });
+  }
+  return {
+    state_dir: resolveStateDir(),
+    cursor: cursorName,
+    since,
+    format: "chat",
+    peek,
+    events: visibleEvents,
+    new_event_count: candidateEvents.length,
+    shown_event_count: visibleEvents.length,
+    omitted_new_events: Math.max(0, candidateEvents.length - visibleEvents.length),
+    cursor_updated: !peek,
+    last_event: allEvents.length > 0 ? allEvents[allEvents.length - 1] : null,
+    guardrail:
+      "report summarizes durable Mythify state only; it does not rerun checks or prove work beyond recorded evidence",
+  };
+}
+
+function formatWorkReport(view) {
+  const lines = [`[OK] Live work report: ${view.state_dir}`];
+  lines.push(
+    `Scope: since ${view.since}, cursor ${view.cursor}, ${view.new_event_count} new events ` +
+      `(${view.shown_event_count} shown, ${view.omitted_new_events} omitted)`
+  );
+  if (view.events.length > 0) {
+    for (const event of view.events) {
+      let line = `- ${event.summary || "Event recorded"}`;
+      if (event.detail) {
+        line += `, ${compactReportDetail(event.detail)}`;
+      }
+      lines.push(line);
+    }
+  } else {
+    lines.push("No new Mythify events to report.");
+  }
+  lines.push(view.cursor_updated ? `Cursor advanced: ${view.cursor}` : "Cursor unchanged: --peek");
   lines.push(`Guardrail: ${view.guardrail}.`);
   return lines.join("\n");
 }
@@ -6382,6 +6591,46 @@ server.registerTool(
       return `[OK] ${JSON.stringify(view, null, 2)}`;
     }
     return formatVerificationHistoryView(view);
+  })
+);
+
+server.registerTool(
+  "work_report",
+  {
+    title: "Show chat-ready work report",
+    description:
+      "Show a chat-ready live work report from durable Mythify events: plan creation, step updates, verification records, and reflections. " +
+      "Use this during multi-step work to narrate what happened since the last report; set peek true to avoid advancing the cursor.",
+    inputSchema: {
+      since: z
+        .enum(REPORT_SINCE_MODES)
+        .optional()
+        .describe("Report events since the last cursor or from the start. Defaults to last."),
+      recent: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(`Maximum events to include. Defaults to ${DEFAULT_REPORT_RECENT}.`),
+      cursor: z.string().optional().describe("Report cursor name. Defaults to default."),
+      peek: z.boolean().optional().describe("When true, leave the report cursor unchanged."),
+      format: z.enum(REPORT_FORMATS).optional().describe("Return chat text or JSON. Defaults to chat."),
+    },
+  },
+  guarded(({ since, recent, cursor, peek, format }) => {
+    const view = buildWorkReport({
+      since: since || "last",
+      recent: typeof recent === "number" ? recent : DEFAULT_REPORT_RECENT,
+      cursor: cursor || "default",
+      peek: Boolean(peek),
+    });
+    if (view.error) {
+      return view.error;
+    }
+    if (format === "json") {
+      return `[OK] ${JSON.stringify({ ...view, format: "json" }, null, 2)}`;
+    }
+    return formatWorkReport(view);
   })
 );
 

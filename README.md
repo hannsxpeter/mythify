@@ -27,13 +27,17 @@ mythify step 1 in_progress
 Then do the work and record evidence:
 
 ```bash
+mythify report --since last --format chat
 mythify verify run "python3 -m unittest discover -s tests" --claim "parser tests pass"
 mythify step 1 completed "verify run exit 0: parser tests pass"
+mythify report --since last --format chat
 mythify summary
 ```
 
 That loop is the product: goal, action, executed verification, durable record.
-The rest of the CLI and MCP surface exists for larger workflows.
+`report` is the chat narration helper. It turns new Mythify events into a short
+play-by-play and advances a cursor so the next report only shows fresh work. The
+rest of the CLI and MCP surface exists for larger workflows.
 
 The patterns are distilled from the research in
 [docs/research-report.md](docs/research-report.md), which carries its own
@@ -48,7 +52,7 @@ capability gap.
 | CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, memory, lessons, outcome loops, verification, and reflection. |
 | User installer | `scripts/install_user.sh` | User-local launcher installer for the CLI and packaged MCP server from a checkout. |
 | Shared manifests | `protocol/operation-registry.json`, `protocol/classification-rules.json`, `protocol/surface-manifest.json` | Shared facts used by the CLI, MCP server, tests, and docs to prevent drift. |
-| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 36 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, background task status, outcome progress, release readiness, fanout worker timeline, phase status, and parallel delegation (fanout). |
+| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 37 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, work reports, background task status, outcome progress, release readiness, fanout worker timeline, phase status, and parallel delegation (fanout). |
 | Skill | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
 
 All components read and write the same per-project `.mythify/` state directory, so
@@ -277,6 +281,7 @@ maintenance, not verification evidence.
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. | 0; 1 if no workspace |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. | 0; 1 if no workspace |
+| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek]` | Chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged. | 0; 1 if no workspace or invalid recent value |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. | 0; 1 if no workspace |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. | 0; 1 if no workspace |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
@@ -324,6 +329,7 @@ maintenance, not verification evidence.
 | `lifecycle_probe` | `{adapter?: enum(google-agents-cli, google-adk-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Agents CLI or ADK CLI availability by running version, help, and eval-help commands only. Returns `lifecycle_lane_contract` with allowed probe commands, disabled lifecycle actions, future guarded actions, eval and deployment prerequisites, mutation policy, and material-only evidence status. Probe output is material, not verification evidence, and does not scaffold, run evals, deploy, publish, mutate cloud resources, or write project state. |
 | `workflow_status` | `{recent?: number, format?: enum(text, json)}` | Read-only dashboard for active plan, current and next step, active outcome, evidence counts, recent verification records, and recent reflections. It does not mutate state and does not treat model confidence as evidence. |
 | `verification_history` | `{recent?: number, format?: enum(text, json)}` | Read-only history of executed and attested verification records, including verdict, command or evidence, exit code, duration, and plan or step context. It does not rerun checks or upgrade attested claims. |
+| `work_report` | `{since?: enum(last, start), recent?: number, cursor?: string, peek?: boolean, format?: enum(chat, json)}` | Chat-ready live work report over durable plan, step, verification, and reflection events. Use it during multi-step work to show what happened since the last report; `peek` leaves the cursor unchanged. |
 | `background_status` | `{recent?: number, format?: enum(text, json)}` | Read-only background task view for durable outcome loops and fanout jobs, including task counts, statuses, and next actions. It does not mutate state or treat model confidence as progress. |
 | `outcome_progress` | `{recent?: number, format?: enum(text, json)}` | Read-only progress view for active and recent outcome loops, including iteration budget, verifier exit details, metric score when present, and next action. It does not run checks, make attempts, stop loops, or treat notes as verification. |
 | `release_readiness` | `{format?: enum(text, json)}` | Read-only release readiness view from recorded verification gates, project git state, and roadmap state. It does not rerun gates or declare the release safe. |

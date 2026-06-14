@@ -235,7 +235,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 33 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 34 core plus 3 fanout count
   split.
 
 Rules:
@@ -353,6 +353,26 @@ The verification history is a read-only evidence surface for recorded checks:
 - Mutation boundary: the normal path must not append, compact, edit, remove,
   rerun, or reclassify verification records. It is a history view, not a
   verifier or log maintenance command.
+
+## Work report
+
+The work report is a chat-ready progress surface for visible live narration:
+
+- CLI command: `report [--since last|start] [--format chat|json] [--recent N] [--cursor NAME] [--peek]`.
+- MCP tool: `work_report`.
+- State sources: active and inactive plan files, `.mythify/verifications.jsonl`,
+  `.mythify/reflections.jsonl`, and `.mythify/reports/<cursor>.json`.
+- Output: chronological plan creation, step updates, verification verdicts, and
+  reflection events. `chat` output is intended to be pasted or summarized in the
+  host conversation.
+- Cursor behavior: by default the selected cursor advances to the newest known
+  event so later `--since last` reports show only new events. `--peek` leaves
+  the cursor unchanged.
+- Evidence boundary: the report does not rerun checks, does not upgrade
+  attested claims, and does not prove work beyond recorded Mythify evidence.
+- Mutation boundary: the only normal mutation is the cursor file. It must not
+  edit plans, verifications, reflections, memory, lessons, outcomes, fanout
+  jobs, git state, or project files.
 
 ## Fanout worker timeline
 
@@ -708,6 +728,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It does not mutate state or report model confidence. | 0; 1 if no workspace |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. It does not mutate state, rerun checks, or upgrade attested claims. | 0; 1 if no workspace |
+| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek]` | Chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged. | 0; 1 if no workspace or invalid recent value |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. It does not mutate state, run checks, stop loops, or treat notes as verification. | 0; 1 if no workspace |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
@@ -755,7 +776,7 @@ a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 36 tools: the 33 core tools below plus the 3 fanout tools defined in the
+Exactly 37 tools: the 34 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -772,6 +793,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `lifecycle_probe` | `{adapter?: enum(google-agents-cli, google-adk-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Agents CLI or ADK CLI availability by running only version, help, and eval-help commands. Defaults to `MYTHIFY_AGENTS_CLI_BIN` or `MYTHIFY_ADK_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_probe_eval: true`, `eval_execution_enabled: false`, `deployment_enabled: false`, `material_not_evidence: true`, and `lifecycle_lane_contract` with allowed probe commands, disabled lifecycle actions, future guarded actions, eval and deployment prerequisites, mutation policy, and material-only evidence status. It does not scaffold projects, run agents, execute evals, deploy, publish, mutate cloud resources, write project state, or count as verification evidence. |
 | `workflow_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only dashboard of active plan, current step, next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It must not mutate state and must not report model confidence as evidence. |
 | `verification_history` | `{recent?: number, format?: enum(text, json)}` | Show a read-only history of executed and attested verification records, including verdict, command or evidence, exit code, duration, and plan or step context. It must not mutate state, rerun checks, or upgrade attested claims. |
+| `work_report` | `{since?: enum(last, start), recent?: number, cursor?: string, peek?: boolean, format?: enum(chat, json)}` | Show a chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `peek` leaves the cursor unchanged. |
 | `background_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only background task view of durable outcome loops and fanout jobs, including task counts, statuses, and next actions. It must not mutate state and must not report model confidence as progress. |
 | `outcome_progress` | `{recent?: number, format?: enum(text, json)}` | Show a read-only progress view of active and recent outcome loops, including iteration budget, verifier exit details, metric score when present, and next action. It must not run checks, make attempts, stop loops, or treat notes as verification. |
 | `release_readiness` | `{format?: enum(text, json)}` | Show a read-only release readiness view from recorded verification gates, project git state, and roadmap state. It must not rerun gates, mutate state, tag, publish, push, or declare the release safe. |
@@ -1032,7 +1054,7 @@ document the project. Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 36 tool names for clients using the server instead
+8. A short MCP note listing the 37 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
 ### Protocol handshake

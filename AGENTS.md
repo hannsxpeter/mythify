@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: dc66fde7face3d68e20d4699b4a13f2c1cc214a696800477ec200ab5a3a11540 -->
+<!-- Mythify protocol-sha256: d99dbfd49bb9ba63ec9c62d4348a0a3195aec9e653ebe89fc4dd99d19e53fbe3 -->
 
 # The Mythify Protocol
 
@@ -26,6 +26,11 @@ per project to create the `.mythify/` state directory.
 6. Persist state outside the context window on long tasks. Context is volatile;
    `.mythify/` is not. Write plans, memory, and lessons as you work, not at the
    end, so any future session can resume from disk.
+7. Surface visible progress. For multi-step work, report key Mythify events in
+   the host chat as they happen: plan created, step started, verification
+   started or finished, correction made, and plan completed. Use `report` to
+   summarize new durable events instead of making the user infer progress from
+   the final receipt.
 
 ## Proportional ceremony
 
@@ -103,6 +108,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `status` | Orient: active plan, next pending step, state counts. |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, evidence counts, recent verification records, and recent reflections. |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, exit codes, duration, and plan or step context. |
+| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek]` | Chat-ready live work report over durable plan, step, verification, and reflection events; advances a cursor unless `--peek` is set. |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. |
@@ -139,14 +145,14 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 36 tools: `classify_task`, `host_model_switch`,
+through exactly 37 tools: `classify_task`, `host_model_switch`,
 `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
 `outcome_results`, `outcome_stop`, `memory_store`, `memory_recall`,
 `memory_clear`, `lesson_record`, `lesson_recall`, `plan_create`,
 `plan_add_step`, `plan_update_step`, `plan_status`, `workflow_status`,
-`verification_history`, `background_status`, `outcome_progress`,
+`verification_history`, `work_report`, `background_status`, `outcome_progress`,
 `release_readiness`, `fanout_timeline`, `phase_status`, `verify_run`,
 `verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
 `fanout_status`, and `fanout_results`. Same
@@ -176,6 +182,8 @@ commands without scaffolding projects, running evals, deploying, publishing,
 mutating cloud resources, or writing project state. Probe output is material,
 not verification evidence. `verification_history` shows recorded executed and
 attested evidence without rerunning checks or upgrading attested claims.
+`work_report` shows chat-ready progress from durable plan, step, verification,
+and reflection events and advances a cursor unless called in peek mode.
 `outcome_progress` shows active and recent outcome loop progress from durable
 goal and iteration records without running checks, making attempts, stopping
 loops, or treating notes as verification.

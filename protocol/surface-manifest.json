@@ -2,13 +2,14 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 21,
+      "command_count": 22,
       "commands": [
         "init",
         "protocol",
         "status",
         "dashboard",
         "history",
+        "report",
         "background",
         "progress",
         "readiness",
@@ -28,9 +29,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 33,
+      "core_tool_count": 34,
       "fanout_tool_count": 3,
-      "total_tools": 36,
+      "total_tools": 37,
       "core_tools": [
         "classify_task",
         "host_model_switch",
@@ -43,6 +44,7 @@
         "lifecycle_probe",
         "workflow_status",
         "verification_history",
+        "work_report",
         "background_status",
         "outcome_progress",
         "release_readiness",

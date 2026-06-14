@@ -1832,6 +1832,46 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(payload["counts"]["attested"], 1)
         self.assertEqual([row["verdict"] for row in payload["records"]], ["attested", "failed", "passed"])
 
+    def test_report_shows_chat_updates_and_advances_cursor(self):
+        self.populate()
+        state = self.project / ".mythify"
+        before = self.state_snapshot(state)
+
+        peek = self.run_cli("report", "--since", "start", "--peek", "--recent", "10")
+        self.assertEqual(peek.returncode, 0, peek.stderr)
+        self.assertIn("[OK] Live work report", peek.stdout)
+        self.assertIn("Plan created: build-house", peek.stdout)
+        self.assertIn("Step completed: 1. Lay foundation", peek.stdout)
+        self.assertIn("Verification passed:", peek.stdout)
+        self.assertIn("Reflection success:", peek.stdout)
+        self.assertIn("Cursor unchanged: --peek", peek.stdout)
+        self.assertEqual(self.state_snapshot(state), before)
+
+        first = self.run_cli("report", "--since", "last", "--cursor", "chat", "--recent", "10")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("Cursor advanced: chat", first.stdout)
+        self.assertTrue((state / "reports" / "chat.json").exists())
+
+        second = self.run_cli("report", "--since", "last", "--cursor", "chat", "--peek")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("No new Mythify events to report.", second.stdout)
+
+        json_result = self.run_cli(
+            "report",
+            "--since",
+            "start",
+            "--format",
+            "json",
+            "--peek",
+            "--recent",
+            "3",
+        )
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        payload = json.loads(json_result.stdout)
+        self.assertEqual(payload["cursor"], "default")
+        self.assertEqual(payload["shown_event_count"], 3)
+        self.assertGreaterEqual(payload["new_event_count"], 6)
+
     def test_background_includes_outcomes_and_fanout_jobs_without_mutation(self):
         state = self.init_workspace()
         start = self.run_cli(
