@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-06-14
+
+### Fixed
+
+- The MCP npm tarball now starts from an unpacked install by loading the
+  operation registry, classification rules, and surface manifest from
+  package-local `mcp-server/protocol/` mirrors.
+- Release checks now compare package-local runtime manifests against the root
+  manifests before packaging.
+
+## [3.0.0] - 2026-06-14
+
 ### Fixed
 
 - CLI and MCP deterministic classification now load task keyword rules from
@@ -22,8 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Completed audit, roadmap, and superseded v3 release-decision notes are now
   archived under `docs/archive/`, with current status preserved in root stubs
   and `docs/release.md`.
-
-## [3.0.0] - 2026-06-14
 
 ### Added
 
@@ -433,7 +443,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/aihxp/mythify/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/aihxp/mythify/compare/v2.5.0...v3.0.0
 [2.5.0]: https://github.com/aihxp/mythify/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/aihxp/mythify/compare/v2.3.0...v2.4.0

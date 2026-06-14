@@ -12,11 +12,16 @@ import {
 } from "../src/operation-registry.js";
 
 const registryPath = fileURLToPath(
+  new URL("../protocol/operation-registry.json", import.meta.url)
+);
+const rootRegistryPath = fileURLToPath(
   new URL("../../protocol/operation-registry.json", import.meta.url)
 );
 
 test("operation registry exports memory contract from protocol data", () => {
   const diskRegistry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+  const rootRegistry = JSON.parse(fs.readFileSync(rootRegistryPath, "utf8"));
+  assert.deepEqual(diskRegistry, rootRegistry);
   assert.deepEqual(OPERATION_REGISTRY, diskRegistry);
   assert.deepEqual(MEMORY_OPERATION_REGISTRY, diskRegistry.surfaces.memory);
   assert.deepEqual(MEMORY_CATEGORIES, ["fact", "decision", "discovery", "state"]);

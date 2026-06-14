@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const rootPath = path.join(repoRoot, "protocol", "classification-rules.json");
 const packagePath = path.join(repoRoot, "mcp-server", "protocol", "classification-rules.json");
+const operationRootPath = path.join(repoRoot, "protocol", "operation-registry.json");
+const operationPackagePath = path.join(repoRoot, "mcp-server", "protocol", "operation-registry.json");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -13,11 +15,20 @@ function readJson(filePath) {
 
 const rootManifest = readJson(rootPath);
 const packageManifest = readJson(packagePath);
+const operationRootManifest = readJson(operationRootPath);
+const operationPackageManifest = readJson(operationPackagePath);
 
 if (JSON.stringify(rootManifest) !== JSON.stringify(packageManifest)) {
   console.error("[FAIL] Classification rules manifest drift:");
   console.error("  root: " + rootPath);
   console.error("  package: " + packagePath);
+  process.exit(1);
+}
+
+if (JSON.stringify(operationRootManifest) !== JSON.stringify(operationPackageManifest)) {
+  console.error("[FAIL] Operation registry manifest drift:");
+  console.error("  root: " + operationRootPath);
+  console.error("  package: " + operationPackagePath);
   process.exit(1);
 }
 
@@ -35,4 +46,4 @@ if (!ids.has("review")) {
   process.exit(1);
 }
 
-console.log("[OK] Classification rules manifest mirrors package copy");
+console.log("[OK] Classification rules and operation registry manifests mirror package copies");

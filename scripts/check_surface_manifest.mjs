@@ -7,6 +7,12 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
 const MANIFEST_PATH = path.join(REPO_ROOT, "protocol", "surface-manifest.json");
+const PACKAGE_MANIFEST_PATH = path.join(
+  REPO_ROOT,
+  "mcp-server",
+  "protocol",
+  "surface-manifest.json"
+);
 
 function readText(relativePath) {
   return fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
@@ -62,6 +68,10 @@ function registeredTools(relativePath) {
 
 function main() {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+  const packageManifest = JSON.parse(fs.readFileSync(PACKAGE_MANIFEST_PATH, "utf8"));
+  if (JSON.stringify(manifest) !== JSON.stringify(packageManifest)) {
+    fail("Surface manifest package mirror drifted");
+  }
   const cli = manifest.surfaces.cli;
   const mcp = manifest.surfaces.mcp;
   const coreTools = mcp.core_tools;

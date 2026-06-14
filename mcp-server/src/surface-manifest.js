@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-const manifestUrl = new URL("../../protocol/surface-manifest.json", import.meta.url);
+const manifestUrl = new URL("../protocol/surface-manifest.json", import.meta.url);
 
 export const SURFACE_MANIFEST = JSON.parse(fs.readFileSync(manifestUrl, "utf8"));
 export const CLI_COMMANDS = SURFACE_MANIFEST.surfaces.cli.commands;

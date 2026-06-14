@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "surfaces": {
+    "memory": {
+      "state_file": "memory.json",
+      "categories": [
+        "fact",
+        "decision",
+        "discovery",
+        "state"
+      ],
+      "default_category": "fact",
+      "operations": {
+        "memory_store": {
+          "kind": "mutating",
+          "cli": {
+            "command": "memory set"
+          },
+          "mcp": {
+            "tool": "memory_store"
+          }
+        },
+        "memory_recall": {
+          "kind": "read",
+          "cli": {
+            "command": "memory get"
+          },
+          "mcp": {
+            "tool": "memory_recall"
+          }
+        },
+        "memory_clear": {
+          "kind": "mutating",
+          "cli": {
+            "command": "memory clear",
+            "clear_all_flag": "--all",
+            "refusal": "[FAIL] Refusing to clear memory: pass KEY to remove a single entry, or --all to clear every entry."
+          },
+          "mcp": {
+            "tool": "memory_clear",
+            "clear_all_field": "confirm_clear_all",
+            "refusal": "[FAIL] Refusing to clear memory: no key was given and confirm_clear_all is not true. Pass key to remove a single entry, or set confirm_clear_all to true to wipe everything. Nothing was cleared."
+          }
+        }
+      }
+    }
+  }
+}

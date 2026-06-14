@@ -22,6 +22,21 @@ const CLASSIFICATION_RULES = JSON.parse(
 const ROOT_CLASSIFICATION_RULES = JSON.parse(
   fs.readFileSync(new URL("../../protocol/classification-rules.json", import.meta.url), "utf8")
 );
+const OPERATION_REGISTRY = JSON.parse(
+  fs.readFileSync(new URL("../protocol/operation-registry.json", import.meta.url), "utf8")
+);
+const ROOT_OPERATION_REGISTRY = JSON.parse(
+  fs.readFileSync(new URL("../../protocol/operation-registry.json", import.meta.url), "utf8")
+);
+const SURFACE_MANIFEST = JSON.parse(
+  fs.readFileSync(new URL("../protocol/surface-manifest.json", import.meta.url), "utf8")
+);
+const ROOT_SURFACE_MANIFEST = JSON.parse(
+  fs.readFileSync(new URL("../../protocol/surface-manifest.json", import.meta.url), "utf8")
+);
+const PACKAGE_JSON = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
+);
 
 function textOf(result) {
   assert.ok(Array.isArray(result.content), "tool result has a content array");
@@ -103,8 +118,10 @@ test("mythify MCP server smoke test", async (t) => {
       assert.deepEqual(names, [...MCP_TOOL_NAMES].sort());
     });
 
-    await t.test("packaged classification rules mirror the root manifest", () => {
+    await t.test("packaged manifests mirror the root manifests", () => {
       assert.deepEqual(CLASSIFICATION_RULES, ROOT_CLASSIFICATION_RULES);
+      assert.deepEqual(OPERATION_REGISTRY, ROOT_OPERATION_REGISTRY);
+      assert.deepEqual(SURFACE_MANIFEST, ROOT_SURFACE_MANIFEST);
     });
 
     await t.test("classify_task recommends ceremony and verification", async () => {
@@ -1031,10 +1048,10 @@ test("MYTHIFY_REQUIRE_VERIFIED_STEP gate on plan_update_step", async (t) => {
   await client.connect(transport);
 
   try {
-    await t.test("server reports version 3.0.0 in serverInfo", () => {
+    await t.test("server reports the package version in serverInfo", () => {
       const info = client.getServerVersion();
       assert.ok(info, "server info is available after connect");
-      assert.equal(info.version, "3.0.0", "serverInfo reports version 3.0.0");
+      assert.equal(info.version, PACKAGE_JSON.version, "serverInfo reports package version");
     });
 
     await t.test("completed is blocked until a passing verify_run is recorded", async () => {

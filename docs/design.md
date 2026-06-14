@@ -59,6 +59,8 @@ mythify/
 |   |-- src/operation-registry.js
 |   |-- src/surface-manifest.js
 |   |-- protocol/classification-rules.json package copy of classifier keywords
+|   |-- protocol/operation-registry.json package copy of operation metadata
+|   |-- protocol/surface-manifest.json package copy of public surface metadata
 |   |-- test/capability-registry.test.js
 |   |-- test/execution-probe.test.js
 |   |-- test/host-cli-probe.test.js
@@ -265,9 +267,12 @@ Rules:
   has already caused drift.
 - Python and Node tests must cover any newly added terms that affect public
   classification behavior.
-- `mcp-server/protocol/classification-rules.json` is a package-local mirror so
-  the npm tarball can run without access to repository-root files. Run
-  `node scripts/check_classification_rules_manifest.mjs` to verify the mirror.
+- `mcp-server/protocol/classification-rules.json`,
+  `mcp-server/protocol/operation-registry.json`, and
+  `mcp-server/protocol/surface-manifest.json` are package-local mirrors so the
+  npm tarball can run without access to repository-root files. Run
+  `node scripts/check_classification_rules_manifest.mjs` and
+  `node scripts/check_surface_manifest.mjs` to verify the mirrors.
 
 ## Background task view
 
@@ -742,7 +747,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.0.0`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.0.1`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1641,7 +1646,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.0.0. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.0.1. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -1652,5 +1657,6 @@ gate to both the CLI `step` command and the MCP `plan_update_step` tool; 3.0.0
 aligns the model-runtime orchestration surface, local model lane, host CLI
 worker lane, hosted provider fanout guardrails, execution substrate lane, agent
 lifecycle lane, registry-generated adapter docs, and release-readiness surfaces
-under the v3 roadmap. The CLI prints no version banner; the MCP server reports
-3.0.0 through its server info.
+under the v3 roadmap; 3.0.1 fixes standalone MCP tarball startup by packaging
+all runtime manifests under `mcp-server/protocol/`. The CLI prints no version
+banner; the MCP server reports 3.0.1 through its server info.

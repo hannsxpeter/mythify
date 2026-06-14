@@ -4002,7 +4002,11 @@ RELEASE_READINESS_GATES = (
         "id": "surface_manifest",
         "label": "Surface manifest check",
         "required": True,
-        "sources": ["protocol/surface-manifest.json", "scripts/check_surface_manifest.mjs"],
+        "sources": [
+            "protocol/surface-manifest.json",
+            "mcp-server/protocol/surface-manifest.json",
+            "scripts/check_surface_manifest.mjs",
+        ],
         "match_any": [
             "node scripts/check_surface_manifest.mjs",
             "surface manifest",
@@ -4010,11 +4014,13 @@ RELEASE_READINESS_GATES = (
     },
     {
         "id": "classification_rules_manifest",
-        "label": "Classification rules manifest check",
+        "label": "Runtime manifest mirror check",
         "required": True,
         "sources": [
             "protocol/classification-rules.json",
             "mcp-server/protocol/classification-rules.json",
+            "protocol/operation-registry.json",
+            "mcp-server/protocol/operation-registry.json",
             "scripts/check_classification_rules_manifest.mjs",
         ],
         "match_any": [

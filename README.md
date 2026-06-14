@@ -901,10 +901,11 @@ Classification keyword rules live in `protocol/classification-rules.json` so
 the CLI and MCP server share deterministic task-type matching data without
 duplicating the table.
 
-The MCP npm package also carries a package-local mirror at
-`mcp-server/protocol/classification-rules.json`; run
-`node scripts/check_classification_rules_manifest.mjs` to check that it matches
-the root manifest before release.
+The MCP npm package also carries package-local runtime manifest mirrors under
+`mcp-server/protocol/`; run
+`node scripts/check_classification_rules_manifest.mjs` and
+`node scripts/check_surface_manifest.mjs` to check that they match the root
+manifests before release.
 
 `protocol/surface-manifest.json` owns duplicated public surface metadata such
 as top-level CLI commands and MCP tool names. Run

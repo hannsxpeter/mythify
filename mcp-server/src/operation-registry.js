@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-const registryUrl = new URL("../../protocol/operation-registry.json", import.meta.url);
+const registryUrl = new URL("../protocol/operation-registry.json", import.meta.url);
 
 export const OPERATION_REGISTRY = JSON.parse(fs.readFileSync(registryUrl, "utf8"));
 export const MEMORY_OPERATION_REGISTRY = OPERATION_REGISTRY.surfaces.memory;
