@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No changes yet.
 
+## [3.2.2] - 2026-06-14
+
+### Changed
+
+- CLI `report --mark --since ...` and MCP `work_report` with `mark` plus
+  `since` now fail clearly instead of silently marking the cursor without
+  showing events.
+
 ## [3.2.1] - 2026-06-14
 
 ### Changed
@@ -477,7 +485,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.2.2...HEAD
+[3.2.2]: https://github.com/aihxp/mythify/compare/v3.2.1...v3.2.2
 [3.2.1]: https://github.com/aihxp/mythify/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/aihxp/mythify/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/aihxp/mythify/compare/v3.0.1...v3.1.0

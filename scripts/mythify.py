@@ -29,7 +29,7 @@ WORKSPACE_DIR_NAME = ".mythify"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
-PROTOCOL_SOURCE_SHA256 = "e679b6292468ba02d9fd700db79330f8f9786253cee0e25043b34d126d3c7fc1"
+PROTOCOL_SOURCE_SHA256 = "7620ba72279f64d587728078a4f108dded635c0bb5c9e87ef16f10f058ca8489"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -3781,9 +3781,15 @@ def format_work_report(view):
 
 
 def cmd_report(args, state):
+    if args.mark and args.since is not None:
+        fail(
+            "[FAIL] --mark cannot be combined with --since. Use --mark to set "
+            "a cursor, then run report --since last to read new events."
+        )
+        return 1
     view = build_work_report(
         state,
-        since=args.since,
+        since=args.since or "last",
         recent=args.recent,
         cursor=args.cursor,
         peek=args.peek,
@@ -6110,7 +6116,7 @@ def build_parser():
     p.add_argument(
         "--since",
         choices=REPORT_SINCE_MODES,
-        default="last",
+        default=None,
         help="Event window to report: last cursor or start of state. Defaults to last.",
     )
     p.add_argument(

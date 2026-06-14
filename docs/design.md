@@ -358,7 +358,7 @@ The verification history is a read-only evidence surface for recorded checks:
 
 The work report is a chat-ready progress surface for visible live narration:
 
-- CLI command: `report [--since last|start] [--format chat|json] [--recent N] [--cursor NAME] [--peek]`.
+- CLI command: `report [--since last|start] [--format chat|json] [--recent N] [--cursor NAME] [--peek] [--mark]`.
 - MCP tool: `work_report`.
 - State sources: active and inactive plan files, `.mythify/verifications.jsonl`,
   `.mythify/reflections.jsonl`, and `.mythify/reports/<cursor>.json`.
@@ -367,7 +367,8 @@ The work report is a chat-ready progress surface for visible live narration:
   host conversation.
 - Cursor behavior: by default the selected cursor advances to the newest known
   event so later `--since last` reports show only new events. `--peek` leaves
-  the cursor unchanged.
+  the cursor unchanged. `--mark` advances the cursor to the newest known event
+  without showing old events and is incompatible with `--since`.
 - Evidence boundary: the report does not rerun checks, does not upgrade
   attested claims, and does not prove work beyond recorded Mythify evidence.
 - Mutation boundary: the only normal mutation is the cursor file. It must not
@@ -728,7 +729,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It does not mutate state or report model confidence. | 0; 1 if no workspace |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. It does not mutate state, rerun checks, or upgrade attested claims. | 0; 1 if no workspace |
-| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek]` | Chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged. | 0; 1 if no workspace or invalid recent value |
+| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. | 0; 1 if no workspace, invalid recent value, or incompatible flags |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. It does not mutate state, run checks, stop loops, or treat notes as verification. | 0; 1 if no workspace |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
@@ -769,7 +770,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.0.1`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.2.2`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -793,7 +794,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `lifecycle_probe` | `{adapter?: enum(google-agents-cli, google-adk-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Agents CLI or ADK CLI availability by running only version, help, and eval-help commands. Defaults to `MYTHIFY_AGENTS_CLI_BIN` or `MYTHIFY_ADK_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `can_probe_eval: true`, `eval_execution_enabled: false`, `deployment_enabled: false`, `material_not_evidence: true`, and `lifecycle_lane_contract` with allowed probe commands, disabled lifecycle actions, future guarded actions, eval and deployment prerequisites, mutation policy, and material-only evidence status. It does not scaffold projects, run agents, execute evals, deploy, publish, mutate cloud resources, write project state, or count as verification evidence. |
 | `workflow_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only dashboard of active plan, current step, next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It must not mutate state and must not report model confidence as evidence. |
 | `verification_history` | `{recent?: number, format?: enum(text, json)}` | Show a read-only history of executed and attested verification records, including verdict, command or evidence, exit code, duration, and plan or step context. It must not mutate state, rerun checks, or upgrade attested claims. |
-| `work_report` | `{since?: enum(last, start), recent?: number, cursor?: string, peek?: boolean, format?: enum(chat, json)}` | Show a chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `peek` leaves the cursor unchanged. |
+| `work_report` | `{since?: enum(last, start), recent?: number, cursor?: string, peek?: boolean, mark?: boolean, format?: enum(chat, json)}` | Show a chat-ready live work report over durable plan, step, verification, and reflection events. By default it advances a cursor so repeated calls show only new events; `peek` leaves the cursor unchanged; `mark` advances the cursor to the latest event without showing old events and cannot be combined with `since`. |
 | `background_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only background task view of durable outcome loops and fanout jobs, including task counts, statuses, and next actions. It must not mutate state and must not report model confidence as progress. |
 | `outcome_progress` | `{recent?: number, format?: enum(text, json)}` | Show a read-only progress view of active and recent outcome loops, including iteration budget, verifier exit details, metric score when present, and next action. It must not run checks, make attempts, stop loops, or treat notes as verification. |
 | `release_readiness` | `{format?: enum(text, json)}` | Show a read-only release readiness view from recorded verification gates, project git state, and roadmap state. It must not rerun gates, mutate state, tag, publish, push, or declare the release safe. |
@@ -1673,7 +1674,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.0.1. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.2.2. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -1685,5 +1686,8 @@ aligns the model-runtime orchestration surface, local model lane, host CLI
 worker lane, hosted provider fanout guardrails, execution substrate lane, agent
 lifecycle lane, registry-generated adapter docs, and release-readiness surfaces
 under the v3 roadmap; 3.0.1 fixes standalone MCP tarball startup by packaging
-all runtime manifests under `mcp-server/protocol/`. The CLI prints no version
-banner; the MCP server reports 3.0.1 through its server info.
+all runtime manifests under `mcp-server/protocol/`; 3.1.0 adds quick-start
+installation and live work reports; 3.2.0 and 3.2.1 refine report mark mode;
+3.2.2 rejects mark-plus-since report calls that would otherwise hide expected
+events. The CLI prints no version banner; the MCP server reports 3.2.2 through
+its server info.

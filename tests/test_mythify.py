@@ -1871,6 +1871,10 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(invalid.returncode, 1)
         self.assertIn("--mark cannot be combined with --peek", invalid.stderr)
 
+        invalid_since = self.run_cli("report", "--mark", "--since", "last")
+        self.assertEqual(invalid_since.returncode, 1)
+        self.assertIn("--mark cannot be combined with --since", invalid_since.stderr)
+
         json_result = self.run_cli(
             "report",
             "--since",

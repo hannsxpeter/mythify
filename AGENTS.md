@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: e679b6292468ba02d9fd700db79330f8f9786253cee0e25043b34d126d3c7fc1 -->
+<!-- Mythify protocol-sha256: 7620ba72279f64d587728078a4f108dded635c0bb5c9e87ef16f10f058ca8489 -->
 
 # The Mythify Protocol
 
@@ -108,7 +108,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `status` | Orient: active plan, next pending step, state counts. |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, evidence counts, recent verification records, and recent reflections. |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, exit codes, duration, and plan or step context. |
-| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events; advances a cursor unless `--peek` is set; `--mark` advances the cursor to the latest event without showing old events. |
+| `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events; advances a cursor unless `--peek` is set; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. |
@@ -185,7 +185,8 @@ attested evidence without rerunning checks or upgrading attested claims.
 `work_report` shows chat-ready progress from durable plan, step, verification,
 and reflection events and advances a cursor unless called in peek mode. Its
 `mark` option advances the cursor to the latest event without showing old
-events, which is useful before starting a chat-visible work session.
+events, which is useful before starting a chat-visible work session. `mark`
+cannot be combined with `since`.
 `outcome_progress` shows active and recent outcome loop progress from durable
 goal and iteration records without running checks, making attempts, stopping
 loops, or treating notes as verification.

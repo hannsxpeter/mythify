@@ -713,6 +713,14 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.match(invalidMark, /^\[FAIL\] mark cannot be combined with peek/);
 
+      const invalidMarkSince = textOf(
+        await client.callTool({
+          name: "work_report",
+          arguments: { mark: true, since: "last" },
+        })
+      );
+      assert.match(invalidMarkSince, /^\[FAIL\] mark cannot be combined with since/);
+
       const jsonText = textOf(
         await client.callTool({
           name: "work_report",

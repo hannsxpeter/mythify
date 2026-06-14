@@ -38,8 +38,9 @@ That is the core product. Everything else is optional.
 Use `report` while you work, not only at the end. It turns new Mythify events
 into short chat-ready updates, then advances a cursor so repeated calls do not
 repeat the same evidence. Use `--mark` at the start of a task to set a chat
-cursor without replaying old project history, and use `--peek` when you want to
-inspect the report without moving the cursor.
+cursor without replaying old project history. Do not combine `--mark` with
+`--since`: mark first, then use `--since last` for later updates. Use `--peek`
+when you want to inspect the report without moving the cursor.
 
 ## Three Workflows Worth Learning
 

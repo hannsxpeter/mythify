@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mythify MCP server v3.2.1
+// Mythify MCP server v3.2.2
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
 // reflections) as 34 core MCP tools over stdio, plus the 3 fanout tools for
 // parallel delegation (src/fanout.js), 37 tools in total. On-disk formats are
@@ -53,7 +53,7 @@ import {
   MEMORY_DEFAULT_CATEGORY,
 } from "./operation-registry.js";
 
-const VERSION = "3.2.1";
+const VERSION = "3.2.2";
 const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json", import.meta.url);
 const TAIL_CHARS = 4000;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
@@ -6645,6 +6645,9 @@ server.registerTool(
     },
   },
   guarded(({ since, recent, cursor, peek, mark, format }) => {
+    if (mark && typeof since === "string") {
+      return "[FAIL] mark cannot be combined with since. Use mark to set a cursor, then call work_report with since last to read new events.";
+    }
     const view = buildWorkReport({
       since: since || "last",
       recent: typeof recent === "number" ? recent : DEFAULT_REPORT_RECENT,
