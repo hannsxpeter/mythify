@@ -91,7 +91,7 @@ jobs:
           XDG_DATA_HOME="$RUNNER_TEMP/mythify-data" scripts/install_user.sh \
             --prefix "$RUNNER_TEMP/mythify-install" \
             --project "$RUNNER_TEMP/mythify-project"
-          "$RUNNER_TEMP/mythify-install/bin/mythify" status
+          (cd "$RUNNER_TEMP/mythify-project" && "$RUNNER_TEMP/mythify-install/bin/mythify" status)
           test -x "$RUNNER_TEMP/mythify-install/bin/mythify-mcp"
           VERSION="$(node -p "require('./mcp-server/package.json').version")"
           MCP_DIR="$RUNNER_TEMP/mythify-data/mythify/$VERSION/mcp-server"
