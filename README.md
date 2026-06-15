@@ -344,7 +344,7 @@ labs surfaces only when experimenting with host/runtime adapters.
 
 | Command | Behavior | Exit code |
 | :--- | :--- | :--- |
-| `init` | Create `./.mythify` with subdirectories and empty memory.json. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
+| `init` | Create `./.mythify` with subdirectories and empty memory.json, and add `.mythify/` to the project `.gitignore` for the default in-repo state directory. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source repo protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. | 0 if every checked file matches; 1 on missing metadata or drift |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. | 0; 1 if no workspace |

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- CLI `init` now adds `.mythify/` to the project `.gitignore` for the default
+  in-repo state directory, reducing accidental commits of captured evidence
+  logs and local state.
+
 ## [3.6.7] - 2026-06-15
 
 ### Fixed

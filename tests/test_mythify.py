@@ -116,12 +116,37 @@ class TestInit(CliTestCase):
         self.assertIn("created", memory["metadata"])
         self.assertIn("last_updated", memory["metadata"])
         self.assertEqual(memory["metadata"]["total_entries"], 0)
+        self.assertEqual((self.project / ".gitignore").read_text(encoding="utf-8"), ".mythify/\n")
 
     def test_reinit_warns_and_exits_zero(self):
         self.init_workspace()
         result = self.run_cli("init")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("[WARN]", result.stdout)
+        self.assertEqual((self.project / ".gitignore").read_text(encoding="utf-8"), ".mythify/\n")
+
+    def test_init_preserves_existing_gitignore_and_does_not_duplicate_state_entry(self):
+        (self.project / ".gitignore").write_text("dist/\n", encoding="utf-8")
+        result = self.run_cli("init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (self.project / ".gitignore").read_text(encoding="utf-8"),
+            "dist/\n.mythify/\n",
+        )
+
+        result = self.run_cli("init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (self.project / ".gitignore").read_text(encoding="utf-8"),
+            "dist/\n.mythify/\n",
+        )
+
+    def test_init_with_mythify_dir_does_not_touch_project_gitignore(self):
+        custom = self.project / "custom-state-dir"
+        result = self.run_cli("init", env_extra={"MYTHIFY_DIR": str(custom)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((custom / "memory.json").is_file())
+        self.assertFalse((self.project / ".gitignore").exists())
 
     def test_help_exits_zero(self):
         result = self.run_cli("--help")

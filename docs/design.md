@@ -483,7 +483,8 @@ shape:
 2. Otherwise walk from the current working directory upward; the first directory
    containing a `.mythify/` folder wins, and that `.mythify/` is the state directory.
 3. Otherwise:
-   - Python CLI: `init` creates `./.mythify`. Every other command prints
+   - Python CLI: `init` creates `./.mythify` and adds `.mythify/` to the
+     project `.gitignore` for the default in-repo state directory. Every other command prints
      `[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init`
      and exits 1.
    - MCP server: lazily creates `<cwd>/.mythify` on first write. Reads with no state
@@ -782,7 +783,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 
 | Command | Behavior | Exit code |
 | :--- | :--- | :--- |
-| `init` | Create `./.mythify` with subdirectories and empty memory.json. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
+| `init` | Create `./.mythify` with subdirectories and empty memory.json, and add `.mythify/` to the project `.gitignore` for the default in-repo state directory. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. | 0 if every checked file matches; 1 on missing metadata or drift |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It does not mutate state or report model confidence. | 0; 1 if no workspace |
@@ -1522,7 +1523,8 @@ environment (`MYTHIFY_DIR` removed, `HOME` pointed at a per-test temp directory 
 the real global lessons store is never touched), and `cwd` inside a temp project
 directory. Required coverage:
 
-- init creates the documented layout; re-init warns and exits 0.
+- init creates the documented layout, adds the default state directory to
+  `.gitignore`, preserves existing ignore rules, and re-init warns and exits 0.
 - Commands without a workspace fail with exit 1 and the documented message.
 - State discovery walks up: a command run from a nested subdirectory finds the
   project `.mythify`.

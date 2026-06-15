@@ -929,6 +929,26 @@ def ensure_layout(state):
     (state / "logs" / "archive").mkdir(parents=True, exist_ok=True)
 
 
+def gitignore_has_state_entry(text):
+    entries = {line.strip() for line in text.splitlines()}
+    return WORKSPACE_DIR_NAME in entries or (WORKSPACE_DIR_NAME + "/") in entries
+
+
+def ensure_default_state_gitignored(project_dir):
+    """Keep the default in-repo state directory out of accidental commits."""
+    path = Path(project_dir) / ".gitignore"
+    try:
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        if gitignore_has_state_entry(existing):
+            return False
+        prefix = "" if existing == "" or existing.endswith("\n") else "\n"
+        _write_text_atomic(path, existing + prefix + WORKSPACE_DIR_NAME + "/\n")
+        return True
+    except OSError as err:
+        fail("[WARN] Could not add {0}/ to .gitignore: {1}".format(WORKSPACE_DIR_NAME, err))
+        return False
+
+
 def discover_state_dir():
     """Walk upward from cwd; the first directory containing .mythify wins."""
     current = Path.cwd().resolve()
@@ -4179,10 +4199,13 @@ def cmd_init(args, _state):
         return 0
     existing = discover_state_dir()
     if existing is not None:
+        if existing.name == WORKSPACE_DIR_NAME:
+            ensure_default_state_gitignored(existing.parent)
         print("[WARN] Already inside a Mythify workspace: {0}. Nothing to do.".format(existing))
         return 0
     state = Path.cwd() / WORKSPACE_DIR_NAME
     ensure_layout(state)
+    ensure_default_state_gitignored(Path.cwd())
     if not (state / "memory.json").exists():
         write_json_atomic(state / "memory.json", default_memory())
     print("[OK] Initialized Mythify workspace at {0}".format(state))
