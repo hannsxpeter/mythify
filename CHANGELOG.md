@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Packaged Mythify skill now includes chat-facing UI metadata and a
+  `chat-experience` reference that instructs agents to surface progress,
+  findings, and evidence inside the conversation.
+
+### Changed
+
+- CLI `report` and MCP `work_report` now include an `Attention` section for
+  failed checks, failed steps, failure reflections, and attested warnings so
+  issue summaries are visible in chat-ready reports.
+- Start-here and README quick starts now teach chat cursor setup before work
+  begins and explain how `Attention` supports audit and review reporting.
 
 ## [3.2.3] - 2026-06-14
 

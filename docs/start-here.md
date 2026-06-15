@@ -19,13 +19,13 @@ From a Mythify checkout:
 cd /path/to/your/project
 mythify classify "Fix the failing parser test"
 mythify plan create "Fix the failing parser test" --steps '[{"title":"Reproduce and fix","success_criteria":"parser tests pass"}]'
+mythify report --cursor chat --mark
 mythify step 1 in_progress
 ```
 
 Then do the normal engineering work. When you have a check:
 
 ```bash
-mythify report --cursor chat --mark
 mythify report --since last --cursor chat --format chat
 mythify verify run "python3 -m unittest discover -s tests" --claim "parser tests pass"
 mythify step 1 completed "verify run exit 0: parser tests pass"
@@ -39,8 +39,10 @@ Use `report` while you work, not only at the end. It turns new Mythify events
 into short chat-ready updates, then advances a cursor so repeated calls do not
 repeat the same evidence. Use `--mark` at the start of a task to set a chat
 cursor without replaying old project history. Do not combine `--mark` with
-`--since`: mark first, then use `--since last` for later updates. Use `--peek`
-when you want to inspect the report without moving the cursor.
+`--since`: mark first, then use `--since last` for later updates. Its
+`Attention` section calls out failed checks, failed steps, and attested warnings
+so issue lists can be copied into the chat instead of staying hidden in logs.
+Use `--peek` when you want to inspect the report without moving the cursor.
 
 ## Three Workflows Worth Learning
 

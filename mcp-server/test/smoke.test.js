@@ -665,6 +665,8 @@ test("mythify MCP server smoke test", async (t) => {
       assert.ok(peek.startsWith("[OK] Live work report"), `work_report reports [OK]: ${peek}`);
       assert.match(peek, /Plan created: smoke-goal/);
       assert.match(peek, /Step completed: 1. First step/);
+      assert.match(peek, /Attention:/);
+      assert.match(peek, /issue: Verification failed: node -e "process\.exit\(3\)"/);
       assert.match(peek, /Verification passed: node can exit zero/);
       assert.match(peek, /Cursor unchanged: --peek/);
       assert.deepEqual(snapshotStateDir(stateDir), before, "work_report peek leaves state unchanged");
@@ -730,6 +732,8 @@ test("mythify MCP server smoke test", async (t) => {
       const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
       assert.equal(parsed.shown_event_count, 2);
       assert.ok(parsed.new_event_count >= 4);
+      assert.equal(parsed.attention_event_count, 1);
+      assert.equal(parsed.attention_events[0].level, "issue");
       assert.equal(parsed.cursor_updated, false);
     });
 

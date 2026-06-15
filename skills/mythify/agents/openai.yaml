@@ -1,0 +1,6 @@
+interface:
+  display_name: "Mythify"
+  short_description: "Evidence protocol with chat-ready updates"
+  default_prompt: "Use $mythify to plan, verify, and report this task with chat-ready evidence."
+policy:
+  allow_implicit_invocation: true

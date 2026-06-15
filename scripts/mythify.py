@@ -53,6 +53,7 @@ OUTCOME_STATUSES = ("active", "succeeded", "failed", "stopped")
 REPORT_SINCE_MODES = ("last", "start")
 REPORT_FORMATS = ("chat", "json")
 DEFAULT_REPORT_RECENT = 8
+DEFAULT_REPORT_ATTENTION = 5
 STATUS_ICONS = {
     "pending": "[ ]",
     "in_progress": "[>]",
@@ -3562,6 +3563,41 @@ def compact_report_detail(text):
     return value if len(value) <= 140 else value[:137] + "..."
 
 
+def report_attention_level(event):
+    kind = event.get("kind", "")
+    if (
+        event.get("verified") is False
+        or kind == "step_failed"
+        or kind == "reflection_failure"
+    ):
+        return "issue"
+    if kind == "verification_attested":
+        return "warning"
+    return ""
+
+
+def build_report_attention_events(events):
+    items = []
+    for event in events:
+        level = report_attention_level(event)
+        if not level:
+            continue
+        items.append(
+            {
+                "level": level,
+                "key": event.get("key", ""),
+                "timestamp": event.get("timestamp", ""),
+                "kind": event.get("kind", ""),
+                "summary": event.get("summary", "Event recorded"),
+                "detail": event.get("detail", ""),
+                "plan": event.get("plan"),
+                "step_id": event.get("step_id"),
+                "verified": event.get("verified"),
+            }
+        )
+    return items
+
+
 def build_report_events(state):
     events = []
     for slug in list_plan_slugs(state):
@@ -3706,6 +3742,9 @@ def build_work_report(
     else:
         visible_events = candidate_events[-recent:]
     omitted = max(0, len(candidate_events) - len(visible_events))
+    attention_candidates = build_report_attention_events(candidate_events)
+    attention_events = attention_candidates[-DEFAULT_REPORT_ATTENTION:]
+    attention_omitted = max(0, len(attention_candidates) - len(attention_events))
     if mark or not peek:
         last_event = all_events[-1] if all_events else marker.get("last_event")
         write_json_atomic(
@@ -3727,6 +3766,9 @@ def build_work_report(
         "new_event_count": len(candidate_events),
         "shown_event_count": len(visible_events),
         "omitted_new_events": omitted,
+        "attention_events": attention_events,
+        "attention_event_count": len(attention_candidates),
+        "omitted_attention_events": attention_omitted,
         "cursor_updated": not peek,
         "last_event": all_events[-1] if all_events else None,
         "guardrail": (
@@ -3757,6 +3799,25 @@ def format_work_report(view):
                 view["omitted_new_events"],
             )
         )
+    if view.get("attention_event_count", 0):
+        lines.append("Attention:")
+        for event in view.get("attention_events", []):
+            detail = event.get("detail")
+            line = "- {0}: {1}".format(
+                event.get("level", "notice"),
+                event.get("summary", "Event recorded"),
+            )
+            if detail:
+                line += ", {0}".format(compact_report_detail(detail))
+            lines.append(line)
+        if view.get("omitted_attention_events", 0):
+            lines.append(
+                "- {0} older attention events omitted".format(
+                    view["omitted_attention_events"]
+                )
+            )
+    else:
+        lines.append("Attention: none in this report window.")
     if view["events"]:
         for event in view["events"]:
             detail = event.get("detail")

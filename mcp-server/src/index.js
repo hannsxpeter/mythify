@@ -61,6 +61,7 @@ const OUTCOME_STATUSES = ["active", "succeeded", "failed", "stopped"];
 const REPORT_SINCE_MODES = ["last", "start"];
 const REPORT_FORMATS = ["chat", "json"];
 const DEFAULT_REPORT_RECENT = 8;
+const DEFAULT_REPORT_ATTENTION = 5;
 const STEP_ICONS = {
   pending: "[ ]",
   in_progress: "[>]",
@@ -1326,6 +1327,42 @@ function compactReportDetail(text) {
   return value.length <= 140 ? value : `${value.slice(0, 137)}...`;
 }
 
+function reportAttentionLevel(event) {
+  if (
+    event.verified === false ||
+    event.kind === "step_failed" ||
+    event.kind === "reflection_failure"
+  ) {
+    return "issue";
+  }
+  if (event.kind === "verification_attested") {
+    return "warning";
+  }
+  return "";
+}
+
+function buildReportAttentionEvents(events) {
+  const items = [];
+  for (const event of events) {
+    const level = reportAttentionLevel(event);
+    if (!level) {
+      continue;
+    }
+    items.push({
+      level,
+      key: event.key || "",
+      timestamp: event.timestamp || "",
+      kind: event.kind || "",
+      summary: event.summary || "Event recorded",
+      detail: event.detail || "",
+      plan: event.plan,
+      step_id: event.step_id,
+      verified: event.verified,
+    });
+  }
+  return items;
+}
+
 function buildReportEvents() {
   const events = [];
   for (const slug of listPlanSlugs()) {
@@ -1448,6 +1485,8 @@ function buildWorkReport({
   const allEvents = buildReportEvents();
   const candidateEvents = mark ? [] : since === "last" ? eventsAfterMarker(allEvents, marker) : allEvents;
   const visibleEvents = recent === 0 ? [] : candidateEvents.slice(Math.max(0, candidateEvents.length - recent));
+  const attentionCandidates = buildReportAttentionEvents(candidateEvents);
+  const attentionEvents = attentionCandidates.slice(Math.max(0, attentionCandidates.length - DEFAULT_REPORT_ATTENTION));
   if (mark || !peek) {
     writeJsonAtomic(reportCursorPath(cursorName), {
       cursor: cursorName,
@@ -1466,6 +1505,9 @@ function buildWorkReport({
     new_event_count: candidateEvents.length,
     shown_event_count: visibleEvents.length,
     omitted_new_events: Math.max(0, candidateEvents.length - visibleEvents.length),
+    attention_events: attentionEvents,
+    attention_event_count: attentionCandidates.length,
+    omitted_attention_events: Math.max(0, attentionCandidates.length - attentionEvents.length),
     cursor_updated: !peek,
     last_event: allEvents.length > 0 ? allEvents[allEvents.length - 1] : null,
     guardrail:
@@ -1485,6 +1527,21 @@ function formatWorkReport(view) {
       `Scope: since ${view.since}, cursor ${view.cursor}, ${view.new_event_count} new events ` +
         `(${view.shown_event_count} shown, ${view.omitted_new_events} omitted)`
     );
+  }
+  if (view.attention_event_count > 0) {
+    lines.push("Attention:");
+    for (const event of view.attention_events || []) {
+      let line = `- ${event.level || "notice"}: ${event.summary || "Event recorded"}`;
+      if (event.detail) {
+        line += `, ${compactReportDetail(event.detail)}`;
+      }
+      lines.push(line);
+    }
+    if (view.omitted_attention_events > 0) {
+      lines.push(`- ${view.omitted_attention_events} older attention events omitted`);
+    }
+  } else {
+    lines.push("Attention: none in this report window.");
   }
   if (view.events.length > 0) {
     for (const event of view.events) {

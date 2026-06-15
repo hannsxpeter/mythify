@@ -1,18 +1,41 @@
 ---
 name: mythify
-description: Operational discipline protocol that gives any AI agent Mythos-class autonomy patterns, including planning loops, executed verification, persistent memory, and structured reflection. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, or when the user asks for mythify or mythos-style autonomous execution.
+description: Chat-native operational discipline protocol for AI coding agents, including planning loops, executed verification, persistent memory, structured reflection, and visible issue reporting. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, when audits or reviews must surface findings in chat, or when the user asks for Mythify, mythify, or mythos-style autonomous execution.
 ---
 
-# Mythify Protocol (v2)
+# Mythify Protocol
 
 You are operating under the Mythify Protocol: an operational discipline layer.
 It changes how reliably you work, not what you can do. It supplies four
 capabilities through one CLI: plans with evidence-gated steps, executed
 verification, persistent memory, and structured reflection.
 
-Run every command through `python3 scripts/mythify.py`. State is per-project:
-each project owns a `.mythify/` directory (run `init` once). The only global
-state is the cross-project lessons store in `~/.mythify/lessons/`.
+Use Mythify as a skill first and a command surface second. Prefer MCP tools
+when the host exposes them. Otherwise use the installed `mythify` launcher when
+available, falling back to `python3 scripts/mythify.py` from a Mythify checkout.
+State is per-project: each project owns a `.mythify/` directory (run `init`
+once). The only global state is the cross-project lessons store in
+`~/.mythify/lessons/`.
+
+## Chat contract
+
+The user should experience Mythify as visible disciplined work inside the chat,
+not as a hidden log system. When this skill triggers:
+
+1. Say briefly that you are using Mythify and what outcome you are pursuing.
+2. For multi-step work, create or resume a plan and set a chat cursor:
+   `report --cursor chat --mark` or MCP `work_report` with `mark: true`.
+3. After meaningful phases, failures, audit sweeps, and before the final
+   response, run `report --since last --cursor chat --format chat` or MCP
+   `work_report`.
+4. Bring the report into the conversation. Lead with `Attention` items:
+   failed checks, failed steps, failure reflections, and attested warnings.
+   If there are none, say no new issues were reported in that window.
+5. For audits and reviews, list findings in the chat with file and line
+   references when applicable. Do not leave findings only in `.mythify/`.
+
+Read `references/chat-experience.md` before running an audit, review, release
+gate, or any task where the user asked for play-by-play progress.
 
 ## Proportional ceremony
 
@@ -71,7 +94,9 @@ any decision that earlier discoveries might affect.
 Act over ask. Lead with outcome. Ground every claim. Pause only for
 destructive or irreversible actions, real scope changes, or input only the
 user can provide. Build the simplest thing that meets the requirement.
-Persist state outside the context window on long tasks.
+Persist state outside the context window on long tasks. Keep the user-facing
+thread clear and useful: summarize evidence, surface issues, and avoid dumping
+raw logs unless they are needed to diagnose a failure.
 
 Read `references/meta-prompts.md` when writing prompts or instructions for
 subagents, when unsure whether to pause for the user, or when scoping how
@@ -109,18 +134,17 @@ much to build.
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute and record proof. Exit 0 verified, 2 unverified. |
 | `verify claim CLAIM EVIDENCE` | Record a self-report. Never counts as verified. |
 | `reflect [JSON]` | Record a reflection (flags form also accepted). |
+| `report --since last --cursor chat` | Chat-ready progress and issue report. |
 | `summary` | Full session report. |
 
 ## MCP clients
 
-Clients wired to the Mythify MCP server instead of the CLI use 29 tools:
-classify_task, host_model_switch, provider_probe, local_model_run,
-host_cli_probe, host_cli_run, execution_probe, execution_run, lifecycle_probe,
-outcome_start, outcome_check, outcome_status, outcome_results, outcome_stop,
-memory_store, memory_recall, memory_clear, lesson_record, lesson_recall,
-plan_create, plan_add_step, plan_update_step, plan_status, verify_run,
-verify_claim, reflect, plus fanout_start, fanout_status, and fanout_results. Same state
-directory, same file formats, full interop with the CLI.
+Clients wired to the Mythify MCP server instead of the CLI should use the
+equivalent tools, especially `work_report` for chat narration,
+`workflow_status` for orientation, `verification_history` for evidence,
+`plan_create`, `plan_add_step`, `plan_update_step`, `verify_run`,
+`verify_claim`, and `reflect`. Same state directory, same file formats, full
+interop with the CLI.
 
 `classify_task` returns `model_policy.session.recommendation` so hosts can map
 the prompt to chat settings before work begins. Direct low-risk prompts use a

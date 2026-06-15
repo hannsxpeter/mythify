@@ -1842,6 +1842,9 @@ class TestStatusAndSummary(CliTestCase):
         self.assertIn("[OK] Live work report", peek.stdout)
         self.assertIn("Plan created: build-house", peek.stdout)
         self.assertIn("Step completed: 1. Lay foundation", peek.stdout)
+        self.assertIn("Attention:", peek.stdout)
+        self.assertIn("issue: Verification failed:", peek.stdout)
+        self.assertIn("warning: Verification attested: permits filed", peek.stdout)
         self.assertIn("Verification passed:", peek.stdout)
         self.assertIn("Reflection success:", peek.stdout)
         self.assertIn("Cursor unchanged: --peek", peek.stdout)
@@ -1890,6 +1893,11 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(payload["cursor"], "default")
         self.assertEqual(payload["shown_event_count"], 3)
         self.assertGreaterEqual(payload["new_event_count"], 6)
+        self.assertEqual(payload["attention_event_count"], 2)
+        self.assertEqual(
+            [row["level"] for row in payload["attention_events"]],
+            ["issue", "warning"],
+        )
 
     def test_background_includes_outcomes_and_fanout_jobs_without_mutation(self):
         state = self.init_workspace()

@@ -37,11 +37,12 @@ mythify summary
 
 That loop is the product: goal, action, executed verification, durable record.
 `report` is the chat narration helper. It turns new Mythify events into a short
-play-by-play and advances a cursor so the next report only shows fresh work.
-Use `--mark` at the start of a task to set the cursor at the current latest
-event without replaying old project history. Do not combine `--mark` with
-`--since`: mark first, then use `--since last` for later updates. The rest of
-the CLI and MCP surface exists for larger workflows.
+play-by-play, highlights failed checks and attested warnings in an `Attention`
+section, and advances a cursor so the next report only shows fresh work. Use
+`--mark` at the start of a task to set the cursor at the current latest event
+without replaying old project history. Do not combine `--mark` with `--since`:
+mark first, then use `--since last` for later updates. The rest of the CLI and
+MCP surface exists for larger workflows.
 
 The patterns are distilled from the research in
 [docs/research-report.md](docs/research-report.md), which carries its own
@@ -154,6 +155,10 @@ root and `references/` beside it, and creates the MCP npm tarball under
 and GitHub release process. If you would rather not build the skill yourself, a
 prebuilt `mythify.skill` is attached to each GitHub release at
 [https://github.com/aihxp/mythify/releases](https://github.com/aihxp/mythify/releases).
+After importing the skill, ask for it directly with prompts such as
+`Use $mythify to audit this codebase`. The skill tells the agent to keep
+Mythify commands or MCP tools behind the scenes while bringing progress,
+findings, and evidence back into the chat.
 
 ## How it works
 
