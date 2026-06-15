@@ -39,6 +39,10 @@ VERIFY_RUN_DISABLED_MESSAGE = (
     "executed and nothing was recorded. Unset it to enable execution, or use "
     "verify claim to record a self-reported attestation."
 )
+OUTCOME_CHECK_DISABLED_MESSAGE = (
+    "[FAIL] outcome check is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was "
+    "executed and nothing was recorded. Unset it to enable execution."
+)
 
 
 def shell_py(code):
@@ -2078,6 +2082,39 @@ class TestStepUpdates(CliTestCase):
         self.assertEqual(plan["steps"][0]["status"], "completed")
         self.assertIn("Next pending", result.stdout)
 
+    def test_gate_on_accepts_cross_runtime_timestamp_formats_within_same_second(self):
+        state, plan_file = self.make_plan()
+        in_progress = self.run_cli("step", "1", "in_progress")
+        self.assertEqual(in_progress.returncode, 0, in_progress.stderr)
+        plan = self.read_json(plan_file)
+        plan["steps"][0]["updated_at"] = "2026-06-15T18:26:24.862Z"
+        plan["last_updated"] = plan["steps"][0]["updated_at"]
+        plan_file.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        record = {
+            "kind": "executed",
+            "claim": "python verifier format after node step format",
+            "command": "true",
+            "exit_code": 0,
+            "duration_seconds": 0.0,
+            "stdout_tail": "",
+            "stderr_tail": "",
+            "verified": True,
+            "timestamp": "2026-06-15T18:26:24+00:00",
+            "plan": "step-plan",
+            "step_id": 1,
+            "step_title": "Do first thing",
+            "step_status": "in_progress",
+        }
+        with open(str(state / "verifications.jsonl"), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+
+        result = self.run_cli(
+            "step", "1", "completed", "cross-runtime timestamp formats compare",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = self.read_json(plan_file)
+        self.assertEqual(plan["steps"][0]["status"], "completed")
+
     def test_gate_on_requires_bound_verification_for_the_target_step(self):
         state, plan_file = self.make_plan()
         in_progress = self.run_cli("step", "1", "in_progress")
@@ -2335,6 +2372,38 @@ class TestOutcome(CliTestCase):
         goal = self.read_json(outcome_dirs[0] / "goal.json")
         self.assertEqual(goal["status"], "failed")
         self.assertEqual(goal["iteration_count"], 1)
+
+    def test_outcome_check_disabled_refuses_records_nothing_and_exits_two(self):
+        state = self.init_workspace()
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Disabled outcome check",
+            "--success",
+            "python exits zero",
+            "--verify",
+            shell_py("raise SystemExit(0)"),
+            "--metric",
+            shell_py("import sys; sys.stdout.write('99')"),
+            "--name",
+            "disabled-outcome",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        outcome_dir = state / "outcomes" / "disabled-outcome"
+        goal_before = (outcome_dir / "goal.json").read_text(encoding="utf-8")
+        self.assertFalse((outcome_dir / "iterations.jsonl").exists())
+        self.assertFalse((state / "verifications.jsonl").exists())
+
+        checked = self.run_cli(
+            "outcome",
+            "check",
+            env_extra={"MYTHIFY_DISABLE_RUN": "1"},
+        )
+        self.assertEqual(checked.returncode, 2)
+        self.assertIn(OUTCOME_CHECK_DISABLED_MESSAGE, checked.stderr)
+        self.assertEqual((outcome_dir / "goal.json").read_text(encoding="utf-8"), goal_before)
+        self.assertFalse((outcome_dir / "iterations.jsonl").exists())
+        self.assertFalse((state / "verifications.jsonl").exists())
 
     def test_outcome_stop_clears_active_pointer(self):
         state = self.init_workspace()

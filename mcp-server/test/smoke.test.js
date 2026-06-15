@@ -1588,6 +1588,66 @@ test("strict evidence gate on plan_update_step", async (t) => {
       );
     });
 
+    await t.test("cross-runtime timestamp formats satisfy completion within same second", async () => {
+      const created = textOf(
+        await client.callTool({
+          name: "plan_create",
+          arguments: {
+            goal: "Gate mixed timestamps",
+            steps: [{ title: "Mixed timestamp step", success_criteria: "mixed formats" }],
+          },
+        })
+      );
+      assert.ok(created.startsWith("[OK]"), `plan_create reports [OK]: ${created}`);
+      const inProgress = textOf(
+        await client.callTool({
+          name: "plan_update_step",
+          arguments: { step_id: 1, status: "in_progress", plan: "gate-mixed-timestamps" },
+        })
+      );
+      assert.ok(inProgress.startsWith("[OK]"), `in_progress succeeds: ${inProgress}`);
+      const planPath = path.join(stateDir, "plans", "gate-mixed-timestamps.json");
+      const plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
+      plan.steps[0].updated_at = "2026-06-15T18:26:24.862Z";
+      plan.last_updated = plan.steps[0].updated_at;
+      fs.writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
+      const verificationRecord = {
+        kind: "executed",
+        claim: "python verifier format after node step format",
+        command: "true",
+        exit_code: 0,
+        duration_seconds: 0,
+        stdout_tail: "",
+        stderr_tail: "",
+        verified: true,
+        timestamp: "2026-06-15T18:26:24+00:00",
+        plan: "gate-mixed-timestamps",
+        step_id: 1,
+        step_title: "Mixed timestamp step",
+        step_status: "in_progress",
+      };
+      fs.appendFileSync(
+        path.join(stateDir, "verifications.jsonl"),
+        `${JSON.stringify(verificationRecord)}\n`,
+        "utf8"
+      );
+
+      const accepted = textOf(
+        await client.callTool({
+          name: "plan_update_step",
+          arguments: {
+            step_id: 1,
+            status: "completed",
+            result: "cross-runtime timestamp formats compare",
+            plan: "gate-mixed-timestamps",
+          },
+        })
+      );
+      assert.ok(accepted.startsWith("[OK]"), `completion now succeeds: ${accepted}`);
+      const planAfterAccept = JSON.parse(fs.readFileSync(planPath, "utf8"));
+      assert.equal(planAfterAccept.steps[0].status, "completed");
+    });
+
     await t.test("bound verification for one step cannot complete another step", async () => {
       const created = textOf(
         await client.callTool({

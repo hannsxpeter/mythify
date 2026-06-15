@@ -51,6 +51,10 @@ VERIFY_RUN_DISABLED_MESSAGE = (
     "executed and nothing was recorded. Unset it to enable execution, or use "
     "verify claim to record a self-reported attestation."
 )
+OUTCOME_CHECK_DISABLED_MESSAGE = (
+    "[FAIL] outcome check is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was "
+    "executed and nothing was recorded. Unset it to enable execution."
+)
 STEP_STATUSES = ("pending", "in_progress", "completed", "failed", "skipped")
 OUTCOME_STATUSES = ("active", "succeeded", "failed", "stopped")
 REPORT_SINCE_MODES = ("last", "start")
@@ -680,6 +684,47 @@ VAGUE_REQUEST_TERMS = (
 def now_iso():
     """Current UTC time as an ISO-8601 string."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def parse_iso_timestamp(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        stamp = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(timezone.utc)
+
+
+def timestamp_sort_key(value):
+    stamp = parse_iso_timestamp(value)
+    if stamp is not None:
+        return (1, stamp.timestamp(), str(value or ""))
+    return (0, str(value or ""))
+
+
+def timestamp_at_or_after(value, lower_bound, allow_same_second=False):
+    left = parse_iso_timestamp(value)
+    right = parse_iso_timestamp(lower_bound)
+    if left is not None and right is not None:
+        if allow_same_second:
+            left = left.replace(microsecond=0)
+            right = right.replace(microsecond=0)
+        return left >= right
+    return str(value or "") >= str(lower_bound or "")
+
+
+def timestamp_after(value, lower_bound):
+    left = parse_iso_timestamp(value)
+    right = parse_iso_timestamp(lower_bound)
+    if left is not None and right is not None:
+        return left > right
+    return str(value or "") > str(lower_bound or "")
 
 
 def now_stamp():
@@ -1388,6 +1433,15 @@ def verification_record_matches_step(record, slug, step_id):
     if has_legacy_context:
         return True
     return record.get("plan") == slug and record.get("step_id") == step_id
+
+
+def verification_record_has_explicit_step_context(record, slug, step_id):
+    return (
+        "plan" in record
+        and "step_id" in record
+        and record.get("plan") == slug
+        and record.get("step_id") == step_id
+    )
 
 
 def strict_step_evidence_enabled():
@@ -4570,7 +4624,7 @@ def report_cursor_path(state, cursor):
 
 def report_event_sort_key(event):
     return (
-        event.get("timestamp", ""),
+        timestamp_sort_key(event.get("timestamp", "")),
         event.get("order", 0),
         event.get("key", ""),
     )
@@ -4725,7 +4779,10 @@ def events_after_marker(events, marker):
                 return events[index + 1:]
     last_timestamp = last_event.get("timestamp") or ""
     if last_timestamp:
-        return [event for event in events if event.get("timestamp", "") > last_timestamp]
+        return [
+            event for event in events
+            if timestamp_after(event.get("timestamp", ""), last_timestamp)
+        ]
     return events
 
 
@@ -8328,8 +8385,12 @@ def cmd_step(args, state):
         satisfied = any(
             record.get("kind") == "executed"
             and record.get("verified") is True
-            and str(record.get("timestamp", "")) >= lower_bound
             and verification_record_matches_step(record, slug, step_id)
+            and timestamp_at_or_after(
+                record.get("timestamp", ""),
+                lower_bound,
+                verification_record_has_explicit_step_context(record, slug, step_id),
+            )
             for record in records
         )
         if not satisfied:
@@ -8522,6 +8583,9 @@ def cmd_outcome_status(args, state):
 
 
 def cmd_outcome_check(args, state):
+    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+        fail(OUTCOME_CHECK_DISABLED_MESSAGE)
+        return 2
     slug, goal = load_outcome(state, args.name)
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")
@@ -8968,7 +9032,7 @@ def build_parser():
         prog="mythify.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Mythify v3.6.4: evidence protocol for AI coding agents. Route broad "
+            "Mythify v3.6.5: evidence protocol for AI coding agents. Route broad "
             "work first, keep state in .mythify, and verify completion claims "
             "with executed commands."
         ),

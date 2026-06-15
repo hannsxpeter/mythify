@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.5] - 2026-06-15
+
+### Fixed
+
+- Strict step evidence now compares parsed timestamps instead of raw strings,
+  preserving CLI and MCP interop when one runtime records second-precision UTC
+  offsets and the other records millisecond `Z` timestamps.
+- CLI `outcome check` now honors `MYTHIFY_DISABLE_RUN=1`, matching the MCP
+  `outcome_check` and `verify run` execution kill-switch behavior.
+
 ## [3.6.4] - 2026-06-15
 
 ### Fixed
@@ -610,7 +620,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.4...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.5...HEAD
+[3.6.5]: https://github.com/aihxp/mythify/compare/v3.6.4...v3.6.5
 [3.6.4]: https://github.com/aihxp/mythify/compare/v3.6.3...v3.6.4
 [3.6.3]: https://github.com/aihxp/mythify/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/aihxp/mythify/compare/v3.6.1...v3.6.2

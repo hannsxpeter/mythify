@@ -830,7 +830,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.4`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.5`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1944,7 +1944,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.4. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.5. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -1973,6 +1973,8 @@ workflow, advanced, and labs tiers backed by the checked surface manifest;
 3.6.3 adds Codex-style chat front-door skills and installer support for a
 Godpowers-style visible Mythify experience; 3.6.4 fixes strict step evidence
 so explicit null-context verification records cannot complete steps while
-older records without context keys remain compatible.
-The CLI prints no version banner; the MCP server reports 3.6.4 through its
+older records without context keys remain compatible; 3.6.5 fixes
+cross-runtime timestamp comparison in the strict evidence gate and makes CLI
+`outcome check` honor the execution kill-switch.
+The CLI prints no version banner; the MCP server reports 3.6.5 through its
 server info.

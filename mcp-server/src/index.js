@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mythify MCP server v3.6.4
+// Mythify MCP server v3.6.5
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
 // reflections) as 37 core MCP tools over stdio, plus the 3 fanout tools for
 // parallel delegation (src/fanout.js), 40 tools in total. On-disk formats are
@@ -53,7 +53,7 @@ import {
   MEMORY_DEFAULT_CATEGORY,
 } from "./operation-registry.js";
 
-const VERSION = "3.6.4";
+const VERSION = "3.6.5";
 const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json", import.meta.url);
 const WORKFLOW_ROUTER_PATH = new URL("../protocol/workflow-router.json", import.meta.url);
 const TAIL_CHARS = 4000;
@@ -208,6 +208,53 @@ const VAGUE_REQUEST_TERMS = [
 
 function isoNow() {
   return new Date().toISOString();
+}
+
+function parseIsoTimestamp(value) {
+  const text = String(value || "").trim();
+  if (text === "") {
+    return null;
+  }
+  const millis = Date.parse(text);
+  return Number.isNaN(millis) ? null : millis;
+}
+
+function timestampAtOrAfter(value, lowerBound, allowSameSecond = false) {
+  const left = parseIsoTimestamp(value);
+  const right = parseIsoTimestamp(lowerBound);
+  if (left !== null && right !== null) {
+    if (allowSameSecond) {
+      return Math.floor(left / 1000) >= Math.floor(right / 1000);
+    }
+    return left >= right;
+  }
+  return String(value || "") >= String(lowerBound || "");
+}
+
+function timestampAfter(value, lowerBound) {
+  const left = parseIsoTimestamp(value);
+  const right = parseIsoTimestamp(lowerBound);
+  if (left !== null && right !== null) {
+    return left > right;
+  }
+  return String(value || "") > String(lowerBound || "");
+}
+
+function compareTimestampValues(leftValue, rightValue) {
+  const left = parseIsoTimestamp(leftValue);
+  const right = parseIsoTimestamp(rightValue);
+  if (left !== null && right !== null && left !== right) {
+    return left < right ? -1 : 1;
+  }
+  const leftText = String(leftValue || "");
+  const rightText = String(rightValue || "");
+  if (leftText < rightText) {
+    return -1;
+  }
+  if (leftText > rightText) {
+    return 1;
+  }
+  return 0;
 }
 
 function stampNow() {
@@ -1858,6 +1905,16 @@ function verificationRecordMatchesStep(record, slug, stepId) {
   return record.plan === slug && record.step_id === stepId;
 }
 
+function verificationRecordHasExplicitStepContext(record, slug, stepId) {
+  return (
+    record &&
+    Object.prototype.hasOwnProperty.call(record, "plan") &&
+    Object.prototype.hasOwnProperty.call(record, "step_id") &&
+    record.plan === slug &&
+    record.step_id === stepId
+  );
+}
+
 function strictStepEvidenceEnabled() {
   const raw = String(process.env.MYTHIFY_REQUIRE_VERIFIED_STEP || "").trim().toLowerCase();
   return !FALSE_ENV_VALUES.has(raw);
@@ -2418,7 +2475,11 @@ function reportEventSortKey(event) {
 function compareReportEvents(left, right) {
   const leftKey = reportEventSortKey(left);
   const rightKey = reportEventSortKey(right);
-  for (let index = 0; index < leftKey.length; index += 1) {
+  const timestampOrder = compareTimestampValues(leftKey[0], rightKey[0]);
+  if (timestampOrder !== 0) {
+    return timestampOrder;
+  }
+  for (let index = 1; index < leftKey.length; index += 1) {
     if (leftKey[index] < rightKey[index]) {
       return -1;
     }
@@ -2569,7 +2630,7 @@ function eventsAfterMarker(events, marker) {
     }
   }
   if (lastEvent.timestamp) {
-    return events.filter((event) => (event.timestamp || "") > lastEvent.timestamp);
+    return events.filter((event) => timestampAfter(event.timestamp || "", lastEvent.timestamp));
   }
   return events;
 }
@@ -8477,8 +8538,12 @@ server.registerTool(
           record.kind === "executed" &&
           record.verified === true &&
           typeof record.timestamp === "string" &&
-          record.timestamp >= lowerBound &&
-          verificationRecordMatchesStep(record, slug, step_id)
+          verificationRecordMatchesStep(record, slug, step_id) &&
+          timestampAtOrAfter(
+            record.timestamp,
+            lowerBound,
+            verificationRecordHasExplicitStepContext(record, slug, step_id)
+          )
       );
       if (!hasPassingRun) {
         return (
