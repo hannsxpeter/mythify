@@ -1384,8 +1384,8 @@ def verification_step_context(state):
 
 
 def verification_record_matches_step(record, slug, step_id):
-    has_bound_context = record.get("plan") is not None or record.get("step_id") is not None
-    if not has_bound_context:
+    has_legacy_context = "plan" not in record and "step_id" not in record
+    if has_legacy_context:
         return True
     return record.get("plan") == slug and record.get("step_id") == step_id
 
@@ -8968,7 +8968,7 @@ def build_parser():
         prog="mythify.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Mythify v3.6.3: evidence protocol for AI coding agents. Route broad "
+            "Mythify v3.6.4: evidence protocol for AI coding agents. Route broad "
             "work first, keep state in .mythify, and verify completion claims "
             "with executed commands."
         ),

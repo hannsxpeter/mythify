@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.4] - 2026-06-15
+
+### Fixed
+
+- Strict step evidence now rejects explicit null-context verification records,
+  preventing pre-step global `verify run` records from completing a plan step.
+- CLI and MCP regression coverage now preserves legacy compatibility for older
+  executed verification records that do not have plan or step context keys.
+
 ## [3.6.3] - 2026-06-15
 
 ### Added
@@ -601,7 +610,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.3...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.4...HEAD
+[3.6.4]: https://github.com/aihxp/mythify/compare/v3.6.3...v3.6.4
 [3.6.3]: https://github.com/aihxp/mythify/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/aihxp/mythify/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/aihxp/mythify/compare/v3.6.0...v3.6.1

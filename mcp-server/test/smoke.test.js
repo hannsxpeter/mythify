@@ -1398,6 +1398,103 @@ test("strict evidence gate on plan_update_step", async (t) => {
       assert.equal(info.version, PACKAGE_JSON.version, "serverInfo reports package version");
     });
 
+    await t.test("pre-step verify_run does not satisfy completion", async () => {
+      const created = textOf(
+        await client.callTool({
+          name: "plan_create",
+          arguments: {
+            goal: "Gate prestep",
+            steps: [{ title: "Prestep gated step", success_criteria: "step-bound evidence" }],
+          },
+        })
+      );
+      assert.ok(created.startsWith("[OK]"), `plan_create reports [OK]: ${created}`);
+      const passed = textOf(
+        await client.callTool({
+          name: "verify_run",
+          arguments: { command: 'node -e "process.exit(0)"', claim: "global pre-step verification" },
+        })
+      );
+      assert.ok(passed.startsWith("[OK]"), `verify_run succeeds: ${passed}`);
+      const verificationRecord = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "verifications.jsonl"), "utf8").trim().split(/\n/).at(-1)
+      );
+      assert.equal(verificationRecord.plan, null);
+      assert.equal(verificationRecord.step_id, null);
+
+      const refused = textOf(
+        await client.callTool({
+          name: "plan_update_step",
+          arguments: {
+            step_id: 1,
+            status: "completed",
+            result: "global verification should not count",
+          },
+        })
+      );
+      assert.ok(refused.startsWith("[FAIL]"), `pre-step evidence refuses: ${refused}`);
+      assert.match(refused, /Verified evidence required/);
+      const planAfterRefusal = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "plans", "gate-prestep.json"), "utf8")
+      );
+      assert.equal(planAfterRefusal.steps[0].status, "pending");
+    });
+
+    await t.test("legacy verification without context keys can satisfy completion", async () => {
+      const created = textOf(
+        await client.callTool({
+          name: "plan_create",
+          arguments: {
+            goal: "Gate legacy",
+            steps: [{ title: "Legacy gated step", success_criteria: "legacy evidence" }],
+          },
+        })
+      );
+      assert.ok(created.startsWith("[OK]"), `plan_create reports [OK]: ${created}`);
+      const inProgress = textOf(
+        await client.callTool({
+          name: "plan_update_step",
+          arguments: { step_id: 1, status: "in_progress" },
+        })
+      );
+      assert.ok(inProgress.startsWith("[OK]"), `in_progress succeeds: ${inProgress}`);
+      const plan = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "plans", "gate-legacy.json"), "utf8")
+      );
+      const legacyRecord = {
+        kind: "executed",
+        claim: "legacy step verification",
+        command: "true",
+        exit_code: 0,
+        duration_seconds: 0,
+        stdout_tail: "",
+        stderr_tail: "",
+        verified: true,
+        timestamp: plan.steps[0].updated_at,
+      };
+      fs.appendFileSync(
+        path.join(stateDir, "verifications.jsonl"),
+        `${JSON.stringify(legacyRecord)}\n`,
+        "utf8"
+      );
+
+      const accepted = textOf(
+        await client.callTool({
+          name: "plan_update_step",
+          arguments: {
+            step_id: 1,
+            status: "completed",
+            result: "legacy verification record",
+          },
+        })
+      );
+      assert.ok(accepted.startsWith("[OK]"), `legacy evidence completes: ${accepted}`);
+      const planAfterAccept = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "plans", "gate-legacy.json"), "utf8")
+      );
+      assert.equal(planAfterAccept.steps[0].status, "completed");
+    });
+
     await t.test("completed is blocked until a passing verify_run is recorded", async () => {
       const created = textOf(
         await client.callTool({

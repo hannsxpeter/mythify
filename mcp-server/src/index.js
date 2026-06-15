@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mythify MCP server v3.6.3
+// Mythify MCP server v3.6.4
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
 // reflections) as 37 core MCP tools over stdio, plus the 3 fanout tools for
 // parallel delegation (src/fanout.js), 40 tools in total. On-disk formats are
@@ -53,7 +53,7 @@ import {
   MEMORY_DEFAULT_CATEGORY,
 } from "./operation-registry.js";
 
-const VERSION = "3.6.3";
+const VERSION = "3.6.4";
 const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json", import.meta.url);
 const WORKFLOW_ROUTER_PATH = new URL("../protocol/workflow-router.json", import.meta.url);
 const TAIL_CHARS = 4000;
@@ -1847,9 +1847,12 @@ function verificationStepContext() {
 }
 
 function verificationRecordMatchesStep(record, slug, stepId) {
-  const hasBoundContext = record && (record.plan !== null && record.plan !== undefined
-    || record.step_id !== null && record.step_id !== undefined);
-  if (!hasBoundContext) {
+  if (!record) {
+    return false;
+  }
+  const hasPlanContext = Object.prototype.hasOwnProperty.call(record, "plan");
+  const hasStepContext = Object.prototype.hasOwnProperty.call(record, "step_id");
+  if (!hasPlanContext && !hasStepContext) {
     return true;
   }
   return record.plan === slug && record.step_id === stepId;

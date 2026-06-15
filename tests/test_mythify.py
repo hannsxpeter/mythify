@@ -2011,6 +2011,53 @@ class TestStepUpdates(CliTestCase):
         plan = self.read_json(plan_file)
         self.assertEqual(plan["steps"][0]["status"], "pending")
 
+    def test_gate_on_rejects_pre_step_unbound_verification(self):
+        state, plan_file = self.make_plan()
+        verified = self.run_cli(
+            "verify", "run", shell_py("raise SystemExit(0)"),
+            "--claim", "global pre-step verification",
+        )
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        record = self.read_jsonl(state / "verifications.jsonl")[-1]
+        self.assertIsNone(record["plan"])
+        self.assertIsNone(record["step_id"])
+
+        before = plan_file.read_text(encoding="utf-8")
+        result = self.run_cli(
+            "step", "1", "completed", "global verification should not count",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(VERIFIED_EVIDENCE_MESSAGE, result.stderr)
+        self.assertEqual(plan_file.read_text(encoding="utf-8"), before)
+        plan = self.read_json(plan_file)
+        self.assertEqual(plan["steps"][0]["status"], "pending")
+
+    def test_gate_on_accepts_legacy_verification_without_context_keys(self):
+        state, plan_file = self.make_plan()
+        in_progress = self.run_cli("step", "1", "in_progress")
+        self.assertEqual(in_progress.returncode, 0, in_progress.stderr)
+        plan = self.read_json(plan_file)
+        legacy_record = {
+            "kind": "executed",
+            "claim": "legacy step verification",
+            "command": "true",
+            "exit_code": 0,
+            "duration_seconds": 0.0,
+            "stdout_tail": "",
+            "stderr_tail": "",
+            "verified": True,
+            "timestamp": plan["steps"][0]["updated_at"],
+        }
+        with open(str(state / "verifications.jsonl"), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(legacy_record) + "\n")
+
+        result = self.run_cli(
+            "step", "1", "completed", "legacy verification record",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = self.read_json(plan_file)
+        self.assertEqual(plan["steps"][0]["status"], "completed")
+
     def test_gate_on_with_passing_verification_completes(self):
         state, plan_file = self.make_plan()
         # ACT: move the step in_progress (sets the lower bound).
