@@ -15,6 +15,16 @@ import { spawn, spawnSync } from "node:child_process";
 import { z } from "zod";
 
 const ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "anthropic", "openai", "command"];
+const HOST_PLATFORMS = [
+  "auto",
+  "unknown",
+  "codex-desktop",
+  "codex-cli",
+  "claude-desktop",
+  "claude-code",
+  "cursor-desktop",
+  "cursor-agent",
+];
 const EFFORT_LEVELS = ["auto", "low", "medium", "high"];
 const SPEED_LEVELS = ["auto", "standard", "fast"];
 const SPAWN_CEILINGS = ["auto", "lower_only", "same_or_lower", "allow_stronger"];
@@ -402,13 +412,68 @@ function cursorBinFailureText() {
   );
 }
 
-// Auto-detection order from the spec: explicit MYTHIFY_FANOUT_ENGINE, else
-// local subscription CLIs, then API or command fallbacks, else refuse with a
-// message listing every option.
+function inferHostPlatform() {
+  const configured = (process.env.MYTHIFY_HOST_PLATFORM || "").trim();
+  if (configured !== "" && configured !== "auto") {
+    return HOST_PLATFORMS.includes(configured) ? configured : "unknown";
+  }
+  const origin = (process.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE || "").toLowerCase();
+  if (
+    origin.includes("codex") ||
+    process.env.CODEX_SHELL ||
+    (process.env.CODEX_THREAD_ID || "").trim() !== ""
+  ) {
+    return "codex-desktop";
+  }
+  if (
+    process.env.CLAUDECODE ||
+    Object.keys(process.env).some((key) => key.startsWith("CLAUDE_CODE_"))
+  ) {
+    return "claude-code";
+  }
+  if (process.env.CURSOR_AGENT || process.env.CURSOR_TRACE_ID || process.env.CURSOR_SESSION_ID) {
+    return "cursor-desktop";
+  }
+  return "unknown";
+}
+
+function preferredLocalEngine(platform) {
+  if (["codex-desktop", "codex-cli"].includes(platform)) {
+    return "codex-cli";
+  }
+  if (["claude-desktop", "claude-code"].includes(platform)) {
+    return "claude-cli";
+  }
+  if (["cursor-desktop", "cursor-agent"].includes(platform)) {
+    return "cursor-agent";
+  }
+  return "";
+}
+
+function fanoutEngineAvailable(engine) {
+  if (engine === "claude-cli") {
+    return resolveClaudeBin() !== null;
+  }
+  if (engine === "codex-cli") {
+    return resolveCodexBin() !== null;
+  }
+  if (engine === "cursor-agent") {
+    return resolveCursorInvocation() !== null;
+  }
+  return false;
+}
+
+// Auto-detection order: explicit MYTHIFY_FANOUT_ENGINE, initiating host CLI
+// when available, local subscription CLIs, then API or command fallbacks, else
+// refuse with a message listing every option.
 function autoDetectEngine() {
   const explicit = (process.env.MYTHIFY_FANOUT_ENGINE || "").trim();
   if (explicit !== "") {
     return { engine: explicit };
+  }
+  const preferred = preferredLocalEngine(inferHostPlatform());
+  if (preferred !== "" && fanoutEngineAvailable(preferred)) {
+    return { engine: preferred };
   }
   if (resolveClaudeBin() !== null) {
     return { engine: "claude-cli" };

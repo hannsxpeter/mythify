@@ -49,8 +49,7 @@ Optional env entries:
 ```json
 {
   "MYTHIFY_DISABLE_RUN": "1",
-  "MYTHIFY_TRIAGE_ENGINE": "codex-cli",
-  "MYTHIFY_FANOUT_ENGINE": "codex-cli",
+  "MYTHIFY_HOST_PLATFORM": "codex-desktop",
   "MYTHIFY_SESSION_MODEL": "gpt-5",
   "MYTHIFY_SPAWN_CEILING": "same_or_lower",
   "MYTHIFY_FANOUT_EFFORT": "medium",
@@ -174,8 +173,7 @@ The safest setup path is the CLI registration command:
 ```bash
 codex mcp add mythify \
   --env MYTHIFY_DIR=/absolute/path/to/your/project/.mythify \
-  --env MYTHIFY_TRIAGE_ENGINE=codex-cli \
-  --env MYTHIFY_FANOUT_ENGINE=codex-cli \
+  --env MYTHIFY_HOST_PLATFORM=codex-desktop \
   -- node /absolute/path/to/mythify/mcp-server/src/index.js
 ```
 
@@ -232,8 +230,7 @@ For Cursor-backed fast triage or fanout, run `cursor-agent login` or
 
 ```json
 {
-  "MYTHIFY_TRIAGE_ENGINE": "cursor-agent",
-  "MYTHIFY_FANOUT_ENGINE": "cursor-agent",
+  "MYTHIFY_HOST_PLATFORM": "cursor-desktop",
   "MYTHIFY_FANOUT_CURSOR_BIN": "/absolute/path/to/cursor-agent"
 }
 ```

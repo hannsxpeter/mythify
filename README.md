@@ -517,7 +517,8 @@ Fast triage engines are local-first and do not require API keys:
 
 | Env or option | Default | Meaning |
 | :--- | :--- | :--- |
-| `--triage-engine`, `MYTHIFY_TRIAGE_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, or `command`. |
+| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host (`codex-desktop`, `cursor-desktop`, `claude-code`, and related CLI values). Used to prefer that host's local CLI for triage and fanout. |
+| `--triage-engine`, `MYTHIFY_TRIAGE_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, or `command`. Explicit values override host-platform defaults. |
 | `--triage-model`, `MYTHIFY_TRIAGE_MODEL` | engine default | Fast model. `claude-cli` defaults to `haiku`; Codex and Cursor use their local defaults unless set. |
 | `MYTHIFY_TRIAGE_COMMAND` | unset | Shell command for the `command` engine. Reads the triage prompt on stdin and must print JSON. |
 | `MYTHIFY_TRIAGE_CLAUDE_BIN`, `MYTHIFY_TRIAGE_CODEX_BIN`, `MYTHIFY_TRIAGE_CURSOR_BIN` | resolved | Override local CLI binary paths. Fanout binary env vars are used as fallbacks. |
@@ -526,6 +527,69 @@ The triage model must return JSON with fields such as `primary_type`,
 `secondary_types`, `hidden_questions`, `verification_plan`, `fanout_plan`, and
 `recommended_first_step`. Mythify records the parsed JSON in the classification
 result; it does not treat that model output as verification.
+
+## Trace-aware evals
+
+`trace analyze` turns exported agent traces into a compact product and eval
+signal report. It reads local `.jsonl` or `.json` files and detects three row
+shapes:
+
+- session traces with `trace`, `messages`, metadata, and tool-call counts
+- action rows with `context`, `completion`, `output_type`, and tool output
+- scenario rows with `instruction`, `input`, `output`, and `prompt`
+
+The analysis counts formats, sessions, tools, shell commands, verifier-like
+signals such as tests, builds, lint, browser checks, and git actions, plus
+limit, error, and permission language. Its recommendations are material for
+planning and eval design, not verification evidence.
+
+```bash
+python3 scripts/mythify.py trace analyze traces/*.jsonl
+python3 scripts/mythify.py trace analyze traces --recursive --json
+```
+
+The same trace reader can turn a strong model's visible workflow into a
+session-start playbook:
+
+```bash
+python3 scripts/mythify.py trace distill traces/*.jsonl --model claude-fable-5 --output fable-profile.md
+python3 scripts/mythify.py trace compare traces/*.jsonl --target claude-fable-5 --baseline opus-4.8 --output fable-vs-opus.md
+python3 scripts/mythify.py trace playbook traces/*.jsonl --target claude-fable-5 --baseline opus-4.8 --output MYTHIFY_FABLE_PLAYBOOK.md
+python3 scripts/mythify.py trace install-playbook MYTHIFY_FABLE_PLAYBOOK.md --skill mythify-fable
+```
+
+`trace distill` summarizes one model slice, `trace compare` shows target versus
+baseline behavior, `trace playbook` writes concise operating rules, and
+`trace install-playbook` wraps the generated Markdown as a local Code or Codex
+skill. The playbook copies visible habits such as inspect/edit/verify rhythm
+and chat reporting discipline. It does not copy model capability or replace
+`verify run`.
+
+For Hugging Face datasets, export a bounded slice to JSONL first so Mythify
+stays dependency-free at runtime:
+
+```bash
+python3 -m venv .venv-traces
+. .venv-traces/bin/activate
+pip install datasets teich
+python - <<'PY'
+import json
+from datasets import load_dataset
+
+name = "Glint-Research/Fable-5-traces"
+with open("fable5-sample.jsonl", "w", encoding="utf-8") as handle:
+    for index, row in enumerate(load_dataset(name, split="train", streaming=True)):
+        if index >= 3000:
+            break
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+python3 scripts/mythify.py trace analyze fable5-sample.jsonl --json
+```
+
+Use scenario-shaped datasets to regression-test `classify` and quick-start
+guidance. Use action-shaped and session-shaped traces to improve automatic
+evidence detection, visual verification workflows, background monitoring, and
+the chat-native workstream experience.
 
 ## Parallel delegation (fanout)
 
@@ -584,12 +648,14 @@ hash and byte count, output byte count, and the verification boundary. They do
 not store raw prompts or worker output, and they explicitly mark worker output
 as material rather than verification evidence.
 
-The engine is set by `MYTHIFY_FANOUT_ENGINE`, or auto-detected in this order:
-`claude-cli` if a claude binary resolves, else `codex-cli` if a codex binary
-resolves, else `cursor-agent` if Cursor Agent resolves, else `anthropic` if
-`ANTHROPIC_API_KEY` is set, else `command` if `MYTHIFY_FANOUT_COMMAND` is set,
-else `fanout_start` refuses with a message listing all six options. `openai`
-is available when selected explicitly with `MYTHIFY_FANOUT_ENGINE=openai`.
+The engine is set by `MYTHIFY_FANOUT_ENGINE`. Without that explicit override,
+Mythify first prefers the initiating host CLI from `MYTHIFY_HOST_PLATFORM` or
+detected host state, then falls back to `claude-cli` if a claude binary
+resolves, else `codex-cli` if a codex binary resolves, else `cursor-agent` if
+Cursor Agent resolves, else `anthropic` if `ANTHROPIC_API_KEY` is set, else
+`command` if `MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with
+a message listing all six options. `openai` is available when selected
+explicitly with `MYTHIFY_FANOUT_ENGINE=openai`.
 
 ### Model selection
 
@@ -705,6 +771,7 @@ auditable without Mythify inventing token or dollar math.
 | Env | Default | Meaning |
 | :--- | :--- | :--- |
 | `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
+| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host and makes matching local CLIs the default worker choice. |
 | `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
 | `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
 | `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |

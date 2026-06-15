@@ -114,6 +114,35 @@ function readJsonl(filePath) {
     .map((line) => JSON.parse(line));
 }
 
+function writeHostDefaultCodexStub(filePath, marker) {
+  fs.writeFileSync(
+    filePath,
+    `#!/bin/sh
+OUT=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then
+    shift
+    OUT="$1"
+  fi
+  shift
+done
+cat > /dev/null
+printf '${marker}\\n' > "$OUT"
+`,
+    { mode: 0o755 }
+  );
+}
+
+function writeHostDefaultCursorStub(filePath, marker) {
+  fs.writeFileSync(
+    filePath,
+    `#!/bin/sh
+printf '${marker}\\n'
+`,
+    { mode: 0o755 }
+  );
+}
+
 async function waitForAllFinished(client, jobId, deadlineMs = 60000) {
   const deadline = Date.now() + deadlineMs;
   for (;;) {
@@ -1276,6 +1305,110 @@ printf 'AUTO-CODEX\\n' > "$OUT"
       fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
     );
     assert.equal(job.engine, "codex-cli");
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("auto-detection prefers codex when Codex is the initiating host", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-fanout-codex-host-");
+  const binDir = path.join(root, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  writeHostDefaultCodexStub(path.join(binDir, "codex"), "HOST-CODEX");
+  writeHostDefaultCursorStub(path.join(binDir, "cursor-agent"), "HOST-CURSOR");
+  const client = await startServer(
+    {
+      PATH: binDir,
+      MYTHIFY_HOST_PLATFORM: "codex-desktop",
+      MYTHIFY_FANOUT_CLAUDE_BIN: path.join(root, "missing-claude"),
+      CURSOR_SESSION_ID: "cursor-session-present",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const classified = textOf(
+      await client.callTool({
+        name: "classify_task",
+        arguments: { task: "implement a feature", format: "json" },
+      })
+    );
+    const policy = JSON.parse(classified.replace(/^\[OK\] /, "")).model_policy;
+    assert.equal(policy.session.platform, "codex-desktop");
+    assert.equal(policy.fanout_worker.engine, "codex-cli");
+    assert.equal(policy.fanout_worker.engine_policy, "platform_preferred");
+
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: { tasks: [{ title: "Host default", prompt: "Use the host engine." }] },
+      })
+    );
+    assert.ok(started.includes("engine: codex-cli"), `codex host chose codex: ${started}`);
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("HOST-CODEX"), "the Codex stub produced the result");
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"))
+        .engine,
+      "codex-cli"
+    );
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("auto-detection prefers cursor when Cursor is the initiating host", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-fanout-cursor-host-");
+  const binDir = path.join(root, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  writeHostDefaultCodexStub(path.join(binDir, "codex"), "HOST-CODEX");
+  writeHostDefaultCursorStub(path.join(binDir, "cursor-agent"), "HOST-CURSOR");
+  const client = await startServer(
+    {
+      PATH: binDir,
+      MYTHIFY_HOST_PLATFORM: "cursor-desktop",
+      MYTHIFY_FANOUT_CLAUDE_BIN: path.join(root, "missing-claude"),
+      CODEX_THREAD_ID: "codex-thread-present",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const classified = textOf(
+      await client.callTool({
+        name: "classify_task",
+        arguments: { task: "implement a feature", format: "json" },
+      })
+    );
+    const policy = JSON.parse(classified.replace(/^\[OK\] /, "")).model_policy;
+    assert.equal(policy.session.platform, "cursor-desktop");
+    assert.equal(policy.fanout_worker.engine, "cursor-agent");
+    assert.equal(policy.fanout_worker.engine_policy, "platform_preferred");
+
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: { tasks: [{ title: "Host default", prompt: "Use the host engine." }] },
+      })
+    );
+    assert.ok(started.includes("engine: cursor-agent"), `cursor host chose cursor: ${started}`);
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.ok(results.includes("HOST-CURSOR"), "the Cursor stub produced the result");
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"))
+        .engine,
+      "cursor-agent"
+    );
   } finally {
     await client.close();
     fs.rmSync(root, { recursive: true, force: true });

@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 22,
+      "command_count": 23,
       "commands": [
         "init",
         "protocol",
@@ -15,6 +15,7 @@
         "readiness",
         "timeline",
         "phase",
+        "trace",
         "classify",
         "host-model",
         "outcome",

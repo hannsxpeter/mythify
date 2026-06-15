@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mythify MCP server v3.3.0
+// Mythify MCP server v3.4.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
 // reflections) as 34 core MCP tools over stdio, plus the 3 fanout tools for
 // parallel delegation (src/fanout.js), 37 tools in total. On-disk formats are
@@ -53,7 +53,7 @@ import {
   MEMORY_DEFAULT_CATEGORY,
 } from "./operation-registry.js";
 
-const VERSION = "3.3.0";
+const VERSION = "3.4.0";
 const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json", import.meta.url);
 const TAIL_CHARS = 4000;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
@@ -3219,8 +3219,16 @@ function autoDetectTriageEngine() {
 }
 
 function inferPlatform() {
+  const configured = (process.env.MYTHIFY_HOST_PLATFORM || "").trim();
+  if (configured !== "" && configured !== "auto") {
+    return PLATFORMS.includes(configured) ? configured : "unknown";
+  }
   const origin = (process.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE || "").toLowerCase();
-  if (origin.includes("codex") || process.env.CODEX_SHELL) {
+  if (
+    origin.includes("codex") ||
+    process.env.CODEX_SHELL ||
+    (process.env.CODEX_THREAD_ID || "").trim() !== ""
+  ) {
     return "codex-desktop";
   }
   if (
@@ -3290,6 +3298,18 @@ function selectTriageEngine(requestedEngine, platform) {
     return { engine: detected, enginePolicy: "auto_detected" };
   }
   return { engine: "", enginePolicy: "unavailable" };
+}
+
+function selectWorkerEngine(platform) {
+  const envEngine = (process.env.MYTHIFY_FANOUT_ENGINE || "").trim();
+  if (envEngine !== "") {
+    return { engine: envEngine, enginePolicy: "env" };
+  }
+  const preferred = preferredLocalEngine(platform);
+  if (preferred !== "" && triageEngineAvailable(preferred)) {
+    return { engine: preferred, enginePolicy: "platform_preferred" };
+  }
+  return { engine: "auto", enginePolicy: "local_first" };
 }
 
 function resolveTriageModelSelection(engine, requestedModel) {
@@ -3990,6 +4010,7 @@ function buildModelPolicy(classification, options) {
     options.triage_engine || "",
     platform
   );
+  const { engine: workerEngine, enginePolicy: workerEnginePolicy } = selectWorkerEngine(platform);
   const { model: triageModel, modelPolicy: triageModelPolicy } = resolveTriageModelSelection(
     triageEngine,
     options.triage_model || ""
@@ -4085,8 +4106,8 @@ function buildModelPolicy(classification, options) {
       spawn: classification.fanout || "not_recommended",
       ...roleProviderFields(providerDefaults, "fanout_worker"),
       ...roleBudgetFields(providerDefaults, "fanout_worker"),
-      engine: "auto",
-      engine_policy: "local_first",
+      engine: workerEngine,
+      engine_policy: workerEnginePolicy,
       model_policy: "per_task_over_job_over_env_over_engine_default",
       model_relation_to_session: roleModelRelation(
         "fanout_worker",
@@ -4111,8 +4132,8 @@ function buildModelPolicy(classification, options) {
       spawn: reviewerSpawnPolicy(classification),
       ...roleProviderFields(providerDefaults, "reviewer"),
       ...roleBudgetFields(providerDefaults, "reviewer"),
-      engine: "auto",
-      engine_policy: "local_first",
+      engine: workerEngine,
+      engine_policy: workerEnginePolicy,
       model_policy: "prefer_stronger_than_worker_when_available",
       stronger_model_policy: reviewerStrength.policy,
       stronger_model_policy_source: reviewerStrength.source,

@@ -376,6 +376,78 @@ class TestClassification(CliTestCase):
         self.assertEqual(policy["fanout_worker"]["speed"], "fast")
         self.assertEqual(policy["fanout_worker"]["speed_policy"], "explicit")
 
+    def test_classify_defaults_workers_to_configured_host_platform(self):
+        bin_dir = self.project / "bin"
+        bin_dir.mkdir()
+        for name in ("codex", "cursor-agent"):
+            tool = bin_dir / name
+            tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            tool.chmod(0o755)
+
+        base_env = {
+            "PATH": str(bin_dir),
+            "MYTHIFY_TRIAGE_ENGINE": "",
+            "MYTHIFY_FANOUT_ENGINE": "",
+            "MYTHIFY_HOST_PLATFORM": "codex-desktop",
+            "CURSOR_SESSION_ID": "cursor-session-present",
+        }
+        codex = self.run_cli(
+            "classify",
+            "implement a feature",
+            "--json",
+            env_extra=base_env,
+        )
+        self.assertEqual(codex.returncode, 0, codex.stderr)
+        codex_policy = json.loads(codex.stdout)["model_policy"]
+        self.assertEqual(codex_policy["session"]["platform"], "codex-desktop")
+        self.assertEqual(codex_policy["triage"]["engine"], "codex-cli")
+        self.assertEqual(codex_policy["triage"]["engine_policy"], "platform_preferred")
+        self.assertEqual(codex_policy["fanout_worker"]["engine"], "codex-cli")
+        self.assertEqual(codex_policy["fanout_worker"]["engine_policy"], "platform_preferred")
+        self.assertEqual(codex_policy["reviewer"]["engine"], "codex-cli")
+        self.assertEqual(codex_policy["reviewer"]["engine_policy"], "platform_preferred")
+
+        cursor_env = dict(base_env)
+        cursor_env["MYTHIFY_HOST_PLATFORM"] = "cursor-desktop"
+        cursor = self.run_cli(
+            "classify",
+            "implement a feature",
+            "--json",
+            env_extra=cursor_env,
+        )
+        self.assertEqual(cursor.returncode, 0, cursor.stderr)
+        cursor_policy = json.loads(cursor.stdout)["model_policy"]
+        self.assertEqual(cursor_policy["session"]["platform"], "cursor-desktop")
+        self.assertEqual(cursor_policy["triage"]["engine"], "cursor-agent")
+        self.assertEqual(cursor_policy["triage"]["engine_policy"], "platform_preferred")
+        self.assertEqual(cursor_policy["fanout_worker"]["engine"], "cursor-agent")
+        self.assertEqual(cursor_policy["fanout_worker"]["engine_policy"], "platform_preferred")
+
+    def test_classify_keeps_explicit_fanout_engine_override(self):
+        bin_dir = self.project / "bin"
+        bin_dir.mkdir()
+        codex = bin_dir / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        codex.chmod(0o755)
+
+        result = self.run_cli(
+            "classify",
+            "implement a feature",
+            "--json",
+            env_extra={
+                "PATH": str(bin_dir),
+                "MYTHIFY_TRIAGE_ENGINE": "",
+                "MYTHIFY_HOST_PLATFORM": "codex-desktop",
+                "MYTHIFY_FANOUT_ENGINE": "cursor-agent",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        policy = json.loads(result.stdout)["model_policy"]
+        self.assertEqual(policy["triage"]["engine"], "codex-cli")
+        self.assertEqual(policy["triage"]["engine_policy"], "platform_preferred")
+        self.assertEqual(policy["fanout_worker"]["engine"], "cursor-agent")
+        self.assertEqual(policy["fanout_worker"]["engine_policy"], "env")
+
     def test_classify_includes_per_role_provider_defaults(self):
         result = self.run_cli(
             "classify",
@@ -900,6 +972,273 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["risk"], "high")
         self.assertEqual(payload["ceremony"], "full")
         self.assertEqual(payload["execution_profile"], "full")
+
+
+class TestTraceAnalyze(CliTestCase):
+    def write_jsonl(self, name, rows):
+        path = self.project / name
+        with path.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+        return path
+
+    def test_trace_analyze_summarizes_session_action_and_scenario_rows(self):
+        session = self.write_jsonl(
+            "session.jsonl",
+            [
+                {
+                    "session_id": "s1",
+                    "harness": "claude_code",
+                    "metadata": {
+                        "model": "claude-fable-5",
+                        "entrypoint": "cli",
+                        "permission_mode": "bypassPermissions",
+                    },
+                    "num_tool_calls": 3,
+                    "prompt": "Build a browser game and verify with screenshots.",
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "Bash",
+                                        "arguments": {"command": "npm test && npm run build"},
+                                    }
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
+        actions = self.write_jsonl(
+            "actions.jsonl",
+            [
+                {
+                    "session": "s2",
+                    "model": "claude-fable-5",
+                    "output_type": "tool_use",
+                    "context": "USER: Fix the React app.",
+                    "completion": "I will run lint and inspect the error.",
+                    "output": {
+                        "tool": "Bash",
+                        "input": {"command": "npm run lint && git status --short"},
+                    },
+                },
+                {
+                    "session": "s2",
+                    "model": "claude-fable-5",
+                    "output_type": "tool_use",
+                    "context": "USER: Fix the React app.",
+                    "output": {
+                        "tool": "Edit",
+                        "input": {"file_path": "src/App.tsx"},
+                    },
+                },
+            ],
+        )
+        scenarios = self.write_jsonl(
+            "scenarios.jsonl",
+            [
+                {
+                    "instruction": "Deploy an AI application. Provide a practical plan.",
+                    "input": "",
+                    "output": "Containerize services, add logging, metrics, tests, and scaling notes.",
+                    "prompt": "### Instruction: Deploy an AI application.",
+                }
+            ],
+        )
+
+        result = self.run_cli(
+            "trace",
+            "analyze",
+            str(session),
+            str(actions),
+            str(scenarios),
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["records_read"], 4)
+        self.assertEqual(payload["format_counts"]["session_trace"], 1)
+        self.assertEqual(payload["format_counts"]["action_row"], 2)
+        self.assertEqual(payload["format_counts"]["scenario_row"], 1)
+        tools = {item["name"]: item["count"] for item in payload["top_tools"]}
+        self.assertEqual(tools["Bash"], 2)
+        self.assertEqual(tools["Edit"], 1)
+        self.assertEqual(payload["command_verification_hits"]["test"], 1)
+        self.assertEqual(payload["command_verification_hits"]["build"], 1)
+        self.assertEqual(payload["command_verification_hits"]["lint"], 1)
+        self.assertEqual(payload["command_verification_hits"]["git"], 1)
+        recommendation_ids = {item["id"] for item in payload["recommendations"]}
+        self.assertIn("scenario-classifier-evals", recommendation_ids)
+        self.assertIn("auto-evidence-detection", recommendation_ids)
+        self.assertIn("action-first-runtime", recommendation_ids)
+
+    def test_trace_analyze_text_output_works_without_workspace(self):
+        path = self.write_jsonl(
+            "vibe.jsonl",
+            [
+                {
+                    "instruction": "Create a coding assistant. Provide a plan.",
+                    "input": "",
+                    "output": "Use project indexing, tests, and scaling considerations.",
+                    "prompt": "### Instruction: Create a coding assistant.",
+                }
+            ],
+        )
+        result = self.run_cli("trace", "analyze", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Trace analysis", result.stdout)
+        self.assertIn("scenario_row=1", result.stdout)
+        self.assertIn("scenario rows", result.stdout)
+
+    def test_trace_playbook_workflow_distills_compares_and_installs_skill(self):
+        path = self.write_jsonl(
+            "mixed-models.jsonl",
+            [
+                {
+                    "session": "target-1",
+                    "model": "claude-fable-5",
+                    "output_type": "tool_use",
+                    "output": {
+                        "tool": "Read",
+                        "input": {"file_path": "src/app.py"},
+                    },
+                    "completion": "Inspect the code before editing.",
+                },
+                {
+                    "session": "target-1",
+                    "model": "claude-fable-5",
+                    "output_type": "tool_use",
+                    "output": {
+                        "tool": "Edit",
+                        "input": {"file_path": "src/app.py"},
+                    },
+                    "completion": "Apply a focused fix.",
+                },
+                {
+                    "session": "target-1",
+                    "model": "claude-fable-5",
+                    "output_type": "tool_use",
+                    "output": {
+                        "tool": "Bash",
+                        "input": {"command": "pytest tests && npm run build"},
+                    },
+                    "completion": "Verify the edited surface.",
+                },
+                {
+                    "session": "baseline-1",
+                    "model": "opus-4.8",
+                    "output_type": "tool_use",
+                    "output": {
+                        "tool": "Edit",
+                        "input": {"file_path": "src/app.py"},
+                    },
+                    "completion": "Patch immediately.",
+                },
+                {
+                    "session": "baseline-1",
+                    "model": "opus-4.8",
+                    "output_type": "tool_use",
+                    "output": {
+                        "tool": "Bash",
+                        "input": {"command": "git status --short"},
+                    },
+                    "completion": "Check git status.",
+                },
+            ],
+        )
+        distill_path = self.project / "fable-profile.md"
+        result = self.run_cli(
+            "trace",
+            "distill",
+            str(path),
+            "--model",
+            "claude-fable-5",
+            "--output",
+            str(distill_path),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(distill_path.is_file())
+        distill_text = distill_path.read_text(encoding="utf-8")
+        self.assertIn("claude-fable-5", distill_text)
+        self.assertIn("Read to edit ratio", distill_text)
+
+        result = self.run_cli(
+            "trace",
+            "compare",
+            str(path),
+            "--target",
+            "claude-fable-5",
+            "--baseline",
+            "opus-4.8",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["target"]["analysis"]["records_read"], 3)
+        self.assertEqual(payload["baseline"]["analysis"]["records_read"], 2)
+        self.assertIn("Target minus baseline", payload["markdown"])
+
+        playbook_path = self.project / "MYTHIFY_FABLE_PLAYBOOK.md"
+        result = self.run_cli(
+            "trace",
+            "playbook",
+            str(path),
+            "--target",
+            "claude-fable-5",
+            "--baseline",
+            "opus-4.8",
+            "--output",
+            str(playbook_path),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        playbook_text = playbook_path.read_text(encoding="utf-8")
+        self.assertIn("Trace-Derived Agent Playbook", playbook_text)
+        self.assertIn("Completion requires an executed verifier", playbook_text)
+
+        skill_root = self.project / "skills"
+        result = self.run_cli(
+            "trace",
+            "install-playbook",
+            str(playbook_path),
+            "--skill",
+            "mythify-fable",
+            "--skill-root",
+            str(skill_root),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        skill_file = skill_root / "mythify-fable" / "SKILL.md"
+        self.assertTrue(skill_file.is_file())
+        skill_text = skill_file.read_text(encoding="utf-8")
+        self.assertIn("name: mythify-fable", skill_text)
+        self.assertIn("Trace-Derived Agent Playbook", skill_text)
+
+        result = self.run_cli(
+            "trace",
+            "install-playbook",
+            str(playbook_path),
+            "--skill",
+            "mythify-fable",
+            "--skill-root",
+            str(skill_root),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("already exists", result.stderr)
+
+        result = self.run_cli(
+            "trace",
+            "install-playbook",
+            str(playbook_path),
+            "--skill",
+            "mythify-fable",
+            "--skill-root",
+            str(skill_root),
+            "--force",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class TestPlanLifecycle(CliTestCase):

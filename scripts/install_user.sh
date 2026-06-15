@@ -24,6 +24,14 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
+pack_dir=""
+cleanup_pack_dir() {
+  if [ -n "$pack_dir" ] && [ -d "$pack_dir" ]; then
+    rm -rf "$pack_dir"
+  fi
+}
+trap cleanup_pack_dir EXIT
+
 prefix="${PREFIX:-$HOME/.local}"
 project=""
 skip_mcp=0
@@ -85,10 +93,11 @@ if [ "$skip_mcp" -eq 0 ]; then
   install_root="$data_home/mythify/$version"
   mcp_dir="$install_root/mcp-server"
 
-  tarball=$(CDPATH= cd -- "$repo_root/mcp-server" && npm pack --silent)
+  pack_dir=$(mktemp -d "${TMPDIR:-/tmp}/mythify-pack.XXXXXX")
+  tarball=$(CDPATH= cd -- "$repo_root/mcp-server" && npm pack --silent --pack-destination "$pack_dir")
   rm -rf "$mcp_dir"
   mkdir -p "$mcp_dir"
-  tar -xzf "$repo_root/mcp-server/$tarball" -C "$mcp_dir" --strip-components=1
+  tar -xzf "$pack_dir/$tarball" -C "$mcp_dir" --strip-components=1
   npm install --prefix "$mcp_dir" --omit=dev --ignore-scripts >/dev/null
 
   cat > "$bin_dir/mythify-mcp" <<EOF
@@ -112,8 +121,7 @@ if [ -n "$project" ]; then
 [OK] Codex MCP setup command:
 codex mcp add mythify \\
   --env MYTHIFY_DIR=$project_dir/.mythify \\
-  --env MYTHIFY_TRIAGE_ENGINE=codex-cli \\
-  --env MYTHIFY_FANOUT_ENGINE=codex-cli \\
+  --env MYTHIFY_HOST_PLATFORM=codex-desktop \\
   -- $bin_dir/mythify-mcp
 EOF
   fi

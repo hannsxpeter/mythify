@@ -106,8 +106,7 @@ For Codex after running the installer:
 ```bash
 codex mcp add mythify \
   --env MYTHIFY_DIR=/path/to/your/project/.mythify \
-  --env MYTHIFY_TRIAGE_ENGINE=codex-cli \
-  --env MYTHIFY_FANOUT_ENGINE=codex-cli \
+  --env MYTHIFY_HOST_PLATFORM=codex-desktop \
   -- /path/to/prefix/bin/mythify-mcp
 ```
 

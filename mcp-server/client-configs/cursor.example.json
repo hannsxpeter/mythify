@@ -6,7 +6,8 @@
         "/absolute/path/to/mythify/mcp-server/src/index.js"
       ],
       "env": {
-        "MYTHIFY_DIR": "/absolute/path/to/your/project/.mythify"
+        "MYTHIFY_DIR": "/absolute/path/to/your/project/.mythify",
+        "MYTHIFY_HOST_PLATFORM": "cursor-desktop"
       }
     }
   }

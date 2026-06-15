@@ -999,13 +999,59 @@ main agent may use before planning. The required JSON shape is:
 
 Supported fast triage engines are local-first and API-free:
 `claude-cli`, `codex-cli`, `cursor-agent`, and `command`. Selection order is
-explicit argument, `MYTHIFY_TRIAGE_ENGINE`, local CLI auto-detection, then
-`MYTHIFY_TRIAGE_COMMAND`. Fanout binary env vars are accepted as fallbacks for
-CLI paths. `claude-cli` defaults to model `haiku`; `codex-cli` and
-`cursor-agent` use their local defaults unless `MYTHIFY_TRIAGE_MODEL` or an
-explicit model is set. The `command` engine reads the triage prompt on stdin
+explicit argument, `MYTHIFY_TRIAGE_ENGINE`, the initiating host from
+`MYTHIFY_HOST_PLATFORM` or detected host state when that CLI is available,
+local CLI auto-detection, then `MYTHIFY_TRIAGE_COMMAND`. Fanout binary env vars
+are accepted as fallbacks for CLI paths. `claude-cli` defaults to model
+`haiku`; `codex-cli` and `cursor-agent` use their local defaults unless
+`MYTHIFY_TRIAGE_MODEL` or an explicit model is set. The `command` engine reads
+the triage prompt on stdin
 and must print JSON. It is the custom command adapter path for triage only;
 its output is material, not verification evidence.
+
+## Trace analysis
+
+`trace analyze` is a CLI-only read-only surface for turning exported agent
+traces into Mythify product and eval signals. It intentionally has no hard
+runtime dependency on Hugging Face or `datasets`; callers export bounded JSONL
+or JSON slices first, then pass local files to Mythify.
+
+Supported row shapes:
+
+- session traces: rows with `trace`, `messages`, `metadata`, and optional
+  `num_tool_calls`
+- action rows: rows with `context`, `completion`, `output_type`, and an
+  `output` object such as `{ "tool": "Bash", "input": { "command": "..." } }`
+- scenario rows: rows with `instruction`, `input`, `output`, and `prompt`
+
+The analyzer records counts for formats, sessions, models, harnesses, output
+types, trace event types, tool names, repeated shell commands, verifier-like
+command signals, verifier-like text signals, and error or recovery language.
+It then emits recommendations such as classifier scenario evals, action-first
+runtime behavior, automatic evidence detection, background monitoring, visual
+verification, and context-limit recovery.
+
+The trace surface also has a playbook layer:
+
+- `trace distill` filters one model slice and renders a Markdown behavior
+  profile.
+- `trace compare` filters target and baseline slices, compares visible metrics,
+  and renders target-minus-baseline guidance.
+- `trace playbook` compresses a target slice into session-start operating
+  rules for chat-native agent work.
+- `trace install-playbook` installs generated Markdown as a local Code or Codex
+  skill with overwrite protection.
+
+The measured signals are intentionally visible and reproducible: tool density,
+command density, read/edit rhythm, test/edit rhythm, verify/edit rhythm, top
+tools, verifier-like commands, and recovery language. Mythify does not attempt
+to extract private reasoning. The output is a practical behavior scaffold for
+agents that already run inside a host chat.
+
+Guardrail: trace analysis is material, not verification. A Fable or Mythos
+trace can suggest what Mythify should do, but it cannot prove local work is
+complete. Completion claims still require `verify run`, `verify_run`, or an
+explicit attested warning when no executable check exists.
 
 ### Smoke test: mcp-server/test/smoke.test.js
 
@@ -1342,9 +1388,11 @@ Implementation lives in `mcp-server/src/fanout.js`, wired into the server in
 
 A worker is one fresh model invocation with no memory of the conversation.
 Six engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
-order: explicit env value, else `claude-cli` if a claude binary resolves, else
-`codex-cli` if a codex binary resolves, else `cursor-agent` if Cursor Agent
-resolves, else `anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
+order: explicit env value, else the initiating host CLI from
+`MYTHIFY_HOST_PLATFORM` or detected host state when that CLI is available,
+else `claude-cli` if a claude binary resolves, else `codex-cli` if a codex
+binary resolves, else `cursor-agent` if Cursor Agent resolves, else
+`anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
 `MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with a message
 listing all six options. `openai` is explicit-only because it needs both an
 endpoint and a model.
@@ -1558,6 +1606,7 @@ or upgrade provider output into evidence.
 | Env | Default | Meaning |
 | :--- | :--- | :--- |
 | `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
+| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host and makes matching local CLIs the default worker choice. |
 | `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
 | `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
 | `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |

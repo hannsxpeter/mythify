@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No changes yet.
+## [3.4.0] - 2026-06-15
+
+### Added
+
+- CLI `trace analyze` now summarizes exported Fable-style session traces,
+  model action rows, and scenario prompt rows so Mythify can turn real agent
+  traces into classifier, evidence, visual verification, monitoring, and
+  recovery signals.
+- CLI `trace distill`, `trace compare`, `trace playbook`, and
+  `trace install-playbook` now turn model-specific trace slices into Markdown
+  behavior profiles, target-versus-baseline comparisons, session-start
+  playbooks, and local Code or Codex skills.
+
+### Changed
+
+- Mythify now prefers the initiating host's local CLI for automatic triage and
+  fanout defaults when `MYTHIFY_HOST_PLATFORM` or host detection identifies
+  Codex, Cursor, or Claude; explicit engine env vars still override this.
+
+### Fixed
+
+- User-local installer now builds the MCP npm tarball in temporary storage
+  instead of leaving `mythify-mcp-*.tgz` artifacts in `mcp-server/`.
 
 ## [3.3.0] - 2026-06-15
 
@@ -508,7 +530,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/aihxp/mythify/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/aihxp/mythify/compare/v3.2.3...v3.3.0
 [3.2.3]: https://github.com/aihxp/mythify/compare/v3.2.2...v3.2.3
 [3.2.2]: https://github.com/aihxp/mythify/compare/v3.2.1...v3.2.2
