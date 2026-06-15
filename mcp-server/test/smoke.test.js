@@ -764,6 +764,70 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(parsed.counts.memory, 1);
     });
 
+    await t.test("campaign_next_prompt returns host prompt without mutation", async () => {
+      const campaignsDir = path.join(stateDir, "campaigns");
+      fs.mkdirSync(campaignsDir, { recursive: true });
+      const campaign = {
+        id: "project-shot",
+        goal: "One shot a useful project",
+        success_criteria: "All work is verified.",
+        verify_command: "python3 -m unittest discover -s tests",
+        status: "active",
+        current_task_id: 1,
+        loop: ["understand", "design", "build", "judge", "verify", "reflect"],
+        tasks: [
+          {
+            id: 1,
+            title: "Build the first slice",
+            success_criteria: "A verified slice exists.",
+            status: "in_progress",
+            phase: "understand",
+            result: "",
+            created: "2026-06-15T00:00:00Z",
+            updated: "2026-06-15T00:00:00Z",
+          },
+        ],
+        events: [],
+        learnings: [
+          {
+            task_id: 1,
+            lesson: "Keep prompt output visible in chat.",
+            apply_next: true,
+            created: "2026-06-15T00:00:00Z",
+          },
+        ],
+        created: "2026-06-15T00:00:00Z",
+        updated: "2026-06-15T00:00:00Z",
+      };
+      fs.writeFileSync(path.join(campaignsDir, "project-shot.json"), JSON.stringify(campaign, null, 2), "utf8");
+      fs.writeFileSync(path.join(campaignsDir, "active"), "project-shot\n", "utf8");
+      const before = snapshotStateDir(stateDir);
+
+      const text = textOf(
+        await client.callTool({
+          name: "campaign_next_prompt",
+          arguments: {},
+        })
+      );
+      assert.ok(text.startsWith("[OK] Campaign prompt: project-shot"), `campaign_next_prompt reports [OK]: ${text}`);
+      assert.match(text, /Current task 1: Build the first slice/);
+      assert.match(text, /mythify campaign advance project-shot/);
+      assert.match(text, /Guardrail: Prompt output is steering material/);
+
+      const jsonText = textOf(
+        await client.callTool({
+          name: "campaign_next_prompt",
+          arguments: { name: "project-shot", format: "json" },
+        })
+      );
+      const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
+      assert.equal(parsed.id, "project-shot");
+      assert.equal(parsed.phase, "understand");
+      assert.equal(parsed.current_task.title, "Build the first slice");
+      assert.equal(parsed.recent_learnings[0], "task 1: Keep prompt output visible in chat. [apply next]");
+      assert.deepEqual(snapshotStateDir(stateDir), before, "campaign_next_prompt leaves state unchanged");
+    });
+
     await t.test("outcome tools track success and bounded failure", async () => {
       const passCommand = `${JSON.stringify(process.execPath)} -e "process.exit(0)"`;
       const metricCommand = `${JSON.stringify(process.execPath)} -e "process.stdout.write('9.5')"`;

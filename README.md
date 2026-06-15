@@ -54,10 +54,10 @@ capability gap.
 | Component | Path | Purpose |
 | :--- | :--- | :--- |
 | Protocol variants | `CLAUDE.md`, `AGENTS.md`, `.cursorrules` | Drop-in rules files, generated from `protocol/PROTOCOL.md` by `scripts/build_variants.py`. |
-| CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, memory, lessons, outcome loops, verification, and reflection. |
+| CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, research, campaigns, memory, lessons, outcome loops, verification, and reflection. |
 | User installer | `scripts/install_user.sh` | User-local launcher installer for the CLI and packaged MCP server from a checkout. |
 | Shared manifests | `protocol/operation-registry.json`, `protocol/classification-rules.json`, `protocol/surface-manifest.json` | Shared facts used by the CLI, MCP server, tests, and docs to prevent drift. |
-| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 37 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, work reports, background task status, outcome progress, release readiness, fanout worker timeline, phase status, and parallel delegation (fanout). |
+| MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 38 MCP tools, including task classification, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, work reports, background task status, outcome progress, release readiness, fanout worker timeline, phase status, campaign next prompts, and parallel delegation (fanout). |
 | Skill | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
 
 All components read and write the same per-project `.mythify/` state directory, so
@@ -296,6 +296,25 @@ maintenance, not verification evidence.
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
 | `timeline [--recent N] [--json]` | Read-only fanout worker timeline: recent fanout jobs, task start and finish events, duration, status, errors, and output metadata from durable state. | 0; 1 if no workspace |
 | `phase [--recent N] [--json]` | Read-only phase view: active plan steps grouped into Understand, Design, Build, Judge, and Verify, with supporting evidence counts from durable state. | 0; 1 if no workspace |
+| `trace analyze PATH ... [--limit N] [--recursive] [--json]` | Summarize local JSON or JSONL agent trace exports and surface product or eval signals. | 0; 1 if no matching records |
+| `trace distill PATH ... [--model MODEL] [--title TITLE] [--output PATH] [--limit N] [--recursive] [--json]` | Filter a trace slice by model and render a Markdown behavior profile. | 0; 1 if no matching records |
+| `trace compare PATH ... --target MODEL --baseline MODEL [--output PATH] [--limit N] [--recursive] [--json]` | Compare target and baseline trace slices and render target-minus-baseline guidance. | 0; 1 if either slice has no matching records |
+| `trace playbook PATH ... --target MODEL [--baseline MODEL] [--output PATH] [--limit N] [--recursive] [--json]` | Generate a concise session-start playbook from trace behavior. | 0; 1 if target or baseline records are missing |
+| `trace install-playbook PLAYBOOK [--skill NAME] [--skill-root PATH] [--force]` | Install a generated Markdown playbook as a local Code or Codex skill. | 0; 1 if the file is missing or the skill exists without `--force` |
+| `research start QUESTION [--name NAME] [--json]` | Start a source-backed research record and set it active. | 0; 1 if no workspace |
+| `research add-source TITLE [--url URL] [--note TEXT] [--credibility C] [--research NAME]` | Add a source to the active or named research record. | 0; 1 if no research record is active or named |
+| `research add-claim CLAIM --evidence TEXT [--source ID] [--confidence C] [--research NAME]` | Add a claim, evidence note, optional source id, and confidence marker. | 0; 1 if research or source id is not found |
+| `research add-question QUESTION [--research NAME]` | Add an unresolved question to a research record. | 0; 1 if research is not found |
+| `research summary [NAME] [--json]` | Show sources, claims, open questions, decision, and the material-only guardrail. | 0; 1 if research is not found |
+| `research close [NAME] --decision TEXT` | Close a research record and clear the active pointer when it matches. | 0; 1 if research is not found |
+| `campaign start GOAL [--tasks JSON] [--name NAME] [--success TEXT] [--verify COMMAND] [--json]` | Start a long-running campaign, generate or accept a task list, and set the first task to the understand phase. | 0; 1 if no workspace or tasks JSON is invalid |
+| `campaign status [NAME] [--json]` | Show campaign progress, current task, loop phase, task list, verifier, and recent learnings. | 0; 1 if campaign is not found |
+| `campaign prompt [NAME] [--json]` | Render the next host prompt for the active or named campaign without mutating state. | 0; 1 if campaign is not found |
+| `campaign watch [NAME] [--interval N] [--max-iterations N] [--json]` | Poll a campaign and emit refreshed host prompts. Defaults to one iteration; use `--max-iterations 0` only for an explicit host-managed long-running watch. | 0; 1 if campaign is not found or arguments are invalid |
+| `campaign advance [NAME] --result TEXT` | Advance the current task through understand, design, build, judge, verify, and reflect. Advancing from reflect completes the task and starts the next pending task. | 0; 1 if campaign has no current task |
+| `campaign add-task TITLE [--criteria TEXT] [--campaign NAME]` | Append a task to the active or named campaign. | 0; 1 if campaign is not found |
+| `campaign task ID STATUS [RESULT] [--campaign NAME]` | Set a campaign task status directly. `completed` and `failed` require RESULT evidence. | 0; 1 if evidence, campaign, or task is missing |
+| `campaign learn LESSON [--task ID] [--apply-next] [--campaign NAME]` | Record a learning that should improve the current or next task cycle. | 0; 1 if campaign or task id is invalid |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|codex-desktop\|claude-desktop\|cursor-desktop] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, and task-based host recommendation. `--triage auto` runs a local fast model only when the gate is recommended or required. | 0 |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including `host_capability`, `switch_result`, `host_confirmation`, and `adapter_proof_scan`. This updates Mythify session model policy; the host still owns the actual current chat model unless a future adapter confirms it. | 0; 1 if no workspace |
 | `host-model status [--json]` | Show the recorded host model switch, capability fields, switch result, host confirmation status, and adapter proof scan, if any. | 0; 1 if no workspace |
@@ -344,6 +363,7 @@ maintenance, not verification evidence.
 | `release_readiness` | `{format?: enum(text, json)}` | Read-only release readiness view from recorded verification gates, project git state, and roadmap state. It does not rerun gates or declare the release safe. |
 | `fanout_timeline` | `{recent?: number, format?: enum(text, json)}` | Read-only timeline of fanout job creation, task starts, task finishes, duration, status, errors, and output metadata. It does not mutate state or treat worker output as verification evidence. |
 | `phase_status` | `{recent?: number, format?: enum(text, json)}` | Read-only Understand, Design, Build, Judge, Verify phase view for active plan steps and durable evidence counts. It does not mutate state or treat model confidence as progress. |
+| `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Read-only campaign prompt renderer for the active or named campaign's current task and phase. It gives chat-native hosts the next prompt to inject or display, and does not mutate state, run checks, or treat prompt material as verification evidence. |
 | `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent makes bounded attempts between checks; Mythify records evidence and next action. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric, append an iteration, record executed verification evidence, and return success, retry, or budget-exhausted guidance. Refuses when `MYTHIFY_DISABLE_RUN=1`. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
@@ -590,6 +610,50 @@ Use scenario-shaped datasets to regression-test `classify` and quick-start
 guidance. Use action-shaped and session-shaped traces to improve automatic
 evidence detection, visual verification workflows, background monitoring, and
 the chat-native workstream experience.
+
+## Research and campaigns
+
+`research` is Mythify's source-backed inquiry lane. It keeps sources, claims,
+evidence notes, confidence, open questions, and final decisions in
+`.mythify/research/`:
+
+```bash
+mythify research start "Which package identity should Mythify use?" --name package-identity
+mythify research add-source "npm scope policy" --url https://docs.npmjs.com/ --credibility high
+mythify research add-claim "Scoped packages avoid name collisions." --source S1 --confidence high --evidence "npm docs describe scopes as namespaces."
+mythify research add-question "Should GitHub Packages use the same scope?"
+mythify research summary
+mythify research close --decision "Keep checkout install until scoped package identity is settled."
+```
+
+Research records are material for decisions. They do not replace executable
+verification. When research supports implementation, turn the decision into a
+plan, campaign, or outcome loop and verify the actual work.
+
+`campaign` is the long-running "one-shot a project" controller. It stores a
+goal, generated or explicit task list, current task, per-task loop phase, and
+learnings in `.mythify/campaigns/`. Each task moves through:
+understand, design, build, judge, verify, reflect.
+
+```bash
+mythify campaign start "Ship the docs site" --success "site builds and release notes are complete"
+mythify campaign status
+mythify campaign prompt
+mythify campaign advance --result "read docs tree and identified missing release page"
+mythify campaign advance --result "designed a two-file docs update"
+mythify campaign learn "Run the focused docs check before the full suite" --apply-next
+```
+
+Campaigns deliberately do not run arbitrary edits by themselves. The host agent
+does the work, records evidence, and advances the durable campaign frontier.
+`campaign prompt` renders the current task and phase as a chat-ready prompt for
+the host to display or inject. `campaign watch` can poll the campaign and emit
+refreshed prompts for host-managed background loops, but it still only reads
+state. MCP hosts use `campaign_next_prompt` for the same read-only prompt
+contract.
+That gives long runs a Ralph-style loop with Karpathy-flavored iteration:
+small tasks, observable state, verification, reflection, and learning carried
+forward to the next task.
 
 ## Parallel delegation (fanout)
 

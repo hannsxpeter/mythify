@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 7620ba72279f64d587728078a4f108dded635c0bb5c9e87ef16f10f058ca8489 -->
+<!-- Mythify protocol-sha256: e3d36602705d18c4e112a5eb4eada7e4ff723730d0db7def9095789936b697e7 -->
 
 # The Mythify Protocol
 
@@ -114,6 +114,17 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. |
 | `timeline [--recent N] [--json]` | Read-only fanout worker timeline: task start and finish events, duration, status, errors, and output metadata from durable state. |
 | `phase [--recent N] [--json]` | Read-only phase view: active plan steps grouped into Understand, Design, Build, Judge, and Verify, with durable evidence counts. |
+| `trace analyze PATH ... [--json]` | Summarize local agent traces and scenario rows for product and eval design. |
+| `research start QUESTION [--name NAME]` | Start source-backed research and set it active. |
+| `research add-source TITLE [--url URL]` | Add a research source. |
+| `research add-claim CLAIM --evidence TEXT` | Add a claim, evidence note, optional source id, and confidence marker. |
+| `research summary [NAME]` | Show sources, claims, open questions, and decision. |
+| `campaign start GOAL [--tasks JSON]` | Start a long-running task campaign. |
+| `campaign status [NAME]` | Show campaign progress and current phase. |
+| `campaign prompt [NAME] [--json]` | Render the next host prompt for the active or named campaign without mutating state. |
+| `campaign watch [NAME] [--interval N] [--max-iterations N] [--json]` | Poll a campaign and emit refreshed host prompts; use `--max-iterations 0` only for an explicit host-managed long-running watch. |
+| `campaign advance [NAME] --result TEXT` | Advance the current task through understand, design, build, judge, verify, and reflect. |
+| `campaign learn LESSON` | Record a learning that should improve later tasks. |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
@@ -145,7 +156,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 37 tools: `classify_task`, `host_model_switch`,
+through exactly 38 tools: `classify_task`, `host_model_switch`,
 `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
@@ -153,12 +164,15 @@ through exactly 37 tools: `classify_task`, `host_model_switch`,
 `memory_clear`, `lesson_record`, `lesson_recall`, `plan_create`,
 `plan_add_step`, `plan_update_step`, `plan_status`, `workflow_status`,
 `verification_history`, `work_report`, `background_status`, `outcome_progress`,
-`release_readiness`, `fanout_timeline`, `phase_status`, `verify_run`,
-`verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
+`release_readiness`, `fanout_timeline`, `phase_status`, `campaign_next_prompt`,
+`verify_run`, `verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
 `fanout_status`, and `fanout_results`. Same
 state directory, same file formats, same evidence rules:
 `verify_run` and `outcome_check` execute and record; `verify_claim` only attests;
 `plan_update_step` refuses `completed` or `failed` without a `result`.
+`campaign_next_prompt` and CLI `campaign prompt` render read-only host prompt
+material for the current campaign task and phase; they do not mutate state, run
+checks, advance tasks, or turn prompt output into verification evidence.
 Outcome loops are host-supervised and stored in `.mythify/outcomes/`: make a
 bounded attempt, call `outcome_check`, then report success, retry, or stop.
 `host_model_switch` records intended host chat changes, host confirmation

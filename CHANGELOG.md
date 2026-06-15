@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-06-15
+
+### Added
+
+- CLI `research` now records source-backed inquiry state with sources, claims,
+  confidence, open questions, and final decisions under `.mythify/research/`.
+- CLI `campaign` now manages long-running task campaigns under
+  `.mythify/campaigns/`, including generated task lists, per-task
+  understand/design/build/judge/verify/reflect phases, direct task status
+  updates, and learnings that carry into later tasks.
+- CLI `campaign prompt` and `campaign watch` now render read-only host prompts
+  for the current campaign task and phase, giving chat hosts a safe reprompt
+  surface for one-shot and continuous runs.
+- MCP `campaign_next_prompt` now exposes the same read-only campaign reprompt
+  contract for chat-native hosts.
+- Packaged Mythify skill now treats chat phrases like "one shot", "in one go",
+  "address all", "continuous run", and "yolo" as triggers for the durable
+  Mythify work loop, with campaigns recommended for long-running goals.
+
 ## [3.4.0] - 2026-06-15
 
 ### Added
@@ -530,7 +549,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.4.0...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/aihxp/mythify/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/aihxp/mythify/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/aihxp/mythify/compare/v3.2.3...v3.3.0
 [3.2.3]: https://github.com/aihxp/mythify/compare/v3.2.2...v3.2.3

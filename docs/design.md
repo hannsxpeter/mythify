@@ -235,7 +235,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 34 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 35 core plus 3 fanout count
   split.
 
 Rules:
@@ -778,7 +778,7 @@ a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 37 tools: the 34 core tools below plus the 3 fanout tools defined in the
+Exactly 38 tools: the 35 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -801,6 +801,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `release_readiness` | `{format?: enum(text, json)}` | Show a read-only release readiness view from recorded verification gates, project git state, and roadmap state. It must not rerun gates, mutate state, tag, publish, push, or declare the release safe. |
 | `fanout_timeline` | `{recent?: number, format?: enum(text, json)}` | Show a read-only timeline of fanout job creation, task starts, task finishes, duration, status, errors, and output metadata. It must not mutate state and must not treat worker output as verification evidence. |
 | `phase_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only Understand, Design, Build, Judge, Verify phase view of active plan steps and durable evidence counts. It must not mutate state and must not report model confidence as progress. |
+| `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Render a chat-ready next prompt for the active or named campaign's current task and phase. It must not mutate state, run checks, advance a phase, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and advances the campaign with evidence. |
 | `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
@@ -1053,12 +1054,83 @@ trace can suggest what Mythify should do, but it cannot prove local work is
 complete. Completion claims still require `verify run`, `verify_run`, or an
 explicit attested warning when no executable check exists.
 
+## Research workflow
+
+`research` is a CLI state surface for source-backed inquiry:
+
+- `research start QUESTION [--name NAME] [--json]`
+- `research list [--json]`
+- `research add-source TITLE [--url URL] [--note TEXT] [--credibility C]`
+- `research add-claim CLAIM --evidence TEXT [--source ID] [--confidence C]`
+- `research add-question QUESTION`
+- `research summary [NAME] [--json]`
+- `research close [NAME] --decision TEXT`
+
+State lives under `.mythify/research/`:
+
+- `active`: current research record pointer.
+- `<slug>.json`: question, status, sources, claims, open questions, decision,
+  created timestamp, and updated timestamp.
+
+Research records are deliberately material-only. A claim inside a research
+record can guide a design or product decision, but it does not prove that local
+implementation work is complete. When research turns into code or docs, the
+host must move through a plan, outcome, or campaign and record executable
+verification where available.
+
+## Campaign workflow
+
+`campaign` is a CLI state surface for long-running "one-shot a project" work:
+
+- `campaign start GOAL [--tasks JSON] [--name NAME] [--success TEXT] [--verify COMMAND]`
+- `campaign list [--json]`
+- `campaign status [NAME] [--json]`
+- `campaign prompt [NAME] [--json]`
+- `campaign watch [NAME] [--interval N] [--max-iterations N] [--json]`
+- `campaign add-task TITLE [--criteria TEXT]`
+- `campaign advance [NAME] --result TEXT`
+- `campaign task ID STATUS [RESULT]`
+- `campaign learn LESSON [--task ID] [--apply-next]`
+- `campaign stop [NAME] --reason TEXT`
+
+State lives under `.mythify/campaigns/`:
+
+- `active`: current campaign pointer.
+- `<slug>.json`: goal, success criteria, optional campaign verifier, current
+  task id, generated or explicit tasks, phase events, learnings, status,
+  created timestamp, and updated timestamp.
+
+Each campaign task moves through the same loop:
+
+1. understand
+2. design
+3. build
+4. judge
+5. verify
+6. reflect
+
+Advancing from `reflect` completes the current task and moves the frontier to
+the next pending task. `campaign learn` records a small improvement that should
+shape later tasks. This is the productized version of the long-horizon loop:
+durable task frontier, visible phase, verification slot, reflection, and
+learning carried forward.
+
+Campaigns do not execute arbitrary project work by themselves. The host agent
+does the work, runs checks, and calls `campaign advance` or `campaign task`
+with the result. This keeps Mythify as the evidence and control layer rather
+than a hidden executor.
+`campaign prompt` renders the current task and phase as a host prompt without
+mutating state. `campaign watch` repeats that read-only render on an interval so
+a host-managed background loop can pick up the next prompt after an external
+advance. MCP clients use the read-only `campaign_next_prompt` tool for the same
+contract.
+
 ### Smoke test: mcp-server/test/smoke.test.js
 
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the 29 tool names above (set equality), the 26
+1. `tools/list` returns exactly the manifest tool names (set equality), the 35
    core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
@@ -1102,7 +1174,7 @@ document the project. Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 37 tool names for clients using the server instead
+8. A short MCP note listing the 38 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
 ### Protocol handshake

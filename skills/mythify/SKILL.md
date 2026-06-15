@@ -1,14 +1,15 @@
 ---
 name: mythify
-description: Chat-native operational discipline protocol for AI coding agents, including planning loops, executed verification, persistent memory, structured reflection, and visible issue reporting. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, when audits or reviews must surface findings in chat, or when the user asks for Mythify, mythify, or mythos-style autonomous execution.
+description: Chat-native operational discipline protocol for AI coding agents, including planning loops, campaigns, executed verification, persistent memory, structured reflection, and visible issue reporting. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, when audits or reviews must surface findings in chat, when the user asks for Mythify, mythify, mythos-style autonomous execution, or when the user asks for one shot, in one go, address all, continuous run, keep going until done, yolo, or similar full-send phrasing.
 ---
 
 # Mythify Protocol
 
 You are operating under the Mythify Protocol: an operational discipline layer.
-It changes how reliably you work, not what you can do. It supplies four
-capabilities through one CLI: plans with evidence-gated steps, executed
-verification, persistent memory, and structured reflection.
+It changes how reliably you work, not what you can do. It supplies durable
+workflow capabilities through one CLI: plans with evidence-gated steps,
+research records, campaigns, executed verification, persistent memory, and
+structured reflection.
 
 Use Mythify as a skill first and a command surface second. Prefer MCP tools
 when the host exposes them. Otherwise use the installed `mythify` launcher when
@@ -16,6 +17,36 @@ available, falling back to `python3 scripts/mythify.py` from a Mythify checkout.
 State is per-project: each project owns a `.mythify/` directory (run `init`
 once). The only global state is the cross-project lessons store in
 `~/.mythify/lessons/`.
+
+## Chat trigger phrases
+
+Treat these user phrases as Mythify triggers even when the user does not type
+the word Mythify:
+
+- one shot, one-shot, one go, in one go, all in one go
+- address all, fix all, do all, do everything, execute all
+- continuous run, keep going, keep going until done, until no issues remain
+- yolo, full send, ship it, run it through
+
+Interpret these as a request for a durable autonomous work loop, not as
+permission to skip safeguards. For small bounded work, use the normal plan or
+outcome loop. For long-running project goals, start or resume a campaign:
+
+    mythify campaign start "GOAL" --success "DONE CRITERIA"
+    mythify campaign status
+    mythify campaign prompt
+    mythify campaign advance --result "phase evidence"
+    mythify campaign learn "what improves the next task" --apply-next
+
+Use `mythify campaign prompt` when the host needs the next task injected or
+displayed inside chat. Use `mythify campaign watch --max-iterations 0` only
+when the host is explicitly managing a long-running background watcher. Both
+commands are read-only prompt surfaces: the host still performs edits, runs
+checks, reports issues in chat, and advances the campaign with evidence.
+
+If the user says yolo or full send, keep the same safety boundaries: do not run
+destructive or irreversible actions without explicit permission, and do not
+claim completion without executed verification when a check exists.
 
 ## Chat contract
 
@@ -123,6 +154,17 @@ much to build.
 | `host-model switch MODEL [--platform P]` | Record a requested host chat model switch for model policy. |
 | `host-model status` | Show the recorded host model switch. |
 | `host-model clear` | Clear the recorded host model switch. |
+| `research start QUESTION [--name NAME]` | Start source-backed research. |
+| `research add-source TITLE [--url URL]` | Add a research source. |
+| `research add-claim CLAIM --evidence TEXT` | Add a source-backed claim. |
+| `research summary [NAME]` | Show sources, claims, open questions, and decision. |
+| `research close [NAME] --decision TEXT` | Close research with a decision. |
+| `campaign start GOAL [--tasks JSON]` | Start a long-running task campaign. |
+| `campaign status [NAME]` | Show campaign progress and current phase. |
+| `campaign prompt [NAME] [--json]` | Render the next host prompt without mutating state. |
+| `campaign watch [NAME] [--interval N] [--max-iterations N]` | Poll a campaign and emit refreshed host prompts. |
+| `campaign advance [NAME] --result TEXT` | Advance the current task through the loop. |
+| `campaign learn LESSON` | Record learning for later campaign tasks. |
 | `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND]` | Start a supervised outcome loop with verifier, optional metric, and budget. |
 | `outcome check [NAME]` | Run the verifier and return success, retry, or budget exhaustion. |
 | `outcome status [NAME]` | Show the active or named outcome loop. |
@@ -143,7 +185,8 @@ Clients wired to the Mythify MCP server instead of the CLI should use the
 equivalent tools, especially `work_report` for chat narration,
 `workflow_status` for orientation, `verification_history` for evidence,
 `plan_create`, `plan_add_step`, `plan_update_step`, `verify_run`,
-`verify_claim`, and `reflect`. Same state directory, same file formats, full
+`verify_claim`, `reflect`, and `campaign_next_prompt` for campaign reprompts.
+Same state directory, same file formats, full
 interop with the CLI.
 
 `classify_task` returns `model_policy.session.recommendation` so hosts can map

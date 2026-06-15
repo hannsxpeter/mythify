@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 23,
+      "command_count": 25,
       "commands": [
         "init",
         "protocol",
@@ -16,6 +16,8 @@
         "timeline",
         "phase",
         "trace",
+        "research",
+        "campaign",
         "classify",
         "host-model",
         "outcome",
@@ -30,9 +32,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 34,
+      "core_tool_count": 35,
       "fanout_tool_count": 3,
-      "total_tools": 37,
+      "total_tools": 38,
       "core_tools": [
         "classify_task",
         "host_model_switch",
@@ -51,6 +53,7 @@
         "release_readiness",
         "fanout_timeline",
         "phase_status",
+        "campaign_next_prompt",
         "memory_store",
         "memory_recall",
         "memory_clear",

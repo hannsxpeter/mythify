@@ -1241,6 +1241,256 @@ class TestTraceAnalyze(CliTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class TestResearchWorkflow(CliTestCase):
+    def test_research_records_sources_claims_questions_and_decision(self):
+        state = self.init_workspace()
+        result = self.run_cli(
+            "research",
+            "start",
+            "Should Mythify add a research workflow?",
+            "--name",
+            "research-workflow",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["id"], "research-workflow")
+        self.assertEqual(payload["status"], "active")
+        active = (state / "research" / "active").read_text(encoding="utf-8").strip()
+        self.assertEqual(active, "research-workflow")
+
+        result = self.run_cli(
+            "research",
+            "add-source",
+            "Anthropic prompting notes",
+            "--url",
+            "https://example.test/prompting",
+            "--note",
+            "Shows source-backed behavior patterns.",
+            "--credibility",
+            "high",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("S1", result.stdout)
+
+        result = self.run_cli(
+            "research",
+            "add-claim",
+            "Research should distinguish material from verification.",
+            "--evidence",
+            "Source S1 describes guidance, not executed proof.",
+            "--source",
+            "S1",
+            "--confidence",
+            "high",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("C1", result.stdout)
+
+        result = self.run_cli(
+            "research",
+            "add-question",
+            "Should this become an MCP tool later?",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Q1", result.stdout)
+
+        result = self.run_cli("research", "summary", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["id"], "research-workflow")
+        self.assertEqual(payload["sources"][0]["id"], "S1")
+        self.assertEqual(payload["claims"][0]["source_id"], "S1")
+        self.assertEqual(payload["open_questions"][0]["id"], "Q1")
+
+        result = self.run_cli(
+            "research",
+            "close",
+            "--decision",
+            "Ship a CLI research surface first.",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = self.read_json(state / "research" / "research-workflow.json")
+        self.assertEqual(record["status"], "closed")
+        self.assertEqual(record["decision"], "Ship a CLI research surface first.")
+        self.assertFalse((state / "research" / "active").exists())
+
+    def test_research_claim_rejects_unknown_source(self):
+        self.init_workspace()
+        result = self.run_cli("research", "start", "Check source validation")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_cli(
+            "research",
+            "add-claim",
+            "Unsupported claim",
+            "--evidence",
+            "none",
+            "--source",
+            "S9",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Source not found", result.stderr)
+
+
+class TestCampaignWorkflow(CliTestCase):
+    def test_campaign_generates_tasks_advances_loop_and_records_learning(self):
+        state = self.init_workspace()
+        result = self.run_cli(
+            "campaign",
+            "start",
+            "One shot a project",
+            "--name",
+            "one-shot-project",
+            "--success",
+            "All tasks complete with evidence.",
+            "--verify",
+            "python3 -m unittest discover -s tests",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["id"], "one-shot-project")
+        self.assertEqual(payload["current_task_id"], 1)
+        self.assertGreaterEqual(len(payload["tasks"]), 5)
+        self.assertEqual(payload["tasks"][0]["phase"], "understand")
+
+        result = self.run_cli(
+            "campaign",
+            "add-task",
+            "Polish the final report",
+            "--criteria",
+            "The report includes evidence and remaining risks.",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Added task", result.stdout)
+
+        for expected_phase in ("design", "build", "judge", "verify", "reflect"):
+            result = self.run_cli(
+                "campaign",
+                "advance",
+                "--result",
+                "phase evidence for {0}".format(expected_phase),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            record = self.read_json(state / "campaigns" / "one-shot-project.json")
+            self.assertEqual(record["tasks"][0]["phase"], expected_phase)
+
+        result = self.run_cli(
+            "campaign",
+            "learn",
+            "Prefer the smallest verifier before broad tests.",
+            "--apply-next",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        result = self.run_cli(
+            "campaign",
+            "advance",
+            "--result",
+            "reflect evidence captured and next task can start",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = self.read_json(state / "campaigns" / "one-shot-project.json")
+        self.assertEqual(record["tasks"][0]["status"], "completed")
+        self.assertEqual(record["tasks"][1]["status"], "in_progress")
+        self.assertEqual(record["tasks"][1]["phase"], "understand")
+        self.assertEqual(record["learnings"][0]["lesson"], "Prefer the smallest verifier before broad tests.")
+
+        result = self.run_cli("campaign", "status", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["id"], "one-shot-project")
+        self.assertIn("next_action", payload)
+
+    def test_campaign_task_completion_requires_evidence(self):
+        self.init_workspace()
+        tasks = json.dumps(["First task"])
+        result = self.run_cli(
+            "campaign",
+            "start",
+            "Evidence gated campaign",
+            "--tasks",
+            tasks,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_cli("campaign", "task", "1", "completed")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Evidence required", result.stderr)
+        result = self.run_cli(
+            "campaign",
+            "task",
+            "1",
+            "completed",
+            "verify run exit 0",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Campaign", result.stdout)
+
+    def test_campaign_prompt_and_watch_emit_next_host_prompt(self):
+        state = self.init_workspace()
+        tasks = json.dumps([
+            {
+                "title": "Build the first slice",
+                "success_criteria": "A verified slice exists.",
+            }
+        ])
+        result = self.run_cli(
+            "campaign",
+            "start",
+            "One shot a useful project",
+            "--name",
+            "project-shot",
+            "--tasks",
+            tasks,
+            "--success",
+            "All work is verified.",
+            "--verify",
+            "python3 -m unittest discover -s tests",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        result = self.run_cli(
+            "campaign",
+            "learn",
+            "Keep prompt output visible in chat.",
+            "--apply-next",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        before = self.read_json(state / "campaigns" / "project-shot.json")
+        result = self.run_cli("campaign", "prompt", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["id"], "project-shot")
+        self.assertEqual(payload["phase"], "understand")
+        self.assertEqual(payload["current_task"]["title"], "Build the first slice")
+        self.assertIn("Continue Mythify campaign: project-shot", payload["next_prompt"])
+        self.assertIn("Current task 1: Build the first slice", payload["next_prompt"])
+        self.assertIn("mythify campaign advance project-shot", payload["next_prompt"])
+        self.assertIn("steering material", payload["guardrail"])
+
+        result = self.run_cli(
+            "campaign",
+            "watch",
+            "--max-iterations",
+            "2",
+            "--interval",
+            "0",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        watch = json.loads(result.stdout)
+        self.assertEqual(watch["campaign"], "project-shot")
+        self.assertEqual(len(watch["iterations"]), 2)
+        self.assertEqual(watch["iterations"][0]["next_prompt"], payload["next_prompt"])
+        self.assertEqual(watch["iterations"][1]["phase"], "understand")
+
+        after = self.read_json(state / "campaigns" / "project-shot.json")
+        self.assertEqual(before["current_task_id"], after["current_task_id"])
+        self.assertEqual(before["tasks"][0]["phase"], after["tasks"][0]["phase"])
+        self.assertEqual(before["tasks"][0]["status"], after["tasks"][0]["status"])
+
+
 class TestPlanLifecycle(CliTestCase):
     def test_create_with_steps(self):
         state = self.init_workspace()

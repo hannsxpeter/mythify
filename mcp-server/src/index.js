@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Mythify MCP server v3.4.0
+// Mythify MCP server v3.5.0
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 34 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 37 tools in total. On-disk formats are
+// reflections) as 35 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 38 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -53,11 +53,23 @@ import {
   MEMORY_DEFAULT_CATEGORY,
 } from "./operation-registry.js";
 
-const VERSION = "3.4.0";
+const VERSION = "3.5.0";
 const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json", import.meta.url);
 const TAIL_CHARS = 4000;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
 const OUTCOME_STATUSES = ["active", "succeeded", "failed", "stopped"];
+const CAMPAIGN_PHASES = ["understand", "design", "build", "judge", "verify", "reflect"];
+const CAMPAIGN_PHASE_GUIDANCE = {
+  understand: "Read context, restate the task, and identify constraints.",
+  design: "Choose the smallest useful approach and success check.",
+  build: "Make the focused change or artifact.",
+  judge: "Review the result against the task and campaign goal.",
+  verify: "Run the nearest executable check, or record why only attestation is possible.",
+  reflect: "Capture what improved the next task, then advance the frontier.",
+};
+const CAMPAIGN_PROMPT_GUARDRAIL =
+  "Prompt output is steering material for the host agent, not verification evidence. " +
+  "The host must do the work, run checks when available, and advance the campaign with evidence.";
 const REPORT_SINCE_MODES = ["last", "start"];
 const REPORT_FORMATS = ["chat", "json"];
 const DEFAULT_REPORT_RECENT = 8;
@@ -250,6 +262,183 @@ function readJsonRecover(filePath, defaultFactory) {
     }
     return defaultFactory();
   }
+}
+
+function campaignsDir() {
+  return path.join(resolveStateDir(), "campaigns");
+}
+
+function campaignPath(slug) {
+  return path.join(campaignsDir(), `${slug}.json`);
+}
+
+function activeCampaignPath() {
+  return path.join(campaignsDir(), "active");
+}
+
+function getActiveCampaignSlug() {
+  let value = "";
+  try {
+    value = fs.readFileSync(activeCampaignPath(), "utf8").trim();
+  } catch {
+    return null;
+  }
+  if (value && fs.existsSync(campaignPath(value))) {
+    return value;
+  }
+  return null;
+}
+
+function findCampaignSlug(name) {
+  const raw = String(name || "").trim();
+  if (raw) {
+    if (fs.existsSync(campaignPath(raw))) {
+      return raw;
+    }
+    const candidate = slugify(raw);
+    if (candidate && fs.existsSync(campaignPath(candidate))) {
+      return candidate;
+    }
+    return null;
+  }
+  return getActiveCampaignSlug();
+}
+
+function loadCampaign(name) {
+  const slug = findCampaignSlug(name);
+  if (!slug) {
+    return [null, null];
+  }
+  const record = readJsonRecover(campaignPath(slug), () => null);
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return [slug, null];
+  }
+  return [slug, record];
+}
+
+function currentCampaignTask(record) {
+  const currentId = record?.current_task_id;
+  for (const task of record?.tasks || []) {
+    if (task?.id === currentId) {
+      return task;
+    }
+  }
+  return null;
+}
+
+function campaignProgress(record) {
+  const tasks = Array.isArray(record?.tasks) ? record.tasks : [];
+  const completed = tasks.filter((task) => task?.status === "completed").length;
+  return [completed, tasks.length];
+}
+
+function campaignNextAction(record) {
+  if (record?.status === "completed") {
+    return "Campaign complete. Review lessons and final verification evidence.";
+  }
+  if (record?.status === "stopped") {
+    return "Campaign stopped. Resume by creating a new campaign or updating the existing record manually.";
+  }
+  const task = currentCampaignTask(record);
+  if (!task) {
+    return "No current task. Add a task or complete the campaign.";
+  }
+  const phase = CAMPAIGN_PHASES.includes(task.phase) ? task.phase : CAMPAIGN_PHASES[0];
+  return `Task ${task.id} ${phase}: ${CAMPAIGN_PHASE_GUIDANCE[phase] || "Continue the workflow."}`;
+}
+
+function campaignRecentLearningLines(record, limit = 5) {
+  const learnings = Array.isArray(record?.learnings) ? record.learnings : [];
+  return learnings
+    .slice(-limit)
+    .map((item) => {
+      const lesson = String(item?.lesson || "").trim();
+      if (!lesson) {
+        return "";
+      }
+      const prefix = item?.task_id ? `task ${item.task_id}: ` : "";
+      const suffix = item?.apply_next ? " [apply next]" : "";
+      return `${prefix}${lesson}${suffix}`;
+    })
+    .filter(Boolean);
+}
+
+function buildCampaignPromptPayload(slug, record) {
+  const [completed, total] = campaignProgress(record);
+  const task = currentCampaignTask(record);
+  const status = record?.status || "active";
+  const verifyCommand = record?.verify_command || "";
+  const learningLines = campaignRecentLearningLines(record);
+  let phase = "";
+  let phaseGuidance = "";
+  let nextCommand = "";
+  const lines = [
+    `Continue Mythify campaign: ${slug}`,
+    `Goal: ${record?.goal || ""}`,
+    `Status: ${status}`,
+    `Progress: ${completed}/${total} tasks completed`,
+  ];
+  if (record?.success_criteria) {
+    lines.push(`Campaign success: ${record.success_criteria}`);
+  }
+  if (verifyCommand) {
+    lines.push(`Campaign verifier: ${verifyCommand}`);
+  }
+  if (status === "completed") {
+    lines.push("");
+    lines.push("No current task remains. Review the final evidence, summarize risks, and archive related state when appropriate.");
+  } else if (status === "stopped") {
+    lines.push("");
+    lines.push("This campaign is stopped. Do not continue it until the host or user explicitly resumes or creates a new campaign.");
+  } else if (!task) {
+    lines.push("");
+    lines.push("No current task is selected. Add a task, set a task in progress, or close the campaign if it is complete.");
+  } else {
+    phase = CAMPAIGN_PHASES.includes(task.phase) ? task.phase : CAMPAIGN_PHASES[0];
+    phaseGuidance = CAMPAIGN_PHASE_GUIDANCE[phase] || "Continue the workflow.";
+    nextCommand = `mythify campaign advance ${slug} --result "<phase evidence>"`;
+    lines.push("");
+    lines.push(`Current task ${task.id}: ${task.title || ""}`);
+    lines.push(`Task status: ${task.status || ""}`);
+    lines.push(`Task criteria: ${task.success_criteria || "not specified"}`);
+    lines.push(`Phase: ${phase}`);
+    lines.push(`Phase guidance: ${phaseGuidance}`);
+    if (learningLines.length > 0) {
+      lines.push("");
+      lines.push("Recent learnings:");
+      for (const learning of learningLines) {
+        lines.push(`- ${learning}`);
+      }
+    }
+    lines.push("");
+    lines.push("Instructions:");
+    lines.push("- Work only on this current phase unless the host has already completed it.");
+    lines.push("- Bring findings, failed checks, and uncertainty into the chat as they happen.");
+    lines.push("- When this phase reaches verify, run the nearest executable check.");
+    lines.push(`- When the phase is done, advance the durable frontier with: ${nextCommand}`);
+  }
+  lines.push("");
+  lines.push(`Guardrail: ${CAMPAIGN_PROMPT_GUARDRAIL}`);
+  return {
+    id: slug,
+    goal: record?.goal || "",
+    status,
+    progress: { completed, total },
+    success_criteria: record?.success_criteria || "",
+    verify_command: verifyCommand,
+    current_task: task ? { ...task } : null,
+    phase,
+    phase_guidance: phaseGuidance,
+    recent_learnings: learningLines,
+    next_action: campaignNextAction(record),
+    next_command: nextCommand,
+    next_prompt: lines.join("\n"),
+    guardrail: CAMPAIGN_PROMPT_GUARDRAIL,
+  };
+}
+
+function formatCampaignPromptPayload(payload) {
+  return `[OK] Campaign prompt: ${payload.id}\n${payload.next_prompt || ""}`;
 }
 
 function hostModelPath() {
@@ -6864,6 +7053,31 @@ server.registerTool(
       return `[OK] ${JSON.stringify(view, null, 2)}`;
     }
     return formatPhaseView(view);
+  })
+);
+
+server.registerTool(
+  "campaign_next_prompt",
+  {
+    title: "Render campaign next prompt",
+    description:
+      "Render a chat-ready next prompt for the active or named campaign's current task and phase. " +
+      "Use this when a host wants Mythify campaign guidance inside the chat without mutating state, running checks, or treating prompt material as verification evidence.",
+    inputSchema: {
+      name: z.string().optional().describe("Campaign name. Defaults to the active campaign."),
+      format: z.enum(["text", "json"]).optional().describe("Return text or JSON. Defaults to text."),
+    },
+  },
+  guarded(({ name, format }) => {
+    const [slug, record] = loadCampaign(name || "");
+    if (!record) {
+      return "[FAIL] Campaign not found. Start one with: campaign start GOAL";
+    }
+    const payload = buildCampaignPromptPayload(slug, record);
+    if (format === "json") {
+      return `[OK] ${JSON.stringify(payload, null, 2)}`;
+    }
+    return formatCampaignPromptPayload(payload);
   })
 );
 
