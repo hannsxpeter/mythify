@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mythify MCP server v3.6.5
+// Mythify MCP server v3.6.6
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
 // reflections) as 37 core MCP tools over stdio, plus the 3 fanout tools for
 // parallel delegation (src/fanout.js), 40 tools in total. On-disk formats are
@@ -53,7 +53,7 @@ import {
   MEMORY_DEFAULT_CATEGORY,
 } from "./operation-registry.js";
 
-const VERSION = "3.6.5";
+const VERSION = "3.6.6";
 const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json", import.meta.url);
 const WORKFLOW_ROUTER_PATH = new URL("../protocol/workflow-router.json", import.meta.url);
 const TAIL_CHARS = 4000;

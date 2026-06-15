@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.6] - 2026-06-15
+
 ### Added
 
 - Cross-runtime interop tests now assert CLI and MCP classification parity and
@@ -626,7 +628,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.5...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.6...HEAD
+[3.6.6]: https://github.com/aihxp/mythify/compare/v3.6.5...v3.6.6
 [3.6.5]: https://github.com/aihxp/mythify/compare/v3.6.4...v3.6.5
 [3.6.4]: https://github.com/aihxp/mythify/compare/v3.6.3...v3.6.4
 [3.6.3]: https://github.com/aihxp/mythify/compare/v3.6.2...v3.6.3
