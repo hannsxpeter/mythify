@@ -74,6 +74,11 @@ function snapshotStateDir(root) {
   return snapshot;
 }
 
+function jsonlLockDir(stateDir, filePath) {
+  const digest = crypto.createHash("sha256").update(path.resolve(filePath)).digest("hex").slice(0, 16);
+  return path.join(stateDir, "locks", `jsonl-${digest}.lock`);
+}
+
 test("mythify MCP server smoke test", async (t) => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-smoke-state-"));
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-smoke-home-"));
@@ -1887,7 +1892,7 @@ test("MCP verify_run records signal termination as shared verifier failure", asy
       HOME: homeDir,
     },
   });
-  const client = new Client({ name: "mythify-signal-test", version: "3.6.19" });
+  const client = new Client({ name: "mythify-signal-test", version: "3.6.20" });
   await client.connect(transport);
 
   try {
@@ -1926,7 +1931,7 @@ test("MCP verify_run records output cap as shared verifier failure", async () =>
       MYTHIFY_VERIFY_MAX_OUTPUT_BYTES: "1024",
     },
   });
-  const client = new Client({ name: "mythify-output-cap-test", version: "3.6.19" });
+  const client = new Client({ name: "mythify-output-cap-test", version: "3.6.20" });
   await client.connect(transport);
 
   try {
@@ -1949,6 +1954,53 @@ test("MCP verify_run records output cap as shared verifier failure", async () =>
     assert.match(record.stderr_tail, /output exceeded 1024 bytes/);
   } finally {
     await client.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("MCP JSONL append waits for the shared lock directory", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-lock-state-"));
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-lock-home-"));
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER_PATH],
+    env: {
+      ...process.env,
+      MYTHIFY_DIR: stateDir,
+      HOME: homeDir,
+    },
+  });
+  const client = new Client({ name: "mythify-lock-test", version: "3.6.20" });
+  await client.connect(transport);
+
+  const logPath = path.join(stateDir, "verifications.jsonl");
+  const lockDir = jsonlLockDir(stateDir, logPath);
+  fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+  fs.mkdirSync(lockDir);
+  const started = Date.now();
+  const releaseTimer = setTimeout(() => {
+    fs.rmdirSync(lockDir);
+  }, 150);
+
+  try {
+    const attested = textOf(
+      await client.callTool({
+        name: "verify_claim",
+        arguments: { claim: "waited for lock", evidence: "shared lock released" },
+      })
+    );
+    assert.ok(attested.startsWith("[WARN] ATTESTED"), `verify_claim succeeds: ${attested}`);
+    assert.ok(Date.now() - started >= 100, "append waited for the held JSONL lock");
+    const record = JSON.parse(fs.readFileSync(logPath, "utf8").trim().split(/\n/).at(-1));
+    assert.equal(record.claim, "waited for lock");
+  } finally {
+    clearTimeout(releaseTimer);
+    await client.close();
+    if (fs.existsSync(lockDir)) {
+      fs.rmdirSync(lockDir);
+    }
     fs.rmSync(stateDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
   }

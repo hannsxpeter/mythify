@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.20] - 2026-06-16
+
+### Fixed
+
+- JSONL appends and log compaction now coordinate through a shared lock
+  directory, preventing compaction from dropping concurrent verification or
+  reflection appends across the CLI and MCP server.
+
 ## [3.6.19] - 2026-06-16
 
 ### Fixed
@@ -729,7 +737,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.19...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.20...HEAD
+[3.6.20]: https://github.com/aihxp/mythify/compare/v3.6.19...v3.6.20
 [3.6.19]: https://github.com/aihxp/mythify/compare/v3.6.18...v3.6.19
 [3.6.18]: https://github.com/aihxp/mythify/compare/v3.6.17...v3.6.18
 [3.6.17]: https://github.com/aihxp/mythify/compare/v3.6.16...v3.6.17

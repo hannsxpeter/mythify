@@ -30,7 +30,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 | Architecture and Design | 62 | D | 15% | Two hand-duplicated runtimes; drift guards check copies/counts not behavior; a confirmed correctness divergence already exists. |
 | Code Quality and Maintainability | 74 | C | 15% | Consistent, well-named, low dead code, but two ~10k-line god-modules and pervasive cross-runtime duplication. |
 | Testing and Verification | 84 | B | 15% | 227 tests, ~2,300 real assertions, no theater, deterministic, gate edges covered; the one gap (no cross-runtime conformance test) is exactly what let the divergences through. |
-| Error Handling and Resilience | 68 | D+ | 10% | Solid single-process happy path and corruption quarantine, but no file locking, a compaction TOCTOU, and an unbounded fanout output buffer. |
+| Error Handling and Resilience | 68 | D+ | 10% | Solid single-process happy path and corruption quarantine; JSONL locking is now improved, while broader state concurrency and fsync gaps remain. |
 | Performance and Efficiency | 82 | B | 8% | Fine for a CLI; the evidence ledger is re-read in full on every gate/report and grows unbounded between compactions. |
 | Dependencies and Supply Chain | 90 | A- | 7% | Zero-dep Python; two pinned, current Node deps with lockfile + SRI + Dependabot. Only gap: no `npm audit` gate in CI. |
 | Documentation and Drift | 86 | B | 5% | Verified claims hold (40-tool count, protocol-hash check, variant sync); two small drift items. |
@@ -46,7 +46,7 @@ Weighting: defaults, unchanged. No Critical findings, so no dimension or overall
 3. [x] ~~`[SEC-001]` `outcome check` ignores `MYTHIFY_DISABLE_RUN`~~ - Completed in v3.6.5.
 4. [x] ~~`[ERR-004]` Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
 5. [ ] `[ARC-002]` Core logic is hand-duplicated across both runtimes - Open.
-6. [ ] `[ERR-001]` No file locking; `logs compact` TOCTOU drops concurrent appends - Open.
+6. [x] ~~`[ERR-001]` No file locking; `logs compact` TOCTOU drops concurrent appends~~ - Completed in v3.6.20.
 7. [~] `[SEC-002]` Verifier stdout/stderr tails persisted unredacted; `init` writes no `.gitignore` - Partially addressed in v3.6.8 by adding default `.mythify/` `.gitignore` coverage; verifier-output redaction remains open.
 
 ## Remediation status
@@ -59,7 +59,7 @@ Last updated: 2026-06-16.
 - [x] ~~[ARC-004] Additional confirmed behavioral divergences between the two runtimes~~ - Completed in v3.6.19 by aligning verifier output-cap and no-exit evidence semantics.
 - [x] ~~[SEC-001] `outcome check` ignores `MYTHIFY_DISABLE_RUN`~~ - Completed in v3.6.5.
 - [~] [SEC-002] Verifier output tails are persisted unredacted and `init` writes no `.gitignore` - Partially addressed in v3.6.8; output redaction remains open.
-- [ ] [ERR-001] No file locking; `logs compact` read-then-rewrite drops concurrent appends - Open.
+- [x] ~~[ERR-001] No file locking; `logs compact` read-then-rewrite drops concurrent appends~~ - Completed in v3.6.20 with shared JSONL lock directories for appends and compaction.
 - [x] ~~[ERR-004] Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
 - [x] ~~[TEST-001] No cross-runtime behavioral conformance test~~ - Completed in v3.6.18 with classification, verify record-shape, and strict gate-decision conformance.
 - [ ] [QUAL-001] Two ~10k-line god-modules - Open.
@@ -94,10 +94,10 @@ The Python CLI and Node MCP server are line-for-line ports over one `.mythify/` 
 - Members: ARC-001 (the live bug), ARC-002 (the duplication), ARC-003 (guards miss behavior), ARC-004 (more divergences), TEST-001 (no conformance test), DOC-002 (claim overstates reality), QUAL-002 (version surface asymmetry).
 - Root fix: add a cross-runtime behavioral conformance harness (identical input through both runtimes must yield identical classification, record shape, and gate decision), and either generate both adapters' shared logic from one source or normalize the shared primitives (timestamps, record schema) into checked contracts. Fix ARC-001's timestamp format as the first concrete instance.
 
-### SP-2: No concurrency safety despite a parallel-worker design
-State IO assumes a single writer, but the protocol explicitly spawns fanout workers and sub-agents that share the same state directory. Read-modify-write and log compaction race with no locking.
-- Members: ERR-001 (no locking + compaction TOCTOU), ERR-002 (non-atomic append), ERR-003 (no fsync), ERR-004 (unbounded fanout output buffer), PERF-001 (full-ledger re-read).
-- Root fix: add advisory file locking (`fcntl.flock` / a lockfile) around read-modify-write and compaction of the shared JSON/JSONL stores; cap worker output buffers; consider an index or tail-read for the growing ledger.
+### SP-2: Partial concurrency safety despite a parallel-worker design
+State IO still mostly assumes a single writer, but the protocol explicitly spawns fanout workers and sub-agents that share the same state directory. v3.6.20 protects top-level JSONL appends and compaction with a shared lock directory, while broader JSON read-modify-write stores still need a concurrency story.
+- Members: ERR-001 (completed JSONL locking), ERR-002 (non-atomic append, mitigated by malformed-line warnings), ERR-003 (no fsync), ERR-004 (completed output cap), PERF-001 (full-ledger re-read).
+- Root fix: extend advisory locking to read-modify-write JSON stores where concurrent writers are supported; keep worker output buffers capped; consider an index or tail-read for the growing ledger.
 
 ### SP-3: Security controls declared but not fully enforced (paper controls)
 Several controls exist in name or partial form but do not fully hold.
@@ -162,11 +162,11 @@ Several controls exist in name or partial form but do not fully hold.
 
 ### [ERR-001] No file locking; `logs compact` read-then-rewrite drops concurrent appends
 - Severity: Medium | Confidence: Confirmed (race) / Likely (occurs in practice) | Effort: M | Dimension: Error Handling and Resilience
-- Location: `compact_jsonl_log` (`scripts/mythify.py:8845-8883`, reads at `:8860-8861`, rewrites via `write_jsonl_atomic` at `:8880`); no `flock`/lockfile anywhere in the file. Same last-writer-wins pattern on `memory.json`, `outcomes/<slug>/goal.json`, plan files, and the active pointer.
-- Evidence: Per-file writes are atomic (`os.replace`), but there is no cross-operation lock. `compact_jsonl_log` reads the whole log, then later rewrites it; any `append_jsonl` landing in between is silently overwritten. The protocol spawns fanout workers and sub-agents that share the state dir, making concurrent writers plausible.
+- Location: JSONL append and compaction paths in `scripts/mythify.py`; MCP append path in `mcp-server/src/index.js`; regression coverage in `tests/test_mythify.py` and `mcp-server/test/smoke.test.js`.
+- Evidence: v3.6.20 wraps CLI JSONL appends, MCP JSONL appends, and CLI log compaction in a shared lock-directory protocol keyed by the resolved log path. The compact operation holds the same lock across read, archive, and rewrite, so a concurrent append waits instead of being overwritten.
 - Impact: Silent loss of verification/reflection/memory records under concurrency, directly damaging the evidence ledger the product is built on.
-- Recommendation: Add advisory locking (`fcntl.flock` or a lockfile) around read-modify-write and compaction of shared stores; for append-heavy logs, hold the lock only for the compaction swap.
-- Verify the fix: a test that appends to `verifications.jsonl` concurrently with a compaction does not lose the appended record.
+- Recommendation: Extend the same lock discipline to broader JSON read-modify-write stores if concurrent plan or outcome updates become a supported workflow.
+- Verify the fix: `python3 -m unittest tests.test_mythify.TestLogsCompact.test_logs_compact_lock_preserves_concurrent_append` and `npm test --prefix mcp-server -- --test-name-pattern 'shared lock'` pass.
 - Related: SP-2; ERR-002, ERR-003.
 
 ### [ERR-004] Fanout async worker output is accumulated unbounded (no `maxBuffer`)
@@ -262,7 +262,7 @@ Several controls exist in name or partial form but do not fully hold.
 ### [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded
 - Severity: Low | Confidence: Confirmed | Effort: M | Dimension: Performance and Efficiency
 - Location: gate read `scripts/mythify.py:8327` (`read_jsonl(state / "verifications.jsonl")`), report assembly reads all records; `verifications.jsonl` is already 3.2 MB / ~1,533 records in this repo.
-- Evidence: `cmd_step`, the report, and verify-context all read the entire `verifications.jsonl` each invocation. The file grows without bound between manual `logs compact` runs (and compaction has the ERR-001 TOCTOU risk).
+- Evidence: `cmd_step`, the report, and verify-context all read the entire `verifications.jsonl` each invocation. The file grows without bound between manual `logs compact` runs.
 - Impact: O(n) work per operation that grows with project age; currently fast but unbounded. For a tool whose value is a durable ledger, the ledger's read cost is on every hot path.
 - Recommendation: Read the tail or maintain a small index for the gate's "since lower_bound" query; encourage/automate compaction.
 - Verify the fix: gate-check time stays roughly constant as the ledger grows.
@@ -328,7 +328,7 @@ Several controls exist in name or partial form but do not fully hold.
 - **Architecture (62):** Three High findings (ARC-001/002/003) plus ARC-004 are all facets of SP-1. The dual-runtime model is deliberate and partly mitigated, but it has produced a live correctness bug and the guards do not cover the bug class. This is the dimension that most needs investment.
 - **Code Quality (74):** Naming, consistency, and dead-code hygiene are good; the drag is the two god-modules (QUAL-001) and the cross-runtime duplication.
 - **Testing (84):** A genuine strength in depth and honesty; v3.6.18 closes the strict gate-decision conformance gap, and v3.6.19 adds verifier failure parity regressions.
-- **Error Handling (68):** Single-process behavior and corruption quarantine are solid, but SP-2 (no locking, TOCTOU, non-atomic append, unbounded fanout buffer) is a real systemic gap given the parallel-worker design.
+- **Error Handling (68):** Single-process behavior and corruption quarantine are solid, and v3.6.20 closes the JSONL compaction race; broader SP-2 state concurrency and fsync gaps remain.
 - **Performance (82):** Adequate for a CLI; PERF-001 (full-ledger re-read, unbounded growth) is the only structural note.
 - **Dependencies (90):** Best dimension; only DEP-001 (no CI audit gate) keeps it from A.
 - **Documentation (86):** Verified accurate on the claims that matter; DOC-001/002 are small drift items.
@@ -337,7 +337,7 @@ Several controls exist in name or partial form but do not fully hold.
 ## Remediation plan
 
 - **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, ERR-002, and ERR-004.
-- **Plan now** (High/Critical and scheduled Medium work, suggested order): ERR-001 -> SEC-002 redaction -> QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
+- **Plan now** (High/Critical and scheduled Medium work, suggested order): SEC-002 redaction -> QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
 - **Verify first** (Suspected; re-check the cited code before acting): SEC-004, SEC-005, ERR-003, ERR-005.
 - **Backlog** (Low; batch): PERF-001.
 

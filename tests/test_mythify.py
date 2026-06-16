@@ -7,11 +7,13 @@ per-test temp project directory.
 """
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -2746,6 +2748,10 @@ class TestReflect(CliTestCase):
 
 
 class TestLogsCompact(CliTestCase):
+    def jsonl_lock_dir(self, state, path):
+        digest = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
+        return state / "locks" / ("jsonl-" + digest + ".lock")
+
     def test_logs_compact_archives_and_keeps_recent_records(self):
         state = self.init_workspace()
         for index in range(5):
@@ -2784,6 +2790,62 @@ class TestLogsCompact(CliTestCase):
         self.assertTrue(reflection_archive.exists())
         self.assertIn("claim-0", verification_archive.read_text(encoding="utf-8"))
         self.assertIn("action-0", reflection_archive.read_text(encoding="utf-8"))
+
+    def test_logs_compact_lock_preserves_concurrent_append(self):
+        state = self.init_workspace()
+        log = state / "verifications.jsonl"
+        for index in range(3):
+            result = self.run_cli(
+                "verify", "claim", "claim-{0}".format(index), "evidence"
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        lock_dir = self.jsonl_lock_dir(state, log)
+        lock_dir.parent.mkdir(parents=True, exist_ok=True)
+        lock_dir.mkdir()
+        env = dict(os.environ)
+        env.pop("MYTHIFY_DIR", None)
+        env["HOME"] = str(self.home)
+        compact = subprocess.Popen(
+            [sys.executable, str(CLI), "logs", "compact", "--keep", "2", "--json"],
+            cwd=str(self.project),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        append = subprocess.Popen(
+            [
+                sys.executable,
+                str(CLI),
+                "verify",
+                "claim",
+                "concurrent-append",
+                "evidence",
+            ],
+            cwd=str(self.project),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            time.sleep(0.2)
+            lock_dir.rmdir()
+            compact_stdout, compact_stderr = compact.communicate(timeout=10)
+            append_stdout, append_stderr = append.communicate(timeout=10)
+        finally:
+            for process in (compact, append):
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+            if lock_dir.exists():
+                lock_dir.rmdir()
+        self.assertEqual(compact.returncode, 0, compact_stderr)
+        self.assertEqual(append.returncode, 0, append_stderr)
+        self.assertIn("[WARN] ATTESTED", append_stdout)
+        self.assertIn("status", compact_stdout)
+        records = self.read_jsonl(log)
+        self.assertIn("concurrent-append", [item.get("claim") for item in records])
 
     def test_logs_compact_dry_run_writes_nothing(self):
         state = self.init_workspace()

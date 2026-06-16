@@ -24,11 +24,12 @@ import sys
 import tempfile
 import time
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.19"
+VERSION = "3.6.20"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -125,6 +126,7 @@ TAIL_CHARS = 4000
 DEFAULT_VERIFY_TIMEOUT = 300.0
 DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 DEFAULT_LOG_COMPACT_KEEP = 1000
+JSONL_LOCK_TIMEOUT_SECONDS = 10.0
 LOG_COMPACT_TARGETS = ("verifications.jsonl", "reflections.jsonl")
 TRIAGE_ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
 TRIAGE_MODES = ("never", "auto", "always")
@@ -890,13 +892,44 @@ def read_json(path, default):
 def append_jsonl(path, record):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record) + "\n")
+    with jsonl_file_lock(path):
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
 
 
 def write_jsonl_atomic(path, records):
     text = "".join(json.dumps(record) + "\n" for record in records)
     _write_text_atomic(path, text)
+
+
+def jsonl_lock_dir(path):
+    path = Path(path)
+    state = resolve_state_dir()
+    digest = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
+    return state / "locks" / ("jsonl-" + digest + ".lock")
+
+
+@contextmanager
+def jsonl_file_lock(path, timeout=JSONL_LOCK_TIMEOUT_SECONDS):
+    lock_dir = jsonl_lock_dir(path)
+    lock_dir.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    acquired = False
+    while not acquired:
+        try:
+            lock_dir.mkdir()
+            acquired = True
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Timed out waiting for JSONL lock: {0}".format(lock_dir))
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        try:
+            lock_dir.rmdir()
+        except OSError:
+            pass
 
 
 def read_jsonl(path):
@@ -9003,6 +9036,12 @@ def compact_archive_path(state, log_name):
 
 
 def compact_jsonl_log(state, log_name, keep, dry_run):
+    path = state / log_name
+    with jsonl_file_lock(path):
+        return compact_jsonl_log_locked(state, log_name, keep, dry_run)
+
+
+def compact_jsonl_log_locked(state, log_name, keep, dry_run):
     path = state / log_name
     result = {
         "log": log_name,

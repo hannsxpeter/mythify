@@ -59,6 +59,8 @@ const CLASSIFICATION_RULES_PATH = new URL("../protocol/classification-rules.json
 const WORKFLOW_ROUTER_PATH = new URL("../protocol/workflow-router.json", import.meta.url);
 const TAIL_CHARS = 4000;
 const DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
+const JSONL_LOCK_TIMEOUT_MS = 10000;
+const JSONL_LOCK_POLL_MS = 50;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
 const OUTCOME_STATUSES = ["active", "succeeded", "failed", "stopped"];
 const FALSE_ENV_VALUES = new Set(["0", "false", "no", "off"]);
@@ -346,6 +348,51 @@ function globalLessonsDir() {
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+const LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSync(ms) {
+  Atomics.wait(LOCK_WAIT, 0, 0, ms);
+}
+
+function jsonlLockDir(filePath) {
+  const digest = crypto
+    .createHash("sha256")
+    .update(path.resolve(filePath))
+    .digest("hex")
+    .slice(0, 16);
+  return path.join(resolveStateDir(), "locks", `jsonl-${digest}.lock`);
+}
+
+function withJsonlFileLock(filePath, fn, timeoutMs = JSONL_LOCK_TIMEOUT_MS) {
+  const lockDir = jsonlLockDir(filePath);
+  ensureDir(path.dirname(lockDir));
+  const deadline = Date.now() + timeoutMs;
+  let acquired = false;
+  while (!acquired) {
+    try {
+      fs.mkdirSync(lockDir);
+      acquired = true;
+    } catch (err) {
+      if (!err || err.code !== "EEXIST") {
+        throw err;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for JSONL lock: ${lockDir}`);
+      }
+      sleepSync(JSONL_LOCK_POLL_MS);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.rmdirSync(lockDir);
+    } catch {
+      // Best effort cleanup. A later lock attempt will timeout if this remains.
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1733,7 +1780,9 @@ function formatHostModelRecord(record) {
 
 function appendJsonl(filePath, record) {
   ensureDir(path.dirname(filePath));
-  fs.appendFileSync(filePath, JSON.stringify(record) + "\n", "utf8");
+  withJsonlFileLock(filePath, () => {
+    fs.appendFileSync(filePath, JSON.stringify(record) + "\n", "utf8");
+  });
 }
 
 function readJsonl(filePath) {
