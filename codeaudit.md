@@ -67,7 +67,7 @@ Last updated: 2026-06-15.
 - [ ] [SEC-004] Fanout `context_paths` are not sandboxed to the project root - Open, needs re-verification before changing behavior.
 - [ ] [SEC-005] `host_cli_run` accepts an arbitrary `bin` executable - Open, needs re-verification before changing behavior.
 - [x] ~~[SEC-006] `outcome` `allowed_paths` is advisory-only despite a sandboxing-implying name~~ - Completed in v3.6.16.
-- [x] ~~[ERR-002] `append_jsonl` is non-atomic for large records~~ - Completed in the post-v3.6.16 resilience slice by surfacing malformed JSONL records.
+- [x] ~~[ERR-002] `append_jsonl` is non-atomic for large records~~ - Completed in v3.6.17 by surfacing malformed JSONL records.
 - [ ] [ERR-003] No `fsync` before atomic rename - Open, needs re-verification before changing behavior.
 - [ ] [ERR-005] Fanout timeout kills only the direct child; shell-engine grandchildren can orphan - Open, needs re-verification before changing behavior.
 - [ ] [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded - Open.
