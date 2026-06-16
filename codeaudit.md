@@ -1,19 +1,19 @@
 # Mythify Code Audit
 
-Read-only audit. Date: 2026-06-15. This report is self-contained: every finding
-cites exact locations, carries its own context, and states how to verify the fix.
-No source files were modified. The only file created is this one.
+Original read-only audit date: 2026-06-15. This report is self-contained: every
+finding cites exact locations, carries its own context, and states how to verify
+the fix. Remediation status has since been updated in place through v3.6.29.
 
 ## Snapshot
 
 - Project: Mythify, an evidence protocol for AI coding agents (CLI + MCP server + protocol manifests).
-- State: branch `main`, commit `4f0177b` ("fix: harden strict step evidence gate").
+- Original audited state: branch `main`, commit `4f0177b` ("fix: harden strict step evidence gate").
 - Languages: Python 3.9+ (CLI), JavaScript / Node 18+ (MCP server). JSON manifests; Markdown protocol/docs.
-- Size: `scripts/mythify.py` 10,171 lines plus `scripts/mythify_classification.py` 432 lines; `mcp-server/src/index.js` 8,875 lines plus `mcp-server/src/classification.js` 415 lines; `mcp-server/src/fanout.js` 2,494; plus `capability-registry.js` (883) and small registry shims. ~23.3k lines of core code.
+- Size: `scripts/mythify.py` 9,837 lines plus `scripts/mythify_classification.py` 432 lines and `scripts/mythify_host_model.py` 386 lines; `mcp-server/src/index.js` 8,579 lines plus `mcp-server/src/classification.js` 415 lines and `mcp-server/src/host-model.js` 318 lines; `mcp-server/src/fanout.js` 2,494; plus `capability-registry.js` (883) and small registry shims. ~23.3k lines of core code.
 - Frameworks/deps: Python zero-dependency (stdlib only). Node: `@modelcontextprotocol/sdk@1.29.0`, `zod@4.4.3` (only two direct deps, pinned via lockfile with SRI).
-- Entry points: `scripts/mythify.py` `main()` (argparse dispatch to 61 `cmd_*` handlers); `mcp-server/src/index.js` `main()` registering 40 MCP tools; shared facts in `protocol/{operation-registry,classification-rules,workflow-router,surface-manifest}.json` + `PROTOCOL.md`. As of v3.6.27, `classification-rules.json` carries classification policy, not just keyword rules; as of v3.6.28, deterministic classification lives in direct-import Python and MCP modules.
+- Entry points: `scripts/mythify.py` `main()` (argparse dispatch to 61 `cmd_*` handlers); `mcp-server/src/index.js` `main()` registering 40 MCP tools; shared facts in `protocol/{operation-registry,classification-rules,workflow-router,surface-manifest}.json` + `PROTOCOL.md`. As of v3.6.27, `classification-rules.json` carries classification policy, not just keyword rules; as of v3.6.28, deterministic classification lives in direct-import Python and MCP modules; as of v3.6.29, host model switch record helpers also live in direct-import modules.
 - Evident maturity: mature, deliberately engineered (v3.6.x, multi-version CI, 261 tests, a strict evidence doctrine). Held to a high bar for a developer tool, especially on correctness of the evidence gate, which is the product's central promise. Not held to a production web-service operability bar.
-- Audit coverage: the load-bearing code was read exhaustively (verify run, the strict step gate, outcome loops, atomic IO, state-dir resolution, the fanout spawn path, the protocol-hash check, both runtimes' gate implementations, the drift-guard scripts, the test suites). The remaining bulk of `mythify.py` and `index.js` was sampled (all command/tool registrations enumerated; longest functions inspected). Both test suites were executed by the analysis (Python 148 tests pass, MCP 113 tests pass).
+- Audit coverage: the load-bearing code was read exhaustively (verify run, the strict step gate, outcome loops, atomic IO, state-dir resolution, the fanout spawn path, the protocol-hash check, both runtimes' gate implementations, the drift-guard scripts, the test suites). The remaining bulk of `mythify.py` and `index.js` was sampled (all command/tool registrations enumerated; longest functions inspected). Both test suites were executed by the analysis (Python 149 tests pass, MCP 114 tests pass).
 - Exclusions: `node_modules/`, `__pycache__/`, `.mythify/local-*.json` benchmark outputs, `coverage/`, `dist/`.
 
 ## Overall score
@@ -62,7 +62,7 @@ Last updated: 2026-06-16.
 - [x] ~~[ERR-001] No file locking; `logs compact` read-then-rewrite drops concurrent appends~~ - Completed in v3.6.20 with shared JSONL lock directories for appends and compaction.
 - [x] ~~[ERR-004] Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
 - [x] ~~[TEST-001] No cross-runtime behavioral conformance test~~ - Completed in v3.6.18 with classification, verify record-shape, and strict gate-decision conformance.
-- [ ] [QUAL-001] Two ~10k-line god-modules - Open. Progress in v3.6.28: deterministic classification was extracted to direct-import Python and MCP modules with module-level tests.
+- [ ] [QUAL-001] Two ~10k-line god-modules - Open. Progress in v3.6.28: deterministic classification was extracted to direct-import Python and MCP modules with module-level tests. Progress in v3.6.29: host model switch record construction, capability enrichment, and formatting were extracted to direct-import Python and MCP modules with module-level tests.
 - [x] ~~[SEC-003] Raw, un-slugified name is used as a filename before `slugify`~~ - Completed in v3.6.15.
 - [x] ~~[SEC-004] Fanout `context_paths` are not sandboxed to the project root~~ - Completed in v3.6.22.
 - [x] ~~[SEC-005] `host_cli_run` accepts an arbitrary `bin` executable~~ - Completed in v3.6.23.
@@ -190,8 +190,8 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 
 ### [QUAL-001] Two ~10k-line god-modules
 - Severity: Medium | Confidence: Confirmed | Effort: L | Dimension: Code Quality and Maintainability
-- Location: `scripts/mythify.py` (10,171-line entrypoint after v3.6.28; `build_parser` remains one large function; 61 `cmd_*` handlers still live mostly in one file). `mcp-server/src/index.js` (8,875-line entrypoint after v3.6.28; 37 inline `registerTool` blocks remain).
-- Evidence: v3.6.28 extracts deterministic classification to `scripts/mythify_classification.py` and `mcp-server/src/classification.js`, with direct module tests. The main runtime files remain too large, with very large dispatch/registration functions and most command/tool logic still in the entrypoints.
+- Location: `scripts/mythify.py` (9,837-line entrypoint after v3.6.29; `build_parser` remains one large function; 61 `cmd_*` handlers still live mostly in one file). `mcp-server/src/index.js` (8,579-line entrypoint after v3.6.29; 37 inline `registerTool` blocks remain).
+- Evidence: v3.6.28 extracts deterministic classification to `scripts/mythify_classification.py` and `mcp-server/src/classification.js`, with direct module tests. v3.6.29 extracts host model switch record construction, capability enrichment, and formatting to `scripts/mythify_host_model.py` and `mcp-server/src/host-model.js`, with direct module tests. The main runtime files remain too large, with very large dispatch/registration functions and most command/tool logic still in the entrypoints.
 - Impact: High navigation cost, hard to test functions in isolation, wide blast radius for changes; compounds ARC-002 because the duplicated logic is also unmodularized.
 - Recommendation: Split each runtime into modules by concern (state IO, verify/gate, classification/routing, outcome, memory/lessons, command/tool registration). Modularizing in parallel makes a future shared-core extraction tractable.
 - Verify the fix: no single source file exceeds a chosen ceiling (e.g. 1,500 lines); tests import individual modules directly.

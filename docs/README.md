@@ -31,11 +31,12 @@ decision records.
 ## Drift Rules
 
 - Keep current setup instructions in sync with the required drop-in files:
-  protocol variant, `scripts/mythify.py`, `protocol/operation-registry.json`,
-  and `protocol/classification-rules.json`.
+  protocol variant, `scripts/mythify.py`, adjacent `scripts/mythify_*.py`
+  helpers, `protocol/operation-registry.json`,
+  `protocol/classification-rules.json`, and `protocol/workflow-router.json`.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
-- Keep MCP public surface claims at 38 tools: 35 core tools plus 3 fanout tools.
+- Keep MCP public surface claims at 40 tools: 37 core tools plus 3 fanout tools.
 - Keep release claims aligned to `mcp-server/package.json`,
   `mcp-server/package-lock.json`, `CHANGELOG.md`, and the latest GitHub
   release.

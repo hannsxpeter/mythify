@@ -45,6 +45,8 @@ mythify/
 |   `-- surface-manifest.json    shared public surface metadata
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
+|   |-- mythify_classification.py deterministic classification helper
+|   |-- mythify_host_model.py    host model switch record helper
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
 |   |-- build_registry_docs.mjs  generates registry-backed docs
 |   |-- check_surface_manifest.mjs checks public surface metadata drift
@@ -56,7 +58,9 @@ mythify/
 |   |-- mcp-config.example.json
 |   |-- client-configs/
 |   |-- src/capability-registry.js
+|   |-- src/classification.js
 |   |-- src/fanout.js
+|   |-- src/host-model.js
 |   |-- src/index.js
 |   |-- src/operation-registry.js
 |   |-- src/surface-manifest.js
@@ -835,7 +839,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.28`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.29`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1411,6 +1415,7 @@ Sections, in order:
    agents, link `docs/start-here.md`, show `scripts/install_user.sh --project`,
    then show the minimal plan, verify, step, summary loop.
 5. Quick start A: drop-in (copy `CLAUDE.md` or `AGENTS.md`, `scripts/mythify.py`,
+   the adjacent `scripts/mythify_*.py` helper modules,
    `protocol/operation-registry.json`, and
    `protocol/classification-rules.json`, and `protocol/workflow-router.json`
    into a project, run
@@ -1952,7 +1957,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.28. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.29. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2006,6 +2011,8 @@ directories after rename; 3.6.25 kills fanout subprocess process groups on
 timeout and output-cap failures; 3.6.26 uses bounded JSONL tail reads for
 recent strict gates and cursor-based reports; 3.6.27 moves classification
 policy facts into the shared classification manifest; 3.6.28 extracts
-deterministic classification into direct-import CLI and MCP modules.
-The CLI reports 3.6.28 through `--version`; the MCP server reads `package.json`
+deterministic classification into direct-import CLI and MCP modules; 3.6.29
+extracts host model switch record helpers into direct-import CLI and MCP
+modules.
+The CLI reports 3.6.29 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

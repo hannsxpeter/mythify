@@ -19,10 +19,12 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 PY_CLASSIFICATION = REPO_ROOT / "scripts" / "mythify_classification.py"
+PY_HOST_MODEL = REPO_ROOT / "scripts" / "mythify_host_model.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -254,6 +256,10 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_classification.py",
         )
         shutil.copy2(
+            PY_HOST_MODEL,
+            self.project / "scripts" / "mythify_host_model.py",
+        )
+        shutil.copy2(
             OPERATION_REGISTRY,
             self.project / "protocol" / "operation-registry.json",
         )
@@ -358,6 +364,56 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["execution_profile"], "full")
         self.assertTrue(module.should_run_model_triage(payload, "auto"))
         self.assertIn("type: security", module.format_classification(payload))
+
+    def test_host_model_module_imports_directly(self):
+        spec = importlib.util.spec_from_file_location(
+            "mythify_host_model_under_test",
+            PY_HOST_MODEL,
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        record = module.build_host_model_record(
+            SimpleNamespace(
+                platform="auto",
+                target_model="gpt-5.4",
+                current_model="gpt-5.3-codex",
+                thinking="high",
+                speed="fast",
+                reason="direct module test",
+            ),
+            now_iso_func=lambda: "2026-06-16T00:00:00+00:00",
+            classify_model_tier_func=lambda model: "frontier",
+            environ={"CODEX_THREAD_ID": "thread-123"},
+        )
+
+        self.assertEqual(record["platform"], "codex-desktop")
+        self.assertEqual(record["requested_platform"], "auto")
+        self.assertEqual(record["target_model_tier"], "frontier")
+        self.assertEqual(record["switch_result"]["requested_thinking"], "high")
+        self.assertEqual(record["host_capability"]["status"], "supported")
+        self.assertIn('threadId="thread-123"', "\n".join(record["host_actions"]))
+
+        formatted = module.format_host_model_record(record)
+        self.assertIn("target model: gpt-5.4 (tier frontier)", formatted)
+        self.assertIn("switch status: manual", formatted)
+        self.assertIn("current-chat confirmed: no", formatted)
+
+        legacy = module.with_host_capability(
+            {
+                "platform": "codex-cli",
+                "target_model": "gpt-5.4",
+                "current_model": "",
+                "target_model_tier": "frontier",
+                "thinking": "auto",
+                "speed": "auto",
+                "updated": "2026-06-16T00:00:00+00:00",
+            }
+        )
+        self.assertEqual(legacy["host_capability"]["status"], "supported")
+        self.assertEqual(legacy["switch_result"]["status"], "manual")
+        self.assertEqual(legacy["host_confirmation"]["confirmation_status"], "unsupported")
+        self.assertEqual(legacy["adapter_proof_scan"]["status"], "metadata_only")
 
     def test_classification_policy_manifest_contains_shared_decision_facts(self):
         manifest = self.read_json(CLASSIFICATION_RULES)

@@ -126,6 +126,7 @@ cp CLAUDE.md /path/to/your/project/          # or AGENTS.md, or .cursorrules
 mkdir -p /path/to/your/project/scripts
 mkdir -p /path/to/your/project/protocol
 cp scripts/mythify.py /path/to/your/project/scripts/
+cp scripts/mythify_*.py /path/to/your/project/scripts/
 cp protocol/operation-registry.json /path/to/your/project/protocol/
 cp protocol/classification-rules.json /path/to/your/project/protocol/
 cp protocol/workflow-router.json /path/to/your/project/protocol/
@@ -1069,7 +1070,8 @@ keys. It creates two temporary workspaces for each selected Python bug-fix
 task:
 
 - `bare`: the model gets only the task prompt.
-- `mythify`: the model gets `AGENTS.md`, `scripts/mythify.py`,
+- `mythify`: the model gets `AGENTS.md`, `scripts/mythify.py`, the adjacent
+  `scripts/mythify_*.py` helper modules,
   `protocol/operation-registry.json`, `protocol/classification-rules.json`,
   `protocol/workflow-router.json`, and an initialized `.mythify/` workspace,
   then is told to use the selected Mythify profile and record `verify run`

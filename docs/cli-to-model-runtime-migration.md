@@ -12,8 +12,9 @@ state unless the user selects that path and the adapter contract allows it.
 Start here and keep this path working forever:
 
 1. Copy a generated protocol file into a project.
-2. Copy `scripts/mythify.py`, `protocol/operation-registry.json`, and
-   `protocol/classification-rules.json`.
+2. Copy `scripts/mythify.py`, adjacent `scripts/mythify_*.py` helpers,
+   `protocol/operation-registry.json`, `protocol/classification-rules.json`,
+   and `protocol/workflow-router.json`.
 3. Run `python3 scripts/mythify.py protocol check CLAUDE.md`.
 4. Run `python3 scripts/mythify.py init`.
 5. Use `classify`, `plan`, `step`, `verify run`, `reflect`, and `summary`.
