@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.28] - 2026-06-16
+
+### Changed
+
+- Extracted deterministic classification into direct-import Python and MCP
+  modules, reducing the main CLI and MCP entrypoints while preserving the
+  shared manifest-backed behavior.
+- Added direct module tests for the extracted Python and MCP classification
+  modules.
+
 ## [3.6.27] - 2026-06-16
 
 ### Changed
@@ -796,7 +806,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.27...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.28...HEAD
+[3.6.28]: https://github.com/aihxp/mythify/compare/v3.6.27...v3.6.28
 [3.6.27]: https://github.com/aihxp/mythify/compare/v3.6.26...v3.6.27
 [3.6.26]: https://github.com/aihxp/mythify/compare/v3.6.25...v3.6.26
 [3.6.25]: https://github.com/aihxp/mythify/compare/v3.6.24...v3.6.25

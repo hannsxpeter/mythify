@@ -22,6 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
+PY_CLASSIFICATION = REPO_ROOT / "scripts" / "mythify_classification.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -249,6 +250,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(REPO_ROOT / "AGENTS.md", self.project / "AGENTS.md")
         shutil.copy2(CLI, self.project / "scripts" / "mythify.py")
         shutil.copy2(
+            PY_CLASSIFICATION,
+            self.project / "scripts" / "mythify_classification.py",
+        )
+        shutil.copy2(
             OPERATION_REGISTRY,
             self.project / "protocol" / "operation-registry.json",
         )
@@ -338,6 +343,22 @@ class TestWorkspaceResolution(CliTestCase):
 
 
 class TestClassification(CliTestCase):
+    def test_classification_module_imports_directly(self):
+        spec = importlib.util.spec_from_file_location(
+            "mythify_classification_under_test",
+            PY_CLASSIFICATION,
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        payload = module.classify_task_text("audit authentication token permissions")
+        self.assertEqual(payload["task_type"], "security")
+        self.assertEqual(payload["risk"], "high")
+        self.assertEqual(payload["ceremony"], "full")
+        self.assertEqual(payload["execution_profile"], "full")
+        self.assertTrue(module.should_run_model_triage(payload, "auto"))
+        self.assertIn("type: security", module.format_classification(payload))
+
     def test_classification_policy_manifest_contains_shared_decision_facts(self):
         manifest = self.read_json(CLASSIFICATION_RULES)
         self.assertEqual(manifest["schema_version"], 2)
