@@ -8,6 +8,7 @@ per-test temp project directory.
 
 import json
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -45,6 +46,13 @@ OUTCOME_CHECK_DISABLED_MESSAGE = (
     "[FAIL] outcome check is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was "
     "executed and nothing was recorded. Unset it to enable execution."
 )
+
+
+def load_cli_module():
+    spec = importlib.util.spec_from_file_location("mythify_cli_under_test", CLI)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def shell_py(code):
@@ -169,6 +177,35 @@ class TestInit(CliTestCase):
         help_result = self.run_cli("--help")
         self.assertIn(result.stdout.strip() + ":", help_result.stdout)
         self.assertEqual(result.stderr, "")
+
+
+class TestDurableIo(unittest.TestCase):
+    def test_atomic_text_write_fsyncs_file_before_replace_and_parent_after(self):
+        mythify = load_cli_module()
+        tmp = Path(tempfile.mkdtemp(prefix="mythify-atomic-test-"))
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        target = tmp / "state.json"
+        events = []
+        real_fsync = mythify.os.fsync
+        real_replace = mythify.os.replace
+
+        def fake_fsync(fd):
+            events.append("fsync")
+
+        def wrapped_replace(src, dst):
+            events.append("replace")
+            real_replace(src, dst)
+
+        mythify.os.fsync = fake_fsync
+        mythify.os.replace = wrapped_replace
+        try:
+            mythify._write_text_atomic(target, "{\"ok\": true}\n")
+        finally:
+            mythify.os.fsync = real_fsync
+            mythify.os.replace = real_replace
+
+        self.assertEqual(target.read_text(encoding="utf-8"), "{\"ok\": true}\n")
+        self.assertEqual(events[:3], ["fsync", "replace", "fsync"])
 
 
 class TestProtocolHandshake(CliTestCase):

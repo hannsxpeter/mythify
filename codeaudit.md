@@ -30,7 +30,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 | Architecture and Design | 62 | D | 15% | Two hand-duplicated runtimes; drift guards check copies/counts not behavior; a confirmed correctness divergence already exists. |
 | Code Quality and Maintainability | 74 | C | 15% | Consistent, well-named, low dead code, but two ~10k-line god-modules and pervasive cross-runtime duplication. |
 | Testing and Verification | 84 | B | 15% | 227 tests, ~2,300 real assertions, no theater, deterministic, gate edges covered; the one gap (no cross-runtime conformance test) is exactly what let the divergences through. |
-| Error Handling and Resilience | 68 | D+ | 10% | Solid single-process happy path and corruption quarantine; JSONL locking is now improved, while broader state concurrency and fsync gaps remain. |
+| Error Handling and Resilience | 72 | C- | 10% | Solid single-process behavior and corruption quarantine; JSONL locking and atomic-write fsync are improved, while broader state concurrency remains. |
 | Performance and Efficiency | 82 | B | 8% | Fine for a CLI; the evidence ledger is re-read in full on every gate/report and grows unbounded between compactions. |
 | Dependencies and Supply Chain | 90 | A- | 7% | Zero-dep Python; two pinned, current Node deps with lockfile + SRI + Dependabot. Only gap: no `npm audit` gate in CI. |
 | Documentation and Drift | 86 | B | 5% | Verified claims hold (40-tool count, protocol-hash check, variant sync); two small drift items. |
@@ -68,7 +68,7 @@ Last updated: 2026-06-16.
 - [x] ~~[SEC-005] `host_cli_run` accepts an arbitrary `bin` executable~~ - Completed in v3.6.23.
 - [x] ~~[SEC-006] `outcome` `allowed_paths` is advisory-only despite a sandboxing-implying name~~ - Completed in v3.6.16.
 - [x] ~~[ERR-002] `append_jsonl` is non-atomic for large records~~ - Completed in v3.6.17 by surfacing malformed JSONL records.
-- [ ] [ERR-003] No `fsync` before atomic rename - Open, needs re-verification before changing behavior.
+- [x] ~~[ERR-003] No `fsync` before atomic rename~~ - Completed in v3.6.24.
 - [ ] [ERR-005] Fanout timeout kills only the direct child; shell-engine grandchildren can orphan - Open, needs re-verification before changing behavior.
 - [ ] [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded - Open.
 - [x] ~~[DEP-001] No `npm audit` gate in CI~~ - Completed in v3.6.9.
@@ -244,10 +244,11 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 ### [ERR-003] No `fsync` before atomic rename
 - Severity: Low | Confidence: Suspected | Effort: S | Dimension: Error Handling and Resilience
 - Location: `_write_text_atomic` (`scripts/mythify.py:793-808`).
-- Evidence: Writes to a temp file then `os.replace` without `os.fsync` on the fd. `os.replace` is atomic for visibility, but a crash before metadata flush could leave a zero-length file on some filesystems.
-- Impact: Rare data-loss window on hard crash; acceptable for a local dev tool.
-- Recommendation: `fsync` the temp fd before `os.replace` if durability matters; otherwise document the trade-off.
-- Verify the fix: the write path fsyncs before rename.
+- Status: Completed in v3.6.24.
+- Evidence: CLI `_write_text_atomic` flushes and fsyncs the temp fd before `os.replace`, then best-effort fsyncs the parent directory. MCP `writeTextAtomic` opens the temp file explicitly, writes, fsyncs, closes, renames, and best-effort fsyncs the parent directory. Regression coverage: `tests.test_mythify.TestDurableIo` checks Python order, and `mcp-server/test/durable-io.test.js` checks the MCP helper sequence.
+- Impact: Rare data-loss window on hard crash is reduced for atomic state-file rewrites.
+- Recommendation: Complete. Keep directory fsync best effort for platform compatibility.
+- Verify the fix: `python3 -m unittest tests.test_mythify.TestDurableIo` and `npm test --prefix mcp-server`.
 - Related: SP-2; ERR-001.
 
 ### [ERR-005] Fanout timeout kills only the direct child; shell-engine grandchildren can orphan
@@ -328,7 +329,7 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 - **Architecture (62):** Three High findings (ARC-001/002/003) plus ARC-004 are all facets of SP-1. The dual-runtime model is deliberate and partly mitigated, but it has produced a live correctness bug and the guards do not cover the bug class. This is the dimension that most needs investment.
 - **Code Quality (74):** Naming, consistency, and dead-code hygiene are good; the drag is the two god-modules (QUAL-001) and the cross-runtime duplication.
 - **Testing (84):** A genuine strength in depth and honesty; v3.6.18 closes the strict gate-decision conformance gap, and v3.6.19 adds verifier failure parity regressions.
-- **Error Handling (68):** Single-process behavior and corruption quarantine are solid, and v3.6.20 closes the JSONL compaction race; broader SP-2 state concurrency and fsync gaps remain.
+- **Error Handling (72):** Single-process behavior and corruption quarantine are solid; v3.6.20 closes the JSONL compaction race, and v3.6.24 fsyncs atomic state rewrites. Broader SP-2 process cleanup and concurrency risks remain.
 - **Performance (82):** Adequate for a CLI; PERF-001 (full-ledger re-read, unbounded growth) is the only structural note.
 - **Dependencies (90):** Best dimension; only DEP-001 (no CI audit gate) keeps it from A.
 - **Documentation (86):** Verified accurate on the claims that matter; DOC-001/002 are small drift items.
@@ -338,7 +339,7 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 
 - **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, ERR-002, and ERR-004.
 - **Plan now** (High/Critical and scheduled Medium work, suggested order): QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
-- **Verify first** (Suspected; re-check the cited code before acting): ERR-003, ERR-005.
+- **Verify first** (Suspected; re-check the cited code before acting): ERR-005.
 - **Backlog** (Low; batch): PERF-001.
 
 ## Scope and limitations

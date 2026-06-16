@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.24] - 2026-06-16
+
+### Fixed
+
+- Atomic state-file writes now flush and fsync the temp file before rename, then
+  best-effort fsync the parent directory after rename, reducing the hard-crash
+  durability window for CLI and MCP state updates.
+
 ## [3.6.23] - 2026-06-16
 
 ### Fixed
@@ -761,7 +769,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.23...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.24...HEAD
+[3.6.24]: https://github.com/aihxp/mythify/compare/v3.6.23...v3.6.24
 [3.6.23]: https://github.com/aihxp/mythify/compare/v3.6.22...v3.6.23
 [3.6.22]: https://github.com/aihxp/mythify/compare/v3.6.21...v3.6.22
 [3.6.21]: https://github.com/aihxp/mythify/compare/v3.6.20...v3.6.21

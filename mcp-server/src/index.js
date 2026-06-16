@@ -428,14 +428,55 @@ function withJsonlFileLock(filePath, fn, timeoutMs = JSONL_LOCK_TIMEOUT_MS) {
 // Durable JSON IO: atomic writes, corrupt-file recovery, never crash
 // ---------------------------------------------------------------------------
 
+function fsyncDirectoryBestEffort(dirPath) {
+  let fd = null;
+  try {
+    fd = fs.openSync(dirPath, "r");
+    fs.fsyncSync(fd);
+  } catch {
+    // Some platforms do not allow opening or fsyncing directories.
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Best effort cleanup after a directory fsync attempt.
+      }
+    }
+  }
+}
+
 function writeTextAtomic(filePath, text) {
   ensureDir(path.dirname(filePath));
   const tmp = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`
   );
-  fs.writeFileSync(tmp, text, "utf8");
-  fs.renameSync(tmp, filePath);
+  let fd = null;
+  try {
+    fd = fs.openSync(tmp, "w");
+    fs.writeFileSync(fd, text, "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmp, filePath);
+    fsyncDirectoryBestEffort(path.dirname(filePath));
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Best effort cleanup before removing the temp file.
+      }
+    }
+    if (fs.existsSync(tmp)) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // Best effort temp cleanup. The next write uses a unique name.
+      }
+    }
+  }
 }
 
 function writeJsonAtomic(filePath, value) {

@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.23"
+VERSION = "3.6.24"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -841,6 +841,22 @@ def fail(message):
 # Durable file IO
 # ---------------------------------------------------------------------------
 
+def _fsync_dir_best_effort(path):
+    flags = getattr(os, "O_RDONLY", 0)
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    try:
+        fd = os.open(str(path), flags)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def _write_text_atomic(path, text):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -850,7 +866,10 @@ def _write_text_atomic(path, text):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp_name, str(path))
+        _fsync_dir_best_effort(path.parent)
     finally:
         if os.path.exists(tmp_name):
             try:
