@@ -338,6 +338,25 @@ class TestWorkspaceResolution(CliTestCase):
 
 
 class TestClassification(CliTestCase):
+    def test_classification_policy_manifest_contains_shared_decision_facts(self):
+        manifest = self.read_json(CLASSIFICATION_RULES)
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["thresholds"]["trivial_word_count"], 12)
+        self.assertIn("what ", manifest["question_prefixes"])
+        self.assertIn("better", manifest["vague_request_terms"])
+        self.assertIn("release", manifest["risk"]["high_task_types"])
+        self.assertIn("review", manifest["ceremony"]["light_low_risk_task_types"])
+        self.assertIn("benchmark", manifest["fanout"]["recommended_task_types"])
+        self.assertIn("multiple files", manifest["fanout"]["optional_terms"])
+        self.assertEqual(
+            manifest["fanout_visibility"]["default"]["visibility"],
+            "summary",
+        )
+        self.assertIn("bugfix", manifest["execution_profile"]["fast_task_types"])
+        self.assertIn("standard", manifest["next_actions"])
+        self.assertIn("debugging", manifest["model_triage"]["recommended_task_types"])
+        self.assertIn("feature", manifest["verification_hints"])
+
     def test_classify_works_without_workspace(self):
         result = self.run_cli(
             "classify",

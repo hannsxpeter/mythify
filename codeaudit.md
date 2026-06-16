@@ -9,9 +9,9 @@ No source files were modified. The only file created is this one.
 - Project: Mythify, an evidence protocol for AI coding agents (CLI + MCP server + protocol manifests).
 - State: branch `main`, commit `4f0177b` ("fix: harden strict step evidence gate").
 - Languages: Python 3.9+ (CLI), JavaScript / Node 18+ (MCP server). JSON manifests; Markdown protocol/docs.
-- Size: `scripts/mythify.py` 10,283 lines; `mcp-server/src/index.js` 9,051 lines; `mcp-server/src/fanout.js` 2,379; plus `capability-registry.js` (883) and small registry shims. ~22.6k lines of core code.
+- Size: `scripts/mythify.py` 10,586 lines; `mcp-server/src/index.js` 9,270 lines; `mcp-server/src/fanout.js` 2,494; plus `capability-registry.js` (883) and small registry shims. ~23.2k lines of core code.
 - Frameworks/deps: Python zero-dependency (stdlib only). Node: `@modelcontextprotocol/sdk@1.29.0`, `zod@4.4.3` (only two direct deps, pinned via lockfile with SRI).
-- Entry points: `scripts/mythify.py` `main()` (argparse dispatch to 61 `cmd_*` handlers); `mcp-server/src/index.js` `main()` registering 40 MCP tools; shared facts in `protocol/{operation-registry,classification-rules,workflow-router,surface-manifest}.json` + `PROTOCOL.md`.
+- Entry points: `scripts/mythify.py` `main()` (argparse dispatch to 61 `cmd_*` handlers); `mcp-server/src/index.js` `main()` registering 40 MCP tools; shared facts in `protocol/{operation-registry,classification-rules,workflow-router,surface-manifest}.json` + `PROTOCOL.md`. As of v3.6.27, `classification-rules.json` carries classification policy, not just keyword rules.
 - Evident maturity: mature, deliberately engineered (v3.6.x, multi-version CI, 227 tests, a strict evidence doctrine). Held to a high bar for a developer tool, especially on correctness of the evidence gate, which is the product's central promise. Not held to a production web-service operability bar.
 - Audit coverage: the load-bearing code was read exhaustively (verify run, the strict step gate, outcome loops, atomic IO, state-dir resolution, the fanout spawn path, the protocol-hash check, both runtimes' gate implementations, the drift-guard scripts, the test suites). The remaining bulk of `mythify.py` and `index.js` was sampled (all command/tool registrations enumerated; longest functions inspected). Both test suites were executed by the analysis (Python 128 tests pass, MCP 99 tests pass).
 - Exclusions: `node_modules/`, `__pycache__/`, `.mythify/local-*.json` benchmark outputs, `coverage/`, `dist/`.
@@ -27,7 +27,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 | Dimension | Score | Grade | Weight | Verdict |
 | :-- | :-- | :-- | :-- | :-- |
 | Security | 86 | B | 20% | No critical/remote vulns; shell exec is by-design for a local tool, and the named security findings now have regression coverage. |
-| Architecture and Design | 62 | D | 15% | Two hand-duplicated runtimes; drift guards check copies/counts not behavior; a confirmed correctness divergence already exists. |
+| Architecture and Design | 72 | C- | 15% | The two-runtime design remains, but classification policy, gate parity, record shape, and drift-critical contracts now have shared data or conformance coverage. |
 | Code Quality and Maintainability | 74 | C | 15% | Consistent, well-named, low dead code, but two ~10k-line god-modules and pervasive cross-runtime duplication. |
 | Testing and Verification | 84 | B | 15% | 227 tests, ~2,300 real assertions, no theater, deterministic, gate edges covered; the one gap (no cross-runtime conformance test) is exactly what let the divergences through. |
 | Error Handling and Resilience | 76 | C | 10% | Solid single-process behavior, corruption quarantine, JSONL locking, atomic-write fsync, and fanout process-tree cleanup; broader state concurrency remains. |
@@ -35,7 +35,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 | Dependencies and Supply Chain | 90 | A- | 7% | Zero-dep Python; two pinned, current Node deps with lockfile + SRI + Dependabot. Only gap: no `npm audit` gate in CI. |
 | Documentation and Drift | 86 | B | 5% | Verified claims hold (40-tool count, protocol-hash check, variant sync); two small drift items. |
 | Observability and Operability | 84 | B | 5% | Clean exit-code discipline, `[OK]`/`[FAIL]`/`[WARN]`, quarantine warnings, log compaction. Minor MCP `isError` nit. |
-| **Overall (weighted)** | **79** | **C+** | 100% | Strong engineering still taxed by a dual-runtime maintenance model that has begun to bite. |
+| **Overall (weighted)** | **81** | **B-** | 100% | Strong engineering with most audit risks closed; remaining drag is the large-module structure. |
 
 Weighting: defaults, unchanged. No Critical findings, so no dimension or overall cap is triggered.
 
@@ -45,7 +45,7 @@ Weighting: defaults, unchanged. No Critical findings, so no dimension or overall
 2. [x] ~~`[ARC-003]` Drift guards verify copies and counts, not behavior~~ - Completed in v3.6.18 with classification, verify record-shape, and strict gate-decision conformance.
 3. [x] ~~`[SEC-001]` `outcome check` ignores `MYTHIFY_DISABLE_RUN`~~ - Completed in v3.6.5.
 4. [x] ~~`[ERR-004]` Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
-5. [ ] `[ARC-002]` Core logic is hand-duplicated across both runtimes - Open.
+5. [x] ~~`[ARC-002]` Core logic is hand-duplicated across both runtimes~~ - Completed in v3.6.27 for the shared classification policy contract; remaining large-module structure is tracked by QUAL-001.
 6. [x] ~~`[ERR-001]` No file locking; `logs compact` TOCTOU drops concurrent appends~~ - Completed in v3.6.20.
 7. [x] ~~`[SEC-002]` Verifier stdout/stderr tails persisted unredacted; `init` writes no `.gitignore`~~ - Completed across v3.6.8 and v3.6.21.
 
@@ -54,7 +54,7 @@ Weighting: defaults, unchanged. No Critical findings, so no dimension or overall
 Last updated: 2026-06-16.
 
 - [x] ~~[ARC-001] Cross-runtime timestamp format mismatch silently breaks the strict step gate~~ - Completed in v3.6.5.
-- [ ] [ARC-002] Core business logic is hand-duplicated across both runtimes - Open.
+- [x] ~~[ARC-002] Core business logic is hand-duplicated across both runtimes~~ - Completed in v3.6.27 by moving classification thresholds, risk, ceremony, fanout, fanout visibility, execution profile, model triage, next-action, and verification-hint facts into the shared classification policy manifest with CLI/MCP conformance coverage.
 - [x] ~~[ARC-003] Drift guards verify copies and counts, not behavior or record shapes~~ - Completed in v3.6.18 with classification, verify record-shape, and strict gate-decision conformance.
 - [x] ~~[ARC-004] Additional confirmed behavioral divergences between the two runtimes~~ - Completed in v3.6.19 by aligning verifier output-cap and no-exit evidence semantics.
 - [x] ~~[SEC-001] `outcome check` ignores `MYTHIFY_DISABLE_RUN`~~ - Completed in v3.6.5.
@@ -90,9 +90,9 @@ Last updated: 2026-06-16.
 ## Systemic patterns (root causes)
 
 ### SP-1: Two hand-maintained native runtimes, parity guarded only mechanically
-The Python CLI and Node MCP server are line-for-line ports over one `.mythify/` state directory, but only four thin manifests are genuinely shared; all behavior (verify record shape, the gate, classification scoring, outcome loops, persistence helpers) is reimplemented twice. The drift guards assert byte-identical JSON and tool/command counts, not behavioral equivalence, so the divergence-prone logic is outside their coverage.
+The Python CLI and Node MCP server are line-for-line ports over one `.mythify/` state directory. v3.6.27 moves classification policy into shared data, and v3.6.18-v3.6.19 cover classification, verify record shape, gate decisions, and verifier failure semantics with cross-runtime tests. Important behavior is still implemented in both languages, including outcome loops, plan/step mutation, memory, lessons, reports, and persistence helpers.
 - Members: ARC-001 (the live bug), ARC-002 (the duplication), ARC-003 (guards miss behavior), ARC-004 (more divergences), TEST-001 (no conformance test), DOC-002 (claim overstates reality), QUAL-002 (version surface asymmetry).
-- Root fix: add a cross-runtime behavioral conformance harness (identical input through both runtimes must yield identical classification, record shape, and gate decision), and either generate both adapters' shared logic from one source or normalize the shared primitives (timestamps, record schema) into checked contracts. Fix ARC-001's timestamp format as the first concrete instance.
+- Root fix: keep expanding shared data contracts and conformance tests while reducing the large modules under QUAL-001. Any future shared behavior change should have one manifest or schema edit plus an interop assertion.
 
 ### SP-2: Partial concurrency safety despite a parallel-worker design
 State IO still mostly assumes a single writer, but the protocol explicitly spawns fanout workers and sub-agents that share the same state directory. v3.6.20 protects top-level JSONL appends and compaction with a shared lock directory, while broader JSON read-modify-write stores still need a concurrency story.
@@ -118,10 +118,11 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 ### [ARC-002] Core business logic is hand-duplicated across both runtimes
 - Severity: High | Confidence: Confirmed | Effort: L | Dimension: Architecture and Design
 - Location: `scripts/mythify.py` and `mcp-server/src/index.js` throughout; e.g. classification `mythify.py:2658-2757` vs `index.js:3951-4069`; verify record `mythify.py:8700-8754` vs `index.js:8869-8953`; persistence helpers `now_iso/write_json_atomic/append_jsonl/read_jsonl` (`mythify.py:680,793,842,854`) vs (`index.js:209,297,1680,1685`).
-- Evidence: Only four manifests are genuinely shared at runtime (`classification-rules.json`, `workflow-router.json`, `operation-registry.json`, `surface-manifest.json`). Everything built on them, the classification scoring (the 20-term risk lists, the `<=12` words trivial threshold, ceremony tiers), the verify record schema, the strict gate, outcome loops, plan/step, memory, lessons, the report cursor, and all persistence helpers, is reimplemented in both languages. The JS `readJsonl` even carries the comment "matching the CLI's tolerant reader" (`index.js:1701`), an explicit acknowledgment that parity is a manual obligation.
-- Impact: Every behavioral change must be written, reviewed, and tested twice with nothing forcing agreement. Roughly half of ~19k lines of logic is a translation of the other half; divergences (ARC-001, ARC-004) are the inevitable result.
-- Recommendation: Move shared behavior toward a single source. Options in increasing order: (a) extend the manifest-driven approach so the risk/ceremony/threshold facts are data both adapters read (today they are hardcoded twice); (b) extract a canonical record-schema and gate-decision contract; (c) longer term, generate one adapter or share a behavior core. At minimum, treat the shared primitives (timestamp format, record shape) as checked contracts.
-- Verify the fix: a single edit to a shared classification or record fact changes both runtimes' behavior without editing two files; the conformance harness (ARC-003) stays green.
+- Status: Completed in v3.6.27 for the shared classification policy contract.
+- Evidence: `protocol/classification-rules.json` now has schema version 2 and carries the previously duplicated classification facts: trivial and ambiguity thresholds, question prefixes, vague request terms, risk buckets, ceremony buckets, fanout policy, fanout visibility terms, execution-profile policy, next-action text, model-triage policy, and verification hints. Both `scripts/mythify.py` and `mcp-server/src/index.js` load those fields at runtime instead of carrying local duplicate tables. The package copy is byte-for-byte checked by `scripts/check_classification_rules_manifest.mjs`, and the checker now validates the required policy sections. Regression coverage: `tests.test_mythify.TestClassification.test_classification_policy_manifest_contains_shared_decision_facts`, `mcp-server/test/smoke.test.js` packaged-manifest assertions, and `tests.test_interop.TestCliMcpInterop.test_cli_and_mcp_classification_outputs_match`.
+- Impact: The classifier's duplicated policy tables are no longer hand-maintained in two languages. A shared manifest edit now changes both adapters' deterministic classification behavior, while existing interop tests keep the two outputs aligned.
+- Recommendation: Complete for ARC-002's shared-policy fix. Continue the broader structural cleanup under QUAL-001.
+- Verify the fix: `python3 -m unittest tests.test_mythify.TestClassification -v`; `python3 -m unittest tests.test_interop.TestCliMcpInterop.test_cli_and_mcp_classification_outputs_match -v`; `npm test --prefix mcp-server`; `node scripts/check_classification_rules_manifest.mjs`.
 - Related: SP-1; ARC-001, ARC-003, DOC-002.
 
 ### [ARC-003] Drift guards verify copies and counts, not behavior or record shapes
@@ -328,7 +329,7 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 ## Dimension notes
 
 - **Security (86):** No critical or remotely exploitable issues; shell execution is the tool's stated purpose and inputs are operator-supplied, with good controls (loopback allowlist for local providers, env-var key names not raw secrets, recursive-fanout fork-bomb guards, kill-switch coverage, verifier-tail redaction, fanout context containment, and host CLI bin allowlisting). Score remains below A because command execution is still a core operator-facing capability that needs ongoing review as adapters are added.
-- **Architecture (62):** Three High findings (ARC-001/002/003) plus ARC-004 are all facets of SP-1. The dual-runtime model is deliberate and partly mitigated, but it has produced a live correctness bug and the guards do not cover the bug class. This is the dimension that most needs investment.
+- **Architecture (72):** ARC-001, ARC-003, ARC-004, and the shared classification-policy part of ARC-002 are complete. The dual-runtime model remains, but the highest-value parity facts now have executable conformance or shared manifest coverage.
 - **Code Quality (74):** Naming, consistency, and dead-code hygiene are good; the drag is the two god-modules (QUAL-001) and the cross-runtime duplication.
 - **Testing (84):** A genuine strength in depth and honesty; v3.6.18 closes the strict gate-decision conformance gap, and v3.6.19 adds verifier failure parity regressions.
 - **Error Handling (76):** Single-process behavior and corruption quarantine are solid; v3.6.20 closes the JSONL compaction race, v3.6.24 fsyncs atomic state rewrites, and v3.6.25 kills fanout subprocess process groups. Broader SP-2 concurrency risks remain.
@@ -340,7 +341,7 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 ## Remediation plan
 
 - **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, ERR-002, and ERR-004.
-- **Plan now** (High/Critical and scheduled Medium work, suggested order): QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
+- **Plan now** (High/Critical and scheduled Medium work, suggested order): QUAL-001 (large-module reduction and direct module tests).
 - **Verify first** (Suspected; re-check the cited code before acting): none remaining.
 - **Backlog** (Low; batch): none remaining.
 

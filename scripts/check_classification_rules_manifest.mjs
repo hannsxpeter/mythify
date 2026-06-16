@@ -46,4 +46,60 @@ if (!ids.has("review")) {
   process.exit(1);
 }
 
-console.log("[OK] Classification rules and operation registry manifests mirror package copies");
+const requiredSections = [
+  "thresholds",
+  "risk",
+  "ceremony",
+  "fanout",
+  "fanout_visibility",
+  "execution_profile",
+  "next_actions",
+  "model_triage",
+  "verification_hints",
+];
+for (const section of requiredSections) {
+  if (!rootManifest[section] || typeof rootManifest[section] !== "object" || Array.isArray(rootManifest[section])) {
+    console.error("[FAIL] Missing shared classification policy section: " + section);
+    process.exit(1);
+  }
+}
+
+const thresholds = rootManifest.thresholds;
+for (const key of ["trivial_word_count", "high_ambiguity_word_count", "medium_ambiguity_word_count"]) {
+  if (!Number.isInteger(thresholds[key]) || thresholds[key] <= 0) {
+    console.error("[FAIL] Invalid classification threshold: " + key);
+    process.exit(1);
+  }
+}
+
+if (!Array.isArray(rootManifest.question_prefixes) || rootManifest.question_prefixes.length === 0) {
+  console.error("[FAIL] Missing question prefixes in classification policy");
+  process.exit(1);
+}
+
+if (!Array.isArray(rootManifest.vague_request_terms) || rootManifest.vague_request_terms.length === 0) {
+  console.error("[FAIL] Missing vague request terms in classification policy");
+  process.exit(1);
+}
+
+for (const [section, keys] of Object.entries({
+  risk: ["high_terms", "high_task_types", "medium_terms", "medium_task_types"],
+  ceremony: ["none_low_risk_task_types", "light_low_risk_task_types", "full_task_types"],
+  fanout: ["recommended_task_types", "recommended_terms", "optional_task_types", "optional_terms"],
+  model_triage: ["high_impact_terms", "recommended_task_types", "optional_task_types"],
+  execution_profile: ["fast_task_types", "fast_focused_task_types", "focused_terms"],
+})) {
+  for (const key of keys) {
+    if (!Array.isArray(rootManifest[section][key]) || rootManifest[section][key].length === 0) {
+      console.error("[FAIL] Invalid classification policy list: " + section + "." + key);
+      process.exit(1);
+    }
+  }
+}
+
+if (!rootManifest.verification_hints.feature || !rootManifest.next_actions.standard) {
+  console.error("[FAIL] Classification policy is missing fallback text");
+  process.exit(1);
+}
+
+console.log("[OK] Classification policy and operation registry manifests mirror package copies");

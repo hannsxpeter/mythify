@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.26"
+VERSION = "3.6.27"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -82,7 +82,6 @@ def load_operation_registry():
 def load_classification_rules():
     with CLASSIFICATION_RULES_PATH.open("r", encoding="utf-8") as handle:
         manifest = json.load(handle)
-    rules = []
     seen = set()
     for entry in manifest.get("task_types", []):
         task_type = str(entry.get("id", "")).strip()
@@ -90,10 +89,36 @@ def load_classification_rules():
         if not task_type or task_type in seen or not isinstance(terms, list) or not terms:
             raise ValueError("Invalid classification rule entry")
         seen.add(task_type)
-        rules.append((task_type, tuple(str(term) for term in terms)))
-    if not rules:
+    if not seen:
         raise ValueError("Classification rules manifest is empty")
-    return tuple(rules)
+    required_sections = (
+        "thresholds",
+        "risk",
+        "ceremony",
+        "fanout",
+        "fanout_visibility",
+        "execution_profile",
+        "next_actions",
+        "model_triage",
+        "verification_hints",
+    )
+    for section in required_sections:
+        if not isinstance(manifest.get(section), dict):
+            raise ValueError("Invalid classification policy section")
+    if "feature" not in manifest["verification_hints"]:
+        raise ValueError("Classification verification hints are missing feature fallback")
+    return manifest
+
+
+def classification_task_rules(manifest):
+    return tuple(
+        (str(entry["id"]), tuple(str(term) for term in entry.get("terms", [])))
+        for entry in manifest.get("task_types", [])
+    )
+
+
+def classification_tuple(section, key):
+    return tuple(str(item) for item in CLASSIFICATION_MANIFEST[section].get(key, []))
 
 
 def load_workflow_router():
@@ -113,7 +138,8 @@ def load_workflow_router():
 
 
 OPERATION_REGISTRY = load_operation_registry()
-CLASSIFICATION_RULES = load_classification_rules()
+CLASSIFICATION_MANIFEST = load_classification_rules()
+CLASSIFICATION_RULES = classification_task_rules(CLASSIFICATION_MANIFEST)
 WORKFLOW_ROUTER = load_workflow_router()
 MEMORY_OPERATION_REGISTRY = OPERATION_REGISTRY["surfaces"]["memory"]
 MEMORY_CATEGORIES = tuple(MEMORY_OPERATION_REGISTRY["categories"])
@@ -646,26 +672,24 @@ ROUTE_VERIFY_TERMS = (
     "verify", "test", "tests", "passes", "passing", "check", "build",
     "lint",
 )
-
-VERIFICATION_HINTS = {
-    "security": "Run security-focused tests plus the relevant normal suite; inspect permissions and secret handling.",
-    "release": "Run full tests, package/build checks, and version or artifact checks before publishing.",
-    "migration": "Run migration tests, compatibility checks, and rollback or fixture validation.",
-    "performance": "Run targeted benchmarks or profiling before and after the change.",
-    "frontend_ui": "Run build/lint plus browser or screenshot checks for affected views.",
-    "benchmark": "Run the benchmark harness and record JSON output, pass rates, evidence rates, and durations.",
-    "research": "Cite sources and record a verify claim only when no executable check exists.",
-    "review": "Read diffs/files and report findings with file and line references; tests are supporting evidence.",
-    "debugging": "Reproduce the failure first, then run the failing check again after the fix.",
-    "bugfix": "Run the failing or targeted regression test, then the nearest broader suite.",
-    "test_generation": "Run the added tests and confirm they fail before the fix when practical.",
-    "refactor": "Run the existing test suite and any type, lint, or build checks.",
-    "feature": "Run targeted tests for the feature plus the nearest broader suite.",
-    "docs": "Run docs generation, link checks, or a text/build check when available.",
-    "design": "Use verify claim for the design rationale, then create executable checks for implementation steps.",
-    "question": "No executable check is required unless the answer makes a factual or time-sensitive claim.",
-    "trivial": "Use the smallest available check, or no protocol command for a one-line answer.",
-}
+CLASSIFICATION_THRESHOLDS = CLASSIFICATION_MANIFEST["thresholds"]
+TRIVIAL_WORD_COUNT = int(CLASSIFICATION_THRESHOLDS["trivial_word_count"])
+HIGH_AMBIGUITY_WORD_COUNT = int(CLASSIFICATION_THRESHOLDS["high_ambiguity_word_count"])
+MEDIUM_AMBIGUITY_WORD_COUNT = int(CLASSIFICATION_THRESHOLDS["medium_ambiguity_word_count"])
+QUESTION_PREFIXES = tuple(str(prefix) for prefix in CLASSIFICATION_MANIFEST["question_prefixes"])
+VAGUE_REQUEST_TERMS = tuple(str(term) for term in CLASSIFICATION_MANIFEST["vague_request_terms"])
+RISK_POLICY = CLASSIFICATION_MANIFEST["risk"]
+HIGH_RISK_TERMS = classification_tuple("risk", "high_terms")
+HIGH_RISK_TASK_TYPES = classification_tuple("risk", "high_task_types")
+MEDIUM_RISK_TERMS = classification_tuple("risk", "medium_terms")
+MEDIUM_RISK_TASK_TYPES = classification_tuple("risk", "medium_task_types")
+CEREMONY_POLICY = CLASSIFICATION_MANIFEST["ceremony"]
+FANOUT_POLICY = CLASSIFICATION_MANIFEST["fanout"]
+FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST["fanout_visibility"]
+EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST["execution_profile"]
+NEXT_ACTIONS = CLASSIFICATION_MANIFEST["next_actions"]
+MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST["model_triage"]
+VERIFICATION_HINTS = CLASSIFICATION_MANIFEST["verification_hints"]
 
 TRIAGE_OUTPUT_SHAPE = {
     "primary_type": "string",
@@ -678,10 +702,6 @@ TRIAGE_OUTPUT_SHAPE = {
     "risk_notes": ["string"],
     "recommended_first_step": "string",
 }
-VAGUE_REQUEST_TERMS = (
-    "thing", "things", "stuff", "better", "problem", "issue", "issues",
-    "it", "this", "that", "something", "somehow", "maybe", "unclear",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -2655,9 +2675,11 @@ def _contains_any(text, terms):
 def classify_ambiguity(text, words, signals, scores, task_type):
     if task_type in ("question", "trivial"):
         return "low"
-    if _contains_any(text, VAGUE_REQUEST_TERMS) or (not signals and len(words) <= 18):
+    if _contains_any(text, VAGUE_REQUEST_TERMS) or (
+        not signals and len(words) <= HIGH_AMBIGUITY_WORD_COUNT
+    ):
         return "high"
-    if len(scores) > 1 or len(words) > 22:
+    if len(scores) > 1 or len(words) > MEDIUM_AMBIGUITY_WORD_COUNT:
         return "medium"
     return "low"
 
@@ -2666,102 +2688,58 @@ def model_triage_gate(task_type, risk, ceremony, ambiguity, text):
     if ceremony == "none":
         return (
             "skip",
-            "The deterministic classifier is enough for a simple question or one-step task.",
+            MODEL_TRIAGE_POLICY["none_reason"],
         )
-    high_impact_terms = (
-        "production", "payment", "credential", "secret", "data loss",
-        "delete", "remove", "drop", "deploy",
+    high_impact_terms = tuple(
+        str(term) for term in MODEL_TRIAGE_POLICY["high_impact_terms"]
     )
-    if risk == "high" and ambiguity == "high" and _contains_any(text, high_impact_terms):
+    if (
+        risk == "high"
+        and ambiguity == "high"
+        and _contains_any(text, high_impact_terms)
+    ):
         return (
             "required",
-            "High-impact ambiguous work deserves a cheap second read before planning.",
+            MODEL_TRIAGE_POLICY["high_impact_required_reason"],
         )
     if ambiguity == "high":
         return (
             "recommended",
-            "The request is underspecified enough that a fast framing pass can reduce rework.",
+            MODEL_TRIAGE_POLICY["high_ambiguity_reason"],
         )
-    if task_type in (
-        "research", "review", "benchmark", "design", "debugging",
-        "security", "migration", "release", "performance",
-    ):
+    if task_type in tuple(str(item) for item in MODEL_TRIAGE_POLICY["recommended_task_types"]):
         return (
             "recommended",
-            "This problem type benefits from an independent framing pass before execution.",
+            MODEL_TRIAGE_POLICY["recommended_reason"],
         )
-    if task_type in ("feature", "refactor", "frontend_ui", "bugfix", "test_generation") or risk == "medium":
+    if (
+        task_type in tuple(str(item) for item in MODEL_TRIAGE_POLICY["optional_task_types"])
+        or risk == "medium"
+    ):
         return (
             "optional",
-            "A fast triage pass may help, but the main worker can proceed without it.",
+            MODEL_TRIAGE_POLICY["optional_reason"],
         )
     return (
         "skip",
-        "The deterministic classification gives enough routing signal for this task.",
+        MODEL_TRIAGE_POLICY["skip_reason"],
     )
 
 
 def infer_fanout_visibility(text):
     normalized = " ".join(str(text or "").lower().split())
-    quiet_terms = (
-        "quiet",
-        "quietly",
-        "silent",
-        "silently",
-        "background only",
-        "do not show worker",
-        "don't show worker",
-        "do not show subagent",
-        "don't show subagent",
-        "no worker details",
-        "minimal progress",
-    )
-    threaded_terms = (
-        "threaded",
-        "visible thread",
-        "visible threads",
-        "separate thread",
-        "separate threads",
-        "separate chat",
-        "separate chats",
-        "show subagent chats",
-        "show sub-agent chats",
-        "visible subagent",
-        "visible sub-agent",
-    )
-    verbose_terms = (
-        "verbose",
-        "show details",
-        "show full",
-        "show logs",
-        "show worker output",
-        "show subagent output",
-        "show sub-agent output",
-        "detailed progress",
-        "full worker output",
-    )
-    if _contains_any(normalized, quiet_terms):
-        return (
-            "quiet",
-            "prompt",
-            "The prompt asks to keep background worker activity quiet.",
-        )
-    if _contains_any(normalized, threaded_terms):
-        return (
-            "threaded",
-            "prompt",
-            "The prompt asks for visible worker threads or separate chats when the host supports them.",
-        )
-    if _contains_any(normalized, verbose_terms):
-        return (
-            "verbose",
-            "prompt",
-            "The prompt asks to see detailed worker output or progress.",
-        )
+    for mode in FANOUT_VISIBILITY_POLICY["modes"]:
+        if _contains_any(normalized, tuple(str(term) for term in mode["terms"])):
+            return (
+                str(mode["visibility"]),
+                str(mode["source"]),
+                str(mode["reason"]),
+            )
+    default = FANOUT_VISIBILITY_POLICY["default"]
     return (
-        "summary",
-        "default",
-        "Summary visibility is the default: show worker titles, status, and notable results without flooding the chat.",
+        str(default["visibility"]),
+        str(default["source"]),
+        str(default["reason"]),
     )
 
 
@@ -2769,37 +2747,40 @@ def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
     if ceremony == "none":
         return (
             "direct",
-            "No protocol state is needed for a simple answer or one reversible edit.",
+            EXECUTION_PROFILE_POLICY["direct_reason"],
         )
     if ceremony == "full" or risk == "high":
         return (
             "full",
-            "High-risk or heavy work needs the full plan, verify, reflect, and state loop.",
+            EXECUTION_PROFILE_POLICY["full_reason"],
         )
     if ambiguity == "high":
         return (
             "standard",
-            "Ambiguous work needs a plan or fast triage before execution.",
+            EXECUTION_PROFILE_POLICY["ambiguous_reason"],
         )
-    focused_terms = (
-        "small", "single", "one file", "focused", "unit", "unittest",
-        "test", "tests", "bug", "fix", "failing", "regression",
+    focused_terms = tuple(str(term) for term in EXECUTION_PROFILE_POLICY["focused_terms"])
+    fast_task_types = tuple(
+        str(item) for item in EXECUTION_PROFILE_POLICY["fast_task_types"]
     )
-    if task_type in ("bugfix", "test_generation") or (
-        task_type in ("docs", "refactor") and _contains_any(text, focused_terms)
+    fast_focused_task_types = tuple(
+        str(item) for item in EXECUTION_PROFILE_POLICY["fast_focused_task_types"]
+    )
+    if task_type in fast_task_types or (
+        task_type in fast_focused_task_types and _contains_any(text, focused_terms)
     ):
         return (
             "fast",
-            "Focused low-risk work can skip plan state but must still use verify run.",
+            EXECUTION_PROFILE_POLICY["fast_reason"],
         )
     if ceremony == "light":
         return (
             "fast",
-            "Light work can use the fast profile unless it expands into multiple steps.",
+            EXECUTION_PROFILE_POLICY["light_reason"],
         )
     return (
         "standard",
-        "Use a plan with verifiable steps and verify run before completion.",
+        EXECUTION_PROFILE_POLICY["standard_reason"],
     )
 
 
@@ -2815,67 +2796,61 @@ def classify_task_text(task_text):
             signals.extend(matches)
     if scores:
         task_type = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
-    elif text.endswith("?") or any(text.startswith(prefix) for prefix in ("what ", "why ", "how ", "can ", "should ")):
+    elif text.endswith("?") or any(text.startswith(prefix) for prefix in QUESTION_PREFIXES):
         task_type = "question"
     elif _contains_any(text, VAGUE_REQUEST_TERMS):
         task_type = "feature"
-    elif len(words) <= 12:
+    elif len(words) <= TRIVIAL_WORD_COUNT:
         task_type = "trivial"
     else:
         task_type = "feature"
 
-    high_risk_terms = (
-        "delete", "remove", "drop", "destructive", "production", "payment",
-        "security", "secret", "credential", "auth", "authentication",
-        "authorization", "login", "release", "deploy", "migration", "schema",
-        "data loss", "permission", "permissions",
-    )
-    medium_risk_terms = (
-        "refactor", "dependency", "upgrade", "performance", "benchmark",
-        "multiple", "multi", "large", "cross", "api",
-    )
-    if _contains_any(text, high_risk_terms) or task_type in ("security", "release", "migration"):
+    if _contains_any(text, HIGH_RISK_TERMS) or task_type in HIGH_RISK_TASK_TYPES:
         risk = "high"
-    elif _contains_any(text, medium_risk_terms) or task_type in (
-        "feature", "refactor", "benchmark", "performance", "frontend_ui",
-    ):
+    elif _contains_any(text, MEDIUM_RISK_TERMS) or task_type in MEDIUM_RISK_TASK_TYPES:
         risk = "medium"
     else:
         risk = "low"
 
     ambiguity = classify_ambiguity(text, words, signals, scores, task_type)
 
-    if task_type in ("trivial", "question") and risk == "low":
+    if task_type in tuple(CEREMONY_POLICY["none_low_risk_task_types"]) and risk == "low":
         ceremony = "none"
-    elif risk == "low" and task_type in ("docs", "review", "research", "design"):
+    elif risk == "low" and task_type in tuple(CEREMONY_POLICY["light_low_risk_task_types"]):
         ceremony = "light"
-    elif risk == "high" or task_type in ("benchmark", "migration", "release", "security"):
+    elif risk == "high" or task_type in tuple(CEREMONY_POLICY["full_task_types"]):
         ceremony = "full"
     else:
         ceremony = "standard"
 
-    if task_type in ("research", "review", "benchmark", "design") or "parallel" in text:
+    if (
+        task_type in tuple(FANOUT_POLICY["recommended_task_types"])
+        or _contains_any(text, tuple(FANOUT_POLICY["recommended_terms"]))
+    ):
         fanout = "recommended"
-        fanout_reason = "Independent analysis or comparison work can be split across workers."
-    elif task_type in ("feature", "refactor", "frontend_ui") or "multiple files" in text:
+        fanout_reason = FANOUT_POLICY["recommended_reason"]
+    elif (
+        task_type in tuple(FANOUT_POLICY["optional_task_types"])
+        or _contains_any(text, tuple(FANOUT_POLICY["optional_terms"]))
+    ):
         fanout = "optional"
-        fanout_reason = "Use fanout only for independent subtasks; keep dependent implementation sequential."
+        fanout_reason = FANOUT_POLICY["optional_reason"]
     else:
         fanout = "not_recommended"
-        fanout_reason = "A single focused worker is simpler for this task type."
+        fanout_reason = FANOUT_POLICY["not_recommended_reason"]
 
     verification = VERIFICATION_HINTS.get(task_type, VERIFICATION_HINTS["feature"])
     execution_profile, execution_profile_reason = execution_profile_for(
         task_type, risk, ceremony, ambiguity, text
     )
     if execution_profile == "direct":
-        next_action = "Answer directly or make the single reversible edit; no plan is required."
+        next_action = NEXT_ACTIONS["direct"]
     elif execution_profile == "fast":
-        next_action = "Use the fast profile: skip plan state, make the focused change, and run verify run before completion."
+        next_action = NEXT_ACTIONS["fast"]
     elif execution_profile == "standard":
-        next_action = "Create a plan with verifiable steps, act step by step, and use verify run before completion."
+        next_action = NEXT_ACTIONS["standard"]
     else:
-        next_action = "Use the full loop: plan, memory, step updates, verify run, reflect on failures, and summarize."
+        next_action = NEXT_ACTIONS["full"]
 
     model_triage, model_triage_reason = model_triage_gate(
         task_type, risk, ceremony, ambiguity, text

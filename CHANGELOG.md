@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.27] - 2026-06-16
+
+### Changed
+
+- Classification policy facts now live in the shared
+  `protocol/classification-rules.json` manifest, including thresholds, risk and
+  ceremony buckets, fanout policy, execution profiles, model triage, next
+  actions, and verification hints. The CLI and MCP server load the same policy
+  data, and the manifest checker now validates those shared sections.
+
 ## [3.6.26] - 2026-06-16
 
 ### Fixed
@@ -786,7 +796,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.26...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.27...HEAD
+[3.6.27]: https://github.com/aihxp/mythify/compare/v3.6.26...v3.6.27
 [3.6.26]: https://github.com/aihxp/mythify/compare/v3.6.25...v3.6.26
 [3.6.25]: https://github.com/aihxp/mythify/compare/v3.6.24...v3.6.25
 [3.6.24]: https://github.com/aihxp/mythify/compare/v3.6.23...v3.6.24

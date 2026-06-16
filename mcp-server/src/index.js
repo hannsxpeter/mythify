@@ -129,7 +129,6 @@ const STEP_ICONS = {
 
 function loadClassificationRules() {
   const manifest = JSON.parse(fs.readFileSync(CLASSIFICATION_RULES_PATH, "utf8"));
-  const rules = [];
   const seen = new Set();
   for (const entry of manifest.task_types || []) {
     const taskType = String(entry?.id || "").trim();
@@ -138,12 +137,37 @@ function loadClassificationRules() {
       throw new Error("Invalid classification rule entry");
     }
     seen.add(taskType);
-    rules.push([taskType, terms.map(String)]);
   }
-  if (rules.length === 0) {
+  if (seen.size === 0) {
     throw new Error("Classification rules manifest is empty");
   }
-  return rules;
+  const requiredSections = [
+    "thresholds",
+    "risk",
+    "ceremony",
+    "fanout",
+    "fanout_visibility",
+    "execution_profile",
+    "next_actions",
+    "model_triage",
+    "verification_hints",
+  ];
+  for (const section of requiredSections) {
+    if (!manifest[section] || typeof manifest[section] !== "object" || Array.isArray(manifest[section])) {
+      throw new Error("Invalid classification policy section");
+    }
+  }
+  if (!manifest.verification_hints.feature) {
+    throw new Error("Classification verification hints are missing feature fallback");
+  }
+  return manifest;
+}
+
+function classificationTaskRules(manifest) {
+  return (manifest.task_types || []).map((entry) => [
+    String(entry.id),
+    (entry.terms || []).map(String),
+  ]);
 }
 
 function loadWorkflowRouter() {
@@ -164,32 +188,32 @@ function loadWorkflowRouter() {
   return manifest;
 }
 
-const CLASSIFICATION_RULES = loadClassificationRules();
+const CLASSIFICATION_MANIFEST = loadClassificationRules();
+const CLASSIFICATION_RULES = classificationTaskRules(CLASSIFICATION_MANIFEST);
 const WORKFLOW_ROUTER = loadWorkflowRouter();
 const WORKFLOW_ROUTE_IDS = WORKFLOW_ROUTER.routes.map((route) => String(route.id));
 const WORKFLOW_ROUTE_PROMPTS = Object.fromEntries(
   WORKFLOW_ROUTER.routes.map((route) => [String(route.id), String(route.prompt_packet || "next")])
 );
 
-const VERIFICATION_HINTS = {
-  security: "Run security-focused tests plus the relevant normal suite; inspect permissions and secret handling.",
-  release: "Run full tests, package/build checks, and version or artifact checks before publishing.",
-  migration: "Run migration tests, compatibility checks, and rollback or fixture validation.",
-  performance: "Run targeted benchmarks or profiling before and after the change.",
-  frontend_ui: "Run build/lint plus browser or screenshot checks for affected views.",
-  benchmark: "Run the benchmark harness and record JSON output, pass rates, evidence rates, and durations.",
-  research: "Cite sources and record a verify claim only when no executable check exists.",
-  review: "Read diffs/files and report findings with file and line references; tests are supporting evidence.",
-  debugging: "Reproduce the failure first, then run the failing check again after the fix.",
-  bugfix: "Run the failing or targeted regression test, then the nearest broader suite.",
-  test_generation: "Run the added tests and confirm they fail before the fix when practical.",
-  refactor: "Run the existing test suite and any type, lint, or build checks.",
-  feature: "Run targeted tests for the feature plus the nearest broader suite.",
-  docs: "Run docs generation, link checks, or a text/build check when available.",
-  design: "Use verify claim for the design rationale, then create executable checks for implementation steps.",
-  question: "No executable check is required unless the answer makes a factual or time-sensitive claim.",
-  trivial: "Use the smallest available check, or no protocol command for a one-line answer.",
-};
+const CLASSIFICATION_THRESHOLDS = CLASSIFICATION_MANIFEST.thresholds;
+const TRIVIAL_WORD_COUNT = Number(CLASSIFICATION_THRESHOLDS.trivial_word_count);
+const HIGH_AMBIGUITY_WORD_COUNT = Number(CLASSIFICATION_THRESHOLDS.high_ambiguity_word_count);
+const MEDIUM_AMBIGUITY_WORD_COUNT = Number(CLASSIFICATION_THRESHOLDS.medium_ambiguity_word_count);
+const QUESTION_PREFIXES = CLASSIFICATION_MANIFEST.question_prefixes.map(String);
+const VAGUE_REQUEST_TERMS = CLASSIFICATION_MANIFEST.vague_request_terms.map(String);
+const RISK_POLICY = CLASSIFICATION_MANIFEST.risk;
+const HIGH_RISK_TERMS = RISK_POLICY.high_terms.map(String);
+const HIGH_RISK_TASK_TYPES = RISK_POLICY.high_task_types.map(String);
+const MEDIUM_RISK_TERMS = RISK_POLICY.medium_terms.map(String);
+const MEDIUM_RISK_TASK_TYPES = RISK_POLICY.medium_task_types.map(String);
+const CEREMONY_POLICY = CLASSIFICATION_MANIFEST.ceremony;
+const FANOUT_POLICY = CLASSIFICATION_MANIFEST.fanout;
+const FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST.fanout_visibility;
+const EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST.execution_profile;
+const NEXT_ACTIONS = CLASSIFICATION_MANIFEST.next_actions;
+const MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST.model_triage;
+const VERIFICATION_HINTS = CLASSIFICATION_MANIFEST.verification_hints;
 
 const TRIAGE_OUTPUT_SHAPE = {
   primary_type: "string",
@@ -202,11 +226,6 @@ const TRIAGE_OUTPUT_SHAPE = {
   risk_notes: ["string"],
   recommended_first_step: "string",
 };
-
-const VAGUE_REQUEST_TERMS = [
-  "thing", "things", "stuff", "better", "problem", "issue", "issues",
-  "it", "this", "that", "something", "somehow", "maybe", "unclear",
-];
 
 // ---------------------------------------------------------------------------
 // Time and string helpers
@@ -4042,10 +4061,13 @@ function classifyAmbiguity(text, words, signals, scores, taskType) {
   if (["question", "trivial"].includes(taskType)) {
     return "low";
   }
-  if (containsAny(text, VAGUE_REQUEST_TERMS).length > 0 || (signals.length === 0 && words.length <= 18)) {
+  if (
+    containsAny(text, VAGUE_REQUEST_TERMS).length > 0 ||
+    (signals.length === 0 && words.length <= HIGH_AMBIGUITY_WORD_COUNT)
+  ) {
     return "high";
   }
-  if (Object.keys(scores).length > 1 || words.length > 22) {
+  if (Object.keys(scores).length > 1 || words.length > MEDIUM_AMBIGUITY_WORD_COUNT) {
     return "medium";
   }
   return "low";
@@ -4055,114 +4077,56 @@ function modelTriageGate(taskType, risk, ceremony, ambiguity, text) {
   if (ceremony === "none") {
     return [
       "skip",
-      "The deterministic classifier is enough for a simple question or one-step task.",
+      MODEL_TRIAGE_POLICY.none_reason,
     ];
   }
-  const highImpactTerms = [
-    "production", "payment", "credential", "secret", "data loss",
-    "delete", "remove", "drop", "deploy",
-  ];
+  const highImpactTerms = MODEL_TRIAGE_POLICY.high_impact_terms.map(String);
   if (risk === "high" && ambiguity === "high" && containsAny(text, highImpactTerms).length > 0) {
     return [
       "required",
-      "High-impact ambiguous work deserves a cheap second read before planning.",
+      MODEL_TRIAGE_POLICY.high_impact_required_reason,
     ];
   }
   if (ambiguity === "high") {
     return [
       "recommended",
-      "The request is underspecified enough that a fast framing pass can reduce rework.",
+      MODEL_TRIAGE_POLICY.high_ambiguity_reason,
     ];
   }
-  if (
-    [
-      "research", "review", "benchmark", "design", "debugging",
-      "security", "migration", "release", "performance",
-    ].includes(taskType)
-  ) {
+  if (MODEL_TRIAGE_POLICY.recommended_task_types.map(String).includes(taskType)) {
     return [
       "recommended",
-      "This problem type benefits from an independent framing pass before execution.",
+      MODEL_TRIAGE_POLICY.recommended_reason,
     ];
   }
-  if (["feature", "refactor", "frontend_ui", "bugfix", "test_generation"].includes(taskType) || risk === "medium") {
+  if (MODEL_TRIAGE_POLICY.optional_task_types.map(String).includes(taskType) || risk === "medium") {
     return [
       "optional",
-      "A fast triage pass may help, but the main worker can proceed without it.",
+      MODEL_TRIAGE_POLICY.optional_reason,
     ];
   }
   return [
     "skip",
-    "The deterministic classification gives enough routing signal for this task.",
+    MODEL_TRIAGE_POLICY.skip_reason,
   ];
 }
 
 function inferFanoutVisibility(text) {
   const normalized = String(text || "").toLowerCase().split(/\s+/).join(" ");
-  const quietTerms = [
-    "quiet",
-    "quietly",
-    "silent",
-    "silently",
-    "background only",
-    "do not show worker",
-    "don't show worker",
-    "do not show subagent",
-    "don't show subagent",
-    "no worker details",
-    "minimal progress",
-  ];
-  const threadedTerms = [
-    "threaded",
-    "visible thread",
-    "visible threads",
-    "separate thread",
-    "separate threads",
-    "separate chat",
-    "separate chats",
-    "show subagent chats",
-    "show sub-agent chats",
-    "visible subagent",
-    "visible sub-agent",
-  ];
-  const verboseTerms = [
-    "verbose",
-    "show details",
-    "show full",
-    "show logs",
-    "show worker output",
-    "show subagent output",
-    "show sub-agent output",
-    "detailed progress",
-    "full worker output",
-  ];
-  if (containsAny(normalized, quietTerms).length > 0) {
-    return {
-      visibility: "quiet",
-      source: "prompt",
-      reason: "The prompt asks to keep background worker activity quiet.",
-    };
+  for (const mode of FANOUT_VISIBILITY_POLICY.modes) {
+    if (containsAny(normalized, mode.terms.map(String)).length > 0) {
+      return {
+        visibility: String(mode.visibility),
+        source: String(mode.source),
+        reason: String(mode.reason),
+      };
+    }
   }
-  if (containsAny(normalized, threadedTerms).length > 0) {
-    return {
-      visibility: "threaded",
-      source: "prompt",
-      reason:
-        "The prompt asks for visible worker threads or separate chats when the host supports them.",
-    };
-  }
-  if (containsAny(normalized, verboseTerms).length > 0) {
-    return {
-      visibility: "verbose",
-      source: "prompt",
-      reason: "The prompt asks to see detailed worker output or progress.",
-    };
-  }
+  const defaultMode = FANOUT_VISIBILITY_POLICY.default;
   return {
-    visibility: "summary",
-    source: "default",
-    reason:
-      "Summary visibility is the default: show worker titles, status, and notable results without flooding the chat.",
+    visibility: String(defaultMode.visibility),
+    source: String(defaultMode.source),
+    reason: String(defaultMode.reason),
   };
 }
 
@@ -4170,43 +4134,42 @@ function executionProfileFor(taskType, risk, ceremony, ambiguity, text) {
   if (ceremony === "none") {
     return [
       "direct",
-      "No protocol state is needed for a simple answer or one reversible edit.",
+      EXECUTION_PROFILE_POLICY.direct_reason,
     ];
   }
   if (ceremony === "full" || risk === "high") {
     return [
       "full",
-      "High-risk or heavy work needs the full plan, verify, reflect, and state loop.",
+      EXECUTION_PROFILE_POLICY.full_reason,
     ];
   }
   if (ambiguity === "high") {
     return [
       "standard",
-      "Ambiguous work needs a plan or fast triage before execution.",
+      EXECUTION_PROFILE_POLICY.ambiguous_reason,
     ];
   }
-  const focusedTerms = [
-    "small", "single", "one file", "focused", "unit", "unittest",
-    "test", "tests", "bug", "fix", "failing", "regression",
-  ];
+  const focusedTerms = EXECUTION_PROFILE_POLICY.focused_terms.map(String);
+  const fastTaskTypes = EXECUTION_PROFILE_POLICY.fast_task_types.map(String);
+  const fastFocusedTaskTypes = EXECUTION_PROFILE_POLICY.fast_focused_task_types.map(String);
   if (
-    ["bugfix", "test_generation"].includes(taskType) ||
-    (["docs", "refactor"].includes(taskType) && containsAny(text, focusedTerms).length > 0)
+    fastTaskTypes.includes(taskType) ||
+    (fastFocusedTaskTypes.includes(taskType) && containsAny(text, focusedTerms).length > 0)
   ) {
     return [
       "fast",
-      "Focused low-risk work can skip plan state but must still use verify run.",
+      EXECUTION_PROFILE_POLICY.fast_reason,
     ];
   }
   if (ceremony === "light") {
     return [
       "fast",
-      "Light work can use the fast profile unless it expands into multiple steps.",
+      EXECUTION_PROFILE_POLICY.light_reason,
     ];
   }
   return [
     "standard",
-    "Use a plan with verifiable steps and verify run before completion.",
+    EXECUTION_PROFILE_POLICY.standard_reason,
   ];
 }
 
@@ -4228,33 +4191,23 @@ function classifyTaskText(taskText) {
     taskType = scoreEntries[0][0];
   } else if (
     text.endsWith("?") ||
-    ["what ", "why ", "how ", "can ", "should "].some((prefix) => text.startsWith(prefix))
+    QUESTION_PREFIXES.some((prefix) => text.startsWith(prefix))
   ) {
     taskType = "question";
   } else if (containsAny(text, VAGUE_REQUEST_TERMS).length > 0) {
     taskType = "feature";
-  } else if (words.length <= 12) {
+  } else if (words.length <= TRIVIAL_WORD_COUNT) {
     taskType = "trivial";
   } else {
     taskType = "feature";
   }
 
-  const highRiskTerms = [
-    "delete", "remove", "drop", "destructive", "production", "payment",
-    "security", "secret", "credential", "auth", "authentication",
-    "authorization", "login", "release", "deploy", "migration", "schema",
-    "data loss", "permission", "permissions",
-  ];
-  const mediumRiskTerms = [
-    "refactor", "dependency", "upgrade", "performance", "benchmark",
-    "multiple", "multi", "large", "cross", "api",
-  ];
   let risk;
-  if (containsAny(text, highRiskTerms).length > 0 || ["security", "release", "migration"].includes(taskType)) {
+  if (containsAny(text, HIGH_RISK_TERMS).length > 0 || HIGH_RISK_TASK_TYPES.includes(taskType)) {
     risk = "high";
   } else if (
-    containsAny(text, mediumRiskTerms).length > 0 ||
-    ["feature", "refactor", "benchmark", "performance", "frontend_ui"].includes(taskType)
+    containsAny(text, MEDIUM_RISK_TERMS).length > 0 ||
+    MEDIUM_RISK_TASK_TYPES.includes(taskType)
   ) {
     risk = "medium";
   } else {
@@ -4264,11 +4217,11 @@ function classifyTaskText(taskText) {
   const ambiguity = classifyAmbiguity(text, words, signals, scores, taskType);
 
   let ceremony;
-  if (["trivial", "question"].includes(taskType) && risk === "low") {
+  if (CEREMONY_POLICY.none_low_risk_task_types.map(String).includes(taskType) && risk === "low") {
     ceremony = "none";
-  } else if (risk === "low" && ["docs", "review", "research", "design"].includes(taskType)) {
+  } else if (risk === "low" && CEREMONY_POLICY.light_low_risk_task_types.map(String).includes(taskType)) {
     ceremony = "light";
-  } else if (risk === "high" || ["benchmark", "migration", "release", "security"].includes(taskType)) {
+  } else if (risk === "high" || CEREMONY_POLICY.full_task_types.map(String).includes(taskType)) {
     ceremony = "full";
   } else {
     ceremony = "standard";
@@ -4276,15 +4229,21 @@ function classifyTaskText(taskText) {
 
   let fanout;
   let fanoutReason;
-  if (["research", "review", "benchmark", "design"].includes(taskType) || text.includes("parallel")) {
+  if (
+    FANOUT_POLICY.recommended_task_types.map(String).includes(taskType) ||
+    containsAny(text, FANOUT_POLICY.recommended_terms.map(String)).length > 0
+  ) {
     fanout = "recommended";
-    fanoutReason = "Independent analysis or comparison work can be split across workers.";
-  } else if (["feature", "refactor", "frontend_ui"].includes(taskType) || text.includes("multiple files")) {
+    fanoutReason = FANOUT_POLICY.recommended_reason;
+  } else if (
+    FANOUT_POLICY.optional_task_types.map(String).includes(taskType) ||
+    containsAny(text, FANOUT_POLICY.optional_terms.map(String)).length > 0
+  ) {
     fanout = "optional";
-    fanoutReason = "Use fanout only for independent subtasks; keep dependent implementation sequential.";
+    fanoutReason = FANOUT_POLICY.optional_reason;
   } else {
     fanout = "not_recommended";
-    fanoutReason = "A single focused worker is simpler for this task type.";
+    fanoutReason = FANOUT_POLICY.not_recommended_reason;
   }
 
   const [executionProfile, executionProfileReason] = executionProfileFor(
@@ -4297,13 +4256,13 @@ function classifyTaskText(taskText) {
 
   let nextAction;
   if (executionProfile === "direct") {
-    nextAction = "Answer directly or make the single reversible edit; no plan is required.";
+    nextAction = NEXT_ACTIONS.direct;
   } else if (executionProfile === "fast") {
-    nextAction = "Use the fast profile: skip plan state, make the focused change, and run verify run before completion.";
+    nextAction = NEXT_ACTIONS.fast;
   } else if (executionProfile === "standard") {
-    nextAction = "Create a plan with verifiable steps, act step by step, and use verify run before completion.";
+    nextAction = NEXT_ACTIONS.standard;
   } else {
-    nextAction = "Use the full loop: plan, memory, step updates, verify run, reflect on failures, and summarize.";
+    nextAction = NEXT_ACTIONS.full;
   }
 
   const [modelTriage, modelTriageReason] = modelTriageGate(taskType, risk, ceremony, ambiguity, text);

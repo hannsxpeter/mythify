@@ -1,6 +1,275 @@
 {
-  "schema_version": 1,
-  "description": "Shared deterministic task classification keyword rules for the Python CLI and Node MCP server.",
+  "schema_version": 2,
+  "description": "Shared deterministic task classification policy for the Python CLI and Node MCP server.",
+  "thresholds": {
+    "trivial_word_count": 12,
+    "high_ambiguity_word_count": 18,
+    "medium_ambiguity_word_count": 22
+  },
+  "question_prefixes": [
+    "what ",
+    "why ",
+    "how ",
+    "can ",
+    "should "
+  ],
+  "vague_request_terms": [
+    "thing",
+    "things",
+    "stuff",
+    "better",
+    "problem",
+    "issue",
+    "issues",
+    "it",
+    "this",
+    "that",
+    "something",
+    "somehow",
+    "maybe",
+    "unclear"
+  ],
+  "risk": {
+    "high_terms": [
+      "delete",
+      "remove",
+      "drop",
+      "destructive",
+      "production",
+      "payment",
+      "security",
+      "secret",
+      "credential",
+      "auth",
+      "authentication",
+      "authorization",
+      "login",
+      "release",
+      "deploy",
+      "migration",
+      "schema",
+      "data loss",
+      "permission",
+      "permissions"
+    ],
+    "high_task_types": [
+      "security",
+      "release",
+      "migration"
+    ],
+    "medium_terms": [
+      "refactor",
+      "dependency",
+      "upgrade",
+      "performance",
+      "benchmark",
+      "multiple",
+      "multi",
+      "large",
+      "cross",
+      "api"
+    ],
+    "medium_task_types": [
+      "feature",
+      "refactor",
+      "benchmark",
+      "performance",
+      "frontend_ui"
+    ]
+  },
+  "ceremony": {
+    "none_low_risk_task_types": [
+      "trivial",
+      "question"
+    ],
+    "light_low_risk_task_types": [
+      "docs",
+      "review",
+      "research",
+      "design"
+    ],
+    "full_task_types": [
+      "benchmark",
+      "migration",
+      "release",
+      "security"
+    ]
+  },
+  "fanout": {
+    "recommended_task_types": [
+      "research",
+      "review",
+      "benchmark",
+      "design"
+    ],
+    "recommended_terms": [
+      "parallel"
+    ],
+    "recommended_reason": "Independent analysis or comparison work can be split across workers.",
+    "optional_task_types": [
+      "feature",
+      "refactor",
+      "frontend_ui"
+    ],
+    "optional_terms": [
+      "multiple files"
+    ],
+    "optional_reason": "Use fanout only for independent subtasks; keep dependent implementation sequential.",
+    "not_recommended_reason": "A single focused worker is simpler for this task type."
+  },
+  "fanout_visibility": {
+    "default": {
+      "visibility": "summary",
+      "source": "default",
+      "reason": "Summary visibility is the default: show worker titles, status, and notable results without flooding the chat."
+    },
+    "modes": [
+      {
+        "visibility": "quiet",
+        "source": "prompt",
+        "reason": "The prompt asks to keep background worker activity quiet.",
+        "terms": [
+          "quiet",
+          "quietly",
+          "silent",
+          "silently",
+          "background only",
+          "do not show worker",
+          "don't show worker",
+          "do not show subagent",
+          "don't show subagent",
+          "no worker details",
+          "minimal progress"
+        ]
+      },
+      {
+        "visibility": "threaded",
+        "source": "prompt",
+        "reason": "The prompt asks for visible worker threads or separate chats when the host supports them.",
+        "terms": [
+          "threaded",
+          "visible thread",
+          "visible threads",
+          "separate thread",
+          "separate threads",
+          "separate chat",
+          "separate chats",
+          "show subagent chats",
+          "show sub-agent chats",
+          "visible subagent",
+          "visible sub-agent"
+        ]
+      },
+      {
+        "visibility": "verbose",
+        "source": "prompt",
+        "reason": "The prompt asks to see detailed worker output or progress.",
+        "terms": [
+          "verbose",
+          "show details",
+          "show full",
+          "show logs",
+          "show worker output",
+          "show subagent output",
+          "show sub-agent output",
+          "detailed progress",
+          "full worker output"
+        ]
+      }
+    ]
+  },
+  "execution_profile": {
+    "direct_reason": "No protocol state is needed for a simple answer or one reversible edit.",
+    "full_reason": "High-risk or heavy work needs the full plan, verify, reflect, and state loop.",
+    "ambiguous_reason": "Ambiguous work needs a plan or fast triage before execution.",
+    "fast_reason": "Focused low-risk work can skip plan state but must still use verify run.",
+    "light_reason": "Light work can use the fast profile unless it expands into multiple steps.",
+    "standard_reason": "Use a plan with verifiable steps and verify run before completion.",
+    "fast_task_types": [
+      "bugfix",
+      "test_generation"
+    ],
+    "fast_focused_task_types": [
+      "docs",
+      "refactor"
+    ],
+    "focused_terms": [
+      "small",
+      "single",
+      "one file",
+      "focused",
+      "unit",
+      "unittest",
+      "test",
+      "tests",
+      "bug",
+      "fix",
+      "failing",
+      "regression"
+    ]
+  },
+  "next_actions": {
+    "direct": "Answer directly or make the single reversible edit; no plan is required.",
+    "fast": "Use the fast profile: skip plan state, make the focused change, and run verify run before completion.",
+    "standard": "Create a plan with verifiable steps, act step by step, and use verify run before completion.",
+    "full": "Use the full loop: plan, memory, step updates, verify run, reflect on failures, and summarize."
+  },
+  "model_triage": {
+    "none_reason": "The deterministic classifier is enough for a simple question or one-step task.",
+    "high_impact_terms": [
+      "production",
+      "payment",
+      "credential",
+      "secret",
+      "data loss",
+      "delete",
+      "remove",
+      "drop",
+      "deploy"
+    ],
+    "high_impact_required_reason": "High-impact ambiguous work deserves a cheap second read before planning.",
+    "high_ambiguity_reason": "The request is underspecified enough that a fast framing pass can reduce rework.",
+    "recommended_task_types": [
+      "research",
+      "review",
+      "benchmark",
+      "design",
+      "debugging",
+      "security",
+      "migration",
+      "release",
+      "performance"
+    ],
+    "recommended_reason": "This problem type benefits from an independent framing pass before execution.",
+    "optional_task_types": [
+      "feature",
+      "refactor",
+      "frontend_ui",
+      "bugfix",
+      "test_generation"
+    ],
+    "optional_reason": "A fast triage pass may help, but the main worker can proceed without it.",
+    "skip_reason": "The deterministic classification gives enough routing signal for this task."
+  },
+  "verification_hints": {
+    "security": "Run security-focused tests plus the relevant normal suite; inspect permissions and secret handling.",
+    "release": "Run full tests, package/build checks, and version or artifact checks before publishing.",
+    "migration": "Run migration tests, compatibility checks, and rollback or fixture validation.",
+    "performance": "Run targeted benchmarks or profiling before and after the change.",
+    "frontend_ui": "Run build/lint plus browser or screenshot checks for affected views.",
+    "benchmark": "Run the benchmark harness and record JSON output, pass rates, evidence rates, and durations.",
+    "research": "Cite sources and record a verify claim only when no executable check exists.",
+    "review": "Read diffs/files and report findings with file and line references; tests are supporting evidence.",
+    "debugging": "Reproduce the failure first, then run the failing check again after the fix.",
+    "bugfix": "Run the failing or targeted regression test, then the nearest broader suite.",
+    "test_generation": "Run the added tests and confirm they fail before the fix when practical.",
+    "refactor": "Run the existing test suite and any type, lint, or build checks.",
+    "feature": "Run targeted tests for the feature plus the nearest broader suite.",
+    "docs": "Run docs generation, link checks, or a text/build check when available.",
+    "design": "Use verify claim for the design rationale, then create executable checks for implementation steps.",
+    "question": "No executable check is required unless the answer makes a factual or time-sensitive claim.",
+    "trivial": "Use the smallest available check, or no protocol command for a one-line answer."
+  },
   "task_types": [
     {
       "id": "security",

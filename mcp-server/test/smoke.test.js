@@ -147,6 +147,19 @@ test("mythify MCP server smoke test", async (t) => {
       assert.deepEqual(WORKFLOW_ROUTER, ROOT_WORKFLOW_ROUTER);
       assert.deepEqual(OPERATION_REGISTRY, ROOT_OPERATION_REGISTRY);
       assert.deepEqual(SURFACE_MANIFEST, ROOT_SURFACE_MANIFEST);
+      assert.equal(CLASSIFICATION_RULES.schema_version, 2);
+      assert.equal(CLASSIFICATION_RULES.thresholds.trivial_word_count, 12);
+      assert.ok(CLASSIFICATION_RULES.question_prefixes.includes("what "));
+      assert.ok(CLASSIFICATION_RULES.vague_request_terms.includes("better"));
+      assert.ok(CLASSIFICATION_RULES.risk.high_task_types.includes("release"));
+      assert.ok(CLASSIFICATION_RULES.ceremony.light_low_risk_task_types.includes("review"));
+      assert.ok(CLASSIFICATION_RULES.fanout.recommended_task_types.includes("benchmark"));
+      assert.ok(CLASSIFICATION_RULES.fanout.optional_terms.includes("multiple files"));
+      assert.equal(CLASSIFICATION_RULES.fanout_visibility.default.visibility, "summary");
+      assert.ok(CLASSIFICATION_RULES.execution_profile.fast_task_types.includes("bugfix"));
+      assert.ok(Object.hasOwn(CLASSIFICATION_RULES.next_actions, "standard"));
+      assert.ok(CLASSIFICATION_RULES.model_triage.recommended_task_types.includes("debugging"));
+      assert.ok(Object.hasOwn(CLASSIFICATION_RULES.verification_hints, "feature"));
     });
 
     await t.test("classify_task recommends ceremony and verification", async () => {
