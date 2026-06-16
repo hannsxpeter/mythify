@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.41] - 2026-06-16
+
+### Changed
+
+- Extracted Python outcome loop store and command handlers into a direct-import
+  `mythify_outcomes.py` module.
+- Added direct module coverage for outcome helpers while keeping CLI outcome,
+  view, prompt, route, copied drop-in, and local eval coverage.
+
 ## [3.6.40] - 2026-06-16
 
 ### Changed
@@ -917,7 +926,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.40...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.41...HEAD
+[3.6.41]: https://github.com/aihxp/mythify/compare/v3.6.40...v3.6.41
 [3.6.40]: https://github.com/aihxp/mythify/compare/v3.6.39...v3.6.40
 [3.6.39]: https://github.com/aihxp/mythify/compare/v3.6.38...v3.6.39
 [3.6.38]: https://github.com/aihxp/mythify/compare/v3.6.37...v3.6.38

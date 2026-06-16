@@ -27,6 +27,7 @@ PY_CLASSIFICATION = REPO_ROOT / "scripts" / "mythify_classification.py"
 PY_HOST_MODEL = REPO_ROOT / "scripts" / "mythify_host_model.py"
 PY_IO = REPO_ROOT / "scripts" / "mythify_io.py"
 PY_MODEL_POLICY = REPO_ROOT / "scripts" / "mythify_model_policy.py"
+PY_OUTCOMES = REPO_ROOT / "scripts" / "mythify_outcomes.py"
 PY_ROUTER = REPO_ROOT / "scripts" / "mythify_router.py"
 PY_TRACE = REPO_ROOT / "scripts" / "mythify_trace.py"
 PY_WORKFLOWS = REPO_ROOT / "scripts" / "mythify_workflows.py"
@@ -251,6 +252,66 @@ class TestDurableIo(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
 
 
+class TestOutcomeStore(unittest.TestCase):
+    def load_outcomes_module(self):
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        spec = importlib.util.spec_from_file_location(
+            "mythify_outcomes_under_test",
+            PY_OUTCOMES,
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_outcome_helpers_import_directly(self):
+        mythify = self.load_outcomes_module()
+        timestamp = "2026-06-16T00:00:00+00:00"
+
+        def find_by_name(state, name, path_func):
+            return name if path_func(state, name).exists() else None
+
+        mythify.configure_outcome_loops(
+            find_existing_slug_by_name_func=find_by_name,
+            now_iso_func=lambda: timestamp,
+            slugify_func=lambda text: str(text).strip().lower().replace(" ", "-"),
+            run_shell_capture_func=lambda command, timeout: {
+                "command": command,
+                "exit_code": 0,
+                "duration_seconds": 0.01,
+                "stdout_tail": "42",
+                "stderr_tail": "",
+                "verified": True,
+            },
+            verification_step_context_func=lambda state: {"plan": None, "step_id": None},
+        )
+        state = Path(tempfile.mkdtemp(prefix="mythify-outcomes-test-"))
+        self.addCleanup(shutil.rmtree, str(state), True)
+        goal = {
+            "id": "ship-outcome",
+            "goal": "Ship outcome helper",
+            "success_criteria": "tests pass",
+            "verify_command": "python3 -m unittest",
+            "metric_command": "",
+            "max_iterations": 2,
+            "iteration_count": 0,
+            "allowed_paths": [],
+            "visibility": "summary",
+            "status": "active",
+            "created": timestamp,
+            "updated": timestamp,
+        }
+        mythify.save_outcome(state, "ship-outcome", goal)
+        mythify.set_active_outcome_slug(state, "ship-outcome")
+        slug, loaded = mythify.load_outcome(state)
+        self.assertEqual(slug, "ship-outcome")
+        self.assertEqual(loaded["goal"], "Ship outcome helper")
+        self.assertEqual(mythify.parse_allowed_paths("a,b, c "), ["a", "b", "c"])
+        self.assertEqual(mythify.parse_metric_score("score=41.5"), 41.5)
+        self.assertIn("Outcome ship-outcome", mythify.format_outcome_status(slug, loaded))
+
+
 class TestWorkflowStores(unittest.TestCase):
     def load_workflows_module(self):
         scripts_dir = str(REPO_ROOT / "scripts")
@@ -424,6 +485,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             PY_MODEL_POLICY,
             self.project / "scripts" / "mythify_model_policy.py",
+        )
+        shutil.copy2(
+            PY_OUTCOMES,
+            self.project / "scripts" / "mythify_outcomes.py",
         )
         shutil.copy2(
             PY_ROUTER,

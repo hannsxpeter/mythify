@@ -392,6 +392,10 @@ def install_mythify(workspace):
         workspace / "scripts" / "mythify_model_policy.py",
     )
     shutil.copy2(
+        root / "scripts" / "mythify_outcomes.py",
+        workspace / "scripts" / "mythify_outcomes.py",
+    )
+    shutil.copy2(
         root / "scripts" / "mythify_router.py",
         workspace / "scripts" / "mythify_router.py",
     )
