@@ -161,6 +161,13 @@ class TestInit(CliTestCase):
         self.assertIn("Labs surfaces:", result.stdout)
         self.assertIn("Strict evidence mode:", result.stdout)
 
+    def test_version_exits_zero_without_workspace(self):
+        result = self.run_cli("--version")
+        self.assertEqual(result.returncode, 0)
+        help_result = self.run_cli("--help")
+        self.assertIn(result.stdout.strip() + ":", help_result.stdout)
+        self.assertEqual(result.stderr, "")
+
 
 class TestProtocolHandshake(CliTestCase):
     def test_protocol_check_accepts_repo_protocol_and_generated_variants(self):

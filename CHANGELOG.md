@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CLI now supports `--version` from a single Python version constant.
+
+### Changed
+
+- MCP server startup now reads its reported version from `package.json` instead
+  of a separate hardcoded JavaScript constant.
+
 ## [3.6.10] - 2026-06-15
 
 ### Fixed

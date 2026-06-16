@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
+VERSION = "3.6.10"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -9055,7 +9056,7 @@ def build_parser():
         prog="mythify.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Mythify v3.6.10: evidence protocol for AI coding agents. Route broad "
+            "Mythify v{0}: evidence protocol for AI coding agents. Route broad ".format(VERSION) +
             "work first, keep state in .mythify, and verify completion claims "
             "with executed commands."
         ),
@@ -9082,6 +9083,7 @@ def build_parser():
             "  set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion\n"
         ),
     )
+    parser.add_argument("--version", action="version", version="Mythify v{0}".format(VERSION))
     parser.set_defaults(needs_state=True)
     sub = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
 

@@ -1984,5 +1984,5 @@ captured subprocess output for local CLI and command fanout workers; 3.6.8
 adds default `.mythify/` `.gitignore` coverage during CLI init; 3.6.9 adds the
 MCP server dependency audit gate to the Node CI matrix; 3.6.10 marks MCP
 `[FAIL]` tool results with `isError: true`.
-The CLI prints no version banner; the MCP server reports 3.6.10 through its
-server info.
+The CLI reports 3.6.10 through `--version`; the MCP server reads `package.json`
+and reports the package version through server info.
