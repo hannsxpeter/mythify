@@ -118,6 +118,7 @@ function main() {
     registeredTools([
       "mcp-server/src/index.js",
       "mcp-server/src/adapter-tools.js",
+      "mcp-server/src/view-tools.js",
     ]),
     coreTools
   );

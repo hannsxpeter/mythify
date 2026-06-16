@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.47] - 2026-06-16
+
+### Changed
+
+- Extracted MCP read-only view tool registrations into the direct-import
+  `mcp-server/src/view-tools.js` module.
+- Added direct module coverage for the view tool registrar while keeping the
+  surface manifest guard aware of extracted registration modules.
+
 ## [3.6.46] - 2026-06-16
 
 ### Changed
@@ -973,7 +982,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.46...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.47...HEAD
+[3.6.47]: https://github.com/aihxp/mythify/compare/v3.6.46...v3.6.47
 [3.6.46]: https://github.com/aihxp/mythify/compare/v3.6.45...v3.6.46
 [3.6.45]: https://github.com/aihxp/mythify/compare/v3.6.44...v3.6.45
 [3.6.44]: https://github.com/aihxp/mythify/compare/v3.6.43...v3.6.44
