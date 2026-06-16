@@ -31,7 +31,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 | Code Quality and Maintainability | 74 | C | 15% | Consistent, well-named, low dead code, but two ~10k-line god-modules and pervasive cross-runtime duplication. |
 | Testing and Verification | 84 | B | 15% | 227 tests, ~2,300 real assertions, no theater, deterministic, gate edges covered; the one gap (no cross-runtime conformance test) is exactly what let the divergences through. |
 | Error Handling and Resilience | 76 | C | 10% | Solid single-process behavior, corruption quarantine, JSONL locking, atomic-write fsync, and fanout process-tree cleanup; broader state concurrency remains. |
-| Performance and Efficiency | 82 | B | 8% | Fine for a CLI; the evidence ledger is re-read in full on every gate/report and grows unbounded between compactions. |
+| Performance and Efficiency | 86 | B | 8% | Fine for a CLI; strict gates and cursor reports now use bounded tail reads, with full scans reserved for explicit history/readiness surfaces. |
 | Dependencies and Supply Chain | 90 | A- | 7% | Zero-dep Python; two pinned, current Node deps with lockfile + SRI + Dependabot. Only gap: no `npm audit` gate in CI. |
 | Documentation and Drift | 86 | B | 5% | Verified claims hold (40-tool count, protocol-hash check, variant sync); two small drift items. |
 | Observability and Operability | 84 | B | 5% | Clean exit-code discipline, `[OK]`/`[FAIL]`/`[WARN]`, quarantine warnings, log compaction. Minor MCP `isError` nit. |
@@ -70,7 +70,7 @@ Last updated: 2026-06-16.
 - [x] ~~[ERR-002] `append_jsonl` is non-atomic for large records~~ - Completed in v3.6.17 by surfacing malformed JSONL records.
 - [x] ~~[ERR-003] No `fsync` before atomic rename~~ - Completed in v3.6.24.
 - [x] ~~[ERR-005] Fanout timeout kills only the direct child; shell-engine grandchildren can orphan~~ - Completed in v3.6.25.
-- [ ] [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded - Open.
+- [x] ~~[PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded~~ - Completed in v3.6.26.
 - [x] ~~[DEP-001] No `npm audit` gate in CI~~ - Completed in v3.6.9.
 - [x] ~~[TEST-002] Read-only view commands are lightly tested~~ - Completed in v3.6.14.
 - [x] ~~[DOC-001] `roadmap.md` references a stale release~~ - Completed in v3.6.12.
@@ -264,10 +264,11 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 ### [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded
 - Severity: Low | Confidence: Confirmed | Effort: M | Dimension: Performance and Efficiency
 - Location: gate read `scripts/mythify.py:8327` (`read_jsonl(state / "verifications.jsonl")`), report assembly reads all records; `verifications.jsonl` is already 3.2 MB / ~1,533 records in this repo.
-- Evidence: `cmd_step`, the report, and verify-context all read the entire `verifications.jsonl` each invocation. The file grows without bound between manual `logs compact` runs.
-- Impact: O(n) work per operation that grows with project age; currently fast but unbounded. For a tool whose value is a durable ledger, the ledger's read cost is on every hot path.
-- Recommendation: Read the tail or maintain a small index for the gate's "since lower_bound" query; encourage/automate compaction.
-- Verify the fix: gate-check time stays roughly constant as the ledger grows.
+- Status: Completed in v3.6.26.
+- Evidence: CLI and MCP strict step gates now use `read_jsonl_since` / `readJsonlSince` to read verification records from a timestamp-bounded tail window. `report --since last` and MCP `work_report` use the same bounded reader for verification and reflection logs when the cursor has a lower-bound event. Full scans remain for explicit history, readiness, summary, and `report --since start` surfaces.
+- Impact: The hot-path gate and cursor report cost is now bounded by the recent log window in normal use, while preserving correctness by falling back to older chunks until a pre-boundary record is found.
+- Recommendation: Complete. Keep `logs compact` for archival control and full-history surfaces.
+- Verify the fix: `tests.test_mythify.TestDurableIo` confirms the Python tail reader ignores an old malformed prefix when a valid boundary record is in the tail; `mcp-server/test/durable-io.test.js` checks MCP gate and report call sites use the bounded reader.
 - Related: SP-2.
 
 ### [DEP-001] No `npm audit` gate in CI
@@ -331,7 +332,7 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 - **Code Quality (74):** Naming, consistency, and dead-code hygiene are good; the drag is the two god-modules (QUAL-001) and the cross-runtime duplication.
 - **Testing (84):** A genuine strength in depth and honesty; v3.6.18 closes the strict gate-decision conformance gap, and v3.6.19 adds verifier failure parity regressions.
 - **Error Handling (76):** Single-process behavior and corruption quarantine are solid; v3.6.20 closes the JSONL compaction race, v3.6.24 fsyncs atomic state rewrites, and v3.6.25 kills fanout subprocess process groups. Broader SP-2 concurrency risks remain.
-- **Performance (82):** Adequate for a CLI; PERF-001 (full-ledger re-read, unbounded growth) is the only structural note.
+- **Performance (86):** Adequate for a CLI; v3.6.26 bounds recent gate and cursor-report ledger reads, while explicit full-history surfaces still scan the full log by design.
 - **Dependencies (90):** Best dimension; only DEP-001 (no CI audit gate) keeps it from A.
 - **Documentation (86):** Verified accurate on the claims that matter; DOC-001/002 are small drift items.
 - **Observability (84):** Good for the tool class; OBS-001 is a minor client-ergonomics nit.
@@ -341,7 +342,7 @@ Several original controls existed in name or partial form. The concrete SEC-001,
 - **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, ERR-002, and ERR-004.
 - **Plan now** (High/Critical and scheduled Medium work, suggested order): QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
 - **Verify first** (Suspected; re-check the cited code before acting): none remaining.
-- **Backlog** (Low; batch): PERF-001.
+- **Backlog** (Low; batch): none remaining.
 
 ## Scope and limitations
 

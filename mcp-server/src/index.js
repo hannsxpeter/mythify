@@ -62,6 +62,7 @@ const REDACTED_SECRET = "[REDACTED]";
 const DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const JSONL_LOCK_TIMEOUT_MS = 10000;
 const JSONL_LOCK_POLL_MS = 50;
+const JSONL_TAIL_CHUNK_BYTES = 64 * 1024;
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
 const OUTCOME_STATUSES = ["active", "succeeded", "failed", "stopped"];
 const FALSE_ENV_VALUES = new Set(["0", "false", "no", "off"]);
@@ -1879,6 +1880,66 @@ function readJsonl(filePath) {
   return records;
 }
 
+function parseJsonlLines(filePath, lines) {
+  const records = [];
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      return;
+    }
+    try {
+      records.push(JSON.parse(trimmed));
+    } catch {
+      process.stderr.write(`[WARN] Skipping malformed JSONL record in ${filePath} while reading tail.\n`);
+    }
+  });
+  return records;
+}
+
+function readJsonlSince(filePath, lowerBound) {
+  if (typeof lowerBound !== "string" || lowerBound === "") {
+    return readJsonl(filePath);
+  }
+  let size;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return [];
+  }
+  let offset = size;
+  let data = Buffer.alloc(0);
+  const fd = fs.openSync(filePath, "r");
+  try {
+    while (offset > 0) {
+      const readSize = Math.min(JSONL_TAIL_CHUNK_BYTES, offset);
+      offset -= readSize;
+      const chunk = Buffer.alloc(readSize);
+      fs.readSync(fd, chunk, 0, readSize, offset);
+      data = Buffer.concat([chunk, data]);
+      let lines = data.toString("utf8").split(/\r?\n/);
+      if (offset > 0 && lines.length > 0) {
+        lines = lines.slice(1);
+      }
+      const records = parseJsonlLines(filePath, lines);
+      if (
+        records.some(
+          (record) =>
+            record.timestamp && !timestampAtOrAfter(String(record.timestamp), lowerBound, true)
+        )
+      ) {
+        return records.filter((record) =>
+          timestampAtOrAfter(String(record.timestamp || ""), lowerBound, true)
+        );
+      }
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return parseJsonlLines(filePath, data.toString("utf8").split(/\r?\n/)).filter((record) =>
+    timestampAtOrAfter(String(record.timestamp || ""), lowerBound, true)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Memory store
 // ---------------------------------------------------------------------------
@@ -2662,7 +2723,7 @@ function buildReportAttentionEvents(events) {
   return items;
 }
 
-function buildReportEvents() {
+function buildReportEvents(logLowerBound = "") {
   const events = [];
   for (const slug of listPlanSlugs()) {
     const plan = readJsonRecover(planPath(slug), () => null);
@@ -2701,7 +2762,7 @@ function buildReportEvents() {
       });
     }
   }
-  const verifications = readJsonl(verificationsPath());
+  const verifications = readJsonlSince(verificationsPath(), logLowerBound);
   verifications.forEach((record, index) => {
     let summary;
     let detail;
@@ -2732,7 +2793,7 @@ function buildReportEvents() {
       verified,
     });
   });
-  const reflections = readJsonl(reflectionsPath());
+  const reflections = readJsonlSince(reflectionsPath(), logLowerBound);
   reflections.forEach((record, index) => {
     events.push({
       key: `reflection:${index + 1}:${record.timestamp || ""}`,
@@ -2781,7 +2842,12 @@ function buildWorkReport({
   }
   const cursorName = reportCursorName(cursor);
   const marker = readJsonRecover(reportCursorPath(cursorName), () => ({}));
-  const allEvents = buildReportEvents();
+  const lastEvent = marker && typeof marker === "object" ? marker.last_event : null;
+  const logLowerBound =
+    since === "last" && !mark && lastEvent && typeof lastEvent === "object"
+      ? lastEvent.timestamp || ""
+      : "";
+  const allEvents = buildReportEvents(logLowerBound);
   const candidateEvents = mark ? [] : since === "last" ? eventsAfterMarker(allEvents, marker) : allEvents;
   const visibleEvents = recent === 0 ? [] : candidateEvents.slice(Math.max(0, candidateEvents.length - recent));
   const attentionCandidates = buildReportAttentionEvents(candidateEvents);
@@ -8685,7 +8751,7 @@ server.registerTool(
         typeof step.updated_at === "string" && step.updated_at !== ""
           ? step.updated_at
           : plan.created;
-      const verifications = readJsonl(verificationsPath());
+      const verifications = readJsonlSince(verificationsPath(), lowerBound);
       const hasPassingRun = verifications.some(
         (record) =>
           record &&

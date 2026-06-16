@@ -9,6 +9,8 @@ per-test temp project directory.
 import json
 import hashlib
 import importlib.util
+import contextlib
+import io
 import os
 import shutil
 import subprocess
@@ -206,6 +208,27 @@ class TestDurableIo(unittest.TestCase):
 
         self.assertEqual(target.read_text(encoding="utf-8"), "{\"ok\": true}\n")
         self.assertEqual(events[:3], ["fsync", "replace", "fsync"])
+
+    def test_read_jsonl_since_uses_tail_window_for_recent_records(self):
+        mythify = load_cli_module()
+        tmp = Path(tempfile.mkdtemp(prefix="mythify-tail-test-"))
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        log = tmp / "verifications.jsonl"
+        old = {"timestamp": "2020-01-01T00:00:00+00:00", "kind": "executed"}
+        new = {"timestamp": "2026-01-01T00:00:00+00:00", "kind": "executed"}
+        log.write_text(
+            "{bad-json" + ("x" * (mythify.JSONL_TAIL_CHUNK_BYTES + 1024)) + "\n"
+            + json.dumps(old) + "\n"
+            + json.dumps(new) + "\n",
+            encoding="utf-8",
+        )
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            records = mythify.read_jsonl_since(log, "2025-01-01T00:00:00+00:00")
+
+        self.assertEqual(records, [new])
+        self.assertEqual(stderr.getvalue(), "")
 
 
 class TestProtocolHandshake(CliTestCase):

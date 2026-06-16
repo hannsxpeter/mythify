@@ -835,7 +835,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.25`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.26`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1952,7 +1952,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.25. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.26. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2003,6 +2003,7 @@ semantics; 3.6.20 adds shared JSONL locks for appends and log compaction;
 explicit host CLI `bin` overrides to selected-host binary names; 3.6.24 fsyncs
 atomic state-file temp files before rename and best-effort fsyncs parent
 directories after rename; 3.6.25 kills fanout subprocess process groups on
-timeout and output-cap failures.
-The CLI reports 3.6.25 through `--version`; the MCP server reads `package.json`
+timeout and output-cap failures; 3.6.26 uses bounded JSONL tail reads for
+recent strict gates and cursor-based reports.
+The CLI reports 3.6.26 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

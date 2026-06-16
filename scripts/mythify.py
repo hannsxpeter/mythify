@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.25"
+VERSION = "3.6.26"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -128,6 +128,7 @@ DEFAULT_VERIFY_TIMEOUT = 300.0
 DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 DEFAULT_LOG_COMPACT_KEEP = 1000
 JSONL_LOCK_TIMEOUT_SECONDS = 10.0
+JSONL_TAIL_CHUNK_BYTES = 64 * 1024
 LOG_COMPACT_TARGETS = ("verifications.jsonl", "reflections.jsonl")
 TRIAGE_ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
 TRIAGE_MODES = ("never", "auto", "always")
@@ -973,6 +974,67 @@ def read_jsonl(path):
                 )
                 continue
     return records
+
+
+def _parse_jsonl_lines(path, lines, line_number_offset=None):
+    records = []
+    for index, line in enumerate(lines, start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            if line_number_offset is None:
+                location = "while reading tail"
+            else:
+                location = "at line {0}".format(line_number_offset + index)
+            sys.stderr.write(
+                "[WARN] Skipping malformed JSONL record in {0} {1}.\n".format(
+                    path, location
+                )
+            )
+            continue
+    return records
+
+
+def read_jsonl_since(path, lower_bound):
+    """Read JSONL records at or after lower_bound with a tail-window fast path."""
+    if not lower_bound:
+        return read_jsonl(path)
+    path = Path(path)
+    if not path.exists():
+        return []
+    size = path.stat().st_size
+    offset = size
+    data = b""
+    while offset > 0:
+        read_size = min(JSONL_TAIL_CHUNK_BYTES, offset)
+        offset -= read_size
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            data = handle.read(read_size) + data
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        if offset > 0 and lines:
+            lines = lines[1:]
+        records = _parse_jsonl_lines(path, lines)
+        if any(
+            record.get("timestamp")
+            and not timestamp_at_or_after(record.get("timestamp", ""), lower_bound, True)
+            for record in records
+        ):
+            return [
+                record for record in records
+                if timestamp_at_or_after(record.get("timestamp", ""), lower_bound, True)
+            ]
+    return [
+        record
+        for record in _parse_jsonl_lines(
+            path, data.decode("utf-8", errors="replace").splitlines()
+        )
+        if timestamp_at_or_after(record.get("timestamp", ""), lower_bound, True)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -4746,7 +4808,7 @@ def build_report_attention_events(events):
     return items
 
 
-def build_report_events(state):
+def build_report_events(state, log_lower_bound=""):
     events = []
     for slug in list_plan_slugs(state):
         plan = load_plan(state, slug)
@@ -4790,7 +4852,7 @@ def build_report_events(state):
                     "verified": None,
                 }
             )
-    verifications = read_jsonl(state / "verifications.jsonl")
+    verifications = read_jsonl_since(state / "verifications.jsonl", log_lower_bound)
     for index, record in enumerate(verifications, start=1):
         kind = record.get("kind", "unknown")
         if kind == "executed":
@@ -4822,7 +4884,7 @@ def build_report_events(state):
                 "verified": verified,
             }
         )
-    reflections = read_jsonl(state / "reflections.jsonl")
+    reflections = read_jsonl_since(state / "reflections.jsonl", log_lower_bound)
     for index, record in enumerate(reflections, start=1):
         summary = "Reflection {0}: {1}".format(
             record.get("outcome", "unknown"),
@@ -4881,7 +4943,12 @@ def build_work_report(
     marker = read_json(marker_path, {})
     if not isinstance(marker, dict):
         marker = {}
-    all_events = build_report_events(state)
+    lower_bound = ""
+    if since == "last" and not mark:
+        last_event = marker.get("last_event") if isinstance(marker, dict) else None
+        if isinstance(last_event, dict):
+            lower_bound = last_event.get("timestamp") or ""
+    all_events = build_report_events(state, lower_bound)
     if mark:
         candidate_events = []
     elif since == "last":
@@ -8457,7 +8524,7 @@ def cmd_step(args, state):
         return 1
     if args.status == "completed" and strict_step_evidence_enabled():
         lower_bound = step.get("updated_at") or plan.get("created", "")
-        records = read_jsonl(state / "verifications.jsonl")
+        records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
         satisfied = any(
             record.get("kind") == "executed"
             and record.get("verified") is True

@@ -33,3 +33,12 @@ test("MCP directory fsync helper is best effort", () => {
   assert.match(body, /fs\.fsyncSync\(fd\)/);
   assert.match(body, /catch \{/);
 });
+
+test("MCP bounded JSONL reader is used by report and strict step gates", () => {
+  assert.match(INDEX_SOURCE, /const JSONL_TAIL_CHUNK_BYTES = 64 \* 1024;/);
+  assert.match(INDEX_SOURCE, /function readJsonlSince\(filePath, lowerBound\)/);
+  assert.match(INDEX_SOURCE, /function buildReportEvents\(logLowerBound = ""\)/);
+  assert.match(INDEX_SOURCE, /readJsonlSince\(verificationsPath\(\), logLowerBound\)/);
+  assert.match(INDEX_SOURCE, /readJsonlSince\(reflectionsPath\(\), logLowerBound\)/);
+  assert.match(INDEX_SOURCE, /readJsonlSince\(verificationsPath\(\), lowerBound\)/);
+});
