@@ -17,6 +17,7 @@ import { ANTHROPIC_MODEL_ALIASES, resolveAnthropicModelId } from "../src/fanout.
 
 const SERVER_PATH = fileURLToPath(new URL("../src/index.js", import.meta.url));
 const JOB_ID_PATTERN = /fo-\d{14}-[0-9a-f]{4}/;
+const DELAYED_WORKER_MS = 5000;
 
 // Deterministic command-engine worker: reads the whole prompt from stdin and
 // echoes a marker plus a digest of what it received, followed by the prompt
@@ -40,7 +41,7 @@ const ECHO_WORKER_SOURCE = [
   "    process.stdout.write(data);",
   "  };",
   '  if (data.includes("PLEASE-DELAY")) {',
-  "    setTimeout(emit, 1200);",
+  `    setTimeout(emit, ${DELAYED_WORKER_MS});`,
   "  } else {",
   "    emit();",
   "  }",
@@ -214,8 +215,8 @@ test("fanout with the command engine", async (t) => {
       assert.match(started, /Chat visibility: summary/, "fanout_start explains summary visibility");
       threeTaskJobId = jobIdOf(started);
       assert.ok(
-        startElapsedMs < 1200,
-        `fanout_start returned in ${startElapsedMs}ms, before the 1200ms workers finished`
+        startElapsedMs < DELAYED_WORKER_MS - 500,
+        `fanout_start returned in ${startElapsedMs}ms, before the delayed workers finished`
       );
 
       const firstStatus = textOf(
