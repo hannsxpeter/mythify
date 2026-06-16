@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Outcome `allowed_paths` are now labeled as advisory host-edit hints in CLI
+  and MCP status/help surfaces, making clear they are not an enforced sandbox.
+
 ## [3.6.15] - 2026-06-16
 
 ### Fixed

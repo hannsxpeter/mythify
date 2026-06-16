@@ -2108,7 +2108,7 @@ function formatOutcomeStatus(slug, goal, iterations = []) {
     lines.push(`metric: ${goal.metric_command}`);
   }
   if (Array.isArray(goal.allowed_paths) && goal.allowed_paths.length > 0) {
-    lines.push(`allowed paths: ${goal.allowed_paths.join(", ")}`);
+    lines.push(`allowed path hints (advisory): ${goal.allowed_paths.join(", ")}`);
   }
   if (iterations.length > 0) {
     const last = iterations[iterations.length - 1];
@@ -8628,7 +8628,7 @@ server.registerTool(
       allowed_paths: z
         .array(z.string())
         .optional()
-        .describe("Optional path scope for host edits; recorded for policy."),
+        .describe("Optional advisory path hints for host edits; recorded for policy, not enforced as a sandbox."),
       visibility: z
         .enum(FANOUT_VISIBILITY_MODES)
         .optional()

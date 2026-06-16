@@ -2532,7 +2532,7 @@ def format_outcome_status(slug, goal, iterations=None):
         lines.append("metric: {0}".format(metric))
     allowed = goal.get("allowed_paths") or []
     if allowed:
-        lines.append("allowed paths: {0}".format(", ".join(allowed)))
+        lines.append("allowed path hints (advisory): {0}".format(", ".join(allowed)))
     if iterations:
         last = iterations[-1]
         lines.append(
@@ -9994,7 +9994,7 @@ def build_parser():
     p.add_argument(
         "--allowed-paths",
         default="",
-        help="Comma-separated path scope for host edits; recorded for policy.",
+        help="Comma-separated advisory path hints for host edits; not enforced as a sandbox.",
     )
     p.add_argument(
         "--visibility",
