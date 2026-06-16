@@ -395,6 +395,10 @@ def install_mythify(workspace):
         root / "scripts" / "mythify_trace.py",
         workspace / "scripts" / "mythify_trace.py",
     )
+    shutil.copy2(
+        root / "scripts" / "mythify_workflows.py",
+        workspace / "scripts" / "mythify_workflows.py",
+    )
     init = subprocess.run(
         [sys.executable, "scripts/mythify.py", "init"],
         cwd=str(workspace),

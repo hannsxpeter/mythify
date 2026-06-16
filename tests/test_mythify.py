@@ -28,6 +28,7 @@ PY_HOST_MODEL = REPO_ROOT / "scripts" / "mythify_host_model.py"
 PY_IO = REPO_ROOT / "scripts" / "mythify_io.py"
 PY_MODEL_POLICY = REPO_ROOT / "scripts" / "mythify_model_policy.py"
 PY_TRACE = REPO_ROOT / "scripts" / "mythify_trace.py"
+PY_WORKFLOWS = REPO_ROOT / "scripts" / "mythify_workflows.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -249,6 +250,75 @@ class TestDurableIo(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
 
 
+class TestWorkflowStores(unittest.TestCase):
+    def load_workflows_module(self):
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        spec = importlib.util.spec_from_file_location(
+            "mythify_workflows_under_test",
+            PY_WORKFLOWS,
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_research_and_campaign_helpers_import_directly(self):
+        mythify = self.load_workflows_module()
+        timestamp = "2026-06-16T00:00:00+00:00"
+
+        def find_by_name(state, name, path_func):
+            return name if path_func(state, name).exists() else None
+
+        mythify.configure_workflow_stores(
+            now_iso_func=lambda: timestamp,
+            slugify_func=lambda text: str(text).strip().lower().replace(" ", "-"),
+            find_existing_slug_by_name_func=find_by_name,
+        )
+        state = Path(tempfile.mkdtemp(prefix="mythify-workflows-test-"))
+        self.addCleanup(shutil.rmtree, str(state), True)
+
+        research = {
+            "id": "research-one",
+            "question": "Should workflow stores be importable?",
+            "status": "active",
+            "sources": [],
+            "claims": [],
+            "open_questions": [],
+            "decision": "",
+        }
+        mythify.save_research(state, "research-one", research)
+        mythify.set_active_research_slug(state, "research-one")
+        slug, loaded = mythify.load_research(state)
+        self.assertEqual(slug, "research-one")
+        self.assertEqual(loaded["updated"], timestamp)
+
+        tasks = mythify.parse_campaign_tasks(
+            json.dumps([{"title": "Build slice", "success_criteria": "Done"}]),
+            "Ship workflow store",
+        )
+        self.assertEqual(tasks[0]["phase"], "understand")
+        campaign = {
+            "id": "campaign-one",
+            "goal": "Ship workflow store",
+            "success_criteria": "Done",
+            "verify_command": "python3 -m unittest",
+            "status": "active",
+            "current_task_id": 1,
+            "tasks": tasks,
+            "learnings": [{"task_id": 1, "lesson": "Keep it focused", "apply_next": True}],
+        }
+        payload = mythify.build_campaign_prompt_payload("campaign-one", campaign)
+        self.assertEqual(payload["id"], "campaign-one")
+        self.assertEqual(payload["phase"], "understand")
+        self.assertIn("Continue Mythify campaign: campaign-one", payload["next_prompt"])
+        mythify.save_campaign(state, "campaign-one", campaign)
+        mythify.set_active_campaign_slug(state, "campaign-one")
+        slug, loaded = mythify.load_campaign(state)
+        self.assertEqual(slug, "campaign-one")
+        self.assertEqual(mythify.campaign_progress(loaded), (0, 1))
+
+
 class TestProtocolHandshake(CliTestCase):
     def test_protocol_check_accepts_repo_protocol_and_generated_variants(self):
         result = self.run_cli("protocol", "check", cwd=REPO_ROOT)
@@ -285,6 +355,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             PY_TRACE,
             self.project / "scripts" / "mythify_trace.py",
+        )
+        shutil.copy2(
+            PY_WORKFLOWS,
+            self.project / "scripts" / "mythify_workflows.py",
         )
         shutil.copy2(
             OPERATION_REGISTRY,
