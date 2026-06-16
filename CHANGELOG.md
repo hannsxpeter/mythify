@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.32] - 2026-06-16
+
+### Changed
+
+- Extracted MCP host CLI probe and worker helpers into a direct-import
+  `src/host-cli.js` module.
+- Added direct module coverage for host CLI guard behavior while keeping
+  existing host_cli_probe and host_cli_run MCP tests.
+
 ## [3.6.31] - 2026-06-16
 
 ### Changed
@@ -833,7 +842,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.31...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.32...HEAD
+[3.6.32]: https://github.com/aihxp/mythify/compare/v3.6.31...v3.6.32
 [3.6.31]: https://github.com/aihxp/mythify/compare/v3.6.30...v3.6.31
 [3.6.30]: https://github.com/aihxp/mythify/compare/v3.6.29...v3.6.30
 [3.6.29]: https://github.com/aihxp/mythify/compare/v3.6.28...v3.6.29
