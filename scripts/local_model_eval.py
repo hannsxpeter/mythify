@@ -396,8 +396,16 @@ def install_mythify(workspace):
         workspace / "scripts" / "mythify_model_policy.py",
     )
     shutil.copy2(
+        root / "scripts" / "mythify_model_triage.py",
+        workspace / "scripts" / "mythify_model_triage.py",
+    )
+    shutil.copy2(
         root / "scripts" / "mythify_outcomes.py",
         workspace / "scripts" / "mythify_outcomes.py",
+    )
+    shutil.copy2(
+        root / "scripts" / "mythify_parser.py",
+        workspace / "scripts" / "mythify_parser.py",
     )
     shutil.copy2(
         root / "scripts" / "mythify_router.py",
@@ -410,6 +418,10 @@ def install_mythify(workspace):
     shutil.copy2(
         root / "scripts" / "mythify_views.py",
         workspace / "scripts" / "mythify_views.py",
+    )
+    shutil.copy2(
+        root / "scripts" / "mythify_views_status.py",
+        workspace / "scripts" / "mythify_views_status.py",
     )
     shutil.copy2(
         root / "scripts" / "mythify_workflows.py",

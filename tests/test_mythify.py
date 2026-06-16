@@ -28,10 +28,13 @@ PY_HOST_MODEL = REPO_ROOT / "scripts" / "mythify_host_model.py"
 PY_IO = REPO_ROOT / "scripts" / "mythify_io.py"
 PY_MEMORY = REPO_ROOT / "scripts" / "mythify_memory.py"
 PY_MODEL_POLICY = REPO_ROOT / "scripts" / "mythify_model_policy.py"
+PY_MODEL_TRIAGE = REPO_ROOT / "scripts" / "mythify_model_triage.py"
 PY_OUTCOMES = REPO_ROOT / "scripts" / "mythify_outcomes.py"
+PY_PARSER = REPO_ROOT / "scripts" / "mythify_parser.py"
 PY_ROUTER = REPO_ROOT / "scripts" / "mythify_router.py"
 PY_TRACE = REPO_ROOT / "scripts" / "mythify_trace.py"
 PY_VIEWS = REPO_ROOT / "scripts" / "mythify_views.py"
+PY_VIEWS_STATUS = REPO_ROOT / "scripts" / "mythify_views_status.py"
 PY_WORKFLOWS = REPO_ROOT / "scripts" / "mythify_workflows.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
@@ -631,8 +634,16 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_model_policy.py",
         )
         shutil.copy2(
+            PY_MODEL_TRIAGE,
+            self.project / "scripts" / "mythify_model_triage.py",
+        )
+        shutil.copy2(
             PY_OUTCOMES,
             self.project / "scripts" / "mythify_outcomes.py",
+        )
+        shutil.copy2(
+            PY_PARSER,
+            self.project / "scripts" / "mythify_parser.py",
         )
         shutil.copy2(
             PY_ROUTER,
@@ -645,6 +656,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             PY_VIEWS,
             self.project / "scripts" / "mythify_views.py",
+        )
+        shutil.copy2(
+            PY_VIEWS_STATUS,
+            self.project / "scripts" / "mythify_views_status.py",
         )
         shutil.copy2(
             PY_WORKFLOWS,

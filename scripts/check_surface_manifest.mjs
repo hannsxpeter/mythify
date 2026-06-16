@@ -123,12 +123,13 @@ function main() {
       "mcp-server/src/plan-tools.js",
       "mcp-server/src/outcome-tools.js",
       "mcp-server/src/verification-tools.js",
+      "mcp-server/src/workflow-tools.js",
     ]),
     coreTools
   );
   requireArrayEqual(
     "MCP fanout runtime registrations",
-    registeredTools("mcp-server/src/fanout.js"),
+    registeredTools("mcp-server/src/fanout-registration.js"),
     fanoutTools
   );
 

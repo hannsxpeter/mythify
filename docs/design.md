@@ -859,7 +859,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.48`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.52`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1977,7 +1977,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.48. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.52. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2059,6 +2059,11 @@ and command handlers into the direct-import host-model helper module; 3.6.46
 extracts MCP adapter and host integration tool registrations into a
 direct-import MCP helper module; 3.6.47 extracts MCP read-only view tool
 registrations into a direct-import MCP helper module; 3.6.48 extracts MCP
-memory and lesson tool registrations into a direct-import MCP helper module.
-The CLI reports 3.6.48 through `--version`; the MCP server reads `package.json`
+memory and lesson tool registrations into a direct-import MCP helper module;
+3.6.49 extracts MCP outcome loop tool registrations; 3.6.50 extracts MCP plan
+tool registrations; 3.6.51 extracts MCP verification and reflection tool
+registrations; 3.6.52 extracts Python parser, model triage, and status view
+helpers plus MCP workflow tools, view builders, status views, fanout policy,
+and fanout registration helpers.
+The CLI reports 3.6.52 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

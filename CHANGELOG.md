@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.52] - 2026-06-16
+
+### Changed
+
+- Extracted Python CLI parser construction, model triage execution, and
+  read-only status views into direct-import helper modules.
+- Extracted MCP workflow tools, read-only view builders, status views, fanout
+  policy, and fanout tool registration into focused modules.
+- Reduced all runtime source files under `scripts/*.py` and
+  `mcp-server/src/*.js` to 1,500 lines or fewer, closing the remaining
+  code-audit modularity item.
+
 ## [3.6.51] - 2026-06-16
 
 ### Changed
@@ -1017,7 +1029,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.51...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.52...HEAD
+[3.6.52]: https://github.com/aihxp/mythify/compare/v3.6.51...v3.6.52
 [3.6.51]: https://github.com/aihxp/mythify/compare/v3.6.50...v3.6.51
 [3.6.50]: https://github.com/aihxp/mythify/compare/v3.6.49...v3.6.50
 [3.6.49]: https://github.com/aihxp/mythify/compare/v3.6.48...v3.6.49
