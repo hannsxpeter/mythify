@@ -39,13 +39,15 @@ from mythify_host_model import (  # noqa: E402
     HOST_THINKING_LEVELS,
     PLATFORMS,
     SPEED_LEVELS,
-    build_host_model_record,
-    format_host_model_record,
+    cmd_host_model_clear,
+    cmd_host_model_status,
+    cmd_host_model_switch,
+    configure_host_model_store,
     host_capability_for_record,
     normalize_host_platform,
     normalize_host_speed,
     normalize_host_thinking,
-    with_host_capability,
+    read_host_model_state,
 )
 from mythify_model_policy import (  # noqa: E402
     EFFORT_LEVELS,
@@ -156,7 +158,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.44"
+VERSION = "3.6.45"
 REPO_ROOT = SCRIPT_DIR.parent
 PROTOCOL_SOURCE_SHA256 = "00537ffff2a26e265d61d76c288a5e4f5d426e5c69b745d8a89d1c01fe32736b"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
@@ -196,7 +198,6 @@ DEFAULT_VERIFY_TIMEOUT = 300.0
 DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 DEFAULT_LOG_COMPACT_KEEP = 1000
 LOG_COMPACT_TARGETS = ("verifications.jsonl", "reflections.jsonl")
-HOST_MODEL_STATE_FILE = "host-model.json"
 # ---------------------------------------------------------------------------
 # Time and text helpers
 # ---------------------------------------------------------------------------
@@ -423,22 +424,12 @@ configure_durable_io(
     now_stamp_func=now_stamp,
     timestamp_at_or_after_func=timestamp_at_or_after,
 )
-
-
-def host_model_path(state):
-    return Path(state) / HOST_MODEL_STATE_FILE
-
-
-def read_host_model_state(state=None):
-    resolved = state or resolve_state_dir()
-    if resolved is None:
-        return None
-    record = read_json(host_model_path(resolved), None)
-    if not isinstance(record, dict):
-        return None
-    if not str(record.get("target_model", "")).strip():
-        return None
-    return record
+configure_host_model_store(
+    resolve_state_dir_func=resolve_state_dir,
+    now_iso_func=now_iso,
+    classify_model_tier_func=classify_model_tier,
+    fail_func=fail,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -811,52 +802,6 @@ def cmd_classify(args, _state):
         print(json.dumps(result, indent=2))
     else:
         print(format_classification(result))
-    return 0
-
-
-def cmd_host_model_switch(args, state):
-    if not str(args.target_model or "").strip():
-        fail("[FAIL] host-model switch requires TARGET_MODEL.")
-        return 1
-    record = build_host_model_record(
-        args,
-        now_iso_func=now_iso,
-        classify_model_tier_func=classify_model_tier,
-    )
-    write_json_atomic(host_model_path(state), record)
-    if args.json_output:
-        print(json.dumps(record, indent=2))
-    else:
-        print(format_host_model_record(record))
-    return 0
-
-
-def cmd_host_model_status(args, state):
-    record = read_host_model_state(state)
-    if record is None:
-        empty = {"status": "unset", "target_model": "", "source": "unknown"}
-        if args.json_output:
-            print(json.dumps(empty, indent=2))
-        else:
-            print("[OK] No host model switch is recorded.")
-        return 0
-    record = with_host_capability(record)
-    if args.json_output:
-        print(json.dumps(record, indent=2))
-    else:
-        print(format_host_model_record(record))
-    return 0
-
-
-def cmd_host_model_clear(args, state):
-    try:
-        host_model_path(state).unlink()
-    except FileNotFoundError:
-        pass
-    if args.json_output:
-        print(json.dumps({"status": "cleared", "target_model": ""}, indent=2))
-    else:
-        print("[OK] Host model switch record cleared.")
     return 0
 
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.45] - 2026-06-16
+
+### Changed
+
+- Moved Python host-model state helpers and CLI command handlers into the
+  direct-import `mythify_host_model.py` helper module.
+- Added direct module coverage for the moved host-model switch command wrapper.
+
 ## [3.6.44] - 2026-06-16
 
 ### Changed
@@ -954,7 +962,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.44...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.45...HEAD
+[3.6.45]: https://github.com/aihxp/mythify/compare/v3.6.44...v3.6.45
 [3.6.44]: https://github.com/aihxp/mythify/compare/v3.6.43...v3.6.44
 [3.6.43]: https://github.com/aihxp/mythify/compare/v3.6.42...v3.6.43
 [3.6.42]: https://github.com/aihxp/mythify/compare/v3.6.41...v3.6.42

@@ -6,7 +6,12 @@ legacy record enrichment, and human-readable formatting.
 
 from __future__ import annotations
 
+import json
 import os
+import sys
+from pathlib import Path
+
+from mythify_io import read_json, write_json_atomic
 
 PLATFORMS = (
     "auto",
@@ -74,6 +79,39 @@ HOST_CAPABILITIES = {
         can_set_thinking=True,
     ),
 }
+
+HOST_MODEL_STATE_FILE = "host-model.json"
+
+
+def _missing_dependency(*_args, **_kwargs):
+    raise RuntimeError("mythify_host_model store dependencies are not configured")
+
+
+resolve_state_dir = _missing_dependency
+now_iso = _missing_dependency
+classify_model_tier = _missing_dependency
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+
+
+def configure_host_model_store(
+    *,
+    resolve_state_dir_func=None,
+    now_iso_func=None,
+    classify_model_tier_func=None,
+    fail_func=None,
+):
+    global resolve_state_dir, now_iso, classify_model_tier, fail
+    if resolve_state_dir_func is not None:
+        resolve_state_dir = resolve_state_dir_func
+    if now_iso_func is not None:
+        now_iso = now_iso_func
+    if classify_model_tier_func is not None:
+        classify_model_tier = classify_model_tier_func
+    if fail_func is not None:
+        fail = fail_func
 
 
 def normalize_host_platform(platform):
@@ -384,3 +422,65 @@ def format_host_model_record(record):
     for action in enriched.get("host_actions", []):
         lines.append("- " + action)
     return "\n".join(lines)
+
+
+def host_model_path(state):
+    return Path(state) / HOST_MODEL_STATE_FILE
+
+
+def read_host_model_state(state=None):
+    resolved = state or resolve_state_dir()
+    if resolved is None:
+        return None
+    record = read_json(host_model_path(resolved), None)
+    if not isinstance(record, dict):
+        return None
+    if not str(record.get("target_model", "")).strip():
+        return None
+    return record
+
+
+def cmd_host_model_switch(args, state):
+    if not str(args.target_model or "").strip():
+        fail("[FAIL] host-model switch requires TARGET_MODEL.")
+        return 1
+    record = build_host_model_record(
+        args,
+        now_iso_func=now_iso,
+        classify_model_tier_func=classify_model_tier,
+    )
+    write_json_atomic(host_model_path(state), record)
+    if args.json_output:
+        print(json.dumps(record, indent=2))
+    else:
+        print(format_host_model_record(record))
+    return 0
+
+
+def cmd_host_model_status(args, state):
+    record = read_host_model_state(state)
+    if record is None:
+        empty = {"status": "unset", "target_model": "", "source": "unknown"}
+        if args.json_output:
+            print(json.dumps(empty, indent=2))
+        else:
+            print("[OK] No host model switch is recorded.")
+        return 0
+    record = with_host_capability(record)
+    if args.json_output:
+        print(json.dumps(record, indent=2))
+    else:
+        print(format_host_model_record(record))
+    return 0
+
+
+def cmd_host_model_clear(args, state):
+    try:
+        host_model_path(state).unlink()
+    except FileNotFoundError:
+        pass
+    if args.json_output:
+        print(json.dumps({"status": "cleared", "target_model": ""}, indent=2))
+    else:
+        print("[OK] Host model switch record cleared.")
+    return 0

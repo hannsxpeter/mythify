@@ -757,6 +757,9 @@ class TestClassification(CliTestCase):
         self.assertIn("type: security", module.format_classification(payload))
 
     def test_host_model_module_imports_directly(self):
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
         spec = importlib.util.spec_from_file_location(
             "mythify_host_model_under_test",
             PY_HOST_MODEL,
@@ -803,6 +806,30 @@ class TestClassification(CliTestCase):
         )
         self.assertEqual(legacy["host_capability"]["status"], "supported")
         self.assertEqual(legacy["switch_result"]["status"], "manual")
+
+        state = Path(tempfile.mkdtemp(prefix="mythify-host-model-test-"))
+        self.addCleanup(shutil.rmtree, str(state), True)
+        module.configure_host_model_store(
+            resolve_state_dir_func=lambda: state,
+            now_iso_func=lambda: "2026-06-16T00:00:00+00:00",
+            classify_model_tier_func=lambda model: "frontier",
+        )
+        args = SimpleNamespace(
+            platform="codex-cli",
+            target_model="gpt-5.4",
+            current_model="",
+            thinking="auto",
+            speed="auto",
+            reason="command wrapper test",
+            json_output=True,
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            result = module.cmd_host_model_switch(args, state)
+        self.assertEqual(result, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["platform"], "codex-cli")
+        self.assertEqual(module.read_host_model_state(state)["target_model"], "gpt-5.4")
         self.assertEqual(legacy["host_confirmation"]["confirmation_status"], "unsupported")
         self.assertEqual(legacy["adapter_proof_scan"]["status"], "metadata_only")
 
