@@ -72,7 +72,7 @@ Last updated: 2026-06-15.
 - [ ] [ERR-005] Fanout timeout kills only the direct child; shell-engine grandchildren can orphan - Open, needs re-verification before changing behavior.
 - [ ] [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded - Open.
 - [x] ~~[DEP-001] No `npm audit` gate in CI~~ - Completed in v3.6.9.
-- [ ] [TEST-002] Read-only view commands are lightly tested - Open.
+- [x] ~~[TEST-002] Read-only view commands are lightly tested~~ - Completed in the post-v3.6.13 test slice.
 - [x] ~~[DOC-001] `roadmap.md` references a stale release~~ - Completed in v3.6.12.
 - [x] ~~[DOC-002] README "shared contract core" claim overstates current reality~~ - Completed in v3.6.13.
 - [x] ~~[QUAL-002] Version-surface asymmetry~~ - Completed in v3.6.11.
@@ -336,10 +336,10 @@ Several controls exist in name or partial form but do not fully hold.
 
 ## Remediation plan
 
-- **Quick wins** (highest value per effort; act now): completed SEC-001 and ERR-004. Next small slices: SEC-003, SEC-006, ERR-002, and TEST-002 after confirming each cited behavior still holds.
+- **Quick wins** (highest value per effort; act now): completed SEC-001 and ERR-004. Next small slices: SEC-003, SEC-006, and ERR-002 after confirming each cited behavior still holds.
 - **Plan now** (High/Critical and scheduled Medium work, suggested order): finish ARC-003 (+TEST-001 gate-decision conformance) -> ARC-004 -> ERR-001 -> SEC-002 redaction -> QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
 - **Verify first** (Suspected; re-check the cited code before acting): SEC-004, SEC-005, ERR-003, ERR-005.
-- **Backlog** (Low; batch): SEC-003, SEC-006, ERR-002, PERF-001, TEST-002.
+- **Backlog** (Low; batch): SEC-003, SEC-006, ERR-002, PERF-001.
 
 ## Scope and limitations
 

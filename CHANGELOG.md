@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Read-only CLI view tests now assert stable empty-state text and JSON shapes
+  for dashboard, history, background, progress, readiness, timeline, and phase
+  views.
+
 ## [3.6.13] - 2026-06-16
 
 ### Fixed

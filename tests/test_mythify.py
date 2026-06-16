@@ -3186,6 +3186,89 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(phases["verify"]["step_counts"]["pending"], 1)
         self.assertEqual(payload["counts"]["verifications"], 2)
 
+    def test_read_only_views_have_stable_empty_state_shapes(self):
+        state = self.init_workspace()
+        (self.project / "roadmap.md").write_text(
+            "## Active Now\n\n- [x] No open roadmap items remain.\n",
+            encoding="utf-8",
+        )
+        before = self.state_snapshot(state)
+        views = [
+            (
+                "dashboard",
+                ["[OK] Workflow dashboard", "Active plan: none", "Evidence: 0 executed"],
+                ["state_dir", "active_plan", "active_outcome", "counts", "verification_summary"],
+            ),
+            (
+                "history",
+                [
+                    "[OK] Verification history",
+                    "No verification records found.",
+                    "Guardrail: history displays recorded evidence only",
+                ],
+                ["state_dir", "records", "counts", "guardrail"],
+            ),
+            (
+                "background",
+                ["[OK] Background tasks", "Active outcome: none", "No background tasks found."],
+                ["state_dir", "active_outcome", "outcomes", "fanout_jobs", "counts"],
+            ),
+            (
+                "progress",
+                [
+                    "[OK] Outcome progress",
+                    "Active outcome: none",
+                    "Guardrail: progress displays recorded outcome verifier results only",
+                ],
+                ["state_dir", "active_outcome", "outcomes", "counts", "guardrail"],
+            ),
+            (
+                "readiness",
+                [
+                    "[OK] Release readiness",
+                    "Recorded gates:",
+                    "Guardrail: readiness summarizes recorded evidence",
+                ],
+                ["state_dir", "status", "gates", "counts", "project_state", "guardrail"],
+            ),
+            (
+                "timeline",
+                [
+                    "[OK] Fanout timeline",
+                    "No fanout timeline events found.",
+                    "Guardrail: timeline summarizes durable fanout state only",
+                ],
+                ["state_dir", "jobs", "events", "counts", "guardrail"],
+            ),
+            (
+                "phase",
+                [
+                    "[OK] Phase view",
+                    "Active plan: none",
+                    "Phases:",
+                    "Guardrail: phase view summarizes durable state only",
+                ],
+                ["state_dir", "active_plan", "active_outcome", "phases", "counts", "guardrail"],
+            ),
+        ]
+
+        for command, expected_text, expected_json_keys in views:
+            with self.subTest(command=command, mode="text"):
+                result = self.run_cli(command)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for expected in expected_text:
+                    self.assertIn(expected, result.stdout)
+                self.assertEqual(self.state_snapshot(state), before)
+
+            with self.subTest(command=command, mode="json"):
+                result = self.run_cli(command, "--json")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                for key in expected_json_keys:
+                    self.assertIn(key, payload)
+                self.assertEqual(Path(payload["state_dir"]).resolve(), state.resolve())
+                self.assertEqual(self.state_snapshot(state), before)
+
 
 class TestCorruptRecovery(CliTestCase):
     def test_corrupt_memory_json_is_quarantined_with_warning(self):
