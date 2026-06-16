@@ -63,7 +63,7 @@ Last updated: 2026-06-15.
 - [x] ~~[ERR-004] Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
 - [~] [TEST-001] No cross-runtime behavioral conformance test - Partially addressed in v3.6.6; gate-decision conformance remains open.
 - [ ] [QUAL-001] Two ~10k-line god-modules - Open.
-- [x] ~~[SEC-003] Raw, un-slugified name is used as a filename before `slugify`~~ - Completed in the post-v3.6.14 security slice.
+- [x] ~~[SEC-003] Raw, un-slugified name is used as a filename before `slugify`~~ - Completed in v3.6.15.
 - [ ] [SEC-004] Fanout `context_paths` are not sandboxed to the project root - Open, needs re-verification before changing behavior.
 - [ ] [SEC-005] `host_cli_run` accepts an arbitrary `bin` executable - Open, needs re-verification before changing behavior.
 - [ ] [SEC-006] `outcome` `allowed_paths` is advisory-only despite a sandboxing-implying name - Open.

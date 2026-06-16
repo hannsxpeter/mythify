@@ -831,7 +831,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.14`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.15`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1947,7 +1947,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.14. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.15. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -1987,6 +1987,7 @@ MCP server dependency audit gate to the Node CI matrix; 3.6.10 marks MCP
 makes the MCP server read its reported version from `package.json`; 3.6.12
 refreshes the roadmap release status after the DOC-001 audit slice; 3.6.13
 clarifies README architecture wording for the DOC-002 audit slice; 3.6.14
-adds stable empty-state coverage for the read-only workflow views.
-The CLI reports 3.6.14 through `--version`; the MCP server reads `package.json`
+adds stable empty-state coverage for the read-only workflow views; 3.6.15
+slugifies explicit state lookup names before filesystem access.
+The CLI reports 3.6.15 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.
