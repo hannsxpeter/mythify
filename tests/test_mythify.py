@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 PY_CLASSIFICATION = REPO_ROOT / "scripts" / "mythify_classification.py"
 PY_HOST_MODEL = REPO_ROOT / "scripts" / "mythify_host_model.py"
+PY_TRACE = REPO_ROOT / "scripts" / "mythify_trace.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -258,6 +259,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             PY_HOST_MODEL,
             self.project / "scripts" / "mythify_host_model.py",
+        )
+        shutil.copy2(
+            PY_TRACE,
+            self.project / "scripts" / "mythify_trace.py",
         )
         shutil.copy2(
             OPERATION_REGISTRY,
@@ -1188,6 +1193,43 @@ class TestTraceAnalyze(CliTestCase):
             for row in rows:
                 handle.write(json.dumps(row) + "\n")
         return path
+
+    def test_trace_module_imports_directly(self):
+        spec = importlib.util.spec_from_file_location(
+            "mythify_trace_under_test",
+            PY_TRACE,
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        path = self.write_jsonl(
+            "direct.jsonl",
+            [
+                {
+                    "session": "direct-1",
+                    "model": "claude-fable-5",
+                    "output_type": "tool_use",
+                    "output": {
+                        "tool": "Bash",
+                        "input": {"command": "pytest tests && npm run build"},
+                    },
+                    "completion": "Verify the changed surface.",
+                }
+            ],
+        )
+
+        view = module.build_trace_analysis([str(path)], model_filter="claude-fable-5")
+        self.assertEqual(view["records_read"], 1)
+        self.assertEqual(view["format_counts"]["action_row"], 1)
+        self.assertEqual(view["command_verification_hits"]["test"], 1)
+        self.assertEqual(view["command_verification_hits"]["build"], 1)
+        self.assertIn("Trace analysis", module.format_trace_analysis(view))
+        markdown = module.format_trace_distillation_markdown(
+            view,
+            "Trace Profile",
+            "claude-fable-5",
+        )
+        self.assertIn("Trace Profile", markdown)
+        self.assertIn("Verify to edit ratio", markdown)
 
     def test_trace_analyze_summarizes_session_action_and_scenario_rows(self):
         session = self.write_jsonl(

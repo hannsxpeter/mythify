@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.30] - 2026-06-16
+
+### Changed
+
+- Extracted trace analysis and trace playbook Markdown formatting into a
+  direct-import Python helper module, leaving the CLI wrapper responsible for
+  file writes and command exit behavior.
+- Added direct module coverage for the extracted trace helper.
+
 ## [3.6.29] - 2026-06-16
 
 ### Changed
@@ -815,7 +824,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.29...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.30...HEAD
+[3.6.30]: https://github.com/aihxp/mythify/compare/v3.6.29...v3.6.30
 [3.6.29]: https://github.com/aihxp/mythify/compare/v3.6.28...v3.6.29
 [3.6.28]: https://github.com/aihxp/mythify/compare/v3.6.27...v3.6.28
 [3.6.27]: https://github.com/aihxp/mythify/compare/v3.6.26...v3.6.27

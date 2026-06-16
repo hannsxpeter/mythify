@@ -47,6 +47,7 @@ mythify/
 |   |-- mythify.py               zero-dependency CLI orchestrator
 |   |-- mythify_classification.py deterministic classification helper
 |   |-- mythify_host_model.py    host model switch record helper
+|   |-- mythify_trace.py         trace analysis and playbook helper
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
 |   |-- build_registry_docs.mjs  generates registry-backed docs
 |   |-- check_surface_manifest.mjs checks public surface metadata drift
@@ -839,7 +840,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.29`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.30`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1957,7 +1958,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.29. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.30. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2013,6 +2014,7 @@ recent strict gates and cursor-based reports; 3.6.27 moves classification
 policy facts into the shared classification manifest; 3.6.28 extracts
 deterministic classification into direct-import CLI and MCP modules; 3.6.29
 extracts host model switch record helpers into direct-import CLI and MCP
-modules.
-The CLI reports 3.6.29 through `--version`; the MCP server reads `package.json`
+modules; 3.6.30 extracts trace analysis and playbook formatting into a
+direct-import CLI helper module.
+The CLI reports 3.6.30 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.
