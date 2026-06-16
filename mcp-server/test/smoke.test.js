@@ -1959,6 +1959,113 @@ test("MCP verify_run records output cap as shared verifier failure", async () =>
   }
 });
 
+test("MCP verify_run and outcome_check redact verifier output tails", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-redact-state-"));
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-redact-home-"));
+  const apiSecret = "sk-test-secret-value-1234567890";
+  const bearerSecret = "bearer-secret-value-1234567890";
+  const stderrSecret = "stderr-secret-value-1234567890";
+  const verifySecret = "verify-secret-value-1234567890";
+  const metricSecret = "metric-secret-value-1234567890";
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER_PATH],
+    env: {
+      ...process.env,
+      MYTHIFY_DIR: stateDir,
+      HOME: homeDir,
+      MYTHIFY_TEST_API_KEY: apiSecret,
+      MYTHIFY_TEST_BEARER: bearerSecret,
+      MYTHIFY_TEST_STDERR_TOKEN: stderrSecret,
+      MYTHIFY_TEST_VERIFY_SECRET: verifySecret,
+      MYTHIFY_TEST_METRIC_SECRET: metricSecret,
+    },
+  });
+  const client = new Client({ name: "mythify-redact-test", version: "3.6.21" });
+  await client.connect(transport);
+
+  try {
+    const failingCode = [
+      "process.stdout.write('OPENAI_API_KEY=' + process.env.MYTHIFY_TEST_API_KEY + '\\n');",
+      "process.stdout.write('Authorization: Bearer ' + process.env.MYTHIFY_TEST_BEARER + '\\nplain ok\\n');",
+      "process.stderr.write('token: ' + process.env.MYTHIFY_TEST_STDERR_TOKEN + '\\n');",
+      "process.exit(3);",
+    ].join("");
+    const failed = textOf(
+      await client.callTool({
+        name: "verify_run",
+        arguments: {
+          command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(failingCode)}`,
+          claim: "redact verifier tails",
+        },
+      })
+    );
+    assert.ok(failed.startsWith("[FAIL]"), `redaction verify_run reports [FAIL]: ${failed}`);
+    for (const secret of [apiSecret, bearerSecret, stderrSecret]) {
+      assert.doesNotMatch(failed, new RegExp(secret), "tool response does not leak the secret");
+    }
+    assert.match(failed, /\[REDACTED\]/, "tool response includes redaction markers");
+    assert.match(failed, /plain ok/, "non-secret output remains visible");
+    const verifyRecord = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "verifications.jsonl"), "utf8").trim().split(/\n/).at(-1)
+    );
+    const verifyCombined = `${verifyRecord.stdout_tail}\n${verifyRecord.stderr_tail}`;
+    for (const secret of [apiSecret, bearerSecret, stderrSecret]) {
+      assert.doesNotMatch(verifyCombined, new RegExp(secret), "stored verify_run tail does not leak the secret");
+    }
+    assert.match(verifyCombined, /\[REDACTED\]/);
+
+    const outcomeVerifyCode =
+      "process.stdout.write('VERIFY_TOKEN=' + process.env.MYTHIFY_TEST_VERIFY_SECRET + '\\n');";
+    const outcomeMetricCode =
+      "process.stdout.write('7.5 METRIC_SECRET=' + process.env.MYTHIFY_TEST_METRIC_SECRET + '\\n');";
+    const startedText = textOf(
+      await client.callTool({
+        name: "outcome_start",
+        arguments: {
+          goal: "Redact MCP outcome tails",
+          success: "verifier succeeds",
+          verify_command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(outcomeVerifyCode)}`,
+          metric_command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(outcomeMetricCode)}`,
+          format: "json",
+        },
+      })
+    );
+    const started = JSON.parse(startedText.replace(/^\[OK\] /, ""));
+    const checkedText = textOf(
+      await client.callTool({
+        name: "outcome_check",
+        arguments: { name: started.id, format: "json" },
+      })
+    );
+    const checked = JSON.parse(checkedText.replace(/^\[OK\] /, ""));
+    assert.equal(checked.record.metric.score, 7.5);
+    const iteration = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "outcomes", started.id, "iterations.jsonl"), "utf8")
+        .trim()
+        .split(/\n/)
+        .at(-1)
+    );
+    const outcomeRecord = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "verifications.jsonl"), "utf8").trim().split(/\n/).at(-1)
+    );
+    const outcomeCombined = JSON.stringify({
+      iteration_verify: iteration.verify,
+      iteration_metric: iteration.metric,
+      verification: outcomeRecord,
+    });
+    for (const secret of [verifySecret, metricSecret]) {
+      assert.doesNotMatch(outcomeCombined, new RegExp(secret), "stored outcome tail does not leak the secret");
+    }
+    assert.match(outcomeCombined, /\[REDACTED\]/);
+  } finally {
+    await client.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
 test("MCP JSONL append waits for the shared lock directory", async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-lock-state-"));
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-lock-home-"));

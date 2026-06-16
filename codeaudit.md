@@ -26,7 +26,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 
 | Dimension | Score | Grade | Weight | Verdict |
 | :-- | :-- | :-- | :-- | :-- |
-| Security | 78 | C+ | 20% | No critical/remote vulns; shell exec is by-design for a local tool, but the kill-switch is half-enforced and verifier output is persisted unredacted. |
+| Security | 82 | B- | 20% | No critical/remote vulns; shell exec is by-design for a local tool, and the kill-switch plus verifier-tail redaction now have regression coverage. |
 | Architecture and Design | 62 | D | 15% | Two hand-duplicated runtimes; drift guards check copies/counts not behavior; a confirmed correctness divergence already exists. |
 | Code Quality and Maintainability | 74 | C | 15% | Consistent, well-named, low dead code, but two ~10k-line god-modules and pervasive cross-runtime duplication. |
 | Testing and Verification | 84 | B | 15% | 227 tests, ~2,300 real assertions, no theater, deterministic, gate edges covered; the one gap (no cross-runtime conformance test) is exactly what let the divergences through. |
@@ -35,7 +35,7 @@ Calibration: graded as a mature developer tool / agent protocol; concurrency and
 | Dependencies and Supply Chain | 90 | A- | 7% | Zero-dep Python; two pinned, current Node deps with lockfile + SRI + Dependabot. Only gap: no `npm audit` gate in CI. |
 | Documentation and Drift | 86 | B | 5% | Verified claims hold (40-tool count, protocol-hash check, variant sync); two small drift items. |
 | Observability and Operability | 84 | B | 5% | Clean exit-code discipline, `[OK]`/`[FAIL]`/`[WARN]`, quarantine warnings, log compaction. Minor MCP `isError` nit. |
-| **Overall (weighted)** | **77** | **C** | 100% | Strong engineering taxed by a dual-runtime maintenance model that has begun to bite. |
+| **Overall (weighted)** | **78** | **C+** | 100% | Strong engineering still taxed by a dual-runtime maintenance model that has begun to bite. |
 
 Weighting: defaults, unchanged. No Critical findings, so no dimension or overall cap is triggered.
 
@@ -47,7 +47,7 @@ Weighting: defaults, unchanged. No Critical findings, so no dimension or overall
 4. [x] ~~`[ERR-004]` Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
 5. [ ] `[ARC-002]` Core logic is hand-duplicated across both runtimes - Open.
 6. [x] ~~`[ERR-001]` No file locking; `logs compact` TOCTOU drops concurrent appends~~ - Completed in v3.6.20.
-7. [~] `[SEC-002]` Verifier stdout/stderr tails persisted unredacted; `init` writes no `.gitignore` - Partially addressed in v3.6.8 by adding default `.mythify/` `.gitignore` coverage; verifier-output redaction remains open.
+7. [x] ~~`[SEC-002]` Verifier stdout/stderr tails persisted unredacted; `init` writes no `.gitignore`~~ - Completed across v3.6.8 and v3.6.21.
 
 ## Remediation status
 
@@ -58,7 +58,7 @@ Last updated: 2026-06-16.
 - [x] ~~[ARC-003] Drift guards verify copies and counts, not behavior or record shapes~~ - Completed in v3.6.18 with classification, verify record-shape, and strict gate-decision conformance.
 - [x] ~~[ARC-004] Additional confirmed behavioral divergences between the two runtimes~~ - Completed in v3.6.19 by aligning verifier output-cap and no-exit evidence semantics.
 - [x] ~~[SEC-001] `outcome check` ignores `MYTHIFY_DISABLE_RUN`~~ - Completed in v3.6.5.
-- [~] [SEC-002] Verifier output tails are persisted unredacted and `init` writes no `.gitignore` - Partially addressed in v3.6.8; output redaction remains open.
+- [x] ~~[SEC-002] Verifier output tails are persisted unredacted and `init` writes no `.gitignore`~~ - Completed in v3.6.8 and v3.6.21.
 - [x] ~~[ERR-001] No file locking; `logs compact` read-then-rewrite drops concurrent appends~~ - Completed in v3.6.20 with shared JSONL lock directories for appends and compaction.
 - [x] ~~[ERR-004] Fanout async worker output is accumulated unbounded (no `maxBuffer`)~~ - Completed in v3.6.7.
 - [x] ~~[TEST-001] No cross-runtime behavioral conformance test~~ - Completed in v3.6.18 with classification, verify record-shape, and strict gate-decision conformance.
@@ -100,9 +100,9 @@ State IO still mostly assumes a single writer, but the protocol explicitly spawn
 - Root fix: extend advisory locking to read-modify-write JSON stores where concurrent writers are supported; keep worker output buffers capped; consider an index or tail-read for the growing ledger.
 
 ### SP-3: Security controls declared but not fully enforced (paper controls)
-Several controls exist in name or partial form but do not fully hold.
-- Members: SEC-001 (`MYTHIFY_DISABLE_RUN` skips `outcome check`), SEC-003 (raw name bypasses the `slugify` sanitizer before lookup), SEC-006 (`allowed_paths` is advisory-only despite the sandboxing-implying name), SEC-002 (no auto-`.gitignore` for a dir that stores captured output).
-- Root fix: enforce the kill-switch on every execution path, slugify before any name-to-path lookup, and either enforce `allowed_paths` or rename it to signal it is advisory.
+Several original controls existed in name or partial form. The concrete SEC-001, SEC-002, SEC-003, and SEC-006 instances are now remediated, while the lower-risk suspected sandbox and host-binary items still need verification before behavior changes.
+- Members: SEC-001 (completed kill-switch coverage), SEC-002 (completed `.gitignore` and verifier-tail redaction), SEC-003 (completed slugged lookup), SEC-006 (completed advisory labeling), plus verify-first SEC-004 and SEC-005.
+- Root fix: keep execution controls enforced on every execution path, keep name-to-path lookups normalized before filesystem access, and either enforce future path controls or label them as advisory.
 
 ## Findings
 
@@ -152,12 +152,12 @@ Several controls exist in name or partial form but do not fully hold.
 - Related: SP-3.
 
 ### [SEC-002] Verifier output tails are persisted unredacted and `init` writes no `.gitignore`
-- Severity: Medium | Confidence: Likely | Effort: M | Dimension: Security
-- Location: `scripts/mythify.py:118` (`TAIL_CHARS = 4000`), record writes in `cmd_verify_run` (`mythify.py:8724-8742`) and `cmd_outcome_check` (`mythify.py:8615-8623`); `cmd_init` (`mythify.py:4114-4135`) creates the layout but writes no `.gitignore`.
-- Evidence: Up to 4,000 chars of verifier stdout and stderr are stored verbatim into `verifications.jsonl` and `outcomes/<slug>/iterations.jsonl`. The verifier inherits the full parent environment (no explicit `env=`), so a failing test that prints an auth header, a token in a stack trace, or `env`-style debug output is written to disk. There is no redaction anywhere (no `redact`/`mask`/`scrub`). `init` does not add `.mythify/` to `.gitignore`, so a project initialized elsewhere could commit these tails.
-- Impact: Secrets-at-rest in `.mythify/` plus a commit-leak path in repos that do not pre-ignore the directory.
-- Recommendation: Have `init` write/append a `.gitignore` entry for `.mythify/` (or at least the `*.jsonl` evidence files); optionally cap/redact obvious secret patterns in stored tails, or make tail length configurable down to 0.
-- Verify the fix: after `init`, `.mythify/` is gitignored; a verifier that prints a known token does not leave it committable.
+- Severity: Medium | Confidence: Fixed | Effort: M | Dimension: Security
+- Location: `scripts/mythify.py:126`, `scripts/mythify.py:2955-2991`, and `scripts/mythify.py:8898-8899`; `mcp-server/src/index.js:61`, `mcp-server/src/index.js:303-328`, and `mcp-server/src/index.js:2150-2151`; regression tests in `tests/test_mythify.py:2444` and `tests/test_mythify.py:2657`, plus `mcp-server/test/smoke.test.js:1962`.
+- Evidence: v3.6.8 added default `.mythify/` `.gitignore` coverage during init. v3.6.21 adds parallel CLI and MCP redaction helpers that mask common API key, token, password, credential, authorization bearer, GitHub, OpenAI, Anthropic, and npm token shapes before stdout and stderr tails are stored or printed by `verify_run` and `outcome_check`.
+- Impact: The original secret-at-rest path for verifier stdout/stderr tails is closed. Residual risk remains if a user embeds a secret directly in the verifier command string, which is still recorded for evidence reproducibility.
+- Recommendation: Keep verifier command strings secret-free, pass secrets through environment variables or host secret stores, and extend the redaction patterns when new common token shapes appear.
+- Verify the fix: `python3 -m unittest tests.test_mythify.TestVerify.test_run_redacts_secret_patterns_from_output_tails tests.test_mythify.TestOutcome.test_outcome_check_redacts_verifier_and_metric_output_tails` and `npm test --prefix mcp-server -- --test-name-pattern 'redact verifier output tails'` pass.
 - Related: SP-3.
 
 ### [ERR-001] No file locking; `logs compact` read-then-rewrite drops concurrent appends
@@ -324,7 +324,7 @@ Several controls exist in name or partial form but do not fully hold.
 
 ## Dimension notes
 
-- **Security (78):** No critical or remotely exploitable issues; shell execution is the tool's stated purpose and inputs are operator-supplied, with good controls (loopback allowlist for local providers `index.js:5658-5661`, env-var key names not raw secrets, recursive-fanout fork-bomb guards `fanout.js:265-268`). Score held below B by SEC-001 (half-enforced kill-switch) and SEC-002 (unredacted secret persistence + no auto-gitignore), with several Low sandbox/traversal gaps (SEC-003/004/005/006).
+- **Security (82):** No critical or remotely exploitable issues; shell execution is the tool's stated purpose and inputs are operator-supplied, with good controls (loopback allowlist for local providers, env-var key names not raw secrets, recursive-fanout fork-bomb guards, kill-switch coverage, and verifier-tail redaction). Score remains below A because lower-risk sandbox and host-binary items still need verification.
 - **Architecture (62):** Three High findings (ARC-001/002/003) plus ARC-004 are all facets of SP-1. The dual-runtime model is deliberate and partly mitigated, but it has produced a live correctness bug and the guards do not cover the bug class. This is the dimension that most needs investment.
 - **Code Quality (74):** Naming, consistency, and dead-code hygiene are good; the drag is the two god-modules (QUAL-001) and the cross-runtime duplication.
 - **Testing (84):** A genuine strength in depth and honesty; v3.6.18 closes the strict gate-decision conformance gap, and v3.6.19 adds verifier failure parity regressions.
@@ -337,7 +337,7 @@ Several controls exist in name or partial form but do not fully hold.
 ## Remediation plan
 
 - **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, ERR-002, and ERR-004.
-- **Plan now** (High/Critical and scheduled Medium work, suggested order): SEC-002 redaction -> QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
+- **Plan now** (High/Critical and scheduled Medium work, suggested order): QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
 - **Verify first** (Suspected; re-check the cited code before acting): SEC-004, SEC-005, ERR-003, ERR-005.
 - **Backlog** (Low; batch): PERF-001.
 

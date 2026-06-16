@@ -2441,6 +2441,58 @@ class TestOutcome(CliTestCase):
         self.assertIsNone(verification["plan"])
         self.assertIsNone(verification["step_id"])
 
+    def test_outcome_check_redacts_verifier_and_metric_output_tails(self):
+        state = self.init_workspace()
+        verify_secret = "verify-secret-value-1234567890"
+        metric_secret = "metric-secret-value-1234567890"
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Redact outcome tails",
+            "--success",
+            "verifier succeeds",
+            "--verify",
+            shell_py(
+                "import os, sys; "
+                "sys.stdout.write('VERIFY_TOKEN=' + os.environ['MYTHIFY_TEST_VERIFY_SECRET'] + '\\n')"
+            ),
+            "--metric",
+            shell_py(
+                "import os, sys; "
+                "sys.stdout.write('7.5 METRIC_SECRET=' + os.environ['MYTHIFY_TEST_METRIC_SECRET'] + '\\n')"
+            ),
+            "--json",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        goal = json.loads(started.stdout)
+        checked = self.run_cli(
+            "outcome",
+            "check",
+            "--json",
+            env_extra={
+                "MYTHIFY_TEST_VERIFY_SECRET": verify_secret,
+                "MYTHIFY_TEST_METRIC_SECRET": metric_secret,
+            },
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        payload = json.loads(checked.stdout)
+        self.assertEqual(payload["record"]["metric"]["score"], 7.5)
+        iteration = self.read_jsonl(
+            state / "outcomes" / goal["id"] / "iterations.jsonl"
+        )[-1]
+        verification = self.read_jsonl(state / "verifications.jsonl")[-1]
+        combined = json.dumps(
+            {
+                "iteration_verify": iteration["verify"],
+                "iteration_metric": iteration["metric"],
+                "verification": verification,
+            },
+            sort_keys=True,
+        )
+        self.assertNotIn(verify_secret, combined)
+        self.assertNotIn(metric_secret, combined)
+        self.assertIn("[REDACTED]", combined)
+
     def test_outcome_check_fails_after_iteration_budget(self):
         state = self.init_workspace()
         started = self.run_cli(
@@ -2601,6 +2653,42 @@ class TestVerify(CliTestCase):
         self.assertIs(record["verified"], False)
         self.assertIsNone(record["claim"])
         self.assertIn("boom", record["stdout_tail"])
+
+    def test_run_redacts_secret_patterns_from_output_tails(self):
+        state = self.init_workspace()
+        api_secret = "sk-test-secret-value-1234567890"
+        bearer_secret = "bearer-secret-value-1234567890"
+        stderr_secret = "stderr-secret-value-1234567890"
+        command = shell_py(
+            "import os, sys; "
+            "sys.stdout.write('OPENAI_API_KEY=' + os.environ['MYTHIFY_TEST_API_KEY'] + '\\n'); "
+            "sys.stdout.write('Authorization: Bearer ' + os.environ['MYTHIFY_TEST_BEARER'] + '\\nplain ok\\n'); "
+            "sys.stderr.write('token: ' + os.environ['MYTHIFY_TEST_STDERR_TOKEN'] + '\\n'); "
+            "raise SystemExit(3)"
+        )
+        result = self.run_cli(
+            "verify",
+            "run",
+            command,
+            env_extra={
+                "MYTHIFY_TEST_API_KEY": api_secret,
+                "MYTHIFY_TEST_BEARER": bearer_secret,
+                "MYTHIFY_TEST_STDERR_TOKEN": stderr_secret,
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertNotIn(api_secret, result.stdout)
+        self.assertNotIn(bearer_secret, result.stdout)
+        self.assertNotIn(stderr_secret, result.stdout)
+        self.assertIn("[REDACTED]", result.stdout)
+        self.assertIn("plain ok", result.stdout)
+        record = self.read_jsonl(state / "verifications.jsonl")[-1]
+        combined = record["stdout_tail"] + "\n" + record["stderr_tail"]
+        self.assertNotIn(api_secret, combined)
+        self.assertNotIn(bearer_secret, combined)
+        self.assertNotIn(stderr_secret, combined)
+        self.assertIn("[REDACTED]", combined)
+        self.assertIn("plain ok", record["stdout_tail"])
 
     def test_run_timeout_records_minus_one_and_exits_two(self):
         state = self.init_workspace()

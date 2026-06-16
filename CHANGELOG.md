@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.21] - 2026-06-16
+
+### Fixed
+
+- CLI and MCP verifier capture now redacts obvious secret patterns before
+  storing or printing stdout and stderr tails for `verify_run` and
+  `outcome_check` evidence.
+
 ## [3.6.20] - 2026-06-16
 
 ### Fixed
@@ -737,7 +745,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.20...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.21...HEAD
+[3.6.21]: https://github.com/aihxp/mythify/compare/v3.6.20...v3.6.21
 [3.6.20]: https://github.com/aihxp/mythify/compare/v3.6.19...v3.6.20
 [3.6.19]: https://github.com/aihxp/mythify/compare/v3.6.18...v3.6.19
 [3.6.18]: https://github.com/aihxp/mythify/compare/v3.6.17...v3.6.18

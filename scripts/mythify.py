@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.20"
+VERSION = "3.6.21"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
@@ -123,6 +123,7 @@ MEMORY_CLEAR_CLI_REFUSAL = (
 )
 REFLECT_OUTCOMES = ("success", "partial", "failure")
 TAIL_CHARS = 4000
+REDACTED_SECRET = "[REDACTED]"
 DEFAULT_VERIFY_TIMEOUT = 300.0
 DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 DEFAULT_LOG_COMPACT_KEEP = 1000
@@ -2949,6 +2950,47 @@ def format_classification(result):
 
 def tail_text(text, limit=TAIL_CHARS):
     return str(text or "")[-limit:]
+
+
+def redact_sensitive_output(text):
+    value = str(text or "")
+    if not value:
+        return ""
+    value = re.sub(
+        r"(?i)\b(authorization\s*[:=]\s*bearer\s+)([A-Za-z0-9._~+/\-=]+)",
+        r"\1" + REDACTED_SECRET,
+        value,
+    )
+    value = re.sub(
+        r"(?i)\b([A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)"
+        r"[A-Za-z0-9_-]*\s*=\s*)([^\s,;]+)",
+        r"\1" + REDACTED_SECRET,
+        value,
+    )
+    value = re.sub(
+        r"(?i)([\"']?[A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)"
+        r"[A-Za-z0-9_-]*[\"']?\s*:\s*)([\"'])([^\"']+)([\"'])",
+        r"\1\2" + REDACTED_SECRET + r"\4",
+        value,
+    )
+    value = re.sub(
+        r"(?i)\b((?:authorization|x-api-key|api-key|api_key|token|secret|password|passwd|credential)"
+        r"\s*:\s*)([^\s,;}]+)",
+        r"\1" + REDACTED_SECRET,
+        value,
+    )
+    value = re.sub(
+        r"\b("
+        r"sk-ant-[A-Za-z0-9_-]{16,}|"
+        r"sk-[A-Za-z0-9_-]{16,}|"
+        r"github_pat_[A-Za-z0-9_]{20,}|"
+        r"gh[pousr]_[A-Za-z0-9_]{20,}|"
+        r"npm_[A-Za-z0-9_-]{20,}"
+        r")\b",
+        REDACTED_SECRET,
+        value,
+    )
+    return value
 
 
 def triage_default_model(engine):
@@ -8853,8 +8895,8 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
                     process.kill()
                     process.wait(timeout=1)
                 exit_code = process.returncode
-        stdout_tail = _read_file_tail_text(stdout_path)
-        stderr_tail = _read_file_tail_text(stderr_path)
+        stdout_tail = redact_sensitive_output(_read_file_tail_text(stdout_path))
+        stderr_tail = redact_sensitive_output(_read_file_tail_text(stderr_path))
         total_size = _file_size(stdout_path) + _file_size(stderr_path)
     duration = (datetime.now(timezone.utc) - started).total_seconds()
     if (

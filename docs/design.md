@@ -817,7 +817,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson in the project store, or the global store with `--global`. | 0 |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | Default scope all; label each lesson `(project)` or `(global)`; `--tag` filters. | 0 |
 | `logs compact [--keep N] [--dry-run] [--json]` | Archive raw top-level verification and reflection logs, then keep the most recent valid records in active logs. Default keep is 1000. `--dry-run` writes nothing. | 0; 1 if keep is invalid |
-| `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and output tails, append an executed record, print the verdict. Default timeout 300 seconds. If `MYTHIFY_DISABLE_RUN=1`, refuse: execute nothing, record nothing, print `[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed and nothing was recorded. Unset it to enable execution, or use verify claim to record a self-reported attestation.` and exit 2 (the unverified code, so callers branching on verify run treat a disabled run as not verified). | 0 if verified, 2 if unverified or disabled |
+| `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and redacted output tails, append an executed record, print the verdict. Default timeout 300 seconds. If `MYTHIFY_DISABLE_RUN=1`, refuse: execute nothing, record nothing, print `[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed and nothing was recorded. Unset it to enable execution, or use verify claim to record a self-reported attestation.` and exit 2 (the unverified code, so callers branching on verify run treat a disabled run as not verified). | 0 if verified, 2 if unverified or disabled |
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|codex-desktop\|claude-desktop\|cursor-desktop] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. `--triage auto` runs one fast local model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
@@ -825,8 +825,9 @@ datetime, pathlib, tempfile). Subcommand grammar:
 
 Implementation notes:
 
-- `verify run` uses `subprocess.run(command, shell=True, capture_output=True,
-  text=True, timeout=N)`. Catch `TimeoutExpired` per the timeout rule above.
+- `verify run` executes the command through the shell, streams stdout and stderr
+  to temporary files, enforces timeout and output-size caps, and redacts common
+  secret patterns before persisting or printing output tails.
 - All commands other than `init` and `classify` require a resolvable state
   directory (or `MYTHIFY_DIR`, which is created on demand).
 - `--help` output for the top level and each subcommand must be accurate.
@@ -834,7 +835,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.20`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.21`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1950,7 +1951,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.20. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.21. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -1995,6 +1996,7 @@ slugifies explicit state lookup names before filesystem access; 3.6.16 labels
 outcome `allowed_paths` as advisory host-edit hints; 3.6.17 warns when malformed
 JSONL evidence records are skipped; 3.6.18 adds strict gate-decision conformance
 tests; 3.6.19 aligns CLI and MCP verifier output-cap and no-exit evidence
-semantics; 3.6.20 adds shared JSONL locks for appends and log compaction.
-The CLI reports 3.6.20 through `--version`; the MCP server reads `package.json`
+semantics; 3.6.20 adds shared JSONL locks for appends and log compaction;
+3.6.21 redacts obvious secret patterns from stored verifier output tails.
+The CLI reports 3.6.21 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.
