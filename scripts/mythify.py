@@ -898,19 +898,24 @@ def write_jsonl_atomic(path, records):
 
 
 def read_jsonl(path):
-    """Parse a jsonl file, skipping blank or unparseable lines."""
+    """Parse a jsonl file, skipping blanks and warning on malformed lines."""
     path = Path(path)
     records = []
     if not path.exists():
         return records
     with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
                 continue
             try:
                 records.append(json.loads(line))
             except ValueError:
+                sys.stderr.write(
+                    "[WARN] Skipping malformed JSONL record in {0} at line {1}.\n".format(
+                        path, line_number
+                    )
+                )
                 continue
     return records
 

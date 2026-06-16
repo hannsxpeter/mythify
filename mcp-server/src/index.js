@@ -1732,17 +1732,19 @@ function readJsonl(filePath) {
     return [];
   }
   const records = [];
-  for (const line of raw.split(/\r?\n/)) {
+  raw.split(/\r?\n/).forEach((line, index) => {
     const trimmed = line.trim();
     if (trimmed === "") {
-      continue;
+      return;
     }
     try {
       records.push(JSON.parse(trimmed));
     } catch {
-      // Skip bad jsonl records, matching the CLI's tolerant reader.
+      process.stderr.write(
+        `[WARN] Skipping malformed JSONL record in ${filePath} at line ${index + 1}.\n`
+      );
     }
-  }
+  });
   return records;
 }
 

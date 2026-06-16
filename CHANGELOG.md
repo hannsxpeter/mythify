@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- JSONL evidence readers now warn with file and line number when a malformed
+  record is skipped, making torn trailing records visible instead of silent.
+
 ## [3.6.16] - 2026-06-16
 
 ### Fixed

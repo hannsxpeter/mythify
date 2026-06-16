@@ -67,7 +67,7 @@ Last updated: 2026-06-15.
 - [ ] [SEC-004] Fanout `context_paths` are not sandboxed to the project root - Open, needs re-verification before changing behavior.
 - [ ] [SEC-005] `host_cli_run` accepts an arbitrary `bin` executable - Open, needs re-verification before changing behavior.
 - [x] ~~[SEC-006] `outcome` `allowed_paths` is advisory-only despite a sandboxing-implying name~~ - Completed in v3.6.16.
-- [ ] [ERR-002] `append_jsonl` is non-atomic for large records - Open.
+- [x] ~~[ERR-002] `append_jsonl` is non-atomic for large records~~ - Completed in the post-v3.6.16 resilience slice by surfacing malformed JSONL records.
 - [ ] [ERR-003] No `fsync` before atomic rename - Open, needs re-verification before changing behavior.
 - [ ] [ERR-005] Fanout timeout kills only the direct child; shell-engine grandchildren can orphan - Open, needs re-verification before changing behavior.
 - [ ] [PERF-001] The evidence ledger is re-read in full on every gate check and report, and grows unbounded - Open.
@@ -336,10 +336,10 @@ Several controls exist in name or partial form but do not fully hold.
 
 ## Remediation plan
 
-- **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, and ERR-004. Next small slice: ERR-002 after confirming the cited behavior still holds.
+- **Quick wins** (highest value per effort; act now): completed SEC-001, SEC-003, SEC-006, ERR-002, and ERR-004.
 - **Plan now** (High/Critical and scheduled Medium work, suggested order): finish ARC-003 (+TEST-001 gate-decision conformance) -> ARC-004 -> ERR-001 -> SEC-002 redaction -> QUAL-001 -> ARC-002 (long-horizon dedup/generation program).
 - **Verify first** (Suspected; re-check the cited code before acting): SEC-004, SEC-005, ERR-003, ERR-005.
-- **Backlog** (Low; batch): ERR-002, PERF-001.
+- **Backlog** (Low; batch): PERF-001.
 
 ## Scope and limitations
 

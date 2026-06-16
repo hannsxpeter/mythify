@@ -3327,6 +3327,33 @@ class TestStatusAndSummary(CliTestCase):
                 self.assertEqual(Path(payload["state_dir"]).resolve(), state.resolve())
                 self.assertEqual(self.state_snapshot(state), before)
 
+    def test_history_warns_on_malformed_jsonl_records(self):
+        state = self.init_workspace()
+        log = state / "verifications.jsonl"
+        log.write_text(
+            json.dumps({
+                "kind": "executed",
+                "timestamp": "2026-06-16T00:00:00+00:00",
+                "claim": "kept record",
+                "command": "true",
+                "exit_code": 0,
+                "duration_seconds": 0.01,
+                "stdout_tail": "",
+                "stderr_tail": "",
+                "verified": True,
+            })
+            + "\n"
+            + "{\"kind\":\"executed\",\"claim\":\"torn record\"\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli("history")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("kept record", result.stdout)
+        self.assertNotIn("torn record", result.stdout)
+        self.assertIn("[WARN] Skipping malformed JSONL record", result.stderr)
+        self.assertIn("verifications.jsonl at line 2", result.stderr)
+
 
 class TestCorruptRecovery(CliTestCase):
     def test_corrupt_memory_json_is_quarantined_with_warning(self):
