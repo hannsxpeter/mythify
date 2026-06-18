@@ -3,8 +3,11 @@ name: mythify-verify
 description: |
   Chat-native Mythify verification front door. Use when the user asks for
   /mythify-verify, "mythify verify", "prove this", "did it work", or wants a
-  completion claim grounded in executed evidence.
+  completion claim grounded in executed evidence. Invoke with /mythify-verify
+  in Claude Code or $mythify-verify in Codex.
 ---
+
+> Invocation: type `/mythify-verify` in Claude Code or `$mythify-verify` in Codex to run this skill. Treat any text after it as the claim to prove.
 
 # /mythify-verify
 

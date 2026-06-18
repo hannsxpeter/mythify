@@ -38,6 +38,22 @@ AGENTS.md support, and others). If your project already standardizes on
 `AGENTS.md`, create a one-line `CLAUDE.md` containing `@AGENTS.md` so Claude
 Code imports it instead of duplicating the content.
 
+### Chat skills: optional
+
+For a chat-native front door, install the focused Mythify skills. The checkout
+installer copies them into the Claude Code skills root (`$CLAUDE_HOME/skills`
+or `$HOME/.claude/skills`) alongside the Codex copy:
+
+```bash
+./scripts/install_user.sh --skip-mcp --project /path/to/your/project
+```
+
+This installs `mythify`, `mythify-work`, `mythify-route`, and `mythify-verify`.
+Invoke any of them with `/mythify` in Claude Code (the same skill is `$mythify`
+in Codex). Pass `--skip-claude-skills` to install only the Codex copy, or
+`--claude-skills-root PATH` to override the destination. The skills are
+optional sugar over the protocol and CLI; they do not require the MCP server.
+
 ### The MCP server: optional in Claude Code
 
 Claude Code has shell access, so the model can run `scripts/mythify.py`

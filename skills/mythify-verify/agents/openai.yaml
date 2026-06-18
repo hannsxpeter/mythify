@@ -1,0 +1,6 @@
+interface:
+  display_name: "Mythify Verify"
+  short_description: "Prove a claim with executed evidence in chat"
+  default_prompt: "Use $mythify-verify to prove this claim with executed evidence and surface the verdict."
+policy:
+  allow_implicit_invocation: true

@@ -3,8 +3,11 @@ name: mythify-work
 description: |
   Chat-native Mythify work loop. Use when the user asks for /mythify-work,
   "mythify work", "use Mythify to do this", "one shot", "in one go",
-  "address all", "continuous run", or wants Godpowers-style visibility.
+  "address all", "continuous run", or wants Godpowers-style visibility. Invoke
+  with /mythify-work in Claude Code or $mythify-work in Codex.
 ---
+
+> Invocation: type `/mythify-work` in Claude Code or `$mythify-work` in Codex to run this skill. Treat any text after it as the work request.
 
 # /mythify-work
 

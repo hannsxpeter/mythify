@@ -33,6 +33,7 @@ class TestUserInstaller(unittest.TestCase):
     def test_installs_chat_skills_and_hook_helper(self):
         prefix = self.tmp / "prefix"
         skills_root = self.tmp / "skills"
+        claude_skills_root = self.tmp / "claude-skills"
         hook_root = self.tmp / "hooks"
 
         result = self.run_cmd(
@@ -44,6 +45,8 @@ class TestUserInstaller(unittest.TestCase):
                 "--skip-mcp",
                 "--skills-root",
                 str(skills_root),
+                "--claude-skills-root",
+                str(claude_skills_root),
                 "--install-chat-hook",
                 "--hook-root",
                 str(hook_root),
@@ -56,8 +59,9 @@ class TestUserInstaller(unittest.TestCase):
         self.assertTrue(os.access(mythify_bin, os.X_OK))
 
         for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
-            skill_file = skills_root / skill / "SKILL.md"
-            self.assertTrue(skill_file.is_file(), skill_file)
+            for root in (skills_root, claude_skills_root):
+                skill_file = root / skill / "SKILL.md"
+                self.assertTrue(skill_file.is_file(), skill_file)
 
         hook = hook_root / "mythify-chat-report-hook.sh"
         self.assertTrue(hook.is_file())
@@ -95,6 +99,33 @@ class TestUserInstaller(unittest.TestCase):
         )
         self.assertEqual(hook_result.returncode, 0, hook_result.stderr)
         self.assertIn("chat hook attestation", hook_result.stdout)
+
+
+class TestSkillInvocationParity(unittest.TestCase):
+    """Every Mythify chat skill must advertise both runtime invocations.
+
+    Claude Code invokes a skill as /<name>; Codex invokes it as $<name>. A
+    single SKILL.md serves both runtimes, so it must document both forms in its
+    body and its frontmatter description.
+    """
+
+    SKILLS = ("mythify", "mythify-route", "mythify-verify", "mythify-work")
+
+    def test_each_skill_documents_both_invocations(self):
+        for skill in self.SKILLS:
+            skill_md = REPO_ROOT / "skills" / skill / "SKILL.md"
+            self.assertTrue(skill_md.is_file(), skill_md)
+            text = skill_md.read_text(encoding="utf-8")
+            self.assertIn(
+                "/" + skill,
+                text,
+                "{} is missing the Claude /{} invocation".format(skill_md, skill),
+            )
+            self.assertIn(
+                "$" + skill,
+                text,
+                "{} is missing the Codex ${} invocation".format(skill_md, skill),
+            )
 
 
 if __name__ == "__main__":

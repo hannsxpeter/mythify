@@ -1,0 +1,6 @@
+interface:
+  display_name: "Mythify Route"
+  short_description: "Choose the next Mythify workflow in chat"
+  default_prompt: "Use $mythify-route to choose and show the next workflow step for this task."
+policy:
+  allow_implicit_invocation: true

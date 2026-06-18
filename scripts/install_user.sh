@@ -3,19 +3,23 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--skip-mcp] [--skip-skills] [--skills-root PATH] [--install-chat-hook] [--hook-root PATH]
+Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--skip-mcp] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--install-chat-hook] [--hook-root PATH]
 
-Installs user-local Mythify launchers from this checkout.
+Installs user-local Mythify launchers from this checkout. Mythify chat skills
+are installed for both runtimes: invoke them with $skill in Codex and /skill in
+Claude Code.
 
 Options:
-  --prefix PATH        Install launchers under PATH/bin. Default: $HOME/.local
-  --project PATH       Initialize Mythify state for that project and print MCP setup.
-  --skip-mcp           Install only the mythify CLI wrapper.
-  --skip-skills        Do not install Codex-style Mythify chat skills.
-  --skills-root PATH   Install chat skills under PATH. Default: $CODEX_HOME/skills or $HOME/.codex/skills
-  --install-chat-hook  Install the optional report hook helper script.
-  --hook-root PATH     Install hook helpers under PATH. Default: $CODEX_HOME/hooks or $HOME/.codex/hooks
-  --help               Show this help.
+  --prefix PATH               Install launchers under PATH/bin. Default: $HOME/.local
+  --project PATH              Initialize Mythify state for that project and print MCP setup.
+  --skip-mcp                  Install only the mythify CLI wrapper.
+  --skip-skills               Do not install Mythify chat skills (Codex or Claude).
+  --skills-root PATH          Install Codex chat skills under PATH. Default: $CODEX_HOME/skills or $HOME/.codex/skills
+  --skip-claude-skills        Do not install the Claude Code copy of the chat skills.
+  --claude-skills-root PATH   Install Claude chat skills under PATH. Default: $CLAUDE_HOME/skills or $HOME/.claude/skills
+  --install-chat-hook         Install the optional report hook helper script.
+  --hook-root PATH            Install hook helpers under PATH. Default: $CODEX_HOME/hooks or $HOME/.codex/hooks
+  --help                      Show this help.
 USAGE
 }
 
@@ -26,6 +30,20 @@ fail() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+install_skills_into() {
+  sk_label="$1"
+  sk_root="$2"
+  mkdir -p "$sk_root"
+  for skill_dir in "$repo_root"/skills/mythify*; do
+    [ -d "$skill_dir" ] || continue
+    skill_name=$(basename "$skill_dir")
+    destination="$sk_root/$skill_name"
+    rm -rf "$destination"
+    cp -R "$skill_dir" "$destination"
+    printf '%s\n' "[OK] Installed $sk_label Mythify chat skill: $destination"
+  done
 }
 
 pack_dir=""
@@ -40,9 +58,12 @@ prefix="${PREFIX:-$HOME/.local}"
 project=""
 skip_mcp=0
 skip_skills=0
+skip_claude_skills=0
 install_chat_hook=0
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 skills_root="${MYTHIFY_SKILLS_ROOT:-$codex_home/skills}"
+claude_home="${CLAUDE_HOME:-$HOME/.claude}"
+claude_skills_root="${MYTHIFY_CLAUDE_SKILLS_ROOT:-$claude_home/skills}"
 hook_root="${MYTHIFY_HOOK_ROOT:-$codex_home/hooks}"
 
 while [ "$#" -gt 0 ]; do
@@ -68,6 +89,15 @@ while [ "$#" -gt 0 ]; do
     --skills-root)
       [ "$#" -ge 2 ] || fail "--skills-root requires a path"
       skills_root="$2"
+      shift 2
+      ;;
+    --skip-claude-skills)
+      skip_claude_skills=1
+      shift
+      ;;
+    --claude-skills-root)
+      [ "$#" -ge 2 ] || fail "--claude-skills-root requires a path"
+      claude_skills_root="$2"
       shift 2
       ;;
     --install-chat-hook)
@@ -113,15 +143,10 @@ printf '%s\n' "[OK] Installed mythify CLI: $bin_dir/mythify"
 
 if [ "$skip_skills" -eq 0 ]; then
   [ -d "$repo_root/skills" ] || fail "Missing skills directory"
-  mkdir -p "$skills_root"
-  for skill_dir in "$repo_root"/skills/mythify*; do
-    [ -d "$skill_dir" ] || continue
-    skill_name=$(basename "$skill_dir")
-    destination="$skills_root/$skill_name"
-    rm -rf "$destination"
-    cp -R "$skill_dir" "$destination"
-    printf '%s\n' "[OK] Installed Mythify chat skill: $destination"
-  done
+  install_skills_into "Codex" "$skills_root"
+  if [ "$skip_claude_skills" -eq 0 ]; then
+    install_skills_into "Claude" "$claude_skills_root"
+  fi
 fi
 
 if [ "$install_chat_hook" -eq 1 ]; then

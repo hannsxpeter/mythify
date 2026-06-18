@@ -3,8 +3,11 @@ name: mythify-route
 description: |
   Chat-native Mythify router front door. Use when the user asks for
   /mythify-route, "mythify route", "what should Mythify do next", or wants a
-  visible workflow decision before execution.
+  visible workflow decision before execution. Invoke with /mythify-route in
+  Claude Code or $mythify-route in Codex.
 ---
+
+> Invocation: type `/mythify-route` in Claude Code or `$mythify-route` in Codex to run this skill. Treat any text after it as the task to route.
 
 # /mythify-route
 

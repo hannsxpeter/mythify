@@ -891,7 +891,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.54`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.55`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1420,7 +1420,8 @@ References, each under 100 lines, v2 semantics throughout:
 - `references/meta-prompts.md`: the injectable behavioral constraints (act over ask,
   lead with outcome, grounding, bounded autonomy, anti-overengineering, persistence).
 
-Codex-style chat front doors live beside the package skill:
+Dual-runtime chat front doors (`$name` in Codex, `/name` in Claude Code) live
+beside the package skill:
 
 - `skills/mythify-work/`: visible multi-step work loop. It keeps execution in
   the initiating chat, marks the report cursor, and surfaces a report after
@@ -1444,8 +1445,12 @@ list and `[OK]` on success.
 ### scripts/install_user.sh
 
 Installs user-local launchers and, by default, copies `skills/mythify*`
-directories into `$CODEX_HOME/skills` or `$HOME/.codex/skills`. `--skip-skills`
-disables that copy, `--skills-root PATH` overrides the destination, and
+directories into both the Codex skills root (`$CODEX_HOME/skills` or
+`$HOME/.codex/skills`) and the Claude Code skills root (`$CLAUDE_HOME/skills`
+or `$HOME/.claude/skills`), so each skill is invocable as `$name` in Codex and
+`/name` in Claude Code. `--skip-skills` disables both copies, `--skills-root
+PATH` overrides the Codex destination, `--skip-claude-skills` skips only the
+Claude copy, `--claude-skills-root PATH` overrides the Claude destination, and
 `--install-chat-hook` installs `scripts/mythify_chat_report_hook.sh` as
 `mythify-chat-report-hook.sh` under `$CODEX_HOME/hooks` or `$HOME/.codex/hooks`.
 The hook helper only prints `report --since last --cursor chat --format chat`
@@ -2012,7 +2017,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.54. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.55. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2102,6 +2107,8 @@ helpers plus MCP workflow tools, view builders, status views, fanout policy,
 and fanout registration helpers; 3.6.53 adds the dual-runtime parity CI gate
 and documents the parity discipline for shared CLI and MCP behavior changes;
 3.6.54 adds default planning horizon support, Codex-first worker selection,
-and Claude CLI worker cost warnings.
-The CLI reports 3.6.54 through `--version`; the MCP server reads `package.json`
+and Claude CLI worker cost warnings; 3.6.55 makes the Mythify chat skills
+dual-runtime invocable (`/name` in Claude Code, `$name` in Codex) and installs
+them into both the Codex and Claude Code skills roots.
+The CLI reports 3.6.55 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.55] - 2026-06-18
+
+### Added
+
+- Made the Mythify chat skills dual-runtime invocable: each `SKILL.md` now
+  documents both the Claude Code `/name` and Codex `$name` invocation, and
+  `mythify-route`, `mythify-verify`, and `mythify-work` gained an
+  `agents/openai.yaml` interface manifest to match `mythify`.
+- `scripts/install_user.sh` now installs the chat skills into both the Codex
+  skills root (`$CODEX_HOME/skills`) and the Claude Code skills root
+  (`$CLAUDE_HOME/skills`), with `--claude-skills-root` and
+  `--skip-claude-skills` to control the Claude copy.
+- Added a skill invocation parity test asserting every Mythify chat skill
+  advertises both the `/name` and `$name` forms.
+
 ## [3.6.54] - 2026-06-18
 
 ### Changed

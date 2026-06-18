@@ -1,13 +1,13 @@
 # Release Process
 
-Current release target: `v3.6.54`.
+Current release target: `v3.6.55`.
 
 Current package metadata:
 
 - MCP package: `mythify-mcp`
-- Version: `3.6.54`
+- Version: `3.6.55`
 - Node runtime: `>=18`
-- Package artifact: `mcp-server/mythify-mcp-3.6.54.tgz`
+- Package artifact: `mcp-server/mythify-mcp-3.6.55.tgz`
 - Skill artifact: `dist/mythify.skill`
 
 ## Release Gate
@@ -44,7 +44,7 @@ python3 scripts/package_skill.py
 Expected artifacts:
 
 - `dist/mythify.skill`
-- `mcp-server/mythify-mcp-3.6.54.tgz`
+- `mcp-server/mythify-mcp-3.6.55.tgz`
 
 The npm tarball must include package-local copies of
 `mcp-server/protocol/classification-rules.json`,
@@ -64,24 +64,27 @@ The supported user install path is a local checkout plus:
 The script installs `mythify` and `mythify-mcp` launchers under
 `$HOME/.local/bin` by default, installs the packaged MCP server under
 `$XDG_DATA_HOME/mythify/VERSION` or `$HOME/.local/share/mythify/VERSION`, and
-copies Codex-style Mythify chat skills under `$CODEX_HOME/skills` or
-`$HOME/.codex/skills`. It also prints the Codex MCP registration command for
+copies the Mythify chat skills for both runtimes: under `$CODEX_HOME/skills`
+(or `$HOME/.codex/skills`) for Codex and `$CLAUDE_HOME/skills` (or
+`$HOME/.claude/skills`) for Claude Code. Invoke them with `$name` in Codex or
+`/name` in Claude Code. It also prints the Codex MCP registration command for
 the selected project.
 
-Use `--skip-skills` to skip local skill installation, `--skills-root PATH` to
-choose a different skill root, and `--install-chat-hook` to install the
-optional `mythify-chat-report-hook.sh` helper under `$CODEX_HOME/hooks` or
-`$HOME/.codex/hooks`.
+Use `--skip-skills` to skip all chat skill installation, `--skills-root PATH`
+to choose the Codex skill root, `--skip-claude-skills` to skip only the Claude
+Code copy, `--claude-skills-root PATH` to choose the Claude skill root, and
+`--install-chat-hook` to install the optional `mythify-chat-report-hook.sh`
+helper under `$CODEX_HOME/hooks` or `$HOME/.codex/hooks`.
 
 ## Publish
 
 Create the GitHub release only after the final commit is pushed and CI is green:
 
 ```bash
-gh release create v3.6.54 \
+gh release create v3.6.55 \
   dist/mythify.skill \
-  mcp-server/mythify-mcp-3.6.54.tgz \
-  --title "Mythify v3.6.54" \
+  mcp-server/mythify-mcp-3.6.55.tgz \
+  --title "Mythify v3.6.55" \
   --notes-file /tmp/mythify-v3-6-54-release-notes.md
 ```
 
@@ -93,7 +96,7 @@ identical or safely overwritten by the workflow.
 
 The current npm package name is unscoped: `mythify-mcp`. This repository
 currently produces a GitHub release package artifact
-(`mythify-mcp-3.6.54.tgz`) rather than publishing an npm package to the GitHub
+(`mythify-mcp-3.6.55.tgz`) rather than publishing an npm package to the GitHub
 Packages registry. The current product promise is therefore:
 
 - Source checkout plus `scripts/install_user.sh` for user-local installation.

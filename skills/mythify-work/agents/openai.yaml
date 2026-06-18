@@ -1,0 +1,6 @@
+interface:
+  display_name: "Mythify Work"
+  short_description: "Run a visible step-by-step work loop with evidence"
+  default_prompt: "Use $mythify-work to run this task as a visible, evidence-gated work loop."
+policy:
+  allow_implicit_invocation: true

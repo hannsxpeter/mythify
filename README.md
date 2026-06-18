@@ -47,13 +47,18 @@ MCP surface exists for larger workflows.
 For a Godpowers-style chat feel, use the installed focused skills instead of
 manually driving the CLI:
 
-- `$mythify-work`: run a visible step-by-step work loop with reports after
-  steps and verifiers.
-- `$mythify-route`: show the workflow decision and next action in chat.
-- `$mythify-verify`: prove a claim and surface the verdict in chat.
+- `$mythify-work` (Codex) or `/mythify-work` (Claude Code): run a visible
+  step-by-step work loop with reports after steps and verifiers.
+- `$mythify-route` (Codex) or `/mythify-route` (Claude Code): show the
+  workflow decision and next action in chat.
+- `$mythify-verify` (Codex) or `/mythify-verify` (Claude Code): prove a claim
+  and surface the verdict in chat.
 
-`scripts/install_user.sh` installs these Codex-style skill directories under
-`$CODEX_HOME/skills` or `$HOME/.codex/skills` by default.
+`scripts/install_user.sh` installs these chat skill directories for both
+runtimes: under `$CODEX_HOME/skills` (or `$HOME/.codex/skills`) for Codex and
+`$CLAUDE_HOME/skills` (or `$HOME/.claude/skills`) for Claude Code. The same
+SKILL.md serves both, so invoke any skill with `$name` in Codex or `/name` in
+Claude Code.
 
 ## Recommended Surface
 
@@ -87,11 +92,11 @@ capability gap.
 | :--- | :--- | :--- |
 | Protocol variants | `CLAUDE.md`, `AGENTS.md`, `.cursorrules` | Drop-in rules files, generated from `protocol/PROTOCOL.md` by `scripts/build_variants.py`. |
 | CLI | `scripts/mythify.py` | Zero-dependency Python 3.9+ orchestrator for plans, research, campaigns, memory, lessons, outcome loops, verification, and reflection. |
-| User installer | `scripts/install_user.sh` | User-local launcher installer for the CLI, packaged MCP server, Codex-style chat skills, and optional chat report hook helper from a checkout. |
+| User installer | `scripts/install_user.sh` | User-local launcher installer for the CLI, packaged MCP server, dual-runtime chat skills (Codex and Claude Code), and optional chat report hook helper from a checkout. |
 | Shared manifests | `protocol/operation-registry.json`, `protocol/classification-rules.json`, `protocol/workflow-router.json`, `protocol/surface-manifest.json` | Shared facts used by the CLI, MCP server, tests, and docs to prevent drift. |
 | MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 40 MCP tools, including task classification, workflow routing, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, work reports, background task status, outcome progress, release readiness, fanout worker timeline, phase status, prompt packets, campaign next prompts, and parallel delegation (fanout). |
 | Skill package | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
-| Chat skills | `skills/mythify-work/`, `skills/mythify-route/`, `skills/mythify-verify/` | Codex-style in-chat front doors that make Mythify feel like a native skill instead of a hidden CLI ledger. |
+| Chat skills | `skills/mythify-work/`, `skills/mythify-route/`, `skills/mythify-verify/` | Dual-runtime in-chat front doors (`$name` in Codex, `/name` in Claude Code) that make Mythify feel like a native skill instead of a hidden CLI ledger. |
 
 All components read and write the same per-project `.mythify/` state directory, so
 they interoperate: a plan created by the CLI is visible to the MCP server and vice
@@ -199,14 +204,18 @@ After importing the skill, ask for it directly with prompts such as
 Mythify commands or MCP tools behind the scenes while bringing progress,
 findings, and evidence back into the chat.
 
-For Codex-style local skills, use the checkout installer:
+For local chat skills in both Codex and Claude Code, use the checkout
+installer:
 
 ```bash
 ./scripts/install_user.sh --project /path/to/your/project
 ```
 
 It copies `mythify`, `mythify-work`, `mythify-route`, and `mythify-verify`
-under `$CODEX_HOME/skills` or `$HOME/.codex/skills` by default. To install the
+under both `$CODEX_HOME/skills` (or `$HOME/.codex/skills`) for Codex and
+`$CLAUDE_HOME/skills` (or `$HOME/.claude/skills`) for Claude Code. Invoke them
+with `$mythify` in Codex or `/mythify` in Claude Code; pass
+`--skip-claude-skills` to install only the Codex copy. To install the
 optional hook helper that runs a chat report from host hook systems:
 
 ```bash
