@@ -54,7 +54,7 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
                 .string()
                 .optional()
                 .describe(
-                  "Per-task engine override (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); beats the job engine and MYTHIFY_FANOUT_ENGINE."
+                  "Per-task engine override (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); beats the job engine and MYTHIFY_FANOUT_ENGINE. Selecting claude-cli invokes Claude Code through claude -p and can use paid usage credits or API-priced billing after plan limits."
                 ),
               effort: z
                 .enum(EFFORT_LEVELS)
@@ -87,7 +87,7 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
           .string()
           .optional()
           .describe(
-            "Default engine for every task (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); per-task engine overrides it. Omit to auto-detect."
+            "Default engine for every task (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); per-task engine overrides it. Omit to use codex-cli when available, then other detected engines. Selecting claude-cli invokes Claude Code through claude -p and can use paid usage credits or API-priced billing after plan limits."
           ),
         effort: z
           .enum(EFFORT_LEVELS)

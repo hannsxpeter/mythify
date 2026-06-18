@@ -125,7 +125,7 @@ Match protocol overhead to task size. Trivial tasks pay zero overhead.
 
 ## The autonomy loop
 
-1. PLAN: `plan create GOAL [--steps JSON] [--name NAME]`, then `status`.
+1. PLAN: `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]`, then `status`.
 2. ACT: mark the next step `in_progress`, then do the work.
 3. VERIFY: `verify run COMMAND [--claim TEXT] [--timeout N]`.
 4. REFLECT: record what happened, especially after failures or surprises.
@@ -192,7 +192,7 @@ Most turns should start with `route`, not the full table below.
 | `status` | Orientation: active plan, next step, counts. |
 | `route TASK [--json] [--triage never\|auto\|always]` | Choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt routing from task text and durable state without mutating state. |
 | `classify TASK [--json] [--triage never\|auto\|always]` | Identify task type, risk, execution profile, verification strategy, fanout fit, model policy, and task-based host recommendation when routing is not needed. |
-| `plan create GOAL [--steps JSON] [--name NAME]` | Create a plan, set it active. |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan, set it active. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step. |
 | `plan list` | List plans with progress. |
 | `plan show [NAME]` | Full detail of a plan. |

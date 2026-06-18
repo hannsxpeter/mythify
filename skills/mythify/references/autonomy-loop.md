@@ -28,11 +28,13 @@ plan.
 
 Create the plan with steps up front when you can:
 
-    plan create GOAL [--steps JSON] [--name NAME]
+    plan create GOAL [--steps JSON] [--horizon N] [--name NAME]
 
 `--steps` is a JSON array of `{"title": str, "success_criteria": str}`
-(success_criteria optional). Without `--steps`, an empty plan is created;
-grow it with:
+(success_criteria optional). `--horizon N` creates N default lookahead steps
+when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` can set the same default for
+direct plan creation. Without `--steps`, `--horizon`, or the env default, an
+empty plan is created; grow it with:
 
     plan add-step TITLE [--criteria TEXT] [--plan NAME]
 

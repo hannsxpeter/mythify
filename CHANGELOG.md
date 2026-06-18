@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.54] - 2026-06-18
+
+### Changed
+
+- Added default planning horizon support so Mythify Work creates 20 lookahead
+  steps by default when a plan is requested without explicit steps.
+- Made Codex the default spawned worker engine when `codex-cli` is available,
+  regardless of the initiating host, while preserving explicit worker engine
+  overrides.
+- Added Claude CLI worker cost warnings when `claude-cli` is selected, noting
+  that it invokes Claude Code through `claude -p` and may use paid usage
+  credits or standard API pricing after included plan limits.
+
 ## [3.6.53] - 2026-06-17
 
 ### Changed
@@ -1039,7 +1052,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.53...HEAD
+[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.54...HEAD
+[3.6.54]: https://github.com/aihxp/mythify/compare/v3.6.53...v3.6.54
 [3.6.53]: https://github.com/aihxp/mythify/compare/v3.6.52...v3.6.53
 [3.6.52]: https://github.com/aihxp/mythify/compare/v3.6.51...v3.6.52
 [3.6.51]: https://github.com/aihxp/mythify/compare/v3.6.50...v3.6.51

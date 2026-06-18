@@ -22,7 +22,10 @@ happening, what passed, what failed, and what comes next.
 3. Start with a one-sentence visible outcome.
 4. Run `mythify route "TASK"` to choose the workflow unless the user already
    named a specific Mythify primitive.
-5. For multi-step work, create or resume a plan, then mark the chat cursor:
+5. For multi-step work, create or resume a plan. New plans should use a
+   20-step lookahead by default: follow the `mythify route "TASK"` next
+   command, or call `mythify plan create "TASK" --horizon 20` when creating
+   the plan directly. Then mark the chat cursor:
 
        mythify report --cursor chat --mark
 

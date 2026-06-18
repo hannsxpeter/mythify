@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  MAX_PLAN_HORIZON,
+  buildDefaultPlanSteps,
+  envPlanHorizon,
+  parsePlanHorizon,
+} from "./plan-horizon.js";
 
 export const PLAN_TOOL_NAMES = [
   "plan_create",
@@ -58,14 +64,36 @@ export function registerPlanTools(server, deps) {
           )
           .optional()
           .describe("Initial steps; ids are auto-assigned starting at 1."),
+        horizon: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_PLAN_HORIZON)
+          .optional()
+          .describe("Create N default lookahead steps when steps is omitted."),
       },
     },
-    guarded(({ goal, name, steps }) => {
+    guarded(({ goal, name, steps, horizon }) => {
+      if (steps !== undefined && horizon !== undefined) {
+        return "[FAIL] horizon can only be used when steps is omitted.";
+      }
+      let inputSteps = steps || [];
+      if (steps === undefined) {
+        let targetHorizon = null;
+        try {
+          targetHorizon = horizon !== undefined ? parsePlanHorizon(horizon, "horizon") : envPlanHorizon(null);
+        } catch (error) {
+          return `[FAIL] ${error.message}`;
+        }
+        if (targetHorizon !== null) {
+          inputSteps = buildDefaultPlanSteps(targetHorizon);
+        }
+      }
       const base =
         slugify(name !== undefined && name !== null && String(name).trim() !== "" ? name : goal) || "plan";
       const slug = uniquePlanSlug(base);
       const now = isoNow();
-      const planSteps = (steps || []).map((s, i) => ({
+      const planSteps = inputSteps.map((s, i) => ({
         id: i + 1,
         title: s.title,
         success_criteria: s.success_criteria || "",

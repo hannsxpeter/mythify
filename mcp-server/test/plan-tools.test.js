@@ -78,6 +78,7 @@ test("plan tool registrar wires plan handlers and strict evidence", async () => 
   assert.deepEqual(registered.map((entry) => entry.name), PLAN_TOOL_NAMES);
   const planCreate = registered.find((entry) => entry.name === "plan_create");
   assert.ok(planCreate.config.inputSchema.steps);
+  assert.ok(planCreate.config.inputSchema.horizon);
 
   const createResult = await planCreate.handler({
     goal: "Ship plan",
@@ -129,6 +130,37 @@ test("plan tool registrar wires plan handlers and strict evidence", async () => 
   const status = await planStatus.handler({});
   assert.match(status, /Progress: 1\/2 steps completed/);
   assert.match(status, /tests pass/);
+});
+
+test("plan_create can generate default horizon steps", async () => {
+  const harness = makeHarness();
+  const { registered, plans } = harness;
+  const planCreate = registered.find((entry) => entry.name === "plan_create");
+
+  const createResult = await planCreate.handler({
+    goal: "Horizon plan",
+    horizon: 3,
+  });
+
+  assert.match(createResult, /with 3 steps/);
+  assert.equal(plans.get("horizon-plan").steps.length, 3);
+  assert.equal(
+    plans.get("horizon-plan").steps[0].title,
+    "Confirm goal, done criteria, and non-goals"
+  );
+});
+
+test("plan_create rejects horizon with explicit steps", async () => {
+  const harness = makeHarness();
+  const planCreate = harness.registered.find((entry) => entry.name === "plan_create");
+
+  const createResult = await planCreate.handler({
+    goal: "Mixed plan",
+    steps: [{ title: "Explicit" }],
+    horizon: 20,
+  });
+
+  assert.match(createResult, /^\[FAIL\] horizon can only be used/);
 });
 
 test("plan_status reports no active plan without mutating state", async () => {

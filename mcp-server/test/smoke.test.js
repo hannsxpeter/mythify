@@ -564,6 +564,9 @@ test("mythify MCP server smoke test", async (t) => {
         assert.equal(payload.chat_policy.executor, "initiating_host");
         assert.equal(payload.evidence.at(-1).mutates_state, false);
         assert.match(payload.guardrail, /not verification evidence/);
+        if (route === "plan") {
+          assert.match(payload.next_command, /--horizon 20/);
+        }
       }
       assert.deepEqual(snapshotStateDir(stateDir), before, "workflow_route leaves state unchanged");
     });

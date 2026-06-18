@@ -74,6 +74,25 @@ test("model policy module classifies tiers and builds host-aware policy", () => 
   });
 });
 
+test("model policy warns when claude-cli is selected for spawned roles", () => {
+  withEnv({ MYTHIFY_FANOUT_ENGINE: "claude-cli", MYTHIFY_TRIAGE_ENGINE: "claude-cli" }, () => {
+    const policy = buildModelPolicy(classification(), {
+      platform: "cursor-desktop",
+      triage_timeout_seconds: 33,
+    });
+
+    assert.equal(policy.triage.engine, "claude-cli");
+    assert.equal(policy.triage.engine_policy, "env");
+    assert.equal(policy.fanout_worker.engine, "claude-cli");
+    assert.equal(policy.fanout_worker.engine_policy, "env");
+    assert.ok(policy.triage.cost_warnings[0].includes("claude -p"));
+    assert.ok(policy.fanout_worker.cost_warnings[0].includes("standard API pricing"));
+    assert.ok(
+      policy.reviewer.cost_warning_urls.includes("https://code.claude.com/docs/en/costs")
+    );
+  });
+});
+
 test("model triage command runner returns parsed material without state writes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-model-policy-"));
   const script = path.join(root, "triage.cjs");

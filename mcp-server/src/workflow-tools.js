@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import { classifyTaskText, formatClassification } from "./classification.js";
 import { buildModelPolicy, runModelTriage } from "./model-policy.js";
+import { routePlanHorizon } from "./plan-horizon.js";
 import {
   EFFORT_LEVELS,
   HOST_PLATFORMS as PLATFORMS,
@@ -958,21 +959,7 @@ function routeCommandFor(route, task, stateView) {
     return `python3 scripts/mythify.py prompt handoff --goal ${quotedTask}`;
   }
   if (route === "plan") {
-    const steps = JSON.stringify([
-      {
-        title: "Understand and design",
-        success_criteria: "scope and verifier are explicit",
-      },
-      {
-        title: "Implement",
-        success_criteria: "requested behavior is present",
-      },
-      {
-        title: "Verify",
-        success_criteria: "nearest executable checks pass",
-      },
-    ]);
-    return `python3 scripts/mythify.py plan create ${quotedTask} --steps ${shellQuote(steps)}`;
+    return `python3 scripts/mythify.py plan create ${quotedTask} --horizon ${routePlanHorizon()}`;
   }
   if (route === "prompt") {
     return `python3 scripts/mythify.py prompt ${packet}`;
@@ -1187,7 +1174,7 @@ export function registerWorkflowTools(server, nextDeps) {
         triage_engine: z
           .enum(TRIAGE_ENGINES)
           .optional()
-          .describe("Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE or local auto-detection."),
+          .describe("Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE, then codex-cli when available, then local auto-detection."),
         triage_model: z
           .string()
           .optional()
@@ -1360,7 +1347,7 @@ export function registerWorkflowTools(server, nextDeps) {
         triage_engine: z
           .enum(TRIAGE_ENGINES)
           .optional()
-          .describe("Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE or local auto-detection."),
+          .describe("Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE, then codex-cli when available, then local auto-detection."),
         triage_model: z
           .string()
           .optional()

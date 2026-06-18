@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 00537ffff2a26e265d61d76c288a5e4f5d426e5c69b745d8a89d1c01fe32736b -->
+<!-- Mythify protocol-sha256: 9f6006180b80c5f7a196fd1e830e4078e64b84009becd432a8786a6883fdea51 -->
 
 # The Mythify Protocol
 
@@ -69,6 +69,8 @@ Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met
    Act once, then run `outcome check`. Continue only when it says the outcome is
    still active and the budget remains.
    `python3 scripts/mythify.py plan create "Ship feature X" --steps '[{"title": "Write parser", "success_criteria": "unit tests pass"}]'`
+   Use `--horizon 20` for a default 20-step lookahead when explicit steps are
+   not supplied.
    Add steps as you discover them:
    `python3 scripts/mythify.py plan add-step "Handle empty input" --criteria "regression test passes"`
 2. ACT. Mark the step, then do the work.
@@ -147,7 +149,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `outcome status [NAME] [--json]` | Show the active or named outcome loop. |
 | `outcome results [NAME] [--json]` | Show all verifier iterations and final outcome state. |
 | `outcome stop [NAME] --reason TEXT [--json]` | Stop an outcome loop and clear the active pointer when it matches. |
-| `plan create GOAL [--steps JSON] [--name NAME]` | Create a plan and set it active. |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan and set it active. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step to the named or active plan. |
 | `plan list` | List plans with active marker and progress. |
 | `plan show [NAME]` | Full detail of the named or active plan. |

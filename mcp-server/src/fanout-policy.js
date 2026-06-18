@@ -5,6 +5,16 @@ import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
 export const ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "anthropic", "openai", "command"];
+export const DEFAULT_WORKER_ENGINE = "codex-cli";
+export const CLAUDE_CLI_COST_WARNING =
+  "Selecting claude-cli runs Claude Code non-interactively through claude -p. " +
+  "Claude Code usage is token-cost-sensitive; included usage applies only within plan limits. " +
+  "If usage credits are enabled and included limits are reached, continued usage can be billed at standard API pricing.";
+export const CLAUDE_CLI_COST_WARNING_URLS = [
+  "https://code.claude.com/docs/en/headless",
+  "https://code.claude.com/docs/en/costs",
+  "https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans",
+];
 export const HOST_PLATFORMS = [
   "auto",
   "unknown",
@@ -404,16 +414,7 @@ export function inferHostPlatform() {
 }
 
 export function preferredLocalEngine(platform) {
-  if (["codex-desktop", "codex-cli"].includes(platform)) {
-    return "codex-cli";
-  }
-  if (["claude-desktop", "claude-code"].includes(platform)) {
-    return "claude-cli";
-  }
-  if (["cursor-desktop", "cursor-agent"].includes(platform)) {
-    return "cursor-agent";
-  }
-  return "";
+  return fanoutEngineAvailable(DEFAULT_WORKER_ENGINE) ? DEFAULT_WORKER_ENGINE : "";
 }
 
 export function fanoutEngineAvailable(engine) {
@@ -429,9 +430,9 @@ export function fanoutEngineAvailable(engine) {
   return false;
 }
 
-// Auto-detection order: explicit MYTHIFY_FANOUT_ENGINE, initiating host CLI
-// when available, local subscription CLIs, then API or command fallbacks, else
-// refuse with a message listing every option.
+// Auto-detection order: explicit MYTHIFY_FANOUT_ENGINE, codex-cli when
+// available, other local subscription CLIs, then API or command fallbacks,
+// else refuse with a message listing every option.
 export function autoDetectEngine() {
   const explicit = (process.env.MYTHIFY_FANOUT_ENGINE || "").trim();
   if (explicit !== "") {
@@ -441,11 +442,11 @@ export function autoDetectEngine() {
   if (preferred !== "" && fanoutEngineAvailable(preferred)) {
     return { engine: preferred };
   }
-  if (resolveClaudeBin() !== null) {
-    return { engine: "claude-cli" };
-  }
   if (resolveCodexBin() !== null) {
     return { engine: "codex-cli" };
+  }
+  if (resolveClaudeBin() !== null) {
+    return { engine: "claude-cli" };
   }
   if (resolveCursorInvocation() !== null) {
     return { engine: "cursor-agent" };
@@ -459,8 +460,8 @@ export function autoDetectEngine() {
   return {
     error:
       "[FAIL] No fanout engine is available. Configure one of the six engines: " +
-      "claude-cli (install the claude CLI or set MYTHIFY_FANOUT_CLAUDE_BIN), " +
       "codex-cli (install the codex CLI or set MYTHIFY_FANOUT_CODEX_BIN), " +
+      "claude-cli (install the claude CLI or set MYTHIFY_FANOUT_CLAUDE_BIN), " +
       "cursor-agent (install Cursor Agent or set MYTHIFY_FANOUT_CURSOR_BIN), " +
       "anthropic (set ANTHROPIC_API_KEY), " +
       "openai (set MYTHIFY_FANOUT_ENGINE=openai plus MYTHIFY_FANOUT_BASE_URL and MYTHIFY_FANOUT_API_KEY), " +
@@ -844,13 +845,18 @@ export function enginePricingUrl(engine) {
 }
 
 export function engineCostMetadata(engine) {
-  return {
+  const metadata = {
     billing: engineBilling(engine),
     cost_tracking: "metadata_only_no_estimate",
     cost_estimate_status: "not_estimated",
     cost_estimate_cents: null,
     pricing_url: enginePricingUrl(engine),
   };
+  if (engine === "claude-cli") {
+    metadata.cost_warnings = [CLAUDE_CLI_COST_WARNING];
+    metadata.cost_warning_urls = CLAUDE_CLI_COST_WARNING_URLS;
+  }
+  return metadata;
 }
 
 export function engineProvider(engine) {
@@ -871,13 +877,20 @@ export function sha256Hex(text) {
 }
 
 export function auditCostMetadata(task) {
-  return {
+  const metadata = {
     billing: task.billing || "unknown",
     cost_tracking: task.cost_tracking || "metadata_only_no_estimate",
     cost_estimate_status: task.cost_estimate_status || "not_estimated",
     cost_estimate_cents: task.cost_estimate_cents ?? null,
     pricing_url: task.pricing_url || "",
   };
+  if (Array.isArray(task.cost_warnings) && task.cost_warnings.length > 0) {
+    metadata.cost_warnings = task.cost_warnings;
+  }
+  if (Array.isArray(task.cost_warning_urls) && task.cost_warning_urls.length > 0) {
+    metadata.cost_warning_urls = task.cost_warning_urls;
+  }
+  return metadata;
 }
 
 export function providerAuditPath() {

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from mythify_classification import classify_task_text
 from mythify_model_policy import build_model_policy, run_model_triage
+from mythify_plan_horizon import route_plan_horizon
 from mythify_workflows import (
     build_campaign_prompt_payload,
     campaign_next_action,
@@ -717,23 +718,9 @@ def route_command_for(route, task, state_view):
     if route == "handoff":
         return "python3 scripts/mythify.py prompt handoff --goal {0}".format(quoted_task)
     if route == "plan":
-        steps = json.dumps([
-            {
-                "title": "Understand and design",
-                "success_criteria": "scope and verifier are explicit",
-            },
-            {
-                "title": "Implement",
-                "success_criteria": "requested behavior is present",
-            },
-            {
-                "title": "Verify",
-                "success_criteria": "nearest executable checks pass",
-            },
-        ])
-        return "python3 scripts/mythify.py plan create {0} --steps {1}".format(
+        return "python3 scripts/mythify.py plan create {0} --horizon {1}".format(
             quoted_task,
-            shlex.quote(steps),
+            route_plan_horizon(),
         )
     if route == "prompt":
         return "python3 scripts/mythify.py prompt {0}".format(packet)
@@ -950,6 +937,5 @@ def cmd_route(args, state):
     else:
         print(format_workflow_route(payload))
     return 0
-
 
 

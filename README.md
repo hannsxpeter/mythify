@@ -389,7 +389,7 @@ labs surfaces only when experimenting with host/runtime adapters.
 | `outcome status [NAME] [--json]` | Show outcome status, verifier, metric, iteration budget, and latest next action. | 0; 1 if not found |
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final status. | 0 if succeeded, 2 otherwise, 1 if not found |
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
-| `plan create GOAL [--steps JSON] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. Without `--steps`, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
@@ -445,7 +445,7 @@ tools are primitives the route can point to, or explicit tools for automation.
 | `memory_clear` | `{key?: string, confirm_clear_all?: boolean}` | With key: remove one. Without key and without `confirm_clear_all: true`: refuse with an explanation, do not clear. |
 | `lesson_record` | `{title: string, detail: string, tags?: string[], scope: enum(project, global) = "project"}` | Write a lesson file per the format. |
 | `lesson_recall` | `{tag?: string, scope: enum(project, global, all) = "all"}` | List lessons, labeled by scope. |
-| `plan_create` | `{goal: string, name?: string, steps?: [{title: string, success_criteria?: string}]}` | Ids auto-assigned 1-based. Sets active plan. |
+| `plan_create` | `{goal: string, name?: string, steps?: [{title: string, success_criteria?: string}], horizon?: number}` | Ids auto-assigned 1-based. Sets active plan. `horizon` creates default lookahead steps when `steps` is omitted. |
 | `plan_add_step` | `{title: string, success_criteria?: string, plan?: string}` | Append to named or active plan. |
 | `plan_update_step` | `{step_id: number, status: enum(pending, in_progress, completed, failed, skipped), result?: string, plan?: string}` | Enforce the evidence rule: `completed` or `failed` without `result` returns `[FAIL] Evidence required ...` and does NOT modify the plan. By default, `completed` also requires a recorded passing executed verification since the step started; set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` for legacy prose-only completion. On success, include the next pending step in the response. |
 | `plan_status` | `{plan?: string}` | Goal, progress count, step list with icons. |
@@ -608,8 +608,8 @@ Fast triage engines are local-first and do not require API keys:
 
 | Env or option | Default | Meaning |
 | :--- | :--- | :--- |
-| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host (`codex-desktop`, `cursor-desktop`, `claude-code`, and related CLI values). Used to prefer that host's local CLI for triage and fanout. |
-| `--triage-engine`, `MYTHIFY_TRIAGE_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, or `command`. Explicit values override host-platform defaults. |
+| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host (`codex-desktop`, `cursor-desktop`, `claude-code`, and related CLI values) for session policy. Triage and fanout still default to `codex-cli` when available. |
+| `--triage-engine`, `MYTHIFY_TRIAGE_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, or `command`. Explicit values override the Codex-first default. |
 | `--triage-model`, `MYTHIFY_TRIAGE_MODEL` | engine default | Fast model. `claude-cli` defaults to `haiku`; Codex and Cursor use their local defaults unless set. |
 | `MYTHIFY_TRIAGE_COMMAND` | unset | Shell command for the `command` engine. Reads the triage prompt on stdin and must print JSON. |
 | `MYTHIFY_TRIAGE_CLAUDE_BIN`, `MYTHIFY_TRIAGE_CODEX_BIN`, `MYTHIFY_TRIAGE_CURSOR_BIN` | resolved | Override local CLI binary paths. Fanout binary env vars are used as fallbacks. |
@@ -803,13 +803,19 @@ not store raw prompts or worker output, and they explicitly mark worker output
 as material rather than verification evidence.
 
 The engine is set by `MYTHIFY_FANOUT_ENGINE`. Without that explicit override,
-Mythify first prefers the initiating host CLI from `MYTHIFY_HOST_PLATFORM` or
-detected host state, then falls back to `claude-cli` if a claude binary
-resolves, else `codex-cli` if a codex binary resolves, else `cursor-agent` if
-Cursor Agent resolves, else `anthropic` if `ANTHROPIC_API_KEY` is set, else
-`command` if `MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with
-a message listing all six options. `openai` is available when selected
-explicitly with `MYTHIFY_FANOUT_ENGINE=openai`.
+Mythify defaults workers to `codex-cli` whenever a codex binary resolves,
+regardless of the initiating host. If Codex is unavailable, it falls back to
+`claude-cli` if a claude binary resolves, else `cursor-agent` if Cursor Agent
+resolves, else `anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
+`MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with a message
+listing all six options. `openai` is available when selected explicitly with
+`MYTHIFY_FANOUT_ENGINE=openai`.
+
+Selecting `claude-cli` runs Claude Code non-interactively through `claude -p`.
+Claude Code usage is token-cost-sensitive: included usage applies only within
+plan limits, and if usage credits are enabled and included limits are reached,
+continued usage can be billed at standard API pricing. Mythify records this as
+cost metadata and prints a warning when a fanout job uses `claude-cli`.
 
 ### Model selection
 
@@ -925,7 +931,7 @@ auditable without Mythify inventing token or dollar math.
 | Env | Default | Meaning |
 | :--- | :--- | :--- |
 | `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
-| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host and makes matching local CLIs the default worker choice. |
+| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host for session policy. Worker engine selection still defaults to `codex-cli` when available unless explicitly overridden. |
 | `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
 | `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
 | `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |
@@ -1031,9 +1037,11 @@ want force-approved commands.
 - Workers on the API engines (`anthropic`, `openai`) are text-only: one prompt
   in, one completion out. They cannot run tools or read files beyond the
   context inlined into their prompt.
-- `claude-cli` workers run Claude Code non-interactively and get its default
-  tool sandbox; grant more with `MYTHIFY_FANOUT_CLAUDE_ARGS`, for example
-  `--allowedTools "Bash"`.
+- `claude-cli` workers run Claude Code non-interactively through `claude -p`.
+  They get Claude Code's default tool sandbox; grant more with
+  `MYTHIFY_FANOUT_CLAUDE_ARGS`, for example `--allowedTools "Bash"`. Usage is
+  token-cost-sensitive and can move to billed usage credits or standard API
+  pricing after included plan limits.
 - `codex-cli` workers default to a read-only Codex sandbox. Raise that only
   when isolated worker edits are acceptable.
 - `cursor-agent` workers default to ask mode. Remove that mode only when you

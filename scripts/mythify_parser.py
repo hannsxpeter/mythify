@@ -188,7 +188,10 @@ def build_parser(symbols):
         "--triage-engine",
         choices=TRIAGE_ENGINES,
         default="",
-        help="Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE or auto-detection.",
+        help=(
+            "Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE, then "
+            "codex-cli when available, then local auto-detection."
+        ),
     )
     p.add_argument(
         "--triage-model",
@@ -803,8 +806,9 @@ def build_parser(symbols):
         choices=TRIAGE_ENGINES,
         default="",
         help=(
-            "Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE or local "
-            "auto-detection: claude-cli, codex-cli, cursor-agent, command."
+            "Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE, then "
+            "codex-cli when available, then local auto-detection: "
+            "claude-cli, cursor-agent, command."
         ),
     )
     p.add_argument(
@@ -1034,7 +1038,7 @@ def build_parser(symbols):
         help="Create a plan and set it active.",
         description=(
             "Create a plan and set it active. Without --steps the plan is empty "
-            "and steps are added later with plan add-step."
+            "unless --horizon or MYTHIFY_PLAN_HORIZON supplies a default step count."
         ),
     )
     p.add_argument("goal", help="What the plan should accomplish.")
@@ -1043,6 +1047,13 @@ def build_parser(symbols):
         help=(
             "JSON array of step objects: "
             "[{\"title\": str, \"success_criteria\": str (optional)}]."
+        ),
+    )
+    p.add_argument(
+        "--horizon",
+        help=(
+            "Create N default lookahead steps when --steps is omitted. "
+            "Accepted range: 1-20."
         ),
     )
     p.add_argument("--name", help="Plan name; defaults to a slug of the goal.")

@@ -88,6 +88,11 @@ from mythify_memory import (  # noqa: E402
     load_memory,
     write_lesson,
 )
+from mythify_plan_horizon import (  # noqa: E402
+    build_default_plan_steps,
+    env_plan_horizon,
+    parse_plan_horizon,
+)
 
 from mythify_outcomes import (  # noqa: E402
     cmd_outcome_check,
@@ -159,9 +164,9 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.53"
+VERSION = "3.6.54"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "00537ffff2a26e265d61d76c288a5e4f5d426e5c69b745d8a89d1c01fe32736b"
+PROTOCOL_SOURCE_SHA256 = "9f6006180b80c5f7a196fd1e830e4078e64b84009becd432a8786a6883fdea51"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -809,6 +814,9 @@ def cmd_classify(args, _state):
 def cmd_plan_create(args, state):
     steps_input = []
     if args.steps is not None:
+        if getattr(args, "horizon", None) is not None:
+            fail("[FAIL] --horizon can only be used when --steps is omitted.")
+            return 1
         try:
             parsed = json.loads(args.steps)
         except ValueError:
@@ -825,6 +833,18 @@ def cmd_plan_create(args, state):
                 fail("[FAIL] Invalid --steps: every step needs a non-empty \"title\".")
                 return 1
         steps_input = parsed
+    else:
+        try:
+            horizon = (
+                parse_plan_horizon(args.horizon, "--horizon")
+                if getattr(args, "horizon", None) is not None
+                else env_plan_horizon()
+            )
+        except ValueError as exc:
+            fail("[FAIL] {0}".format(exc))
+            return 1
+        if horizon is not None:
+            steps_input = build_default_plan_steps(horizon)
     base = slugify(args.name if args.name else args.goal) or "plan"
     slug = base
     suffix = 2

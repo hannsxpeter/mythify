@@ -16,6 +16,7 @@ import {
   EFFORT_LEVELS,
   ENGINES,
   FANOUT_VISIBILITY_MODES,
+  CLAUDE_CLI_COST_WARNING,
   HOSTED_PROVIDER_ENGINES,
   HOSTED_PROVIDER_REQUIRED_ACKS,
   SPAWN_CEILINGS,
@@ -1146,6 +1147,7 @@ function handleFanoutStart({
     ),
   ].sort();
   const hostedProviderRequired = hostedProviderEngines.length > 0;
+  const claudeCliWorkerSelected = resolvedTasks.some((resolved) => resolved.engine === "claude-cli");
   const hostedProviderAcks = {
     hosted_provider_billing_ack: hosted_provider_billing_ack === true,
     hosted_provider_data_ack: hosted_provider_data_ack === true,
@@ -1281,6 +1283,9 @@ function handleFanoutStart({
     lines.push(
       `Hosted provider guard: acknowledged for ${job.hosted_provider_engines.join(", ")}; provider output remains material, not verification.`
     );
+  }
+  if (claudeCliWorkerSelected) {
+    lines.push(`[WARN] ${CLAUDE_CLI_COST_WARNING}`);
   }
   lines.push(visibilityGuidance(job.visibility));
   if (job.visibility === "quiet") {

@@ -860,7 +860,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `outcome status [NAME] [--json]` | Show outcome status, verifier, metric, iteration budget, and latest next action. | 0; 1 if not found |
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final state. | 0 if succeeded, 2 otherwise, 1 if not found |
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
-| `plan create GOAL [--steps JSON] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. Without `--steps`, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
@@ -891,7 +891,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.53`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.54`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -934,7 +934,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `memory_clear` | `{key?: string, confirm_clear_all?: boolean}` | With key: remove one. Without key and without `confirm_clear_all: true`: refuse with an explanation, do not clear. |
 | `lesson_record` | `{title: string, detail: string, tags?: string[], scope: enum(project, global) = "project"}` | Write a lesson file per the format. |
 | `lesson_recall` | `{tag?: string, scope: enum(project, global, all) = "all"}` | List lessons, labeled by scope. |
-| `plan_create` | `{goal: string, name?: string, steps?: [{title: string, success_criteria?: string}]}` | Ids auto-assigned 1-based. Sets active plan. |
+| `plan_create` | `{goal: string, name?: string, steps?: [{title: string, success_criteria?: string}], horizon?: number}` | Ids auto-assigned 1-based. Sets active plan. `horizon` creates default lookahead steps when `steps` is omitted. |
 | `plan_add_step` | `{title: string, success_criteria?: string, plan?: string}` | Append to named or active plan. |
 | `plan_update_step` | `{step_id: number, status: enum(pending, in_progress, completed, failed, skipped), result?: string, plan?: string}` | Enforce the evidence rule: `completed` or `failed` without `result` returns `[FAIL] Evidence required ...` and does NOT modify the plan. By default, `completed` also requires a recorded passing executed verification (see "Verified-step gate") and otherwise returns the same `[FAIL] Verified evidence required ...` text the CLI uses, without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. On success, include the next pending step in the response. |
 | `plan_status` | `{plan?: string}` | Goal, progress count, step list with icons. |
@@ -1122,8 +1122,7 @@ main agent may use before planning. The required JSON shape is:
 
 Supported fast triage engines are local-first and API-free:
 `claude-cli`, `codex-cli`, `cursor-agent`, and `command`. Selection order is
-explicit argument, `MYTHIFY_TRIAGE_ENGINE`, the initiating host from
-`MYTHIFY_HOST_PLATFORM` or detected host state when that CLI is available,
+explicit argument, `MYTHIFY_TRIAGE_ENGINE`, `codex-cli` when available,
 local CLI auto-detection, then `MYTHIFY_TRIAGE_COMMAND`. Fanout binary env vars
 are accepted as fallbacks for CLI paths. `claude-cli` defaults to model
 `haiku`; `codex-cli` and `cursor-agent` use their local defaults unless
@@ -1671,14 +1670,12 @@ Implementation lives in `mcp-server/src/fanout.js`, wired into the server in
 
 A worker is one fresh model invocation with no memory of the conversation.
 Six engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
-order: explicit env value, else the initiating host CLI from
-`MYTHIFY_HOST_PLATFORM` or detected host state when that CLI is available,
-else `claude-cli` if a claude binary resolves, else `codex-cli` if a codex
-binary resolves, else `cursor-agent` if Cursor Agent resolves, else
-`anthropic` if `ANTHROPIC_API_KEY` is set, else `command` if
-`MYTHIFY_FANOUT_COMMAND` is set, else `fanout_start` refuses with a message
-listing all six options. `openai` is explicit-only because it needs both an
-endpoint and a model.
+order: explicit env value, else `codex-cli` if a codex binary resolves,
+regardless of the initiating host, else `claude-cli` if a claude binary
+resolves, else `cursor-agent` if Cursor Agent resolves, else `anthropic` if
+`ANTHROPIC_API_KEY` is set, else `command` if `MYTHIFY_FANOUT_COMMAND` is set,
+else `fanout_start` refuses with a message listing all six options. `openai`
+is explicit-only because it needs both an endpoint and a model.
 
 | Engine | Mechanism | Billing | Models |
 | :--- | :--- | :--- | :--- |
@@ -1693,6 +1690,12 @@ The `command` engine is the supported custom command adapter path for fanout.
 It is bounded by fanout validation, worker timeout, context byte caps, and the
 depth guard. Its output is still material for the orchestrator, never final
 verification evidence.
+
+Selecting `claude-cli` invokes Claude Code through `claude -p`. That is
+token-cost-sensitive usage: included usage applies only within plan limits, and
+if usage credits are enabled and included limits are reached, continued usage
+can be billed at standard API pricing. Fanout start output, job metadata, task
+metadata, and provider audit cost metadata include a warning for `claude-cli`.
 
 The hosted provider engines, `anthropic` and `openai`, require
 `hosted_provider_billing_ack: true`, `hosted_provider_data_ack: true`, and
@@ -1890,7 +1893,7 @@ or upgrade provider output into evidence.
 | Env | Default | Meaning |
 | :--- | :--- | :--- |
 | `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
-| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host and makes matching local CLIs the default worker choice. |
+| `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host for session policy. Worker engine selection still defaults to `codex-cli` when available unless explicitly overridden. |
 | `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
 | `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
 | `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |
@@ -2009,7 +2012,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.53. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.54. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2097,6 +2100,8 @@ tool registrations; 3.6.51 extracts MCP verification and reflection tool
 registrations; 3.6.52 extracts Python parser, model triage, and status view
 helpers plus MCP workflow tools, view builders, status views, fanout policy,
 and fanout registration helpers; 3.6.53 adds the dual-runtime parity CI gate
-and documents the parity discipline for shared CLI and MCP behavior changes.
-The CLI reports 3.6.53 through `--version`; the MCP server reads `package.json`
+and documents the parity discipline for shared CLI and MCP behavior changes;
+3.6.54 adds default planning horizon support, Codex-first worker selection,
+and Claude CLI worker cost warnings.
+The CLI reports 3.6.54 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

@@ -408,6 +408,10 @@ def install_mythify(workspace):
         workspace / "scripts" / "mythify_parser.py",
     )
     shutil.copy2(
+        root / "scripts" / "mythify_plan_horizon.py",
+        workspace / "scripts" / "mythify_plan_horizon.py",
+    )
+    shutil.copy2(
         root / "scripts" / "mythify_router.py",
         workspace / "scripts" / "mythify_router.py",
     )

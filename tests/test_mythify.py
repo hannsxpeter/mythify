@@ -31,6 +31,7 @@ PY_MODEL_POLICY = REPO_ROOT / "scripts" / "mythify_model_policy.py"
 PY_MODEL_TRIAGE = REPO_ROOT / "scripts" / "mythify_model_triage.py"
 PY_OUTCOMES = REPO_ROOT / "scripts" / "mythify_outcomes.py"
 PY_PARSER = REPO_ROOT / "scripts" / "mythify_parser.py"
+PY_PLAN_HORIZON = REPO_ROOT / "scripts" / "mythify_plan_horizon.py"
 PY_ROUTER = REPO_ROOT / "scripts" / "mythify_router.py"
 PY_TRACE = REPO_ROOT / "scripts" / "mythify_trace.py"
 PY_VIEWS = REPO_ROOT / "scripts" / "mythify_views.py"
@@ -88,6 +89,7 @@ class CliTestCase(unittest.TestCase):
     def run_cli(self, *args, cwd=None, env_extra=None):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
+        env.pop("MYTHIFY_PLAN_HORIZON", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env["HOME"] = str(self.home)
         if env_extra:
@@ -646,6 +648,10 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_parser.py",
         )
         shutil.copy2(
+            PY_PLAN_HORIZON,
+            self.project / "scripts" / "mythify_plan_horizon.py",
+        )
+        shutil.copy2(
             PY_ROUTER,
             self.project / "scripts" / "mythify_router.py",
         )
@@ -1083,7 +1089,7 @@ class TestClassification(CliTestCase):
         self.assertEqual(policy["fanout_worker"]["speed"], "fast")
         self.assertEqual(policy["fanout_worker"]["speed_policy"], "explicit")
 
-    def test_classify_defaults_workers_to_configured_host_platform(self):
+    def test_classify_defaults_workers_to_codex_across_host_platforms(self):
         bin_dir = self.project / "bin"
         bin_dir.mkdir()
         for name in ("codex", "cursor-agent"):
@@ -1108,11 +1114,11 @@ class TestClassification(CliTestCase):
         codex_policy = json.loads(codex.stdout)["model_policy"]
         self.assertEqual(codex_policy["session"]["platform"], "codex-desktop")
         self.assertEqual(codex_policy["triage"]["engine"], "codex-cli")
-        self.assertEqual(codex_policy["triage"]["engine_policy"], "platform_preferred")
+        self.assertEqual(codex_policy["triage"]["engine_policy"], "codex_default")
         self.assertEqual(codex_policy["fanout_worker"]["engine"], "codex-cli")
-        self.assertEqual(codex_policy["fanout_worker"]["engine_policy"], "platform_preferred")
+        self.assertEqual(codex_policy["fanout_worker"]["engine_policy"], "codex_default")
         self.assertEqual(codex_policy["reviewer"]["engine"], "codex-cli")
-        self.assertEqual(codex_policy["reviewer"]["engine_policy"], "platform_preferred")
+        self.assertEqual(codex_policy["reviewer"]["engine_policy"], "codex_default")
 
         cursor_env = dict(base_env)
         cursor_env["MYTHIFY_HOST_PLATFORM"] = "cursor-desktop"
@@ -1125,10 +1131,10 @@ class TestClassification(CliTestCase):
         self.assertEqual(cursor.returncode, 0, cursor.stderr)
         cursor_policy = json.loads(cursor.stdout)["model_policy"]
         self.assertEqual(cursor_policy["session"]["platform"], "cursor-desktop")
-        self.assertEqual(cursor_policy["triage"]["engine"], "cursor-agent")
-        self.assertEqual(cursor_policy["triage"]["engine_policy"], "platform_preferred")
-        self.assertEqual(cursor_policy["fanout_worker"]["engine"], "cursor-agent")
-        self.assertEqual(cursor_policy["fanout_worker"]["engine_policy"], "platform_preferred")
+        self.assertEqual(cursor_policy["triage"]["engine"], "codex-cli")
+        self.assertEqual(cursor_policy["triage"]["engine_policy"], "codex_default")
+        self.assertEqual(cursor_policy["fanout_worker"]["engine"], "codex-cli")
+        self.assertEqual(cursor_policy["fanout_worker"]["engine_policy"], "codex_default")
 
     def test_classify_keeps_explicit_fanout_engine_override(self):
         bin_dir = self.project / "bin"
@@ -1151,9 +1157,32 @@ class TestClassification(CliTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         policy = json.loads(result.stdout)["model_policy"]
         self.assertEqual(policy["triage"]["engine"], "codex-cli")
-        self.assertEqual(policy["triage"]["engine_policy"], "platform_preferred")
+        self.assertEqual(policy["triage"]["engine_policy"], "codex_default")
         self.assertEqual(policy["fanout_worker"]["engine"], "cursor-agent")
         self.assertEqual(policy["fanout_worker"]["engine_policy"], "env")
+
+    def test_classify_warns_for_claude_cli_worker_override(self):
+        result = self.run_cli(
+            "classify",
+            "implement a feature",
+            "--json",
+            env_extra={
+                "PATH": str(self.project / "empty-bin"),
+                "MYTHIFY_TRIAGE_ENGINE": "",
+                "MYTHIFY_HOST_PLATFORM": "codex-desktop",
+                "MYTHIFY_FANOUT_ENGINE": "claude-cli",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        policy = json.loads(result.stdout)["model_policy"]
+        self.assertEqual(policy["fanout_worker"]["engine"], "claude-cli")
+        self.assertEqual(policy["fanout_worker"]["engine_policy"], "env")
+        self.assertIn("claude -p", policy["fanout_worker"]["cost_warnings"][0])
+        self.assertIn(
+            "https://code.claude.com/docs/en/headless",
+            policy["fanout_worker"]["cost_warning_urls"],
+        )
+        self.assertIn("claude -p", policy["reviewer"]["cost_warnings"][0])
 
     def test_classify_includes_per_role_provider_defaults(self):
         result = self.run_cli(
@@ -2432,6 +2461,8 @@ class TestWorkflowRouter(CliTestCase):
             self.assertEqual(payload["chat_policy"]["executor"], "initiating_host")
             self.assertFalse(payload["evidence"][-1]["mutates_state"])
             self.assertIn("not verification evidence", payload["guardrail"])
+            if route == "plan":
+                self.assertIn("--horizon 20", payload["next_command"])
         self.assertEqual(before, self.state_snapshot(state))
 
     def test_route_resumes_active_plan_and_prioritizes_failed_verification(self):
@@ -2501,6 +2532,37 @@ class TestPlanLifecycle(CliTestCase):
         self.assertIn("add-step", result.stdout)
         plan = self.read_json(state / "plans" / "empty-goal.json")
         self.assertEqual(plan["steps"], [])
+
+    def test_create_with_horizon_generates_default_steps(self):
+        state = self.init_workspace()
+        result = self.run_cli("plan", "create", "Horizon goal", "--horizon", "20")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("(20 steps)", result.stdout)
+        plan = self.read_json(state / "plans" / "horizon-goal.json")
+        self.assertEqual(len(plan["steps"]), 20)
+        self.assertEqual(plan["steps"][0]["id"], 1)
+        self.assertEqual(plan["steps"][0]["title"], "Confirm goal, done criteria, and non-goals")
+        self.assertEqual(plan["steps"][19]["id"], 20)
+        self.assertEqual(plan["steps"][19]["title"], "Report outcome, evidence, risks, and follow-up work")
+
+    def test_env_horizon_defaults_when_steps_omitted(self):
+        state = self.init_workspace()
+        result = self.run_cli(
+            "plan",
+            "create",
+            "Env horizon goal",
+            env_extra={"MYTHIFY_PLAN_HORIZON": "3"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = self.read_json(state / "plans" / "env-horizon-goal.json")
+        self.assertEqual(len(plan["steps"]), 3)
+
+    def test_horizon_rejects_explicit_steps(self):
+        self.init_workspace()
+        steps = json.dumps([{"title": "Explicit"}])
+        result = self.run_cli("plan", "create", "Mixed goal", "--steps", steps, "--horizon", "20")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--horizon can only be used", result.stderr)
 
     def test_create_invalid_steps_json_fails(self):
         self.init_workspace()

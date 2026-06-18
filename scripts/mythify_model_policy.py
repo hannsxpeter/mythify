@@ -17,6 +17,21 @@ from mythify_model_triage import configure_model_triage, run_model_triage
 TRIAGE_OUTPUT_TAIL_CHARS = 4000
 
 TRIAGE_ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
+DEFAULT_WORKER_ENGINE = "codex-cli"
+CLAUDE_CLI_COST_WARNING = (
+    "Selecting claude-cli runs Claude Code non-interactively through claude -p. "
+    "Claude Code usage is token-cost-sensitive; included usage applies only "
+    "within plan limits. If usage credits are enabled and included limits are "
+    "reached, continued usage can be billed at standard API pricing."
+)
+CLAUDE_CLI_COST_WARNING_URLS = (
+    "https://code.claude.com/docs/en/headless",
+    "https://code.claude.com/docs/en/costs",
+    (
+        "https://support.claude.com/en/articles/"
+        "12429409-manage-usage-credits-for-paid-claude-plans"
+    ),
+)
 TRIAGE_MODES = ("never", "auto", "always")
 EFFORT_LEVELS = ("auto", "low", "medium", "high")
 SPAWN_CEILINGS = ("auto", "lower_only", "same_or_lower", "allow_stronger")
@@ -471,10 +486,10 @@ def auto_detect_triage_engine():
     explicit = os.environ.get("MYTHIFY_TRIAGE_ENGINE", "").strip()
     if explicit:
         return explicit
-    if resolve_triage_binary(["claude"], ["MYTHIFY_TRIAGE_CLAUDE_BIN", "MYTHIFY_FANOUT_CLAUDE_BIN"]):
-        return "claude-cli"
     if resolve_triage_binary(["codex"], ["MYTHIFY_TRIAGE_CODEX_BIN", "MYTHIFY_FANOUT_CODEX_BIN"]):
         return "codex-cli"
+    if resolve_triage_binary(["claude"], ["MYTHIFY_TRIAGE_CLAUDE_BIN", "MYTHIFY_FANOUT_CLAUDE_BIN"]):
+        return "claude-cli"
     if resolve_triage_binary(
         ["cursor-agent", "cursor"],
         [
@@ -520,14 +535,19 @@ def normalize_platform(platform):
     return value if value in PLATFORMS else "unknown"
 
 
-def preferred_local_engine(platform):
-    if platform in ("codex-desktop", "codex-cli"):
-        return "codex-cli"
-    if platform in ("claude-desktop", "claude-code"):
-        return "claude-cli"
-    if platform in ("cursor-desktop", "cursor-agent"):
-        return "cursor-agent"
+def default_local_worker_engine():
+    if triage_engine_available(DEFAULT_WORKER_ENGINE):
+        return DEFAULT_WORKER_ENGINE
     return ""
+
+
+def engine_warning_metadata(engine):
+    if engine == "claude-cli":
+        return {
+            "cost_warnings": [CLAUDE_CLI_COST_WARNING],
+            "cost_warning_urls": list(CLAUDE_CLI_COST_WARNING_URLS),
+        }
+    return {}
 
 
 def triage_engine_available(engine):
@@ -562,9 +582,9 @@ def select_triage_engine(requested_engine, platform):
     env_engine = os.environ.get("MYTHIFY_TRIAGE_ENGINE", "").strip()
     if env_engine:
         return env_engine, "env"
-    preferred = preferred_local_engine(platform)
-    if preferred and triage_engine_available(preferred):
-        return preferred, "platform_preferred"
+    default_engine = default_local_worker_engine()
+    if default_engine:
+        return default_engine, "codex_default"
     detected = auto_detect_triage_engine()
     if detected:
         return detected, "auto_detected"
@@ -575,9 +595,12 @@ def select_worker_engine(platform):
     env_engine = os.environ.get("MYTHIFY_FANOUT_ENGINE", "").strip()
     if env_engine:
         return env_engine, "env"
-    preferred = preferred_local_engine(platform)
-    if preferred and triage_engine_available(preferred):
-        return preferred, "platform_preferred"
+    default_engine = default_local_worker_engine()
+    if default_engine:
+        return default_engine, "codex_default"
+    detected = auto_detect_triage_engine()
+    if detected:
+        return detected, "auto_detected"
     return "auto", "local_first"
 
 
@@ -1191,6 +1214,7 @@ def build_model_policy(classification, args, host_model_record=None):
                 getattr(args, "triage_timeout", 120.0),
                 "triage_timeout_seconds_or_default",
             ),
+            **engine_warning_metadata(triage_engine),
             "engine": triage_engine or "auto",
             "engine_policy": triage_engine_source,
             "model": triage_model,
@@ -1231,6 +1255,7 @@ def build_model_policy(classification, args, host_model_record=None):
             "spawn": classification.get("fanout", "not_recommended"),
             **role_provider_fields(provider_defaults, "fanout_worker"),
             **role_budget_fields(provider_defaults, "fanout_worker"),
+            **engine_warning_metadata(worker_engine),
             "engine": worker_engine,
             "engine_policy": worker_engine_source,
             "model_policy": "per_task_over_job_over_env_over_engine_default",
@@ -1261,6 +1286,7 @@ def build_model_policy(classification, args, host_model_record=None):
             "spawn": reviewer_spawn_policy(classification),
             **role_provider_fields(provider_defaults, "reviewer"),
             **role_budget_fields(provider_defaults, "reviewer"),
+            **engine_warning_metadata(worker_engine),
             "engine": worker_engine,
             "engine_policy": worker_engine_source,
             "model_policy": "prefer_stronger_than_worker_when_available",

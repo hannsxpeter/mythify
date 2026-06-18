@@ -24,6 +24,17 @@ import {
   TRIAGE_ENGINES,
 } from "./capability-registry.js";
 
+const DEFAULT_WORKER_ENGINE = "codex-cli";
+const CLAUDE_CLI_COST_WARNING =
+  "Selecting claude-cli runs Claude Code non-interactively through claude -p. " +
+  "Claude Code usage is token-cost-sensitive; included usage applies only within plan limits. " +
+  "If usage credits are enabled and included limits are reached, continued usage can be billed at standard API pricing.";
+const CLAUDE_CLI_COST_WARNING_URLS = [
+  "https://code.claude.com/docs/en/headless",
+  "https://code.claude.com/docs/en/costs",
+  "https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans",
+];
+
 function tailText(text, limit = 4000) {
   const s = String(text == null ? "" : text);
   return s.length > limit ? s.slice(-limit) : s;
@@ -174,11 +185,11 @@ function autoDetectTriageEngine() {
   if (explicit !== "") {
     return explicit;
   }
-  if (resolveClaudeTriageBin() !== null) {
-    return "claude-cli";
-  }
   if (resolveCodexTriageBin() !== null) {
     return "codex-cli";
+  }
+  if (resolveClaudeTriageBin() !== null) {
+    return "claude-cli";
   }
   if (resolveCursorTriageInvocation() !== null) {
     return "cursor-agent";
@@ -222,19 +233,6 @@ export function normalizePlatform(platform) {
   return PLATFORMS.includes(value) ? value : "unknown";
 }
 
-function preferredLocalEngine(platform) {
-  if (["codex-desktop", "codex-cli"].includes(platform)) {
-    return "codex-cli";
-  }
-  if (["claude-desktop", "claude-code"].includes(platform)) {
-    return "claude-cli";
-  }
-  if (["cursor-desktop", "cursor-agent"].includes(platform)) {
-    return "cursor-agent";
-  }
-  return "";
-}
-
 function triageEngineAvailable(engine) {
   if (engine === "claude-cli") {
     return resolveClaudeTriageBin() !== null;
@@ -251,6 +249,20 @@ function triageEngineAvailable(engine) {
   return false;
 }
 
+function defaultLocalWorkerEngine() {
+  return triageEngineAvailable(DEFAULT_WORKER_ENGINE) ? DEFAULT_WORKER_ENGINE : "";
+}
+
+function engineWarningMetadata(engine) {
+  if (engine === "claude-cli") {
+    return {
+      cost_warnings: [CLAUDE_CLI_COST_WARNING],
+      cost_warning_urls: CLAUDE_CLI_COST_WARNING_URLS,
+    };
+  }
+  return {};
+}
+
 export function selectTriageEngine(requestedEngine, platform) {
   const explicit = (requestedEngine || "").trim();
   if (explicit !== "") {
@@ -260,9 +272,9 @@ export function selectTriageEngine(requestedEngine, platform) {
   if (envEngine !== "") {
     return { engine: envEngine, enginePolicy: "env" };
   }
-  const preferred = preferredLocalEngine(platform);
-  if (preferred !== "" && triageEngineAvailable(preferred)) {
-    return { engine: preferred, enginePolicy: "platform_preferred" };
+  const defaultEngine = defaultLocalWorkerEngine();
+  if (defaultEngine !== "") {
+    return { engine: defaultEngine, enginePolicy: "codex_default" };
   }
   const detected = autoDetectTriageEngine();
   if (detected !== "") {
@@ -276,9 +288,13 @@ function selectWorkerEngine(platform) {
   if (envEngine !== "") {
     return { engine: envEngine, enginePolicy: "env" };
   }
-  const preferred = preferredLocalEngine(platform);
-  if (preferred !== "" && triageEngineAvailable(preferred)) {
-    return { engine: preferred, enginePolicy: "platform_preferred" };
+  const defaultEngine = defaultLocalWorkerEngine();
+  if (defaultEngine !== "") {
+    return { engine: defaultEngine, enginePolicy: "codex_default" };
+  }
+  const detected = autoDetectTriageEngine();
+  if (detected !== "") {
+    return { engine: detected, enginePolicy: "auto_detected" };
   }
   return { engine: "auto", enginePolicy: "local_first" };
 }
@@ -643,6 +659,7 @@ export function buildModelPolicy(classification, options = {}) {
         timeoutSeconds,
         "triage_timeout_seconds_or_default"
       ),
+      ...engineWarningMetadata(triageEngine),
       engine: triageEngine || "auto",
       engine_policy: triageEnginePolicy,
       model: triageModel,
@@ -678,6 +695,7 @@ export function buildModelPolicy(classification, options = {}) {
       spawn: classification.fanout || "not_recommended",
       ...roleProviderFields(providerDefaults, "fanout_worker"),
       ...roleBudgetFields(providerDefaults, "fanout_worker"),
+      ...engineWarningMetadata(workerEngine),
       engine: workerEngine,
       engine_policy: workerEnginePolicy,
       model_policy: "per_task_over_job_over_env_over_engine_default",
@@ -704,6 +722,7 @@ export function buildModelPolicy(classification, options = {}) {
       spawn: reviewerSpawnPolicy(classification),
       ...roleProviderFields(providerDefaults, "reviewer"),
       ...roleBudgetFields(providerDefaults, "reviewer"),
+      ...engineWarningMetadata(workerEngine),
       engine: workerEngine,
       engine_policy: workerEnginePolicy,
       model_policy: "prefer_stronger_than_worker_when_available",

@@ -1143,6 +1143,7 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
       })
     );
     assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+    assert.ok(started.includes("claude -p"), "claude-cli fanout start prints the cost warning");
     const jobId = jobIdOf(started);
     await waitForAllFinished(client, jobId);
 
@@ -1181,9 +1182,25 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
       fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
     );
     assert.equal(job.tasks[0].engine, "claude-cli");
+    assert.ok(job.cost_warnings[0].includes("claude -p"), "job records the claude-cli warning");
+    assert.ok(
+      job.tasks[0].cost_warnings[0].includes("standard API pricing"),
+      "task records the claude-cli cost warning"
+    );
+    assert.ok(
+      job.tasks[0].cost_warning_urls.includes("https://code.claude.com/docs/en/headless"),
+      "task records the official headless documentation URL"
+    );
     assert.equal(job.tasks[0].model, "sonnet", "the per-task model overrides the job model");
     assert.equal(job.tasks[0].effort, "high", "the per-task effort is recorded");
     assert.equal(job.model, "haiku", "the job-level model is recorded");
+    const audit = readJsonl(path.join(stateDir, "provider-audit.jsonl")).filter(
+      (row) => row.job_id === jobId
+    );
+    assert.ok(
+      audit.some((row) => row.cost_metadata.cost_warnings?.[0]?.includes("claude -p")),
+      "provider audit records the claude-cli warning"
+    );
   } finally {
     await client.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1507,7 +1524,7 @@ test("auto-detection prefers codex when Codex is the initiating host", async () 
     const policy = JSON.parse(classified.replace(/^\[OK\] /, "")).model_policy;
     assert.equal(policy.session.platform, "codex-desktop");
     assert.equal(policy.fanout_worker.engine, "codex-cli");
-    assert.equal(policy.fanout_worker.engine_policy, "platform_preferred");
+    assert.equal(policy.fanout_worker.engine_policy, "codex_default");
 
     const started = textOf(
       await client.callTool({
@@ -1533,7 +1550,7 @@ test("auto-detection prefers codex when Codex is the initiating host", async () 
   }
 });
 
-test("auto-detection prefers cursor when Cursor is the initiating host", async () => {
+test("auto-detection still defaults to codex when Cursor is the initiating host", async () => {
   const { root, stateDir, homeDir } = makeProject("mythify-fanout-cursor-host-");
   const binDir = path.join(root, "bin");
   fs.mkdirSync(binDir, { recursive: true });
@@ -1558,8 +1575,8 @@ test("auto-detection prefers cursor when Cursor is the initiating host", async (
     );
     const policy = JSON.parse(classified.replace(/^\[OK\] /, "")).model_policy;
     assert.equal(policy.session.platform, "cursor-desktop");
-    assert.equal(policy.fanout_worker.engine, "cursor-agent");
-    assert.equal(policy.fanout_worker.engine_policy, "platform_preferred");
+    assert.equal(policy.fanout_worker.engine, "codex-cli");
+    assert.equal(policy.fanout_worker.engine_policy, "codex_default");
 
     const started = textOf(
       await client.callTool({
@@ -1567,17 +1584,17 @@ test("auto-detection prefers cursor when Cursor is the initiating host", async (
         arguments: { tasks: [{ title: "Host default", prompt: "Use the host engine." }] },
       })
     );
-    assert.ok(started.includes("engine: cursor-agent"), `cursor host chose cursor: ${started}`);
+    assert.ok(started.includes("engine: codex-cli"), `cursor host chose codex: ${started}`);
     const jobId = jobIdOf(started);
     await waitForAllFinished(client, jobId);
     const results = textOf(
       await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
     );
-    assert.ok(results.includes("HOST-CURSOR"), "the Cursor stub produced the result");
+    assert.ok(results.includes("HOST-CODEX"), "the Codex stub produced the result");
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"))
         .engine,
-      "cursor-agent"
+      "codex-cli"
     );
   } finally {
     await client.close();
