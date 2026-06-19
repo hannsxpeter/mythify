@@ -370,6 +370,307 @@ def cmd_readiness(args, state):
     return 0
 
 
+EVIDENCE_HARNESS_ICONS = {
+    "controlled": "[x]",
+    "in_progress": "[>]",
+    "needs_attention": "[!]",
+    "needs_evidence": "[ ]",
+}
+
+
+def recent_tail(items, limit):
+    if limit <= 0:
+        return []
+    return list(items[-limit:])
+
+
+def evidence_record_label(record):
+    return compact_label(
+        record.get("claim") or record.get("command") or record.get("evidence"),
+        "verification",
+    )
+
+
+def evidence_attention_from_verifications(records, recent):
+    attention = []
+    for record in recent_tail(records, recent):
+        if record.get("kind") == "executed" and record.get("verified") is False:
+            attention.append({
+                "level": "issue",
+                "source": "verification",
+                "summary": "failed verification: {0}".format(evidence_record_label(record)),
+                "detail": "exit {0}".format(record.get("exit_code")),
+                "timestamp": record.get("timestamp", ""),
+            })
+        elif record.get("kind") == "attested":
+            attention.append({
+                "level": "warning",
+                "source": "verification",
+                "summary": "attested claim: {0}".format(evidence_record_label(record)),
+                "detail": "self-reported, not machine-checked",
+                "timestamp": record.get("timestamp", ""),
+            })
+    return attention
+
+
+def evidence_attention_from_plan(plan):
+    attention = []
+    if not plan:
+        return attention
+    for step in plan.get("steps", []):
+        if step.get("status") == "failed":
+            attention.append({
+                "level": "issue",
+                "source": "plan",
+                "summary": "failed step {0}: {1}".format(
+                    step.get("id"),
+                    compact_label(step.get("title"), "step"),
+                ),
+                "detail": compact_label(step.get("result"), "no result recorded"),
+                "timestamp": step.get("updated_at", ""),
+            })
+    return attention
+
+
+def evidence_attention_from_background(background):
+    attention = []
+    for outcome in background.get("outcomes", []):
+        if outcome.get("status") == "failed":
+            attention.append({
+                "level": "issue",
+                "source": "outcome",
+                "summary": "failed outcome: {0}".format(outcome.get("id") or "outcome"),
+                "detail": compact_label(outcome.get("goal"), "outcome"),
+                "timestamp": outcome.get("updated", "") or outcome.get("created", ""),
+            })
+    for job in background.get("fanout_jobs", []):
+        if job.get("status") == "failed":
+            attention.append({
+                "level": "issue",
+                "source": "fanout",
+                "summary": "failed fanout job: {0}".format(job.get("id") or "job"),
+                "detail": compact_label(job.get("purpose"), "fanout job"),
+                "timestamp": job.get("last_updated", "") or job.get("created", ""),
+            })
+        for task in job.get("tasks", []):
+            if task.get("status") == "failed":
+                attention.append({
+                    "level": "issue",
+                    "source": "fanout",
+                    "summary": "failed fanout task {0}: {1}".format(
+                        task.get("id"),
+                        compact_label(task.get("title"), "task"),
+                    ),
+                    "detail": compact_label(task.get("error"), "no error recorded"),
+                    "timestamp": task.get("finished_at", "") or job.get("last_updated", ""),
+                })
+    return attention
+
+
+def active_plan_open_steps(plan):
+    if not plan:
+        return []
+    return [
+        step for step in plan.get("steps", [])
+        if step.get("status") in ("pending", "in_progress", "failed")
+    ]
+
+
+def evidence_next_action(view):
+    attention = view.get("attention", [])
+    if attention:
+        return "resolve attention item: {0}".format(attention[0]["summary"])
+    plan = view.get("active_plan")
+    if plan:
+        current = plan.get("current_step")
+        if current:
+            return "continue step {0}: {1}".format(
+                current.get("id"),
+                compact_label(current.get("title"), "step"),
+            )
+        pending = plan.get("next_pending_step")
+        if pending:
+            return "start step {0}: {1}".format(
+                pending.get("id"),
+                compact_label(pending.get("title"), "step"),
+            )
+    outcome = view.get("active_outcome")
+    if outcome and outcome.get("status") == "active":
+        return "make a bounded attempt, then run outcome check"
+    tasks = view["background"]["fanout_tasks"]
+    if tasks.get("running", 0) or tasks.get("pending", 0):
+        return "inspect delegated work with fanout_timeline or fanout_results"
+    if view["evidence"]["executed"] == 0:
+        return "run the nearest verify run before claiming completion"
+    return "ready for human judgment or release review"
+
+
+def evidence_harness_status(view):
+    if view.get("attention"):
+        return "needs_attention"
+    if view["evidence"]["executed"] == 0:
+        return "needs_evidence"
+    plan = view.get("active_plan")
+    if plan and active_plan_open_steps(plan):
+        return "in_progress"
+    outcome = view.get("active_outcome")
+    if outcome and outcome.get("status") == "active":
+        return "in_progress"
+    background = view["background"]
+    if background["fanout_jobs"].get("active", 0) or background["fanout_tasks"].get("running", 0):
+        return "in_progress"
+    return "controlled"
+
+
+def build_evidence_harness_view(state, recent=5):
+    dashboard = build_dashboard(state, recent)
+    background = build_background_view(state, recent)
+    readiness = build_release_readiness_view(state)
+    records = read_jsonl(state / "verifications.jsonl")
+    reflections = read_jsonl(state / "reflections.jsonl")
+    executed = [record for record in records if record.get("kind") == "executed"]
+    active_plan = dashboard.get("active_plan")
+    attention = (
+        evidence_attention_from_plan(active_plan)
+        + evidence_attention_from_verifications(records, recent)
+        + evidence_attention_from_background(background)
+    )
+    view = {
+        "state_dir": str(state),
+        "status": "unknown",
+        "active_plan": active_plan,
+        "active_outcome": dashboard.get("active_outcome"),
+        "evidence": {
+            "total": len(records),
+            "executed": len(executed),
+            "executed_passed": sum(1 for record in executed if record.get("verified") is True),
+            "executed_failed": sum(1 for record in executed if record.get("verified") is False),
+            "attested": sum(1 for record in records if record.get("kind") == "attested"),
+            "latest": records[-1] if records else None,
+        },
+        "attention": attention[:recent],
+        "background": {
+            "outcomes": background["counts"]["outcomes"],
+            "fanout_jobs": background["counts"]["fanout_jobs"],
+            "fanout_tasks": background["counts"]["fanout_tasks"],
+        },
+        "release_readiness": {
+            "status": readiness["status"],
+            "passed_gates": readiness["counts"].get("passed", 0),
+            "failed_gates": readiness["counts"].get("failed", 0),
+            "missing_gates": readiness["counts"].get("missing", 0),
+            "git": readiness["project_state"]["git"],
+        },
+        "control_points": {
+            "open_plan_steps": len(active_plan_open_steps(active_plan)),
+            "reflections": len(reflections),
+            "recent_reflections": recent_tail(reflections, recent),
+        },
+        "next_action": "",
+        "guardrail": (
+            "harness summarizes durable state only; worker output is material "
+            "until an executed verifier records evidence"
+        ),
+    }
+    view["status"] = evidence_harness_status(view)
+    view["next_action"] = evidence_next_action(view)
+    return view
+
+
+def format_evidence_harness_view(view):
+    status = view["status"]
+    lines = ["[OK] Evidence harness: {0}".format(view["state_dir"])]
+    lines.append(
+        "Status: {0} {1}".format(
+            EVIDENCE_HARNESS_ICONS.get(status, "[ ]"),
+            status,
+        )
+    )
+    plan = view.get("active_plan")
+    if plan:
+        lines.append(
+            "Active plan: {0} ({1}/{2} completed, {3} open steps)".format(
+                plan["slug"],
+                plan["completed_steps"],
+                plan["total_steps"],
+                view["control_points"]["open_plan_steps"],
+            )
+        )
+    else:
+        lines.append("Active plan: none")
+    outcome = view.get("active_outcome")
+    if outcome:
+        lines.append(
+            "Active outcome: {0} ({1}, {2}/{3} iterations)".format(
+                outcome["slug"],
+                outcome["status"],
+                outcome["iteration_count"],
+                outcome["max_iterations"],
+            )
+        )
+    else:
+        lines.append("Active outcome: none")
+    evidence = view["evidence"]
+    lines.append(
+        "Evidence: {0} executed ({1} passed, {2} failed), {3} attested, {4} total".format(
+            evidence["executed"],
+            evidence["executed_passed"],
+            evidence["executed_failed"],
+            evidence["attested"],
+            evidence["total"],
+        )
+    )
+    background = view["background"]
+    outcomes = background["outcomes"]
+    jobs = background["fanout_jobs"]
+    tasks = background["fanout_tasks"]
+    lines.append(
+        "Delegation: outcomes {0} total ({1} active); fanout jobs {2} total ({3} active); tasks {4} running, {5} pending, {6} failed".format(
+            outcomes["total"],
+            outcomes.get("active", 0),
+            jobs["total"],
+            jobs.get("active", 0),
+            tasks.get("running", 0),
+            tasks.get("pending", 0),
+            tasks.get("failed", 0),
+        )
+    )
+    readiness = view["release_readiness"]
+    lines.append(
+        "Release readiness: {0}; gates {1} passed, {2} failed, {3} missing; git {4}".format(
+            readiness["status"],
+            readiness["passed_gates"],
+            readiness["failed_gates"],
+            readiness["missing_gates"],
+            readiness["git"].get("status", "unknown"),
+        )
+    )
+    if view["attention"]:
+        lines.append("Attention:")
+        for item in view["attention"]:
+            lines.append(
+                "  {0}: {1} ({2})".format(
+                    item["level"],
+                    item["summary"],
+                    item["detail"],
+                )
+            )
+    else:
+        lines.append("Attention: none")
+    lines.append("Next: {0}".format(view["next_action"]))
+    lines.append("Guardrail: {0}.".format(view["guardrail"]))
+    return "\n".join(lines)
+
+
+def cmd_harness(args, state):
+    view = build_evidence_harness_view(state, args.recent)
+    if args.json_output:
+        print(json.dumps(view, indent=2))
+    else:
+        print(format_evidence_harness_view(view))
+    return 0
+
+
 TIMELINE_EVENT_ICONS = {
     "job_created": "[ ]",
     "task_started": "[>]",

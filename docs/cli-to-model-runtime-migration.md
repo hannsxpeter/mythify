@@ -35,7 +35,7 @@ Use MCP for:
 - Fanout workers through `fanout_start`, `fanout_status`, and
   `fanout_results`.
 - Read-only workflow surfaces like `workflow_status`, `verification_history`,
-  `background_status`, `outcome_progress`, `release_readiness`,
+  `background_status`, `evidence_harness`, `outcome_progress`, `release_readiness`,
   `fanout_timeline`, and `phase_status`.
 
 Do not treat MCP as a separate source of truth. It is another adapter over the

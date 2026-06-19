@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 37 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 40 tools in total. On-disk formats are
+// reflections) as 38 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 41 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -19,6 +19,7 @@ import { registerViewTools } from "./view-tools.js";
 import { registerWorkflowTools } from "./workflow-tools.js";
 import {
   buildBackgroundView,
+  buildEvidenceHarnessView,
   buildFanoutTimelineView,
   buildOutcomeProgressView,
   buildPhaseView,
@@ -29,6 +30,7 @@ import {
   compactReportDetail,
   configureViewCore,
   formatBackgroundView,
+  formatEvidenceHarnessView,
   formatFanoutTimelineView,
   formatOutcomeProgressView,
   formatPhaseView,
@@ -1104,6 +1106,8 @@ registerViewTools(server, {
   formatWorkReport,
   buildBackgroundView,
   formatBackgroundView,
+  buildEvidenceHarnessView,
+  formatEvidenceHarnessView,
   buildOutcomeProgressView,
   formatOutcomeProgressView,
   buildReleaseReadinessView,

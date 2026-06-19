@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.56] - 2026-06-19
+
+### Added
+
+- Added the CLI `harness` command and MCP `evidence_harness` tool as a
+  read-only control view for autonomous agent work, summarizing active steering
+  state, evidence mix, attention items, delegated work counts, release
+  readiness, and the next control action.
+- Added CLI and MCP coverage for the evidence harness, including read-only
+  empty-state coverage and view registrar coverage.
+
 ## [3.6.55] - 2026-06-18
 
 ### Added

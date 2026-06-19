@@ -16,6 +16,8 @@ function viewDeps() {
     formatWorkReport: (view) => `report ${view.recent}`,
     buildBackgroundView: (recent) => ({ kind: "background", recent }),
     formatBackgroundView: (view) => `background ${view.recent}`,
+    buildEvidenceHarnessView: (recent) => ({ kind: "harness", recent }),
+    formatEvidenceHarnessView: (view) => `harness ${view.recent}`,
     buildOutcomeProgressView: (recent) => ({ kind: "outcome", recent }),
     formatOutcomeProgressView: (view) => `outcome ${view.recent}`,
     buildReleaseReadinessView: () => ({ kind: "readiness" }),
@@ -50,6 +52,13 @@ test("view tool registrar wires stable read-only view tool names", async () => {
   const workReport = registered.find((entry) => entry.name === "work_report");
   const refusal = await workReport.handler({ mark: true, since: "last" });
   assert.match(refusal, /^\[FAIL\] mark cannot be combined with since/);
+
+  const evidenceHarness = registered.find((entry) => entry.name === "evidence_harness");
+  const harnessJson = await evidenceHarness.handler({ recent: 4, format: "json" });
+  assert.match(harnessJson, /^\[OK\] /);
+  const harnessPayload = JSON.parse(harnessJson.slice("[OK] ".length));
+  assert.equal(harnessPayload.kind, "harness");
+  assert.equal(harnessPayload.recent, 4);
 });
 
 test("view tool registrar rejects missing required deps", () => {

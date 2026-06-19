@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 9f6006180b80c5f7a196fd1e830e4078e64b84009becd432a8786a6883fdea51 -->
+<!-- Mythify protocol-sha256: 6109fddb3062e264a89fd4ffe576f5c65cb706ae0f1156c5cd6fc7d50780ea1b -->
 
 # The Mythify Protocol
 
@@ -120,6 +120,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. |
 | `status` | Orient: active plan, next pending step, state counts. |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, evidence counts, recent verification records, and recent reflections. |
+| `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and next control action. |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, exit codes, duration, and plan or step context. |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events; advances a cursor unless `--peek` is set; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. |
 | `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router: classify the task, inspect durable state, and choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt-packet routing without mutating state. |
@@ -171,14 +172,14 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 40 tools: `classify_task`, `host_model_switch`,
+through exactly 41 tools: `classify_task`, `host_model_switch`,
 `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
 `outcome_results`, `outcome_stop`, `memory_store`, `memory_recall`,
 `memory_clear`, `lesson_record`, `lesson_recall`, `plan_create`,
 `plan_add_step`, `plan_update_step`, `plan_status`, `workflow_status`,
-`verification_history`, `work_report`, `background_status`, `outcome_progress`,
+`verification_history`, `work_report`, `background_status`, `evidence_harness`, `outcome_progress`,
 `release_readiness`, `fanout_timeline`, `phase_status`, `campaign_next_prompt`,
 `prompt_packet`, `workflow_route`, `verify_run`, `verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
 `fanout_status`, and `fanout_results`. Same
@@ -232,6 +233,9 @@ verifications, roadmap state, and project git state without rerunning gates or
 declaring the release safe.
 `fanout_timeline` shows durable worker task timing, status, errors, and output
 metadata without mutating state or treating worker output as verification
+evidence. `evidence_harness` shows the active steering state, evidence mix,
+attention items, delegated work counts, release readiness, and next control
+action without mutating state or treating worker output as verification
 evidence. `phase_status` groups active plan steps into
 Understand, Design, Build, Judge, and Verify using durable state only; it does
 not mutate state or treat model confidence as progress. `classify_task` mirrors CLI triage and model
