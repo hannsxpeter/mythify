@@ -18,13 +18,16 @@ from mythify_outcomes import (
     outcome_iterations_path,
 )
 from mythify_views_status import (
+    build_evidence_harness_view,
     build_fanout_timeline_view,
     build_phase_view,
     build_release_readiness_view,
+    cmd_harness,
     cmd_phase,
     cmd_readiness,
     cmd_timeline,
     configure_status_views,
+    format_evidence_harness_view,
     format_fanout_timeline_view,
     format_phase_view,
     format_release_readiness_view,

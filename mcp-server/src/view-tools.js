@@ -9,6 +9,7 @@ export const VIEW_TOOL_NAMES = [
   "verification_history",
   "work_report",
   "background_status",
+  "evidence_harness",
   "outcome_progress",
   "release_readiness",
   "fanout_timeline",
@@ -33,6 +34,8 @@ export function registerViewTools(server, deps) {
   const formatWorkReport = requireDep(deps, "formatWorkReport");
   const buildBackgroundView = requireDep(deps, "buildBackgroundView");
   const formatBackgroundView = requireDep(deps, "formatBackgroundView");
+  const buildEvidenceHarnessView = requireDep(deps, "buildEvidenceHarnessView");
+  const formatEvidenceHarnessView = requireDep(deps, "formatEvidenceHarnessView");
   const buildOutcomeProgressView = requireDep(deps, "buildOutcomeProgressView");
   const formatOutcomeProgressView = requireDep(deps, "formatOutcomeProgressView");
   const buildReleaseReadinessView = requireDep(deps, "buildReleaseReadinessView");
@@ -165,6 +168,32 @@ export function registerViewTools(server, deps) {
         return `[OK] ${JSON.stringify(view, null, 2)}`;
       }
       return formatBackgroundView(view);
+    })
+  );
+
+  server.registerTool(
+    "evidence_harness",
+    {
+      title: "Show evidence harness",
+      description:
+        "Show a read-only control view for autonomous agent work, including active steering state, evidence mix, attention items, delegated work counts, release readiness, and the next control action. " +
+        "Use this to inspect whether fast agent output is backed by durable evidence without mutating state or treating worker output as verification.",
+      inputSchema: {
+        recent: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Number of recent verification and reflection records to inspect. Defaults to 5."),
+        format: z.enum(["text", "json"]).optional().describe("Return text or JSON. Defaults to text."),
+      },
+    },
+    guarded(({ recent, format }) => {
+      const view = buildEvidenceHarnessView(typeof recent === "number" ? recent : 5);
+      if (format === "json") {
+        return `[OK] ${JSON.stringify(view, null, 2)}`;
+      }
+      return formatEvidenceHarnessView(view);
     })
   );
 

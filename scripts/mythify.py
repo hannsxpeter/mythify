@@ -151,6 +151,7 @@ from mythify_views import (  # noqa: E402
     build_work_report,
     cmd_background,
     cmd_dashboard,
+    cmd_harness,
     cmd_history,
     cmd_phase,
     cmd_progress,
@@ -164,9 +165,9 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.55"
+VERSION = "3.6.56"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "9f6006180b80c5f7a196fd1e830e4078e64b84009becd432a8786a6883fdea51"
+PROTOCOL_SOURCE_SHA256 = "6109fddb3062e264a89fd4ffe576f5c65cb706ae0f1156c5cd6fc7d50780ea1b"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (

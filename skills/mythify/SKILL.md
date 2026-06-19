@@ -192,6 +192,7 @@ Most turns should start with `route`, not the full table below.
 | `init` | Create `./.mythify` workspace. |
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match this CLI. |
 | `status` | Orientation: active plan, next step, counts. |
+| `harness [--recent N] [--json]` | Read-only evidence harness for autonomous agent work. |
 | `route TASK [--json] [--triage never\|auto\|always]` | Choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt routing from task text and durable state without mutating state. |
 | `classify TASK [--json] [--triage never\|auto\|always]` | Identify task type, risk, execution profile, verification strategy, fanout fit, model policy, and task-based host recommendation when routing is not needed. |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan, set it active. |
@@ -238,7 +239,7 @@ Most turns should start with `route`, not the full table below.
 Clients wired to the Mythify MCP server instead of the CLI should use the
 equivalent tools. For broad or ambiguous prompts, start with `workflow_route`.
 Use `work_report` for chat narration, `verify_run` for evidence,
-`workflow_status` for orientation, and lower-level tools only after routing or
+`workflow_status` or `evidence_harness` for orientation, and lower-level tools only after routing or
 an explicit user request: `plan_create`, `plan_add_step`, `plan_update_step`,
 `verify_claim`, `reflect`, `campaign_next_prompt`, and `prompt_packet` for
 research, analysis, failure, handoff, review, campaign, or next-prompt packets.

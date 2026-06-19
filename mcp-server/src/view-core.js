@@ -31,6 +31,12 @@ const STEP_ICONS = {
   failed: "[!]",
   skipped: "[~]",
 };
+const EVIDENCE_HARNESS_ICONS = {
+  controlled: "[x]",
+  in_progress: "[>]",
+  needs_attention: "[!]",
+  needs_evidence: "[ ]",
+};
 
 let deps = {};
 
@@ -90,6 +96,13 @@ export function recentRecords(records, limit) {
     return [];
   }
   return records.slice(Math.max(0, records.length - limit));
+}
+
+function recentTail(items, limit) {
+  if (limit <= 0) {
+    return [];
+  }
+  return items.slice(Math.max(0, items.length - limit));
 }
 
 export function buildWorkflowDashboard(recent = 3) {
@@ -217,6 +230,252 @@ export function formatWorkflowDashboard(dashboard) {
       lines.push(`  - ${record.outcome || "unknown"}: ${record.action || ""}; next ${record.next || ""}`);
     }
   }
+  return lines.join("\n");
+}
+
+function evidenceRecordLabel(record) {
+  return compactLabel(record.claim || record.command || record.evidence, "verification");
+}
+
+function evidenceAttentionFromVerifications(records, recent) {
+  const attention = [];
+  for (const record of recentTail(records, recent)) {
+    if (record.kind === "executed" && record.verified === false) {
+      attention.push({
+        level: "issue",
+        source: "verification",
+        summary: `failed verification: ${evidenceRecordLabel(record)}`,
+        detail: `exit ${record.exit_code}`,
+        timestamp: record.timestamp || "",
+      });
+    } else if (record.kind === "attested") {
+      attention.push({
+        level: "warning",
+        source: "verification",
+        summary: `attested claim: ${evidenceRecordLabel(record)}`,
+        detail: "self-reported, not machine-checked",
+        timestamp: record.timestamp || "",
+      });
+    }
+  }
+  return attention;
+}
+
+function evidenceAttentionFromPlan(plan) {
+  const attention = [];
+  if (!plan) {
+    return attention;
+  }
+  for (const step of plan.steps || []) {
+    if (step.status === "failed") {
+      attention.push({
+        level: "issue",
+        source: "plan",
+        summary: `failed step ${step.id}: ${compactLabel(step.title, "step")}`,
+        detail: compactLabel(step.result, "no result recorded"),
+        timestamp: step.updated_at || "",
+      });
+    }
+  }
+  return attention;
+}
+
+function evidenceAttentionFromBackground(background) {
+  const attention = [];
+  for (const outcome of background.outcomes || []) {
+    if (outcome.status === "failed") {
+      attention.push({
+        level: "issue",
+        source: "outcome",
+        summary: `failed outcome: ${outcome.id || "outcome"}`,
+        detail: compactLabel(outcome.goal, "outcome"),
+        timestamp: outcome.updated || outcome.created || "",
+      });
+    }
+  }
+  for (const job of background.fanout_jobs || []) {
+    if (job.status === "failed") {
+      attention.push({
+        level: "issue",
+        source: "fanout",
+        summary: `failed fanout job: ${job.id || "job"}`,
+        detail: compactLabel(job.purpose, "fanout job"),
+        timestamp: job.last_updated || job.created || "",
+      });
+    }
+    for (const task of job.tasks || []) {
+      if (task.status === "failed") {
+        attention.push({
+          level: "issue",
+          source: "fanout",
+          summary: `failed fanout task ${task.id}: ${compactLabel(task.title, "task")}`,
+          detail: compactLabel(task.error, "no error recorded"),
+          timestamp: task.finished_at || job.last_updated || "",
+        });
+      }
+    }
+  }
+  return attention;
+}
+
+function activePlanOpenSteps(plan) {
+  if (!plan) {
+    return [];
+  }
+  return (plan.steps || []).filter((step) =>
+    ["pending", "in_progress", "failed"].includes(step.status || "pending")
+  );
+}
+
+function evidenceHarnessStatus(view) {
+  if (view.attention.length > 0) {
+    return "needs_attention";
+  }
+  if (view.evidence.executed === 0) {
+    return "needs_evidence";
+  }
+  if (view.active_plan && activePlanOpenSteps(view.active_plan).length > 0) {
+    return "in_progress";
+  }
+  if (view.active_outcome && view.active_outcome.status === "active") {
+    return "in_progress";
+  }
+  const background = view.background;
+  if ((background.fanout_jobs.active || 0) > 0 || (background.fanout_tasks.running || 0) > 0) {
+    return "in_progress";
+  }
+  return "controlled";
+}
+
+function evidenceNextAction(view) {
+  if (view.attention.length > 0) {
+    return `resolve attention item: ${view.attention[0].summary}`;
+  }
+  const plan = view.active_plan;
+  if (plan) {
+    if (plan.current_step) {
+      return `continue step ${plan.current_step.id}: ${compactLabel(plan.current_step.title, "step")}`;
+    }
+    if (plan.next_pending_step) {
+      return `start step ${plan.next_pending_step.id}: ${compactLabel(plan.next_pending_step.title, "step")}`;
+    }
+  }
+  if (view.active_outcome && view.active_outcome.status === "active") {
+    return "make a bounded attempt, then run outcome_check";
+  }
+  const tasks = view.background.fanout_tasks;
+  if ((tasks.running || 0) > 0 || (tasks.pending || 0) > 0) {
+    return "inspect delegated work with fanout_timeline or fanout_results";
+  }
+  if (view.evidence.executed === 0) {
+    return "run the nearest verify_run before claiming completion";
+  }
+  return "ready for human judgment or release review";
+}
+
+export function buildEvidenceHarnessView(recent = 5) {
+  const dashboard = buildWorkflowDashboard(recent);
+  const background = buildBackgroundView(recent);
+  const readiness = buildReleaseReadinessView();
+  const records = readJsonl(verificationsPath());
+  const reflections = readJsonl(reflectionsPath());
+  const executed = records.filter((record) => record.kind === "executed");
+  const activePlan = dashboard.active_plan;
+  const attention = [
+    ...evidenceAttentionFromPlan(activePlan),
+    ...evidenceAttentionFromVerifications(records, recent),
+    ...evidenceAttentionFromBackground(background),
+  ];
+  const view = {
+    state_dir: resolveStateDir(),
+    status: "unknown",
+    active_plan: activePlan,
+    active_outcome: dashboard.active_outcome,
+    evidence: {
+      total: records.length,
+      executed: executed.length,
+      executed_passed: executed.filter((record) => record.verified === true).length,
+      executed_failed: executed.filter((record) => record.verified === false).length,
+      attested: records.filter((record) => record.kind === "attested").length,
+      latest: records.length > 0 ? records[records.length - 1] : null,
+    },
+    attention: attention.slice(0, recent),
+    background: {
+      outcomes: background.counts.outcomes,
+      fanout_jobs: background.counts.fanout_jobs,
+      fanout_tasks: background.counts.fanout_tasks,
+    },
+    release_readiness: {
+      status: readiness.status,
+      passed_gates: readiness.counts.passed || 0,
+      failed_gates: readiness.counts.failed || 0,
+      missing_gates: readiness.counts.missing || 0,
+      git: readiness.project_state.git,
+    },
+    control_points: {
+      open_plan_steps: activePlanOpenSteps(activePlan).length,
+      reflections: reflections.length,
+      recent_reflections: recentTail(reflections, recent),
+    },
+    next_action: "",
+    guardrail:
+      "harness summarizes durable state only; worker output is material until an executed verifier records evidence",
+  };
+  view.status = evidenceHarnessStatus(view);
+  view.next_action = evidenceNextAction(view);
+  return view;
+}
+
+export function formatEvidenceHarnessView(view) {
+  const lines = [`[OK] Evidence harness: ${view.state_dir}`];
+  lines.push(`Status: ${EVIDENCE_HARNESS_ICONS[view.status] || "[ ]"} ${view.status}`);
+  const plan = view.active_plan;
+  if (plan) {
+    lines.push(
+      `Active plan: ${plan.slug} (${plan.completed_steps}/${plan.total_steps} completed, ` +
+        `${view.control_points.open_plan_steps} open steps)`
+    );
+  } else {
+    lines.push("Active plan: none");
+  }
+  const outcome = view.active_outcome;
+  if (outcome) {
+    lines.push(
+      `Active outcome: ${outcome.slug} (${outcome.status}, ` +
+        `${outcome.iteration_count}/${outcome.max_iterations} iterations)`
+    );
+  } else {
+    lines.push("Active outcome: none");
+  }
+  const evidence = view.evidence;
+  lines.push(
+    `Evidence: ${evidence.executed} executed (${evidence.executed_passed} passed, ` +
+      `${evidence.executed_failed} failed), ${evidence.attested} attested, ${evidence.total} total`
+  );
+  const outcomes = view.background.outcomes;
+  const jobs = view.background.fanout_jobs;
+  const tasks = view.background.fanout_tasks;
+  lines.push(
+    `Delegation: outcomes ${outcomes.total} total (${outcomes.active || 0} active); ` +
+      `fanout jobs ${jobs.total} total (${jobs.active || 0} active); ` +
+      `tasks ${tasks.running || 0} running, ${tasks.pending || 0} pending, ${tasks.failed || 0} failed`
+  );
+  const readiness = view.release_readiness;
+  lines.push(
+    `Release readiness: ${readiness.status}; gates ${readiness.passed_gates} passed, ` +
+      `${readiness.failed_gates} failed, ${readiness.missing_gates} missing; ` +
+      `git ${readiness.git.status || "unknown"}`
+  );
+  if (view.attention.length > 0) {
+    lines.push("Attention:");
+    for (const item of view.attention) {
+      lines.push(`  ${item.level}: ${item.summary} (${item.detail})`);
+    }
+  } else {
+    lines.push("Attention: none");
+  }
+  lines.push(`Next: ${view.next_action}`);
+  lines.push(`Guardrail: ${view.guardrail}.`);
   return lines.join("\n");
 }
 

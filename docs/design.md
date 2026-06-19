@@ -294,7 +294,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 37 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 38 core plus 3 fanout count
   split.
 - Front door, workflow, advanced, and labs tier membership for the CLI and MCP
   surfaces.
@@ -373,8 +373,9 @@ Workflow primitives:
 
 Advanced surfaces:
 
-- Dashboards, history, background, readiness, timeline, phase, trace,
-  memory, lessons, logs, fanout, reflections, summaries, and protocol checks.
+- Dashboards, history, background, evidence harness, readiness, timeline,
+  phase, trace, memory, lessons, logs, fanout, reflections, summaries, and
+  protocol checks.
 
 Labs surfaces:
 
@@ -407,6 +408,27 @@ running work:
 - Mutation boundary: the normal path must not create, edit, interrupt, stop, or
   otherwise mutate outcome or fanout records. It is an orientation view, not a
   control surface.
+
+## Evidence harness view
+
+The evidence harness view is a read-only control surface for autonomous agent
+work:
+
+- CLI command: `harness [--recent N] [--json]`.
+- MCP tool: `evidence_harness`.
+- State sources: the active plan, `.mythify/verifications.jsonl`,
+  `.mythify/reflections.jsonl`, durable outcome loop state, durable fanout job
+  state, release readiness state, and read-only git status for the project
+  root.
+- Output: harness status, active plan and outcome, evidence mix, attention
+  items, outcome and fanout counts, release readiness summary, recent
+  reflections, and the next control action.
+- Evidence boundary: the view reports durable evidence and durable worker
+  state. Worker output remains material, not verification evidence, until an
+  executed verifier records proof for the merged work.
+- Mutation boundary: the normal path must not create, edit, complete, stop,
+  interrupt, retry, tag, publish, push, or otherwise mutate project or Mythify
+  state. It is a control view, not an execution surface.
 
 ## Outcome progress view
 
@@ -846,6 +868,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. | 0 if every checked file matches; 1 on missing metadata or drift |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It does not mutate state or report model confidence. | 0; 1 if no workspace |
+| `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and the next control action from durable state. It does not mutate state or treat worker output as verification. | 0; 1 if no workspace |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. It does not mutate state, rerun checks, or upgrade attested claims. | 0; 1 if no workspace |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events, with an `Attention` section for failed checks, failed steps, failure reflections, and attested warnings. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. | 0; 1 if no workspace, invalid recent value, or incompatible flags |
 | `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router. It classifies the task, inspects durable state and the latest executed verification, then returns a route, reason, next command, prompt packet, verification strategy, chat policy, pause rules, expected state writes, and evidence. It must not mutate state or move execution out of the initiating host unless the user explicitly asks. | 0; 1 if no workspace |
@@ -891,14 +914,14 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.55`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.56`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 40 tools: the 37 core tools below plus the 3 fanout tools defined in the
+Exactly 41 tools: the 38 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -917,6 +940,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `verification_history` | `{recent?: number, format?: enum(text, json)}` | Show a read-only history of executed and attested verification records, including verdict, command or evidence, exit code, duration, and plan or step context. It must not mutate state, rerun checks, or upgrade attested claims. |
 | `work_report` | `{since?: enum(last, start), recent?: number, cursor?: string, peek?: boolean, mark?: boolean, format?: enum(chat, json)}` | Show a chat-ready live work report over durable plan, step, verification, and reflection events, with an `Attention` section for failed checks, failed steps, failure reflections, and attested warnings. By default it advances a cursor so repeated calls show only new events; `peek` leaves the cursor unchanged; `mark` advances the cursor to the latest event without showing old events and cannot be combined with `since`. |
 | `background_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only background task view of durable outcome loops and fanout jobs, including task counts, statuses, and next actions. It must not mutate state and must not report model confidence as progress. |
+| `evidence_harness` | `{recent?: number, format?: enum(text, json)}` | Show a read-only control view for autonomous agent work, including active steering state, evidence mix, attention items, delegated work counts, release readiness, and the next control action. It must not mutate state and must not treat worker output as verification. |
 | `outcome_progress` | `{recent?: number, format?: enum(text, json)}` | Show a read-only progress view of active and recent outcome loops, including iteration budget, verifier exit details, metric score when present, and next action. It must not run checks, make attempts, stop loops, or treat notes as verification. |
 | `release_readiness` | `{format?: enum(text, json)}` | Show a read-only release readiness view from recorded verification gates, project git state, and roadmap state. It must not rerun gates, mutate state, tag, publish, push, or declare the release safe. |
 | `fanout_timeline` | `{recent?: number, format?: enum(text, json)}` | Show a read-only timeline of fanout job creation, task starts, task finishes, duration, status, errors, and output metadata. It must not mutate state and must not treat worker output as verification evidence. |
@@ -2017,7 +2041,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.55. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.56. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2109,6 +2133,8 @@ and documents the parity discipline for shared CLI and MCP behavior changes;
 3.6.54 adds default planning horizon support, Codex-first worker selection,
 and Claude CLI worker cost warnings; 3.6.55 makes the Mythify chat skills
 dual-runtime invocable (`/name` in Claude Code, `$name` in Codex) and installs
-them into both the Codex and Claude Code skills roots.
-The CLI reports 3.6.55 through `--version`; the MCP server reads `package.json`
+them into both the Codex and Claude Code skills roots; 3.6.56 adds the CLI
+`harness` command and MCP `evidence_harness` tool as a read-only control view
+for autonomous agent work.
+The CLI reports 3.6.56 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

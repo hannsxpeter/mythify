@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 27,
+      "command_count": 28,
       "tiers": {
         "front_door": [
           "route",
@@ -22,6 +22,7 @@
           "init",
           "protocol",
           "dashboard",
+          "harness",
           "history",
           "background",
           "progress",
@@ -45,6 +46,7 @@
         "protocol",
         "status",
         "dashboard",
+        "harness",
         "history",
         "report",
         "route",
@@ -71,9 +73,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 37,
+      "core_tool_count": 38,
       "fanout_tool_count": 3,
-      "total_tools": 40,
+      "total_tools": 41,
       "tiers": {
         "front_door": [
           "workflow_route",
@@ -98,6 +100,7 @@
           "classify_task",
           "verification_history",
           "background_status",
+          "evidence_harness",
           "outcome_progress",
           "release_readiness",
           "fanout_timeline",
@@ -138,6 +141,7 @@
         "verification_history",
         "work_report",
         "background_status",
+        "evidence_harness",
         "outcome_progress",
         "release_readiness",
         "fanout_timeline",

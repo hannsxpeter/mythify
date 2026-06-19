@@ -4195,6 +4195,80 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(phases["verify"]["step_counts"]["pending"], 1)
         self.assertEqual(payload["counts"]["verifications"], 2)
 
+    def test_harness_summarizes_agent_control_state_without_mutation(self):
+        state = self.init_workspace()
+        steps = json.dumps([
+            {"title": "Map evidence surface", "success_criteria": "inputs known"},
+            {"title": "Verify evidence harness", "success_criteria": "tests pass"},
+        ])
+        created = self.run_cli("plan", "create", "Ship evidence harness", "--steps", steps)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        in_progress = self.run_cli("step", "1", "in_progress")
+        self.assertEqual(in_progress.returncode, 0, in_progress.stderr)
+        passed = self.run_cli(
+            "verify", "run", shell_py("raise SystemExit(0)"),
+            "--claim", "harness inputs mapped",
+        )
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        failed = self.run_cli(
+            "verify", "run", shell_py("raise SystemExit(1)"),
+            "--claim", "harness negative control",
+        )
+        self.assertEqual(failed.returncode, 2, failed.stderr)
+        attested = self.run_cli("verify", "claim", "worker said done", "worker transcript")
+        self.assertEqual(attested.returncode, 0, attested.stderr)
+
+        job_id = "fo-20260613151515-abcd"
+        job_dir = state / "fanout" / job_id
+        job_dir.mkdir(parents=True)
+        job = {
+            "id": job_id,
+            "created": "2026-06-13T15:15:15+00:00",
+            "last_updated": "2026-06-13T15:15:18+00:00",
+            "purpose": "Review harness output",
+            "engine": "command",
+            "model": "",
+            "visibility": "summary",
+            "tasks": [
+                {
+                    "id": 1,
+                    "title": "Review verifier mapping",
+                    "status": "failed",
+                    "role": "reviewer",
+                    "engine": "command",
+                    "finished_at": "2026-06-13T15:15:18+00:00",
+                    "duration_seconds": 2,
+                    "error": "missing gate",
+                },
+            ],
+        }
+        (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+
+        before = self.state_snapshot(state)
+        result = self.run_cli("harness", "--recent", "5")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[OK] Evidence harness", result.stdout)
+        self.assertIn("Status: [!] needs_attention", result.stdout)
+        self.assertIn("Active plan: ship-evidence-harness (0/2 completed, 2 open steps)", result.stdout)
+        self.assertIn("Evidence: 2 executed (1 passed, 1 failed), 1 attested, 3 total", result.stdout)
+        self.assertIn("tasks 0 running, 0 pending, 1 failed", result.stdout)
+        self.assertIn("failed verification: harness negative control", result.stdout)
+        self.assertIn("attested claim: worker said done", result.stdout)
+        self.assertIn("failed fanout task 1: Review verifier mapping", result.stdout)
+        self.assertIn("Guardrail: harness summarizes durable state only", result.stdout)
+        self.assertEqual(self.state_snapshot(state), before)
+
+        json_result = self.run_cli("harness", "--json", "--recent", "5")
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        payload = json.loads(json_result.stdout)
+        self.assertEqual(payload["status"], "needs_attention")
+        self.assertEqual(payload["evidence"]["executed_passed"], 1)
+        self.assertEqual(payload["evidence"]["executed_failed"], 1)
+        self.assertEqual(payload["evidence"]["attested"], 1)
+        self.assertEqual(payload["background"]["fanout_tasks"]["failed"], 1)
+        self.assertEqual(payload["release_readiness"]["status"], "needs_evidence")
+        self.assertEqual(self.state_snapshot(state), before)
+
     def test_read_only_views_have_stable_empty_state_shapes(self):
         state = self.init_workspace()
         (self.project / "roadmap.md").write_text(
@@ -4207,6 +4281,16 @@ class TestStatusAndSummary(CliTestCase):
                 "dashboard",
                 ["[OK] Workflow dashboard", "Active plan: none", "Evidence: 0 executed"],
                 ["state_dir", "active_plan", "active_outcome", "counts", "verification_summary"],
+            ),
+            (
+                "harness",
+                [
+                    "[OK] Evidence harness",
+                    "Status: [ ] needs_evidence",
+                    "Attention: none",
+                    "Guardrail: harness summarizes durable state only",
+                ],
+                ["state_dir", "status", "evidence", "attention", "background", "guardrail"],
             ),
             (
                 "history",

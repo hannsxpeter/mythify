@@ -26,7 +26,7 @@ def build_parser(symbols):
             "  plan, outcome, campaign, research, prompt\n"
             "\n"
             "Advanced surfaces:\n"
-            "  dashboard, history, background, progress, readiness, timeline, phase, trace,\n"
+            "  dashboard, harness, history, background, progress, readiness, timeline, phase, trace,\n"
             "  classify, memory, lesson, logs, reflect, summary, protocol, fanout through MCP\n"
             "\n"
             "Labs surfaces:\n"
@@ -99,6 +99,24 @@ def build_parser(symbols):
     )
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_dashboard)
+
+    p = sub.add_parser(
+        "harness",
+        help="Show a read-only evidence harness for autonomous agent work.",
+        description=(
+            "Read-only evidence harness: active steering state, evidence mix, "
+            "attention items, delegated work counts, release readiness, and the "
+            "next control action from durable state."
+        ),
+    )
+    p.add_argument(
+        "--recent",
+        type=int,
+        default=5,
+        help="Number of recent verification and reflection records to inspect. Defaults to 5.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_harness)
 
     p = sub.add_parser(
         "history",
