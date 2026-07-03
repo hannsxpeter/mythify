@@ -1,0 +1,122 @@
+---
+name: taskboard
+plan_version: 2
+status: executing
+created: 2026-06-20
+updated: 2026-06-29
+mode: greenfield
+archetype: saas-dashboard
+domains_applicable: [product, architecture, stack, database, security, code-quality]
+domains_excluded:
+  - name: seo
+    reason: internal tool behind SSO; no public surface to index
+progress:
+  phases_total: 3
+  phases_done: 1
+  tasks_total: 5
+  tasks_done: 2
+---
+
+# Taskboard master plan
+
+Taskboard is a small kanban tool for one team. Done means: a new user can sign
+up, create a board, and drag a card between columns, with the suite passing.
+
+## Scope and non-goals
+
+In scope: single-team boards. Non-goals: multi-tenancy (deferred), mobile app
+(out of scope).
+
+## Decisions
+
+### D1: SQLite via drizzle for the first cut
+
+Rationale: one team, one host. Rejected: Postgres (operational overhead now).
+
+## Requirements
+
+### Story 1: a member can manage cards
+
+R-1.1: WHEN a member drags a card THE SYSTEM SHALL persist the new column.
+
+## Phases
+
+## Phase 1: Scaffold
+
+Goal: repo builds and lints from a fresh clone. Blocks Phase 2.
+
+### Wave 1.1
+
+- [x] GP-101 [W1.1] Scaffold repo with lint and test wiring
+  - Files: package.json, .eslintrc.json
+  - Depends on: none
+  - Acceptance: `npm test` and `npm run lint` both exit 0 on a fresh clone
+  - Verify: `npm test && npm run lint`
+  - Requirements: R-CODE-1
+
+- [x] GP-102 [P] [W1.1] Add db client and empty schema
+  - Files: src/db/client.ts, src/db/schema/index.ts
+  - Depends on: none
+  - Acceptance: schema module exports an empty table map; client connects to sqlite file
+  - Verify: `npm run db:check`
+  - Requirements: R-DB-1
+
+## Phase 2: Auth and boards
+
+Goal: a user can sign up and own a board. Blocks Phase 3.
+
+### Wave 2.1
+
+- [ ] GP-201 [W2.1] Create user model and migration
+  - Files: src/db/schema/users.ts, migrations/0002_users.sql
+  - Depends on: GP-102
+  - Reuses: drizzle client from src/db/client.ts
+  - Acceptance: schema exports users table; migration applies cleanly on empty db;
+    email column has unique index
+  - Verify: `npm run db:migrate && npm run db:check`
+  - Requirements: R-2.1, R-DB-3, R-SEC-12
+
+~~- [ ] GP-202 [W2.1] Add session table~~
+  - Note (2026-06-28): superseded by GP-203; cookie sessions chosen instead.
+
+- [ ] GP-203 [P] [W2.1] Add cookie session helper
+  - Files: src/auth/session.ts, src/auth/session.test.ts
+  - Depends on: none
+  - Acceptance: uses signed httpOnly cookie; test vector passes
+  - Verify: `npm test -- session.test.ts`
+  - Requirements: R-SEC-6
+
+Checkpoint: signup flow works end to end against a local db.
+
+## Phase 3: Verification
+
+Goal: prove the built system satisfies the plan end to end.
+
+### Wave 3.1
+
+- [ ] GP-301 [W3.1] Full suite, lint, build, end-to-end smoke
+  - Files: none (runs existing checks)
+  - Depends on: GP-201, GP-203
+  - Acceptance: suite green, lint clean, build succeeds, smoke exercises signup
+  - Verify: `npm test && npm run lint && npm run build && npm run smoke`
+  - Requirements: R-1.1, R-CODE-1
+
+Checkpoint: a fresh clone passes every check with one command sequence.
+
+## Open Questions
+
+None; every meaningful decision is committed above.
+
+## Rules for executing agents
+
+> [!IMPORTANT]
+> This plan is the source of truth. The chat is not.
+>
+> 1. Before any work: read the frontmatter, then find the first unchecked task in wave order.
+> 2. One task at a time. Respect Depends on.
+> 3. Run the task's Verify command. Only after it passes, flip the checkbox.
+
+## Session log
+
+- 2026-06-20 plan created (godplans v1.0.0)
+- 2026-06-29 GP-101 and GP-102 done; Phase 1 checkpoint reached.

@@ -6,12 +6,14 @@ import sys
 from pathlib import Path
 
 from mythify_classification import classify_task_text
+from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_model_policy import build_model_policy, run_model_triage
 from mythify_plan_horizon import route_plan_horizon
 from mythify_workflows import (
     build_campaign_prompt_payload,
     campaign_next_action,
     campaign_progress,
+    current_campaign_task,
     get_active_campaign_slug,
     get_active_research_slug,
     load_campaign,
@@ -39,7 +41,6 @@ def load_workflow_router():
 
 
 WORKFLOW_ROUTER = load_workflow_router()
-PROMPT_PACKET_KINDS = ("research", "analysis", "failure", "handoff", "review", "campaign", "next")
 PROMPT_PACKET_GUARDRAIL = (
     "Prompt packet output is steering material for the host agent, not verification evidence. "
     "The host must do the work, run checks when available, report issues in chat, and record evidence."
@@ -83,6 +84,15 @@ ROUTE_VERIFY_TERMS = (
     "verify", "test", "tests", "passes", "passing", "check", "build",
     "lint",
 )
+ROUTE_GODPLANS_TERMS = ("godplans", "god plans")
+ROUTE_GODAUDITS_TERMS = ("godaudits", "god audits")
+WORKSPACE_DIR_NAME = ".mythify"
+
+
+def artifact_project_root(state):
+    if state is not None and state.name == WORKSPACE_DIR_NAME:
+        return state.parent
+    return Path.cwd()
 
 
 
@@ -516,12 +526,20 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
     plan_context = active_plan_packet_context(state)
     git_state, git_lines = prompt_git_context()
     recent = prompt_recent_evidence(state, limit=5)
+    god_audit = godaudits_summary(artifact_project_root(state))
+    god_audit_present = god_audit.get("present")
     lines = [
         "Review prompt packet",
         "Goal: {0}".format(goal or "review current changes and risks"),
     ]
     lines.extend(git_lines)
     lines.extend(prompt_plan_lines(plan_context))
+    if god_audit_present:
+        lines.append(
+            "Godaudits audit: {0} ({1})".format(
+                god_audit.get("path"), god_audit.get("detail")
+            )
+        )
     if recent:
         lines.append("Recent evidence:")
         for item in recent:
@@ -549,6 +567,7 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
             "active_plan": plan_context,
             "recent_evidence": recent,
             "verify_command": verify_command,
+            "godaudits_audit": god_audit if god_audit_present else None,
         },
         "next_prompt": "\n".join(lines),
         "guardrail": PROMPT_PACKET_GUARDRAIL,
@@ -607,12 +626,20 @@ def cmd_prompt_packet(args, state):
 # ---------------------------------------------------------------------------
 
 def workflow_route_state(state):
-    active_plan_slug = get_active_slug(state)
-    active_plan = load_plan(state, active_plan_slug) if active_plan_slug else None
-    active_outcome_slug, active_outcome = load_outcome(state)
-    active_campaign_slug, active_campaign = load_campaign(state)
-    active_research_slug, active_research = load_research(state)
-    latest_index, latest = latest_executed_verification(state)
+    if state is None:
+        active_plan_slug = None
+        active_plan = None
+        active_outcome_slug, active_outcome = None, None
+        active_campaign_slug, active_campaign = None, None
+        active_research_slug, active_research = None, None
+        latest_index, latest = None, None
+    else:
+        active_plan_slug = get_active_slug(state)
+        active_plan = load_plan(state, active_plan_slug) if active_plan_slug else None
+        active_outcome_slug, active_outcome = load_outcome(state)
+        active_campaign_slug, active_campaign = load_campaign(state)
+        active_research_slug, active_research = load_research(state)
+        latest_index, latest = latest_executed_verification(state)
     latest_view = None
     if latest is not None:
         latest_view = {
@@ -649,11 +676,12 @@ def workflow_route_state(state):
     campaign_view = None
     if active_campaign:
         done, total = campaign_progress(active_campaign)
+        current_task = current_campaign_task(active_campaign)
         campaign_view = {
             "id": active_campaign_slug,
             "goal": active_campaign.get("goal", ""),
             "status": active_campaign.get("status", ""),
-            "phase": active_campaign.get("phase", ""),
+            "phase": (current_task or {}).get("phase", ""),
             "progress": {"completed": done, "total": total},
         }
     research_view = None
@@ -665,13 +693,28 @@ def workflow_route_state(state):
             "claim_count": len(active_research.get("claims") or []),
             "source_count": len(active_research.get("sources") or []),
         }
+    root = artifact_project_root(state)
+    godplans_view = godplans_summary(root)
+    godaudits_view = godaudits_summary(root)
     return {
         "active_plan": plan_view,
         "active_outcome": outcome_view,
         "active_campaign": campaign_view,
         "active_research": research_view,
         "latest_executed_verification": latest_view,
+        "godplans_plan": godplans_view if godplans_view.get("present") else None,
+        "godaudits_audit": godaudits_view if godaudits_view.get("present") else None,
     }
+
+
+def god_artifact_has_open_tasks(view):
+    if not view:
+        return False
+    total = view.get("tasks_total")
+    done = view.get("tasks_done")
+    if not isinstance(total, int) or not isinstance(done, int):
+        return False
+    return done < total
 
 
 def _wordish(text):
@@ -714,10 +757,14 @@ def route_command_for(route, task, state_view):
             return "python3 scripts/mythify.py prompt research"
         return "python3 scripts/mythify.py research start {0}".format(quoted_task)
     if route == "review":
+        if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
+            return "python3 scripts/mythify.py plan import --source godaudits"
         return "python3 scripts/mythify.py prompt review --goal {0}".format(quoted_task)
     if route == "handoff":
         return "python3 scripts/mythify.py prompt handoff --goal {0}".format(quoted_task)
     if route == "plan":
+        if god_artifact_has_open_tasks(state_view.get("godplans_plan")):
+            return "python3 scripts/mythify.py plan import --source godplans"
         return "python3 scripts/mythify.py plan create {0} --horizon {1}".format(
             quoted_task,
             route_plan_horizon(),
@@ -750,10 +797,23 @@ def route_state_writes(route, state_view):
             return ["research add-source", "research add-claim", "research close"]
         return ["research start before implementation"]
     if route == "review":
+        if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
+            return [
+                "plan import --source godaudits when remediation is accepted",
+                "step updates and verify run per remediation task",
+                "report findings in chat",
+            ]
         return ["report findings in chat", "verify run supporting checks when fixes are made"]
     if route == "handoff":
         return ["step updates and verify run as the active plan advances"]
     if route == "plan":
+        if god_artifact_has_open_tasks(state_view.get("godplans_plan")):
+            return [
+                "plan import --source godplans",
+                "step updates",
+                "verify run per imported task",
+                "reflect on failures",
+            ]
         return ["plan create", "step updates", "verify run", "reflect on failures"]
     if route == "prompt":
         return []
@@ -777,7 +837,14 @@ def workflow_route_evidence(route, state_view, classification):
     latest = state_view.get("latest_executed_verification")
     if latest:
         evidence.append({"type": "latest_executed_verification", **latest})
-    for key in ("active_plan", "active_outcome", "active_campaign", "active_research"):
+    for key in (
+        "active_plan",
+        "active_outcome",
+        "active_campaign",
+        "active_research",
+        "godplans_plan",
+        "godaudits_audit",
+    ):
         if state_view.get(key):
             evidence.append({"type": key, **state_view[key]})
     evidence.append({
@@ -823,6 +890,16 @@ def select_workflow_route(task, state_view, classification):
             "outcome",
             "The prompt names success or verification conditions, so use a bounded outcome loop.",
         )
+    if route_has(text, ROUTE_GODAUDITS_TERMS):
+        return (
+            "review",
+            "The prompt names godaudits, so route to review work around the .godaudits audit artifact.",
+        )
+    if route_has(text, ROUTE_GODPLANS_TERMS):
+        return (
+            "plan",
+            "The prompt names godplans, so route to plan work around the .godplans plan artifact.",
+        )
     if classification.get("task_type") == "research" or route_has(text, ROUTE_RESEARCH_TERMS):
         return (
             "research",
@@ -860,6 +937,19 @@ def build_workflow_route(task, state, classification):
     if route not in WORKFLOW_ROUTE_IDS:
         route = "plan"
         reason = "Router returned an unknown route, so Mythify fell back to a verifiable plan."
+    god_plan = state_view.get("godplans_plan")
+    god_audit = state_view.get("godaudits_audit")
+    if route == "plan" and god_artifact_has_open_tasks(god_plan):
+        reason += (
+            " A godplans plan exists at {0} ({1}); import it with plan import "
+            "instead of drafting a new plan.".format(
+                god_plan.get("path"), god_plan.get("detail")
+            )
+        )
+    if route == "review" and god_audit:
+        reason += " A godaudits audit exists at {0} ({1}).".format(
+            god_audit.get("path"), god_audit.get("detail")
+        )
     packet_kind = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
     return {
         "kind": "workflow_route",

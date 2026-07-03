@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.57] - 2026-07-03
+
+### Added
+
+- Added godplans and godaudits artifact awareness. Mythify now reads
+  `.godplans/PLAN.mdx` and `.godaudits/AUDIT.mdx` (with `.md` fallbacks) as
+  read-only project state through the shared parsers `scripts/mythify_godfiles.py`
+  and `mcp-server/src/godfiles-core.js`. Mythify never edits those artifacts;
+  checkbox flips stay with the executing agent.
+- Added the CLI `plan import [PATH] [--source godplans|godaudits] [--name NAME]`
+  command that converts an artifact's checkbox tasks into a Mythify plan. Each
+  step keeps the task's exact verify command, wave, phase, and source id, and
+  imported plans enforce a strict step-context evidence gate so a step completes
+  only when its own verification passed while it was in progress.
+- Made the workflow router, classifier, `readiness`, `harness`, and `phase`
+  views godplans and godaudits aware, all artifact-gated so output is unchanged
+  when no artifact is present. The read-only `route` command now runs without a
+  `.mythify` workspace so a fresh godplans project can be routed before `init`.
+- Added a new `skills/mythify/references/godplans-godaudits.mdx` bridge contract
+  and shipped it in the packaged skill.
+
+### Changed
+
+- The campaign verifier now executes: `campaign advance` runs a campaign's
+  `--verify` command at the `verify` phase, records an executed verification,
+  and refuses to advance past a red check.
+- Automated the protocol hash bump: `scripts/build_variants.py` rewrites the
+  `PROTOCOL_SOURCE_SHA256` constant in `scripts/mythify.py`, so a protocol edit
+  can no longer leave the handshake stale.
+
+### Fixed
+
+- Fixed a cross-runtime divergence where the Node roadmap `## Active Now`
+  parser disagreed with the Python CLI when a non-checkbox line preceded the
+  first checkbox.
+- Fixed campaign hygiene: skipping the final task now releases the active
+  pointer, failed tasks render explicit recovery guidance instead of the first
+  phase, and emitted campaign prompts use the canonical
+  `python3 scripts/mythify.py` command form.
+- Added the `workflow-router.json` package mirror to the manifest drift check,
+  and validated the outcome active pointer against its goal record.
+
 ## [3.6.56] - 2026-06-19
 
 ### Added

@@ -1,0 +1,51 @@
+# Godplans and godaudits bridge
+
+godplans emits `.godplans/PLAN.mdx`: an agent-executable master plan written
+before code, with `GP-` checkbox tasks that each carry Files, Acceptance, and
+an exact `Verify:` command. godaudits emits `.godaudits/AUDIT.mdx`: a scored
+audit written after code, with `F-` findings and `GA-` remediation checkbox
+tasks in the same grammar. Both files are GFM-safe MDX; renaming them to `.md`
+loses nothing, and Mythify accepts either extension.
+
+Mythify reads these artifacts; it never writes them. Checkbox flips, frontmatter
+counter updates, and session-log lines stay with the executing agent per the
+rules embedded in each artifact. Mythify holds the executed evidence trail.
+
+## What Mythify does with them
+
+- `route`: a prompt that names godplans routes to plan work; one that names
+  godaudits routes to review. When the artifact exists with open tasks, the
+  next command becomes `plan import` instead of drafting a new plan. `route`
+  works before `init`, so a fresh godplans project can be routed immediately.
+- `plan import [PATH] [--source godplans|godaudits] [--name NAME]`: converts
+  the artifact's live tasks into a Mythify plan. Task Acceptance becomes the
+  step success criteria, the task `Verify:` command is kept on the step as
+  `verify_command`, and checked boxes import as completed steps. Superseded
+  (struck-through) tasks are skipped. Frontmatter counter drift against the
+  checkboxes is reported; the checkboxes are trusted.
+- Strict step context: imported plans set `strict_context`, so a step completes
+  only when a passing `verify run` was recorded while that step was
+  `in_progress`. Context-free verifications do not count.
+- `readiness` and `harness`: surface artifact status, task progress, open
+  Critical findings, and counter drift beside git and roadmap state.
+- `phase`: imported steps keep the artifact's phase and wave, so the phase view
+  groups them without keyword guessing.
+
+## The execution loop for an imported plan
+
+1. `python3 scripts/mythify.py plan import --source godplans`
+2. `python3 scripts/mythify.py step N in_progress`
+3. `python3 scripts/mythify.py verify run "<the step's verify command>" --claim "GP-201 ..."`
+4. `python3 scripts/mythify.py step N completed "verify run exit 0: ..."`
+5. Flip the checkbox in the artifact yourself, per its embedded rules, in the
+   same working session; Mythify does not do this for you.
+
+Re-importing the same artifact is refused while a prior import exists; archive
+the old plan first or pass `--name` for a fresh copy.
+
+## MDX safety for anything Mythify emits near these artifacts
+
+The god formats ban JSX, ESM imports, expressions, HTML comments, non-ASCII
+characters, em and en dashes, and emojis. Any future Mythify emitter that
+writes into `.godplans/` or `.godaudits/` must use YAML frontmatter for machine
+metadata, never HTML comments, and must stay pure ASCII.

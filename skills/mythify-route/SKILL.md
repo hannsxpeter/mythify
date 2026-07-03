@@ -34,6 +34,11 @@ the ledger.
    - Why: the risk, ambiguity, active state, or failed evidence that drove it.
    - Next: the exact first action you will take.
 
+   The router is godplans and godaudits aware: when `.godplans/PLAN.mdx` or
+   `.godaudits/AUDIT.mdx` exists with open tasks, the route reason names the
+   artifact and the next command becomes `plan import` so the artifact's own
+   tasks and verify commands drive the work instead of a freshly drafted plan.
+
 5. If the route selects multi-step work, mark the chat cursor before mutating
    state:
 

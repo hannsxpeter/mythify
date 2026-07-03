@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { godauditsSummary, godplansSummary } from "./godfiles-core.js";
+
 let deps = {};
 
 export function configureViewStatusCore(nextDeps) {
@@ -209,7 +211,9 @@ export function roadmapSummary(root) {
     };
   }
   const text = fs.readFileSync(roadmapPath, "utf8");
-  const match = text.match(/^## Active Now\n\n([\s\S]*?)(?:\n## |\n?$)/m);
+  // Mirrors the Python regex (?ms)^## Active Now\n\n(.*?)(?:\n## |\Z): the
+  // section runs to the next H2 or the true end of file, not the line end.
+  const match = text.match(/^## Active Now\n\n([\s\S]*?)(?:\n## |$(?![\s\S]))/m);
   let activeNow = "";
   if (match) {
     activeNow = (match[1].split(/\r?\n/).find((line) => line.trim().startsWith("- [")) || "").trim();
@@ -254,6 +258,8 @@ export function buildReleaseReadinessView() {
     project_state: {
       git: gitState,
       roadmap,
+      godplans: godplansSummary(root),
+      godaudits: godauditsSummary(root),
     },
     guardrail:
       "readiness summarizes recorded evidence and project state only; it does not rerun gates or declare a release safe",
@@ -297,6 +303,19 @@ export function formatReleaseReadinessView(view) {
     `Roadmap: ${roadmapIcon} ${roadmap.status}; ` +
       compactLabel(roadmap.active_now, roadmap.detail)
   );
+  for (const [label, key] of [
+    ["Godplans plan", "godplans"],
+    ["Godaudits audit", "godaudits"],
+  ]) {
+    const summary = view.project_state[key] || {};
+    if (!summary.present) {
+      continue;
+    }
+    const icon = RELEASE_READINESS_ICONS[summary.status] || "[~]";
+    lines.push(
+      `${label}: ${icon} ${summary.status}; ` + compactLabel(summary.detail, "no detail")
+    );
+  }
   lines.push(`Guardrail: ${view.guardrail}.`);
   return lines.join("\n");
 }
@@ -515,7 +534,7 @@ export const PHASE_CONFIG = [
   {
     id: "verify",
     label: "Verify",
-    keywords: ["verify", "test", "check", "gate", "lint", "suite"],
+    keywords: ["verify", "verification", "test", "check", "gate", "lint", "suite"],
   },
 ];
 
@@ -529,6 +548,15 @@ export const PHASE_STATUS_ICONS = {
 };
 
 export function phaseIdForStep(step) {
+  const explicit = step.phase || "";
+  if (explicit) {
+    for (const phase of PHASE_CONFIG) {
+      if (containsAny(explicit, phase.keywords).length > 0) {
+        return phase.id;
+      }
+    }
+    return "build";
+  }
   const title = step.title || "";
   for (const phase of PHASE_CONFIG) {
     if (containsAny(title, phase.keywords).length > 0) {

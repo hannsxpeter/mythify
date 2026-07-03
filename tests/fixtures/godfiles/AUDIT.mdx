@@ -1,0 +1,155 @@
+---
+name: taskboard
+audit_version: 1
+status: reported
+created: 2026-06-30
+updated: 2026-06-30
+mode: fresh
+plan_aware: true
+commit: abc1234
+archetype: saas-dashboard
+scale: side-project
+domains_applicable: [security, database, code-quality]
+domains_excluded:
+  - name: seo
+    reason: internal tool behind SSO; no public surface to index
+scores:
+  overall: 64
+  verdict: "at risk"
+  domains:
+    security: 48
+    database: 71
+    code-quality: 76
+counts:
+  findings_total: 3
+  critical: 1
+  high: 1
+  medium: 1
+  low: 0
+  tasks_total: 3
+  tasks_done: 0
+---
+
+# Taskboard audit
+
+Overall 64, at risk. Biggest risk: cross-tenant board reads. Biggest strength:
+migration discipline with reversible steps.
+
+## Scope and method
+
+Commit abc1234, 2026-06-30, fresh audit. Read-only: no source edits, no app
+runs, no live systems, no model calls.
+
+## Scorecard
+
+| Domain | Score | Cap applied | Reason |
+|---|---|---|---|
+| security | 48 | critical cap | open Critical F-SEC-1 |
+| database | 71 | none | missing index on hot path |
+| code-quality | 76 | none | dead modules linger |
+
+Overall: 64. Verdict: at risk.
+
+## Findings
+
+### Security
+
+#### F-SEC-1 Boards API allows cross-tenant reads [Critical | Certain | S]
+
+- Where: src/api/boards.ts:88
+- Evidence: `db.boards.findOne(id)` carries no owner predicate
+- Impact: any authenticated user reads any board by iterating ids
+- Fix: add the ownership predicate inside the query
+- Verify the fix: `npm test -- tests/security/isolation.test.ts`
+- Checks: A-SEC-3, R-SEC-12
+- Status: open
+- Remediation: GA-101
+
+### Database
+
+#### F-DB-1 Missing index on cards.board_id [High | Firm | S]
+
+- Where: src/db/schema/cards.ts:12
+- Evidence: `boardId: integer('board_id')` has no index while list queries filter on it
+- Impact: board view degrades linearly with card count
+- Fix: add an index migration for cards.board_id
+- Verify the fix: `npm run db:check`
+- Checks: A-DB-4
+- Status: open
+- Remediation: GA-201
+
+### Code-quality
+
+#### F-CODE-1 Dead legacy sync module [Medium | Certain | S]
+
+- Where: src/jobs/legacy-sync.ts:1
+- Evidence: `export function legacySync()` has zero importers
+- Impact: readers maintain code that never runs
+- Fix: delete the module and its test stub
+- Verify the fix: `npm run lint`
+- Checks: A-CODE-2
+- Status: resolved
+- Remediation: GA-202
+
+## Remediation plan
+
+## Phase 1: Stop the bleeding
+
+Goal: zero Critical findings remain open. Blocks every other phase.
+
+### Wave 1.1
+
+- [ ] GA-101 [W1.1] Add ownership predicates to board queries
+  - Files: src/api/boards.ts, src/api/router.ts
+  - Depends on: none
+  - Reuses: authorize middleware from src/middleware/authorize.ts
+  - Fixes: F-SEC-1
+  - Acceptance: every board query includes an ownership predicate; a cross-user
+    request returns 403 or 404 on GET, PUT, DELETE, and list
+  - Verify: `npm test -- tests/security/isolation.test.ts`
+  - Checks: A-SEC-3
+
+## Phase 2: Quick wins
+
+Goal: High findings at S effort are closed.
+
+### Wave 2.1
+
+- [ ] GA-201 [W2.1] Add index migration for cards.board_id
+  - Files: migrations/0003_cards_index.sql
+  - Depends on: none
+  - Fixes: F-DB-1
+  - Acceptance: migration applies cleanly; db:check reports the index
+  - Verify: `npm run db:check`
+  - Checks: A-DB-4
+
+## Phase 3: Re-audit
+
+Goal: prove the remediation moved the score. Always the final phase.
+
+### Wave 3.1
+
+- [ ] GA-301 [W3.1] Re-run godaudits at the new commit
+  - Files: none (re-runs the audit, not the code)
+  - Depends on: GA-101, GA-201
+  - Fixes: none (final gate)
+  - Acceptance: security 48 to 80 or better, no Critical findings open
+  - Verify: `re-run /godaudits and compare the Scorecard`
+  - Checks: none
+
+## Accepted risks and open questions
+
+None recorded; F-CODE-1 was resolved during triage before this report shipped.
+
+## Rules for remediating agents
+
+> [!IMPORTANT]
+> This audit is the source of truth. The chat is not.
+>
+> 1. Before any work: read the frontmatter, then find the first unchecked task in wave order.
+> 2. One task at a time. Respect Depends on.
+> 3. Run the task's Verify command. Only after it passes, flip the checkbox.
+
+## Session log
+
+- 2026-06-30 audit created (godaudits v1.0.0)

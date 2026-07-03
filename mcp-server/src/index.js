@@ -49,7 +49,6 @@ import { registerFanoutTools } from "./fanout.js";
 
 const PACKAGE_JSON = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const VERSION = PACKAGE_JSON.version;
-const WORKFLOW_ROUTER_PATH = new URL("../protocol/workflow-router.json", import.meta.url);
 const TAIL_CHARS = 4000;
 const REDACTED_SECRET = "[REDACTED]";
 const DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -57,57 +56,6 @@ const JSONL_LOCK_TIMEOUT_MS = 10000;
 const JSONL_LOCK_POLL_MS = 50;
 const JSONL_TAIL_CHUNK_BYTES = 64 * 1024;
 const FALSE_ENV_VALUES = new Set(["0", "false", "no", "off"]);
-const CAMPAIGN_PHASES = ["understand", "design", "build", "judge", "verify", "reflect"];
-const CAMPAIGN_PHASE_GUIDANCE = {
-  understand: "Read context, restate the task, and identify constraints.",
-  design: "Choose the smallest useful approach and success check.",
-  build: "Make the focused change or artifact.",
-  judge: "Review the result against the task and campaign goal.",
-  verify: "Run the nearest executable check, or record why only attestation is possible.",
-  reflect: "Capture what improved the next task, then advance the frontier.",
-};
-const CAMPAIGN_PROMPT_GUARDRAIL =
-  "Prompt output is steering material for the host agent, not verification evidence. " +
-  "The host must do the work, run checks when available, and advance the campaign with evidence.";
-const PROMPT_PACKET_KINDS = ["research", "analysis", "failure", "handoff", "review", "campaign", "next"];
-const PROMPT_PACKET_GUARDRAIL =
-  "Prompt packet output is steering material for the host agent, not verification evidence. " +
-  "The host must do the work, run checks when available, report issues in chat, and record evidence.";
-const WORKFLOW_ROUTE_GUARDRAIL =
-  "Workflow route output is steering material for the host agent, not verification evidence. " +
-  "The host must do the work, run checks when available, report issues in chat, and record evidence.";
-const ROUTE_FULL_SEND_TERMS = [
-  "one shot", "one-shot", "one go", "in one go", "all in one go",
-  "address all", "fix all", "do all", "do everything", "execute all",
-  "continuous run", "keep going", "keep going until done", "until no issues remain",
-  "yolo", "full send", "ship it", "run it through",
-];
-const ROUTE_PROMPT_TERMS = [
-  "prompt packet", "reprompt", "inject the next task", "next prompt",
-  "steer the chat", "steering prompt", "handoff packet",
-];
-const ROUTE_RESEARCH_TERMS = [
-  "research", "look up", "latest", "find sources", "source-backed",
-  "online", "internet", "web search",
-];
-const ROUTE_REVIEW_TERMS = [
-  "audit", "review", "assess", "evaluate", "find issues", "code review",
-  "risks", "risk sweep",
-];
-const ROUTE_RESUME_TERMS = [
-  "continue", "resume", "next", "keep going", "pick up", "carry on",
-  "what is next",
-];
-const ROUTE_OUTCOME_TERMS = [
-  "until", "success criteria", "when tests pass", "when it passes",
-  "verifier", "verify command", "outcome loop",
-];
-const ROUTE_VERIFY_TERMS = [
-  "verify", "test", "tests", "passes", "passing", "check", "build",
-  "lint",
-];
-const DEFAULT_REPORT_RECENT = 8;
-const DEFAULT_REPORT_ATTENTION = 5;
 const STEP_ICONS = {
   pending: "[ ]",
   in_progress: "[>]",
@@ -115,30 +63,6 @@ const STEP_ICONS = {
   failed: "[!]",
   skipped: "[~]",
 };
-
-function loadWorkflowRouter() {
-  const manifest = JSON.parse(fs.readFileSync(WORKFLOW_ROUTER_PATH, "utf8"));
-  const routes = manifest.routes || [];
-  const seen = new Set();
-  for (const entry of routes) {
-    const routeId = String(entry?.id || "").trim();
-    const promptPacket = String(entry?.prompt_packet || "").trim();
-    if (!routeId || seen.has(routeId) || !promptPacket) {
-      throw new Error("Invalid workflow router entry");
-    }
-    seen.add(routeId);
-  }
-  if (routes.length === 0) {
-    throw new Error("Workflow router manifest is empty");
-  }
-  return manifest;
-}
-
-const WORKFLOW_ROUTER = loadWorkflowRouter();
-const WORKFLOW_ROUTE_IDS = WORKFLOW_ROUTER.routes.map((route) => String(route.id));
-const WORKFLOW_ROUTE_PROMPTS = Object.fromEntries(
-  WORKFLOW_ROUTER.routes.map((route) => [String(route.id), String(route.prompt_packet || "next")])
-);
 
 // ---------------------------------------------------------------------------
 // Time and string helpers

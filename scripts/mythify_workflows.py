@@ -1,17 +1,16 @@
 """Research and campaign workflow stores for the Mythify CLI."""
 
 import json
+import os
 import sys
 import time
 
 from mythify_io import _write_text_atomic, read_json, write_json_atomic
 
-RESEARCH_STATUSES = ("active", "closed", "paused")
 RESEARCH_CONFIDENCE = ("low", "medium", "high")
 RESEARCH_SOURCE_CREDIBILITY = ("unknown", "low", "medium", "high")
 CAMPAIGN_TASK_STATUSES = ("pending", "in_progress", "completed", "failed", "skipped")
 CAMPAIGN_PHASES = ("understand", "design", "build", "judge", "verify", "reflect")
-CAMPAIGN_STATUS_VALUES = ("active", "completed", "stopped")
 CAMPAIGN_PHASE_GUIDANCE = {
     "understand": "Read context, restate the task, and identify constraints.",
     "design": "Choose the smallest useful approach and success check.",
@@ -36,6 +35,7 @@ def _missing_dependency(*_args, **_kwargs):
 now_iso = _missing_dependency
 slugify = _missing_dependency
 find_existing_slug_by_name = _missing_dependency
+execute_verification = _missing_dependency
 
 
 def fail(message):
@@ -48,8 +48,9 @@ def configure_workflow_stores(
     slugify_func=None,
     fail_func=None,
     find_existing_slug_by_name_func=None,
+    execute_verification_func=None,
 ):
-    global now_iso, slugify, fail, find_existing_slug_by_name
+    global now_iso, slugify, fail, find_existing_slug_by_name, execute_verification
     if now_iso_func is not None:
         now_iso = now_iso_func
     if slugify_func is not None:
@@ -58,6 +59,8 @@ def configure_workflow_stores(
         fail = fail_func
     if find_existing_slug_by_name_func is not None:
         find_existing_slug_by_name = find_existing_slug_by_name_func
+    if execute_verification_func is not None:
+        execute_verification = execute_verification_func
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +514,11 @@ def campaign_next_action(record):
     task = current_campaign_task(record)
     if task is None:
         return "No current task. Add a task or complete the campaign."
+    if task.get("status") == "failed":
+        return (
+            "Task {0} failed: diagnose the failure, record a reflection, then "
+            "retry it with campaign task {0} in_progress or skip it.".format(task.get("id"))
+        )
     phase = task.get("phase", CAMPAIGN_PHASES[0])
     return "Task {0} {1}: {2}".format(
         task.get("id"),
@@ -569,9 +577,18 @@ def build_campaign_prompt_payload(slug, record):
             "No current task is selected. Add a task, set a task in progress, or close the campaign if it is complete.",
         ])
     else:
-        phase = task.get("phase") if task.get("phase") in CAMPAIGN_PHASES else CAMPAIGN_PHASES[0]
-        phase_guidance = CAMPAIGN_PHASE_GUIDANCE.get(phase, "Continue the workflow.")
-        next_command = 'mythify campaign advance {0} --result "<phase evidence>"'.format(slug)
+        if task.get("status") == "failed":
+            phase = "failed"
+            phase_guidance = (
+                "Diagnose the failure, record a reflection, then retry the task "
+                "with campaign task {0} in_progress or skip it.".format(task.get("id"))
+            )
+        else:
+            phase = task.get("phase") if task.get("phase") in CAMPAIGN_PHASES else CAMPAIGN_PHASES[0]
+            phase_guidance = CAMPAIGN_PHASE_GUIDANCE.get(phase, "Continue the workflow.")
+        next_command = (
+            'python3 scripts/mythify.py campaign advance {0} --result "<phase evidence>"'.format(slug)
+        )
         lines.extend([
             "",
             "Current task {0}: {1}".format(task.get("id"), task.get("title", "")),
@@ -834,12 +851,38 @@ def cmd_campaign_advance(args, state):
     if phase not in CAMPAIGN_PHASES:
         phase = CAMPAIGN_PHASES[0]
     stamp = now_iso()
-    record.setdefault("events", []).append({
+    event = {
         "task_id": task.get("id"),
         "phase": phase,
         "result": args.result,
         "timestamp": stamp,
-    })
+    }
+    record.setdefault("events", []).append(event)
+    if phase == "verify":
+        verify_command = str(record.get("verify_command") or "").strip()
+        if verify_command and os.environ.get("MYTHIFY_DISABLE_RUN") != "1":
+            verification = execute_verification(
+                state,
+                verify_command,
+                "campaign {0} task {1} verifier".format(slug, task.get("id")),
+            )
+            event["verifier_exit_code"] = verification.get("exit_code")
+            event["verifier_verified"] = bool(verification.get("verified"))
+            if not verification.get("verified"):
+                task["updated"] = stamp
+                save_campaign(state, slug, record)
+                fail(
+                    "[FAIL] Campaign verifier failed (exit {0}): {1}. The task "
+                    "stays in verify; fix the cause, then advance again.".format(
+                        verification.get("exit_code"), verify_command
+                    )
+                )
+                return 1
+            print(
+                "[OK] Campaign verifier passed (exit {0}): {1}".format(
+                    verification.get("exit_code"), verify_command
+                )
+            )
     if phase == "reflect":
         task["status"] = "completed"
         task["phase"] = "done"
@@ -915,6 +958,8 @@ def cmd_campaign_task(args, state):
         task["phase"] = "skipped"
         if record.get("current_task_id") == task_id:
             campaign_set_next_task(record)
+            if record.get("status") == "completed":
+                clear_active_campaign_slug(state, slug)
     save_campaign(state, slug, record)
     print("[OK] Campaign {0} task {1} -> {2}".format(slug, task_id, args.status))
     print("Next: {0}".format(campaign_next_action(record)))

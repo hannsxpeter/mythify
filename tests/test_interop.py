@@ -678,6 +678,100 @@ class TestCliMcpInterop(unittest.TestCase):
             "CLI can read MCP reflection records from disk",
         )
 
+    def test_cli_and_mcp_roadmap_active_slice_match(self):
+        (self.project / "roadmap.md").write_text(
+            "# Roadmap\n\n## Active Now\n\nSome intro line.\n"
+            "- [ ] Ship feature X\n\n## Later\n",
+            encoding="utf-8",
+        )
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        cli = self.run_cli("readiness", "--json")
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        cli_active = json.loads(cli.stdout)["project_state"]["roadmap"]["active_now"]
+        client = self.start_mcp()
+        try:
+            mcp_payload = self.ok_json(
+                self.call_tool(client, "release_readiness", {"format": "json"})
+            )
+        finally:
+            client.close()
+        mcp_active = mcp_payload["project_state"]["roadmap"]["active_now"]
+        self.assertEqual(cli_active, "- [ ] Ship feature X")
+        self.assertEqual(cli_active, mcp_active)
+
+    def test_cli_and_mcp_edge_fixture_route_matches(self):
+        fixtures = REPO_ROOT / "tests" / "fixtures" / "godfiles"
+        (self.project / ".godplans").mkdir()
+        shutil.copy(fixtures / "EDGE.mdx", self.project / ".godplans" / "PLAN.mdx")
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        client = self.start_mcp()
+        try:
+            mcp_payload = self.ok_json(
+                self.call_tool(
+                    client,
+                    "workflow_route",
+                    {"task": "execute the godplans plan", "format": "json", "triage": "never"},
+                )
+            )
+        finally:
+            client.close()
+        cli = self.run_cli("route", "execute the godplans plan", "--json", "--triage", "never")
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        cli_plan = json.loads(cli.stdout)["state"]["godplans_plan"]
+        mcp_plan = mcp_payload["state"]["godplans_plan"]
+        for key in ("status", "present", "tasks_total", "tasks_done", "next_task_id", "counter_drift"):
+            self.assertEqual(cli_plan.get(key), mcp_plan.get(key), key)
+
+    def test_cli_and_mcp_god_artifact_routes_match(self):
+        fixtures = REPO_ROOT / "tests" / "fixtures" / "godfiles"
+        (self.project / ".godplans").mkdir()
+        (self.project / ".godaudits").mkdir()
+        shutil.copy(fixtures / "PLAN.mdx", self.project / ".godplans" / "PLAN.mdx")
+        shutil.copy(fixtures / "AUDIT.mdx", self.project / ".godaudits" / "AUDIT.mdx")
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        compared_keys = ["route", "reason", "next_command", "state_writes"]
+        state_keys = ["godplans_plan", "godaudits_audit"]
+        prompts = [
+            "plan this project with godplans",
+            "audit this project with godaudits",
+        ]
+        def normalize(payload, keys):
+            text = json.dumps(
+                {key: payload.get(key) for key in keys}, sort_keys=True
+            )
+            for variant in (str(self.project.resolve()), str(self.project)):
+                text = text.replace(variant, "<project>")
+            return text
+
+        client = self.start_mcp()
+        try:
+            for prompt in prompts:
+                cli = self.run_cli("route", prompt, "--json", "--triage", "never")
+                self.assertEqual(cli.returncode, 0, cli.stderr)
+                cli_payload = json.loads(cli.stdout)
+                mcp_payload = self.ok_json(
+                    self.call_tool(
+                        client,
+                        "workflow_route",
+                        {"task": prompt, "format": "json", "triage": "never"},
+                    )
+                )
+                self.assertEqual(
+                    normalize(cli_payload, compared_keys),
+                    normalize(mcp_payload, compared_keys),
+                    prompt,
+                )
+                self.assertEqual(
+                    normalize(cli_payload["state"], state_keys),
+                    normalize(mcp_payload["state"], state_keys),
+                    prompt,
+                )
+        finally:
+            client.close()
+
 
 if __name__ == "__main__":
     unittest.main()

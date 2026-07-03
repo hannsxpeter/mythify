@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 PY_CLASSIFICATION = REPO_ROOT / "scripts" / "mythify_classification.py"
 PY_HOST_MODEL = REPO_ROOT / "scripts" / "mythify_host_model.py"
+PY_GODFILES = REPO_ROOT / "scripts" / "mythify_godfiles.py"
 PY_IO = REPO_ROOT / "scripts" / "mythify_io.py"
 PY_MEMORY = REPO_ROOT / "scripts" / "mythify_memory.py"
 PY_MODEL_POLICY = REPO_ROOT / "scripts" / "mythify_model_policy.py"
@@ -622,6 +623,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             PY_HOST_MODEL,
             self.project / "scripts" / "mythify_host_model.py",
+        )
+        shutil.copy2(
+            PY_GODFILES,
+            self.project / "scripts" / "mythify_godfiles.py",
         )
         shutil.copy2(
             PY_IO,
@@ -2136,7 +2141,7 @@ class TestCampaignWorkflow(CliTestCase):
             "--success",
             "All tasks complete with evidence.",
             "--verify",
-            "python3 -m unittest discover -s tests",
+            "python3 -c \"print('ok')\"",
             "--json",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -2258,7 +2263,10 @@ class TestCampaignWorkflow(CliTestCase):
         self.assertEqual(payload["current_task"]["title"], "Build the first slice")
         self.assertIn("Continue Mythify campaign: project-shot", payload["next_prompt"])
         self.assertIn("Current task 1: Build the first slice", payload["next_prompt"])
-        self.assertIn("mythify campaign advance project-shot", payload["next_prompt"])
+        self.assertIn(
+            "python3 scripts/mythify.py campaign advance project-shot",
+            payload["next_prompt"],
+        )
         self.assertIn("steering material", payload["guardrail"])
 
         result = self.run_cli(

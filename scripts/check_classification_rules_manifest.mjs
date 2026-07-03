@@ -8,6 +8,8 @@ const rootPath = path.join(repoRoot, "protocol", "classification-rules.json");
 const packagePath = path.join(repoRoot, "mcp-server", "protocol", "classification-rules.json");
 const operationRootPath = path.join(repoRoot, "protocol", "operation-registry.json");
 const operationPackagePath = path.join(repoRoot, "mcp-server", "protocol", "operation-registry.json");
+const routerRootPath = path.join(repoRoot, "protocol", "workflow-router.json");
+const routerPackagePath = path.join(repoRoot, "mcp-server", "protocol", "workflow-router.json");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -29,6 +31,15 @@ if (JSON.stringify(operationRootManifest) !== JSON.stringify(operationPackageMan
   console.error("[FAIL] Operation registry manifest drift:");
   console.error("  root: " + operationRootPath);
   console.error("  package: " + operationPackagePath);
+  process.exit(1);
+}
+
+const routerRootManifest = readJson(routerRootPath);
+const routerPackageManifest = readJson(routerPackagePath);
+if (JSON.stringify(routerRootManifest) !== JSON.stringify(routerPackageManifest)) {
+  console.error("[FAIL] Workflow router manifest drift:");
+  console.error("  root: " + routerRootPath);
+  console.error("  package: " + routerPackagePath);
   process.exit(1);
 }
 
@@ -102,4 +113,4 @@ if (!rootManifest.verification_hints.feature || !rootManifest.next_actions.stand
   process.exit(1);
 }
 
-console.log("[OK] Classification policy and operation registry manifests mirror package copies");
+console.log("[OK] Classification policy, operation registry, and workflow router manifests mirror package copies");

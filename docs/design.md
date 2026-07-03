@@ -46,6 +46,7 @@ mythify/
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
 |   |-- mythify_classification.py deterministic classification helper
+|   |-- mythify_godfiles.py      godplans PLAN.mdx and godaudits AUDIT.mdx reader
 |   |-- mythify_host_model.py    host model switch record helper
 |   |-- mythify_io.py            durable IO helper
 |   |-- mythify_memory.py        memory and lesson helper
@@ -69,6 +70,7 @@ mythify/
 |   |-- src/classification.js
 |   |-- src/execution-adapter.js
 |   |-- src/fanout.js
+|   |-- src/godfiles-core.js     JS mirror of mythify_godfiles.py
 |   |-- src/host-model.js
 |   |-- src/host-cli.js
 |   |-- src/index.js
@@ -104,11 +106,15 @@ mythify/
 |           |-- autonomy-loop.md
 |           |-- self-verification.md
 |           |-- memory-system.md
-|           `-- meta-prompts.md
+|           |-- meta-prompts.md
+|           `-- godplans-godaudits.mdx
 |-- tests/
 |   |-- test_mythify.py          CLI unit and end-to-end tests (stdlib unittest)
+|   |-- test_godfiles.py         god artifact parser, plan import, routing, views
+|   |-- test_campaign_discipline.py campaign verifier gate and hygiene tests
 |   |-- test_interop.py          CLI and MCP server against the same state dir
-|   `-- test_local_model_eval.py offline test for the local comparison harness
+|   |-- test_local_model_eval.py offline test for the local comparison harness
+|   `-- fixtures/godfiles/       shared PLAN.mdx and AUDIT.mdx parity fixtures
 `-- docs/
     |-- design.md                this document
     |-- codex-integrations.md    Codex Desktop, CLI, MCP, and benchmark setup
@@ -418,11 +424,14 @@ work:
 - MCP tool: `evidence_harness`.
 - State sources: the active plan, `.mythify/verifications.jsonl`,
   `.mythify/reflections.jsonl`, durable outcome loop state, durable fanout job
-  state, release readiness state, and read-only git status for the project
-  root.
+  state, release readiness state, read-only git status for the project root,
+  and godplans and godaudits artifacts when present.
 - Output: harness status, active plan and outcome, evidence mix, attention
   items, outcome and fanout counts, release readiness summary, recent
-  reflections, and the next control action.
+  reflections, and the next control action. Present god artifacts appear under
+  `god_artifacts` with status lines; open Critical findings and counter drift
+  become attention items, and with no active plan the next action points at
+  `plan import`.
 - Evidence boundary: the view reports durable evidence and durable worker
   state. Worker output remains material, not verification evidence, until an
   executed verifier records proof for the merged work.
@@ -455,11 +464,15 @@ The release readiness view is a read-only release-review surface:
 
 - CLI command: `readiness [--json]`.
 - MCP tool: `release_readiness`.
-- State sources: `.mythify/verifications.jsonl`, `roadmap.md`, and read-only
-  git status for the project root.
+- State sources: `.mythify/verifications.jsonl`, `roadmap.md`, read-only git
+  status for the project root, and godplans and godaudits artifacts
+  (`.godplans/PLAN.mdx` and `.godaudits/AUDIT.mdx`, with `.md` fallbacks).
 - Output: release-review status, required gate rows, each gate's latest
   matching executed verifier record, source file references, project git
-  status, and active roadmap slice.
+  status, active roadmap slice, and `project_state.godplans` and
+  `project_state.godaudits` summaries (status `missing` when absent; text
+  output prints their lines only when an artifact is present, so projects
+  without god artifacts render byte-identically to before).
 - Required gates: Python suite, Node MCP suite, surface manifest check,
   generated registry docs check, protocol variants check, generated variants
   idempotence, whitespace check, forbidden dash scan, and emoji scan.
@@ -780,6 +793,20 @@ plans/&lt;slug&gt;.json:
 Step ids are 1-based integers assigned in order. `success_criteria` defaults to an
 empty string. `result` is a string or null.
 
+Plans created by `plan import` carry additional optional fields; all views read
+step fields with tolerant lookups, so their absence on legacy plans is safe:
+
+- Plan level: `strict_context: true` (step completion accepts only
+  verifications recorded with explicit matching plan and step context, closing
+  the legacy context-free acceptance for bulk-imported plans) and
+  `source: {kind: "godplans"|"godaudits", path, version, imported_at}`
+  (provenance; re-import of the same artifact path is refused while the plan
+  exists).
+- Step level: `source_id` (the GP or GA task id), `verify_command` (the task's
+  exact Verify command, echoed by `plan show` and the next-pending line),
+  `wave`, `phase` (artifact phase title; the phase view prefers it over
+  keyword guessing), and optional `depends_on` and `fixes` lists.
+
 lessons/&lt;slug&gt;.json:
 
 ```json
@@ -884,6 +911,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final state. | 0 if succeeded, 2 otherwise, 1 if not found |
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
+| `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Convert godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks into a plan and set it active. Discovers the artifact at the project root when PATH is omitted; both present without `--source` is an error. Live tasks import in document order (superseded strikethrough tasks skipped, checked boxes import completed); each step keeps `source_id`, `verify_command`, `wave`, `phase`, plus `depends_on` and `fixes` when present. Sets `strict_context` and a `source` provenance block; re-importing the same artifact path is refused while the imported plan exists. Warns on frontmatter counter drift. Never edits the artifact. | 0; 1 on missing, ambiguous, unrecognized, or already-imported artifacts |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
@@ -914,7 +942,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.56`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.57`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -1276,10 +1304,23 @@ Priority order favors recovery and durable loops:
 2. full-send language such as "one shot", "in one go", "address all", or
    "yolo": `campaign`;
 3. active campaign or outcome with continue language: `campaign` or `outcome`;
-4. explicit research or review language: `research` or `review`;
-5. active plan continuation: `handoff`;
-6. direct low-risk prompts: `direct`;
-7. otherwise: `plan`.
+4. explicit godaudits or godplans language: `review` or `plan`;
+5. explicit research or review language: `research` or `review`;
+6. active plan continuation: `handoff`;
+7. direct low-risk prompts: `direct`;
+8. otherwise: `plan`.
+
+The route state view also carries `godplans_plan` and `godaudits_audit`
+summaries (null when the artifact is absent), read from `.godplans/PLAN.mdx`
+and `.godaudits/AUDIT.mdx` (with `.md` fallbacks) at the project root via
+`mythify_godfiles.py` and its JS mirror `godfiles-core.js`. When the routed
+shape is `plan` or `review` and the matching artifact has open tasks, the
+reason names the artifact and the next command becomes
+`plan import --source godplans|godaudits` so the artifact's own tasks and
+verify commands drive the work. Without god artifacts, route output is
+byte-identical to the pre-integration behavior. The CLI `route` command works
+without a `.mythify` workspace (`needs_state` is optional), so a fresh
+godplans project can be routed before `init`.
 
 ## Campaign workflow
 
@@ -1317,6 +1358,17 @@ the next pending task. `campaign learn` records a small improvement that should
 shape later tasks. This is the productized version of the long-horizon loop:
 durable task frontier, visible phase, verification slot, reflection, and
 learning carried forward.
+
+When the campaign was started with `--verify COMMAND`, advancing from the
+`verify` phase executes that command, appends an executed record to
+`verifications.jsonl` (claim `campaign <slug> task <id> verifier`), and stamps
+the verifier exit onto the phase event. A failing verifier blocks the advance:
+the task stays in `verify` until the cause is fixed. Campaigns without a
+verifier keep the legacy prose-only advance. `MYTHIFY_DISABLE_RUN=1` skips
+execution, consistent with `verify run`. Failed tasks display phase `failed`
+with explicit recovery guidance instead of silently rendering as `understand`,
+and skipping the final task releases the active pointer the same way
+completing it does.
 
 Campaigns do not execute arbitrary project work by themselves. The host agent
 does the work, runs checks, and calls `campaign advance` or `campaign task`
@@ -1443,6 +1495,11 @@ References, each under 100 lines, v2 semantics throughout:
   read-before-decide discipline.
 - `references/meta-prompts.md`: the injectable behavioral constraints (act over ask,
   lead with outcome, grounding, bounded autonomy, anti-overengineering, persistence).
+- `references/chat-experience.md`: report cadence and visible-progress rules for
+  chat hosts.
+- `references/godplans-godaudits.mdx`: the godplans and godaudits bridge
+  contract (plan import mapping, strict step context, artifact ownership, MDX
+  safety rules). GFM-safe MDX, kept `.mdx` to match the artifacts it documents.
 
 Dual-runtime chat front doors (`$name` in Codex, `/name` in Claude Code) live
 beside the package skill:
@@ -2041,7 +2098,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.56. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v3.6.57. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2135,6 +2192,9 @@ and Claude CLI worker cost warnings; 3.6.55 makes the Mythify chat skills
 dual-runtime invocable (`/name` in Claude Code, `$name` in Codex) and installs
 them into both the Codex and Claude Code skills roots; 3.6.56 adds the CLI
 `harness` command and MCP `evidence_harness` tool as a read-only control view
-for autonomous agent work.
-The CLI reports 3.6.56 through `--version`; the MCP server reads `package.json`
+for autonomous agent work; 3.6.57 adds godplans and godaudits artifact
+awareness with the CLI `plan import` command, artifact-gated routing and
+readiness and harness surfacing, an executed campaign verifier, and the
+`mythify_godfiles.py` and `godfiles-core.js` shared parsers.
+The CLI reports 3.6.57 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.
