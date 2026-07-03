@@ -257,7 +257,7 @@ def build_parser(symbols):
         default="auto",
         help="Reviewer model strength relative to the session.",
     )
-    p.set_defaults(handler=cmd_route)
+    p.set_defaults(handler=cmd_route, needs_state="optional")
 
     prompt = sub.add_parser(
         "prompt",
@@ -1046,8 +1046,8 @@ def build_parser(symbols):
 
     plan = sub.add_parser(
         "plan",
-        help="Manage plans: create, add-step, list, show, switch, archive.",
-        description="Manage plans: create, add-step, list, show, switch, archive.",
+        help="Manage plans: create, import, add-step, list, show, switch, archive.",
+        description="Manage plans: create, import, add-step, list, show, switch, archive.",
     )
     plan_sub = plan.add_subparsers(dest="plan_command", metavar="ACTION", required=True)
 
@@ -1076,6 +1076,36 @@ def build_parser(symbols):
     )
     p.add_argument("--name", help="Plan name; defaults to a slug of the goal.")
     p.set_defaults(handler=cmd_plan_create)
+
+    p = plan_sub.add_parser(
+        "import",
+        help="Import godplans PLAN.mdx or godaudits AUDIT.mdx tasks as a plan.",
+        description=(
+            "Convert godplans or godaudits checkbox tasks into a Mythify plan. "
+            "Each step keeps the task's exact Verify command, and completion "
+            "requires that verification to pass while the step is in progress. "
+            "Mythify never edits the artifact: checkbox flips stay with the "
+            "executing agent per the artifact's embedded rules."
+        ),
+    )
+    p.add_argument(
+        "path",
+        nargs="?",
+        help=(
+            "Artifact path; defaults to discovering .godplans/PLAN.mdx or "
+            ".godaudits/AUDIT.mdx (with .md fallbacks) at the project root."
+        ),
+    )
+    p.add_argument(
+        "--source",
+        choices=("godplans", "godaudits"),
+        help="Artifact kind when the path does not make it obvious.",
+    )
+    p.add_argument(
+        "--name",
+        help="Plan name; defaults to the artifact name plus the source kind.",
+    )
+    p.set_defaults(handler=cmd_plan_import)
 
     p = plan_sub.add_parser(
         "add-step",

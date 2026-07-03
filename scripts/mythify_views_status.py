@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_io import read_jsonl
 
 WORKSPACE_DIR_NAME = ".mythify"
@@ -300,6 +301,8 @@ def build_release_readiness_view(state):
         "project_state": {
             "git": git_state,
             "roadmap": roadmap,
+            "godplans": godplans_summary(root),
+            "godaudits": godaudits_summary(root),
         },
         "guardrail": (
             "readiness summarizes recorded evidence and project state only; it "
@@ -357,6 +360,18 @@ def format_release_readiness_view(view):
             compact_label(roadmap.get("active_now"), roadmap.get("detail")),
         )
     )
+    for label, key in (("Godplans plan", "godplans"), ("Godaudits audit", "godaudits")):
+        summary = view["project_state"].get(key) or {}
+        if not summary.get("present"):
+            continue
+        lines.append(
+            "{0}: {1} {2}; {3}".format(
+                label,
+                RELEASE_READINESS_ICONS.get(summary.get("status"), "[~]"),
+                summary.get("status", "unknown"),
+                compact_label(summary.get("detail"), "no detail"),
+            )
+        )
     lines.append("Guardrail: {0}.".format(view["guardrail"]))
     return "\n".join(lines)
 
@@ -467,6 +482,51 @@ def evidence_attention_from_background(background):
     return attention
 
 
+def god_artifact_views(root):
+    views = {}
+    plan = godplans_summary(root)
+    if plan.get("present"):
+        views["godplans"] = plan
+    audit = godaudits_summary(root)
+    if audit.get("present"):
+        views["godaudits"] = audit
+    return views
+
+
+def evidence_attention_from_god_artifacts(god_views):
+    attention = []
+    audit = god_views.get("godaudits")
+    if audit:
+        if audit.get("open_critical"):
+            attention.append({
+                "level": "issue",
+                "source": "godaudits",
+                "summary": "{0} open Critical finding(s) in the godaudits audit".format(
+                    audit["open_critical"]
+                ),
+                "detail": compact_label(audit.get("detail"), "audit"),
+                "timestamp": "",
+            })
+        if audit.get("counter_drift"):
+            attention.append({
+                "level": "warning",
+                "source": "godaudits",
+                "summary": "godaudits frontmatter counters disagree with checkboxes",
+                "detail": compact_label(audit.get("path"), "audit"),
+                "timestamp": "",
+            })
+    plan = god_views.get("godplans")
+    if plan and plan.get("counter_drift"):
+        attention.append({
+            "level": "warning",
+            "source": "godplans",
+            "summary": "godplans frontmatter counters disagree with checkboxes",
+            "detail": compact_label(plan.get("path"), "plan"),
+            "timestamp": "",
+        })
+    return attention
+
+
 def active_plan_open_steps(plan):
     if not plan:
         return []
@@ -497,6 +557,15 @@ def evidence_next_action(view):
     outcome = view.get("active_outcome")
     if outcome and outcome.get("status") == "active":
         return "make a bounded attempt, then run outcome check"
+    god = view.get("god_artifacts") or {}
+    if not plan:
+        for key, source in (("godaudits", "godaudits"), ("godplans", "godplans")):
+            summary = god.get(key)
+            if summary and summary.get("next_task_id"):
+                return (
+                    "import the open {0} tasks: python3 scripts/mythify.py "
+                    "plan import --source {0}".format(source)
+                )
     tasks = view["background"]["fanout_tasks"]
     if tasks.get("running", 0) or tasks.get("pending", 0):
         return "inspect delegated work with fanout_timeline or fanout_results"
@@ -530,15 +599,18 @@ def build_evidence_harness_view(state, recent=5):
     reflections = read_jsonl(state / "reflections.jsonl")
     executed = [record for record in records if record.get("kind") == "executed"]
     active_plan = dashboard.get("active_plan")
+    god_views = god_artifact_views(project_root_for_state(state))
     attention = (
         evidence_attention_from_plan(active_plan)
         + evidence_attention_from_verifications(records, recent)
         + evidence_attention_from_background(background)
+        + evidence_attention_from_god_artifacts(god_views)
     )
     view = {
         "state_dir": str(state),
         "status": "unknown",
         "active_plan": active_plan,
+        "god_artifacts": god_views,
         "active_outcome": dashboard.get("active_outcome"),
         "evidence": {
             "total": len(records),
@@ -645,6 +717,17 @@ def format_evidence_harness_view(view):
             readiness["git"].get("status", "unknown"),
         )
     )
+    god = view.get("god_artifacts") or {}
+    for label, key in (("Godplans plan", "godplans"), ("Godaudits audit", "godaudits")):
+        summary = god.get(key)
+        if summary:
+            lines.append(
+                "{0}: {1}; {2}".format(
+                    label,
+                    summary.get("status", "unknown"),
+                    compact_label(summary.get("detail"), "no detail"),
+                )
+            )
     if view["attention"]:
         lines.append("Attention:")
         for item in view["attention"]:
@@ -938,6 +1021,7 @@ PHASE_CONFIG = (
         "label": "Verify",
         "keywords": (
             "verify",
+            "verification",
             "test",
             "check",
             "gate",
@@ -958,6 +1042,12 @@ PHASE_STATUS_ICONS = {
 
 
 def phase_id_for_step(step):
+    explicit = step.get("phase", "")
+    if explicit:
+        for phase in PHASE_CONFIG:
+            if _contains_any(explicit, phase["keywords"]):
+                return phase["id"]
+        return "build"
     title = step.get("title", "")
     for phase in PHASE_CONFIG:
         if _contains_any(title, phase["keywords"]):

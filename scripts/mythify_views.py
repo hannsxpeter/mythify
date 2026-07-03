@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import subprocess
 import sys
-from collections import Counter, defaultdict
-from pathlib import Path
 
 from mythify_io import read_json, read_jsonl, read_jsonl_since, write_json_atomic
 from mythify_outcomes import (
@@ -34,7 +30,6 @@ from mythify_views_status import (
     git_status_summary,
 )
 
-WORKSPACE_DIR_NAME = ".mythify"
 REPORT_SINCE_MODES = ("last", "start")
 REPORT_FORMATS = ("chat", "json")
 DEFAULT_REPORT_RECENT = 8

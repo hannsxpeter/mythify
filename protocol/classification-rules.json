@@ -369,6 +369,7 @@
       "terms": [
         "review",
         "audit",
+        "godaudits",
         "inspect",
         "critique",
         "findings",
@@ -454,6 +455,7 @@
         "design",
         "architecture",
         "plan",
+        "godplans",
         "approach",
         "proposal",
         "spec"

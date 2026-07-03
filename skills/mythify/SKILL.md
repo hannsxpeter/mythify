@@ -144,6 +144,12 @@ Read `references/autonomy-loop.md` before starting any multi-step plan, when
 deciding how much ceremony a task deserves, or when you need the step
 lifecycle rules (statuses, icons, the evidence rule, archiving).
 
+When the project contains `.godplans/PLAN.mdx` or `.godaudits/AUDIT.mdx`, or
+the user names godplans or godaudits, read
+`references/godplans-godaudits.mdx`: those artifacts import into Mythify plans
+with `plan import`, each task keeping its exact verify command under the
+strict step-context evidence gate.
+
 ## Verification doctrine
 
 Executed beats attested. A completion claim requires an executed verification:

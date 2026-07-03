@@ -924,7 +924,7 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.ok(text.startsWith("[OK] Campaign prompt: project-shot"), `campaign_next_prompt reports [OK]: ${text}`);
       assert.match(text, /Current task 1: Build the first slice/);
-      assert.match(text, /mythify campaign advance project-shot/);
+      assert.match(text, /python3 scripts\/mythify\.py campaign advance project-shot/);
       assert.match(text, /Guardrail: Prompt output is steering material/);
 
       const jsonText = textOf(

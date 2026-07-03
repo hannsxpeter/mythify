@@ -97,6 +97,7 @@ capability gap.
 | MCP server | `mcp-server/` | Node 18+ server exposing the same state directory through 41 MCP tools, including task classification, workflow routing, host model switch state, provider probes, local model runs, host CLI probes, bounded host CLI worker runs, execution probes and runs, lifecycle probes, outcome loops, workflow status, verification history, work reports, background task status, evidence harness state, outcome progress, release readiness, fanout worker timeline, phase status, prompt packets, campaign next prompts, and parallel delegation (fanout). |
 | Skill package | `skills/mythify/` | Manus-style skill package; `scripts/package_skill.py` builds `dist/mythify.skill`. |
 | Chat skills | `skills/mythify-work/`, `skills/mythify-route/`, `skills/mythify-verify/` | Dual-runtime in-chat front doors (`$name` in Codex, `/name` in Claude Code) that make Mythify feel like a native skill instead of a hidden CLI ledger. |
+| God artifact bridge | `scripts/mythify_godfiles.py`, `mcp-server/src/godfiles-core.js` | Read-only parsers for [godplans](https://github.com/aihxp/godplans) `.godplans/PLAN.mdx` and [godaudits](https://github.com/aihxp/godaudits) `.godaudits/AUDIT.mdx` that feed `plan import`, routing, and the readiness and harness views. |
 
 All components read and write the same per-project `.mythify/` state directory, so
 they interoperate: a plan created by the CLI is visible to the MCP server and vice
@@ -237,7 +238,9 @@ For any non-trivial task the protocol runs a disciplined loop:
 PLAN -> ACT -> VERIFY -> REFLECT -> (CORRECT or ADVANCE)
 ```
 
-- PLAN: decompose the goal into verifiable steps (`plan create`, `plan add-step`).
+- PLAN: decompose the goal into verifiable steps (`plan create`, `plan add-step`),
+  or import an existing godplans PLAN.mdx or godaudits AUDIT.mdx with
+  `plan import` so its tasks and verify commands drive the loop.
 - ACT: execute the current step with normal tools, one step at a time.
 - VERIFY: run an executable check (`verify run`); fall back to `verify claim` only
   when nothing executable exists.
@@ -400,6 +403,7 @@ labs surfaces only when experimenting with host/runtime adapters.
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final status. | 0 if succeeded, 2 otherwise, 1 if not found |
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
+| `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Import godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks as a plan whose steps keep each task's exact verify command; completion then requires that verification to pass while the step is in progress. Mythify never edits the artifact. | 0; 1 on missing, ambiguous, or already-imported artifacts |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
@@ -755,6 +759,46 @@ review, campaign, or next-prompt routing through one tool.
 That gives long runs a Ralph-style loop with Karpathy-flavored iteration:
 small tasks, observable state, verification, reflection, and learning carried
 forward to the next task.
+
+A campaign started with `--verify COMMAND` runs that verifier when a task
+reaches its `verify` phase: `campaign advance` executes the command, records an
+executed verification, and refuses to advance past a red check. Without
+`--verify`, advancing stays prose-only.
+
+## Godplans and godaudits
+
+Mythify reads two sibling artifacts as project state when they exist:
+[godplans](https://github.com/aihxp/godplans) writes `.godplans/PLAN.mdx`, an
+agent-executable master plan authored before code, and
+[godaudits](https://github.com/aihxp/godaudits) writes `.godaudits/AUDIT.mdx`, a
+scored audit authored after code. Both use the same checkbox-task grammar, where
+every `GP-` or `GA-` task carries an exact `Verify:` command. Mythify only reads
+these files; it never edits them. Flipping a checkbox, updating the frontmatter
+counters, and the session log stay with the executing agent per the rules
+embedded in each artifact. Mythify holds the executed-evidence trail.
+
+`plan import` converts an artifact's open tasks into a Mythify plan. Each task's
+acceptance becomes the step success criteria, its `Verify:` command is kept on
+the step, and checked boxes import as completed steps:
+
+```bash
+mythify route "execute the godplans plan"        # detects the artifact, suggests import
+mythify plan import --source godplans             # or: plan import .godaudits/AUDIT.mdx --source godaudits
+mythify step 1 in_progress
+mythify verify run "npm run db:migrate && npm run db:check" --claim "GP-201 user model"
+mythify step 1 completed "verify run exit 0: GP-201 user model"
+```
+
+Imported plans set a strict step-context gate: a step completes only when its
+own `verify run` passed while that step was in progress, so a context-free
+verification cannot close it. `route` also works before `init`, so a fresh
+godplans project can be routed immediately. `readiness`, `harness`, and the
+route state surface each artifact's status, task progress, open Critical
+findings, and any drift between the frontmatter counters and the checkboxes.
+Re-importing the same artifact is refused while the imported plan exists; pass
+`--name` for a fresh copy. See
+[skills/mythify/references/godplans-godaudits.mdx](skills/mythify/references/godplans-godaudits.mdx)
+for the full bridge contract.
 
 ## Parallel delegation (fanout)
 

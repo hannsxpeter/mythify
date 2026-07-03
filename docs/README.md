@@ -24,6 +24,8 @@ decision records.
 
 - `archive/codeaudit-2026-06-14.md`: completed code audit and remediation
   record.
+- `archive/codeaudit-closed-2026-06-16.md`: the closed remediation tracker that
+  previously lived at the repo root as `codeaudit.md`.
 - `archive/roadmap-completed-2026-06-14.md`: completed roadmap history.
 - `archive/release/`: historical v3 release-readiness and release-decision
   notes that have been superseded by `release.md`.

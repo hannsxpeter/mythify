@@ -115,13 +115,11 @@ from mythify_trace import (  # noqa: E402
     configure_trace_commands,
 )
 from mythify_router import (  # noqa: E402
-    PROMPT_PACKET_KINDS,
     cmd_prompt_packet,
     cmd_route,
     configure_prompt_router,
 )
 from mythify_workflows import (  # noqa: E402
-    CAMPAIGN_TASK_STATUSES,
     RESEARCH_CONFIDENCE,
     RESEARCH_SOURCE_CREDIBILITY,
     cmd_campaign_add_task,
@@ -142,6 +140,13 @@ from mythify_workflows import (  # noqa: E402
     cmd_research_start,
     cmd_research_summary,
     configure_workflow_stores,
+)
+from mythify_godfiles import (  # noqa: E402
+    GODAUDITS_DIR_NAME,
+    GODPLANS_DIR_NAME,
+    find_godaudits_file,
+    find_godplans_file,
+    load_god_artifact,
 )
 from mythify_views import (  # noqa: E402
     DEFAULT_REPORT_RECENT,
@@ -165,9 +170,9 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.56"
+VERSION = "3.6.57"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "6109fddb3062e264a89fd4ffe576f5c65cb706ae0f1156c5cd6fc7d50780ea1b"
+PROTOCOL_SOURCE_SHA256 = "243af70d48946558d8bee05557dec91542e2f6dca82ed33ce4794d8df8325443"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -181,6 +186,11 @@ VERIFIED_EVIDENCE_MESSAGE = (
     "default, but no passing 'verify run' was recorded since this step started. "
     "Run 'verify run' with a passing check first, or set "
     "MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion."
+)
+STRICT_CONTEXT_NOTICE = (
+    "This plan was imported with strict step context: only verifications "
+    "recorded while the step was in_progress count. Mark the step in_progress, "
+    "run its verify command, then complete it."
 )
 VERIFY_RUN_DISABLED_MESSAGE = (
     "[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was "
@@ -528,11 +538,31 @@ def target_plan_slug(state, name):
     return get_active_slug(state)
 
 
+def execute_recorded_verification(state, command, claim, timeout=None):
+    """Run COMMAND, append an executed verification record, return the record."""
+    run = run_shell_capture(command, timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT)
+    record = {
+        "kind": "executed",
+        "claim": claim,
+        "command": command,
+        "exit_code": run["exit_code"],
+        "duration_seconds": run["duration_seconds"],
+        "stdout_tail": run["stdout_tail"],
+        "stderr_tail": run["stderr_tail"],
+        "verified": run["verified"],
+        "timestamp": now_iso(),
+    }
+    record.update(verification_step_context(state))
+    append_jsonl(state / "verifications.jsonl", record)
+    return record
+
+
 configure_workflow_stores(
     now_iso_func=now_iso,
     slugify_func=slugify,
     fail_func=fail,
     find_existing_slug_by_name_func=find_existing_slug_by_name,
+    execute_verification_func=execute_recorded_verification,
 )
 
 
@@ -598,6 +628,12 @@ def verification_record_has_explicit_step_context(record, slug, step_id):
     )
 
 
+def verification_record_counts_for_step(record, slug, step_id, strict_context):
+    if strict_context:
+        return verification_record_has_explicit_step_context(record, slug, step_id)
+    return verification_record_matches_step(record, slug, step_id)
+
+
 def strict_step_evidence_enabled():
     raw = os.environ.get("MYTHIFY_REQUIRE_VERIFIED_STEP", "")
     return raw.strip().lower() not in FALSE_ENV_VALUES
@@ -613,9 +649,12 @@ def describe_next_pending(plan):
     if step is None:
         return "No pending steps remain."
     criteria = step.get("success_criteria") or "none"
-    return "Next pending: {0}. {1} (criteria: {2})".format(
+    line = "Next pending: {0}. {1} (criteria: {2})".format(
         step.get("id"), step.get("title"), criteria
     )
+    if step.get("verify_command"):
+        line += "\nNext verify: {0}".format(step["verify_command"])
+    return line
 
 
 def tail_text(text, limit=TAIL_CHARS):
@@ -879,6 +918,159 @@ def cmd_plan_create(args, state):
     return 0
 
 
+def project_root_for_workspace(state):
+    return state.parent if state.name == WORKSPACE_DIR_NAME else Path.cwd()
+
+
+def _existing_import_slug(state, source_kind, source_path):
+    for slug in list_plan_slugs(state):
+        plan = load_plan(state, slug)
+        if plan is None:
+            continue
+        source = plan.get("source")
+        if (
+            isinstance(source, dict)
+            and source.get("kind") == source_kind
+            and source.get("path") == source_path
+        ):
+            return slug
+    return None
+
+
+def _resolve_import_artifact(args, root):
+    """Resolve (path, source_kind) for plan import; returns (None, error)."""
+    source = args.source
+    if args.path:
+        path = Path(args.path).expanduser()
+        if not path.is_file():
+            return None, "[FAIL] Artifact not found: {0}".format(path)
+    else:
+        plan_file = find_godplans_file(root)
+        audit_file = find_godaudits_file(root)
+        if source == "godplans":
+            path = plan_file
+        elif source == "godaudits":
+            path = audit_file
+        elif plan_file is not None and audit_file is not None:
+            return None, (
+                "[FAIL] Found both a godplans plan and a godaudits audit. "
+                "Pass a PATH or --source to choose one."
+            )
+        else:
+            path = plan_file or audit_file
+            source = "godplans" if plan_file is not None else source
+            source = "godaudits" if plan_file is None and audit_file is not None else source
+        if path is None:
+            return None, (
+                "[FAIL] No godplans or godaudits artifact found under {0}. Run "
+                "the /godplans or /godaudits skill first, or pass a PATH.".format(root)
+            )
+    if source is None:
+        lowered = str(path).lower()
+        if "plan" in path.name.lower() or GODPLANS_DIR_NAME in lowered:
+            source = "godplans"
+        elif "audit" in path.name.lower() or GODAUDITS_DIR_NAME in lowered:
+            source = "godaudits"
+        else:
+            return None, (
+                "[FAIL] Cannot infer the artifact kind from {0}. Pass --source "
+                "godplans or --source godaudits.".format(path)
+            )
+    return (path, source), None
+
+
+def cmd_plan_import(args, state):
+    root = project_root_for_workspace(state)
+    resolved, error = _resolve_import_artifact(args, root)
+    if error:
+        fail(error)
+        return 1
+    path, source = resolved
+    digest = load_god_artifact(path, source)
+    if digest["status"] in ("unreadable", "unrecognized"):
+        fail(
+            "[FAIL] Cannot import {0}: {1} ({2}).".format(
+                path, digest["status"], digest.get("detail", "")
+            )
+        )
+        return 1
+    live_tasks = [task for task in digest["tasks"] if not task["superseded"]]
+    if not live_tasks:
+        fail("[FAIL] No importable tasks found in {0}.".format(path))
+        return 1
+    existing = _existing_import_slug(state, source, str(path))
+    if existing and not args.name:
+        fail(
+            "[FAIL] {0} was already imported as plan {1}. Archive that plan "
+            "first, or pass --name to import a fresh copy.".format(path.name, existing)
+        )
+        return 1
+    base = slugify(args.name) if args.name else (
+        (slugify(digest.get("name") or "") or "imported") + "-" + source
+    )
+    slug = base or "imported-" + source
+    suffix = 2
+    while plan_path(state, slug).exists():
+        slug = "{0}-{1}".format(base, suffix)
+        suffix += 1
+    stamp = now_iso()
+    steps = []
+    for index, task in enumerate(live_tasks):
+        step = {
+            "id": index + 1,
+            "title": "{0} {1}".format(task["id"], task["title"]).strip(),
+            "success_criteria": task.get("acceptance") or "verify command passes",
+            "status": "completed" if task["checked"] else "pending",
+            "result": (
+                "imported: checkbox already checked in {0}".format(path.name)
+                if task["checked"]
+                else None
+            ),
+            "source_id": task["id"],
+            "verify_command": task.get("verify_command", ""),
+            "wave": task.get("wave", ""),
+            "phase": task.get("phase_title", ""),
+            "updated_at": stamp,
+        }
+        if task.get("depends_on"):
+            step["depends_on"] = task["depends_on"]
+        if task.get("fixes"):
+            step["fixes"] = task["fixes"]
+        steps.append(step)
+    plan = {
+        "name": slug,
+        "goal": "Execute {0} tasks from {1}".format(source, path.name),
+        "steps": steps,
+        "created": stamp,
+        "last_updated": stamp,
+        "strict_context": True,
+        "source": {
+            "kind": source,
+            "path": str(path),
+            "version": digest.get("plan_version") or digest.get("audit_version"),
+            "imported_at": stamp,
+        },
+    }
+    save_plan(state, slug, plan)
+    set_active_slug(state, slug)
+    done = sum(1 for step in steps if step["status"] == "completed")
+    print(
+        "[OK] Imported {0} tasks from {1} into plan {2} ({3} already completed). "
+        "Active plan set to {2}.".format(len(steps), path.name, slug, done)
+    )
+    if digest.get("counter_drift"):
+        print(
+            "[WARN] Frontmatter counters disagree with the checkboxes in {0}; "
+            "the checkboxes were trusted.".format(path.name)
+        )
+    print(
+        "Checkbox flips in the artifact stay with the executing agent per its "
+        "embedded rules; Mythify holds the evidence trail."
+    )
+    print(describe_next_pending(plan))
+    return 0
+
+
 def cmd_plan_add_step(args, state):
     slug = target_plan_slug(state, args.plan)
     if slug is None:
@@ -942,6 +1134,15 @@ def cmd_plan_show(args, state):
     done, total = plan_progress(plan)
     print("[OK] Plan: {0}{1}".format(slug, label))
     print("Goal: {0}".format(plan.get("goal", "")))
+    source = plan.get("source")
+    if isinstance(source, dict) and source.get("kind"):
+        print(
+            "Source: {0} artifact {1} (imported {2})".format(
+                source.get("kind"),
+                source.get("path", "unknown"),
+                source.get("imported_at", "unknown"),
+            )
+        )
     print("Created: {0}".format(plan.get("created", "")))
     print("Last updated: {0}".format(plan.get("last_updated", "")))
     print("Progress: {0}/{1} completed".format(done, total))
@@ -950,6 +1151,8 @@ def cmd_plan_show(args, state):
         for step in plan["steps"]:
             criteria = step.get("success_criteria") or "none"
             print("{0} (criteria: {1})".format(format_step_line(step), criteria))
+            if step.get("verify_command"):
+                print("        verify: {0}".format(step["verify_command"]))
             if step.get("result"):
                 print("        result: {0}".format(step["result"]))
     else:
@@ -1029,12 +1232,13 @@ def cmd_step(args, state):
         fail(EVIDENCE_MESSAGE)
         return 1
     if args.status == "completed" and strict_step_evidence_enabled():
+        strict_context = bool(plan.get("strict_context"))
         lower_bound = step.get("updated_at") or plan.get("created", "")
         records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
         satisfied = any(
             record.get("kind") == "executed"
             and record.get("verified") is True
-            and verification_record_matches_step(record, slug, step_id)
+            and verification_record_counts_for_step(record, slug, step_id, strict_context)
             and timestamp_at_or_after(
                 record.get("timestamp", ""),
                 lower_bound,
@@ -1044,6 +1248,8 @@ def cmd_step(args, state):
         )
         if not satisfied:
             fail(VERIFIED_EVIDENCE_MESSAGE)
+            if strict_context:
+                fail(STRICT_CONTEXT_NOTICE)
             return 1
     step["status"] = args.status
     if args.result is not None:
@@ -1201,31 +1407,17 @@ def cmd_verify_run(args, state):
     if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
         fail(VERIFY_RUN_DISABLED_MESSAGE)
         return 2
-    run = run_shell_capture(args.command, args.timeout)
-    exit_code = run["exit_code"]
-    stdout_tail = run["stdout_tail"]
-    stderr_tail = run["stderr_tail"]
-    verified = run["verified"]
-    record = {
-        "kind": "executed",
-        "claim": args.claim,
-        "command": args.command,
-        "exit_code": exit_code,
-        "duration_seconds": run["duration_seconds"],
-        "stdout_tail": stdout_tail,
-        "stderr_tail": stderr_tail,
-        "verified": verified,
-        "timestamp": now_iso(),
-    }
-    record.update(verification_step_context(state))
-    append_jsonl(state / "verifications.jsonl", record)
+    record = execute_recorded_verification(state, args.command, args.claim, args.timeout)
+    exit_code = record["exit_code"]
+    stdout_tail = record["stdout_tail"]
+    stderr_tail = record["stderr_tail"]
     label = args.claim or args.command
-    if verified:
+    if record["verified"]:
         print(
             "[OK] VERIFIED: {0} (exit {1}, {2:.2f}s)".format(
                 label,
                 exit_code,
-                run["duration_seconds"],
+                record["duration_seconds"],
             )
         )
         return 0
@@ -1233,7 +1425,7 @@ def cmd_verify_run(args, state):
         "[FAIL] UNVERIFIED: {0} (exit {1}, {2:.2f}s)".format(
             label,
             exit_code,
-            run["duration_seconds"],
+            record["duration_seconds"],
         )
     )
     if stdout_tail:
@@ -1500,6 +1692,8 @@ configure_prompt_router(
 def main(argv=None):
     parser = build_cli_parser(globals())
     args = parser.parse_args(argv)
+    if args.needs_state == "optional":
+        return args.handler(args, resolve_state_dir())
     if not args.needs_state:
         return args.handler(args, None)
     state = resolve_state_dir()

@@ -10,7 +10,9 @@ import {
   formatPhaseView,
   formatReleaseReadinessView,
   gitStatusSummary,
+  projectRootFromState,
 } from "./view-status-core.js";
+import { godauditsSummary, godplansSummary } from "./godfiles-core.js";
 
 export {
   buildFanoutTimelineView,
@@ -318,6 +320,55 @@ function evidenceAttentionFromBackground(background) {
   return attention;
 }
 
+function godArtifactViews(root) {
+  const views = {};
+  const plan = godplansSummary(root);
+  if (plan.present) {
+    views.godplans = plan;
+  }
+  const audit = godauditsSummary(root);
+  if (audit.present) {
+    views.godaudits = audit;
+  }
+  return views;
+}
+
+function evidenceAttentionFromGodArtifacts(godViews) {
+  const attention = [];
+  const audit = godViews.godaudits;
+  if (audit) {
+    if (audit.open_critical) {
+      attention.push({
+        level: "issue",
+        source: "godaudits",
+        summary: `${audit.open_critical} open Critical finding(s) in the godaudits audit`,
+        detail: compactLabel(audit.detail, "audit"),
+        timestamp: "",
+      });
+    }
+    if (audit.counter_drift) {
+      attention.push({
+        level: "warning",
+        source: "godaudits",
+        summary: "godaudits frontmatter counters disagree with checkboxes",
+        detail: compactLabel(audit.path, "audit"),
+        timestamp: "",
+      });
+    }
+  }
+  const plan = godViews.godplans;
+  if (plan && plan.counter_drift) {
+    attention.push({
+      level: "warning",
+      source: "godplans",
+      summary: "godplans frontmatter counters disagree with checkboxes",
+      detail: compactLabel(plan.path, "plan"),
+      timestamp: "",
+    });
+  }
+  return attention;
+}
+
 function activePlanOpenSteps(plan) {
   if (!plan) {
     return [];
@@ -363,6 +414,18 @@ function evidenceNextAction(view) {
   if (view.active_outcome && view.active_outcome.status === "active") {
     return "make a bounded attempt, then run outcome_check";
   }
+  const god = view.god_artifacts || {};
+  if (!plan) {
+    for (const source of ["godaudits", "godplans"]) {
+      const summary = god[source];
+      if (summary && summary.next_task_id) {
+        return (
+          `import the open ${source} tasks: python3 scripts/mythify.py ` +
+          `plan import --source ${source}`
+        );
+      }
+    }
+  }
   const tasks = view.background.fanout_tasks;
   if ((tasks.running || 0) > 0 || (tasks.pending || 0) > 0) {
     return "inspect delegated work with fanout_timeline or fanout_results";
@@ -381,15 +444,18 @@ export function buildEvidenceHarnessView(recent = 5) {
   const reflections = readJsonl(reflectionsPath());
   const executed = records.filter((record) => record.kind === "executed");
   const activePlan = dashboard.active_plan;
+  const godViews = godArtifactViews(projectRootFromState(resolveStateDir()));
   const attention = [
     ...evidenceAttentionFromPlan(activePlan),
     ...evidenceAttentionFromVerifications(records, recent),
     ...evidenceAttentionFromBackground(background),
+    ...evidenceAttentionFromGodArtifacts(godViews),
   ];
   const view = {
     state_dir: resolveStateDir(),
     status: "unknown",
     active_plan: activePlan,
+    god_artifacts: godViews,
     active_outcome: dashboard.active_outcome,
     evidence: {
       total: records.length,
@@ -466,6 +532,18 @@ export function formatEvidenceHarnessView(view) {
       `${readiness.failed_gates} failed, ${readiness.missing_gates} missing; ` +
       `git ${readiness.git.status || "unknown"}`
   );
+  const god = view.god_artifacts || {};
+  for (const [label, key] of [
+    ["Godplans plan", "godplans"],
+    ["Godaudits audit", "godaudits"],
+  ]) {
+    const summary = god[key];
+    if (summary) {
+      lines.push(
+        `${label}: ${summary.status || "unknown"}; ` + compactLabel(summary.detail, "no detail")
+      );
+    }
+  }
   if (view.attention.length > 0) {
     lines.push("Attention:");
     for (const item of view.attention) {

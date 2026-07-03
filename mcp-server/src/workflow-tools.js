@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import { classifyTaskText, formatClassification } from "./classification.js";
+import { godArtifactHasOpenTasks, godauditsSummary, godplansSummary } from "./godfiles-core.js";
 import { buildModelPolicy, runModelTriage } from "./model-policy.js";
 import { routePlanHorizon } from "./plan-horizon.js";
 import {
@@ -72,6 +73,8 @@ const ROUTE_VERIFY_TERMS = [
   "verify", "test", "tests", "passes", "passing", "check", "build",
   "lint",
 ];
+const ROUTE_GODPLANS_TERMS = ["godplans", "god plans"];
+const ROUTE_GODAUDITS_TERMS = ["godaudits", "god audits"];
 const DEFAULT_REPORT_RECENT = 8;
 const DEFAULT_REPORT_ATTENTION = 5;
 const STEP_ICONS = {
@@ -256,6 +259,12 @@ function campaignNextAction(record) {
   if (!task) {
     return "No current task. Add a task or complete the campaign.";
   }
+  if (task.status === "failed") {
+    return (
+      `Task ${task.id} failed: diagnose the failure, record a reflection, then ` +
+      `retry it with campaign task ${task.id} in_progress or skip it.`
+    );
+  }
   const phase = CAMPAIGN_PHASES.includes(task.phase) ? task.phase : CAMPAIGN_PHASES[0];
   return `Task ${task.id} ${phase}: ${CAMPAIGN_PHASE_GUIDANCE[phase] || "Continue the workflow."}`;
 }
@@ -307,9 +316,16 @@ function buildCampaignPromptPayload(slug, record) {
     lines.push("");
     lines.push("No current task is selected. Add a task, set a task in progress, or close the campaign if it is complete.");
   } else {
-    phase = CAMPAIGN_PHASES.includes(task.phase) ? task.phase : CAMPAIGN_PHASES[0];
-    phaseGuidance = CAMPAIGN_PHASE_GUIDANCE[phase] || "Continue the workflow.";
-    nextCommand = `mythify campaign advance ${slug} --result "<phase evidence>"`;
+    if (task.status === "failed") {
+      phase = "failed";
+      phaseGuidance =
+        `Diagnose the failure, record a reflection, then retry the task ` +
+        `with campaign task ${task.id} in_progress or skip it.`;
+    } else {
+      phase = CAMPAIGN_PHASES.includes(task.phase) ? task.phase : CAMPAIGN_PHASES[0];
+      phaseGuidance = CAMPAIGN_PHASE_GUIDANCE[phase] || "Continue the workflow.";
+    }
+    nextCommand = `python3 scripts/mythify.py campaign advance ${slug} --result "<phase evidence>"`;
     lines.push("");
     lines.push(`Current task ${task.id}: ${task.title || ""}`);
     lines.push(`Task status: ${task.status || ""}`);
@@ -747,12 +763,16 @@ function buildReviewPromptPacket({ goal = "", verifyCommand = "" } = {}) {
   const planContext = activePlanPacketContext();
   const [gitState, gitLines] = promptGitContext();
   const recent = promptRecentEvidence(5);
+  const godAudit = godauditsSummary(artifactProjectRoot());
   const lines = [
     "Review prompt packet",
     `Goal: ${goal || "review current changes and risks"}`,
   ];
   lines.push(...gitLines);
   lines.push(...promptPlanLines(planContext));
+  if (godAudit.present) {
+    lines.push(`Godaudits audit: ${godAudit.path} (${godAudit.detail})`);
+  }
   if (recent.length > 0) {
     lines.push("Recent evidence:");
     for (const item of recent) {
@@ -781,6 +801,7 @@ function buildReviewPromptPacket({ goal = "", verifyCommand = "" } = {}) {
       active_plan: planContext,
       recent_evidence: recent,
       verify_command: verifyCommand,
+      godaudits_audit: godAudit.present ? godAudit : null,
     },
     next_prompt: lines.join("\n"),
     guardrail: PROMPT_PACKET_GUARDRAIL,
@@ -824,6 +845,11 @@ function formatPromptPacket(payload) {
 function shellQuote(value) {
   const text = String(value || "task").trim() || "task";
   return `'${text.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function artifactProjectRoot() {
+  const stateDir = resolveStateDir();
+  return path.basename(stateDir) === ".mythify" ? path.dirname(stateDir) : process.cwd();
 }
 
 function workflowRouteState() {
@@ -886,7 +912,7 @@ function workflowRouteState() {
       id: activeCampaignSlug,
       goal: activeCampaign.goal || "",
       status: activeCampaign.status || "",
-      phase: activeCampaign.phase || "",
+      phase: currentCampaignTask(activeCampaign)?.phase || "",
       progress: { completed, total },
     };
   }
@@ -900,12 +926,17 @@ function workflowRouteState() {
       source_count: Array.isArray(activeResearch.sources) ? activeResearch.sources.length : 0,
     };
   }
+  const root = artifactProjectRoot();
+  const godplansView = godplansSummary(root);
+  const godauditsView = godauditsSummary(root);
   return {
     active_plan: planView,
     active_outcome: outcomeView,
     active_campaign: campaignView,
     active_research: researchView,
     latest_executed_verification: latestView,
+    godplans_plan: godplansView.present ? godplansView : null,
+    godaudits_audit: godauditsView.present ? godauditsView : null,
   };
 }
 
@@ -953,12 +984,18 @@ function routeCommandFor(route, task, stateView) {
     return `python3 scripts/mythify.py research start ${quotedTask}`;
   }
   if (route === "review") {
+    if (godArtifactHasOpenTasks(stateView.godaudits_audit)) {
+      return "python3 scripts/mythify.py plan import --source godaudits";
+    }
     return `python3 scripts/mythify.py prompt review --goal ${quotedTask}`;
   }
   if (route === "handoff") {
     return `python3 scripts/mythify.py prompt handoff --goal ${quotedTask}`;
   }
   if (route === "plan") {
+    if (godArtifactHasOpenTasks(stateView.godplans_plan)) {
+      return "python3 scripts/mythify.py plan import --source godplans";
+    }
     return `python3 scripts/mythify.py plan create ${quotedTask} --horizon ${routePlanHorizon()}`;
   }
   if (route === "prompt") {
@@ -997,12 +1034,27 @@ function routeStateWrites(route, stateView) {
     return ["research start before implementation"];
   }
   if (route === "review") {
+    if (godArtifactHasOpenTasks(stateView.godaudits_audit)) {
+      return [
+        "plan import --source godaudits when remediation is accepted",
+        "step updates and verify run per remediation task",
+        "report findings in chat",
+      ];
+    }
     return ["report findings in chat", "verify run supporting checks when fixes are made"];
   }
   if (route === "handoff") {
     return ["step updates and verify run as the active plan advances"];
   }
   if (route === "plan") {
+    if (godArtifactHasOpenTasks(stateView.godplans_plan)) {
+      return [
+        "plan import --source godplans",
+        "step updates",
+        "verify run per imported task",
+        "reflect on failures",
+      ];
+    }
     return ["plan create", "step updates", "verify run", "reflect on failures"];
   }
   return [];
@@ -1025,7 +1077,14 @@ function workflowRouteEvidence(route, stateView, classification) {
   if (stateView.latest_executed_verification) {
     evidence.push({ type: "latest_executed_verification", ...stateView.latest_executed_verification });
   }
-  for (const key of ["active_plan", "active_outcome", "active_campaign", "active_research"]) {
+  for (const key of [
+    "active_plan",
+    "active_outcome",
+    "active_campaign",
+    "active_research",
+    "godplans_plan",
+    "godaudits_audit",
+  ]) {
     if (stateView[key]) {
       evidence.push({ type: key, ...stateView[key] });
     }
@@ -1061,6 +1120,12 @@ function selectWorkflowRoute(task, stateView, classification) {
   if (routeHas(text, ROUTE_OUTCOME_TERMS) && routeHas(text, ROUTE_VERIFY_TERMS)) {
     return ["outcome", "The prompt names success or verification conditions, so use a bounded outcome loop."];
   }
+  if (routeHas(text, ROUTE_GODAUDITS_TERMS)) {
+    return ["review", "The prompt names godaudits, so route to review work around the .godaudits audit artifact."];
+  }
+  if (routeHas(text, ROUTE_GODPLANS_TERMS)) {
+    return ["plan", "The prompt names godplans, so route to plan work around the .godplans plan artifact."];
+  }
   if (classification.task_type === "research" || routeHas(text, ROUTE_RESEARCH_TERMS)) {
     return ["research", "The task depends on external, uncertain, or source-backed information."];
   }
@@ -1085,6 +1150,16 @@ function buildWorkflowRoute(task, classification) {
   if (!WORKFLOW_ROUTE_IDS.includes(route)) {
     route = "plan";
     reason = "Router returned an unknown route, so Mythify fell back to a verifiable plan.";
+  }
+  const godPlan = stateView.godplans_plan;
+  const godAudit = stateView.godaudits_audit;
+  if (route === "plan" && godArtifactHasOpenTasks(godPlan)) {
+    reason +=
+      ` A godplans plan exists at ${godPlan.path} (${godPlan.detail}); ` +
+      "import it with plan import instead of drafting a new plan.";
+  }
+  if (route === "review" && godAudit) {
+    reason += ` A godaudits audit exists at ${godAudit.path} (${godAudit.detail}).`;
   }
   const packetKind = WORKFLOW_ROUTE_PROMPTS[route] || "next";
   return {

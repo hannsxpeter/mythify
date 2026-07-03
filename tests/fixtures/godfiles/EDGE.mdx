@@ -1,0 +1,33 @@
+---
+name: edgecases
+plan_version: 3
+status: executing
+progress:
+  tasks_total: 2
+  tasks_done: 0
+---
+
+# Edge cases plan
+
+One paragraph so the body is not empty.
+
+## Phase 1: Edges
+
+### Wave 1.1
+
+~~~
+- [ ] GP-901 phantom task quoted inside a tilde fence
+~~~
+
+```text
+- [ ] GP-902 phantom task quoted inside a backtick fence
+```
+
+- [ ] GP-101 [Windows] Real task whose bracket token is not a wave flag
+  - Files: src/a.ts
+  - Acceptance: it works and the token stays in the title
+  - Verify: `npm test -- a`
+  - Requirements: R-1.1
+
+- [ ] GP-102 [P] [W1.1] Tab-indented field task
+	- Verify: `npm test -- b`

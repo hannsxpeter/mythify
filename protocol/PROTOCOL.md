@@ -68,6 +68,13 @@ Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met
    `python3 scripts/mythify.py plan create "Ship feature X" --steps '[{"title": "Write parser", "success_criteria": "unit tests pass"}]'`
    Use `--horizon 20` for a default 20-step lookahead when explicit steps are
    not supplied.
+   When the project has a godplans plan (`.godplans/PLAN.mdx`) or a godaudits
+   audit (`.godaudits/AUDIT.mdx`) with open tasks, import it instead of
+   drafting a new plan; each imported step keeps the task's exact verify
+   command and completes only under strict step-scoped verification:
+   `python3 scripts/mythify.py plan import --source godplans`
+   Mythify never edits those artifacts; checkbox flips stay with the
+   executing agent per the artifact's embedded rules.
    Add steps as you discover them:
    `python3 scripts/mythify.py plan add-step "Handle empty input" --criteria "regression test passes"`
 2. ACT. Mark the step, then do the work.
@@ -148,6 +155,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `outcome results [NAME] [--json]` | Show all verifier iterations and final outcome state. |
 | `outcome stop [NAME] --reason TEXT [--json]` | Stop an outcome loop and clear the active pointer when it matches. |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan and set it active. |
+| `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Import godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks as a plan whose steps keep each task's verify command under strict step-scoped evidence. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step to the named or active plan. |
 | `plan list` | List plans with active marker and progress. |
 | `plan show [NAME]` | Full detail of the named or active plan. |
@@ -193,7 +201,12 @@ next-prompt routing without mutating state or recording evidence.
 classify the prompt, inspect active durable state and the latest executed
 verification, choose the next workflow route, return the suggested next command
 and prompt packet, and keep the initiating host chat as the executor unless the
-user explicitly hands work elsewhere.
+user explicitly hands work elsewhere. Both runtimes also read godplans and
+godaudits artifacts (`.godplans/PLAN.mdx`, `.godaudits/AUDIT.mdx`, with `.md`
+fallbacks) as project state: routing, `release_readiness`, and
+`evidence_harness` surface their status, task progress, open Critical
+findings, and counter drift, and the CLI `plan import` command converts their
+checkbox tasks into a Mythify plan. Mythify never writes those artifacts.
 Outcome loops are host-supervised and stored in `.mythify/outcomes/`: make a
 bounded attempt, call `outcome_check`, then report success, retry, or stop.
 `host_model_switch` records intended host chat changes, host confirmation

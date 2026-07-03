@@ -380,6 +380,10 @@ def install_mythify(workspace):
         workspace / "scripts" / "mythify_classification.py",
     )
     shutil.copy2(
+        root / "scripts" / "mythify_godfiles.py",
+        workspace / "scripts" / "mythify_godfiles.py",
+    )
+    shutil.copy2(
         root / "scripts" / "mythify_host_model.py",
         workspace / "scripts" / "mythify_host_model.py",
     )

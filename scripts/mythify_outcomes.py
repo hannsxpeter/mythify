@@ -83,6 +83,8 @@ def get_active_outcome_slug(state):
     if not path.exists():
         return None
     value = path.read_text(encoding="utf-8").strip()
+    if value and not outcome_goal_path(state, value).exists():
+        return None
     return value or None
 
 
