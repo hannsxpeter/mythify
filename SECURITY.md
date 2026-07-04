@@ -13,7 +13,7 @@
 Do not open a public issue for security problems.
 
 Report privately through GitHub Security Advisories:
-https://github.com/aihxp/mythify/security/advisories/new
+https://github.com/hannsxpeter/mythify/security/advisories/new
 
 If you cannot use GitHub, email hprincivil@gmail.com with a description, a
 reproduction, and the impact you believe it has.

@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 33c805589089782ef1f71ac8a26fd418b0c5603ed4f8447960fd20132a7ae22f -->
+<!-- Mythify protocol-sha256: 2a3b9ebe62efc0c6f5d4a4d7f62b147acdaf38fc24f160e64a432e4fb02a1df2 -->
 
 # The Mythify Protocol
 
@@ -149,6 +149,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `campaign learn LESSON` | Record a learning that should improve later tasks. |
 | `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet for research, analysis, failure recovery, handoff, review, campaign, or next. |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
+| `loop-fit TASK [--json]` | Read-only advisory: assess a task against the loop-worthiness gates (machine-checkable done-condition, recurrence, reproduction environment, human judgment) and recommend a bounded self-driving loop, a supervised loop or verifier-gated plan, or doing it directly. Runs nothing. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
 | `host-model clear [--json]` | Clear the recorded host model switch. |

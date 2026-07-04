@@ -896,6 +896,28 @@ def build_parser(symbols):
     )
     p.set_defaults(handler=cmd_classify, needs_state=False)
 
+    p = sub.add_parser(
+        "loop-fit",
+        help="Advise whether a task should be a loop, supervised, or done directly.",
+        description=(
+            "Read-only decision support: assess TASK against the loop-worthiness "
+            "gates (is there a machine-checkable done-condition, does the work "
+            "recur, is there a reproduction environment, does it need human "
+            "judgment) and recommend a bounded self-driving loop (outcome run), a "
+            "host-supervised loop or verifier-gated plan, or doing it directly. "
+            "It runs nothing and records no evidence, and works without an "
+            "initialized .mythify workspace."
+        ),
+    )
+    p.add_argument("task", help="Task request or problem statement to assess.")
+    p.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Print machine-readable JSON instead of text.",
+    )
+    p.set_defaults(handler=cmd_loop_fit, needs_state=False)
+
     host_model = sub.add_parser(
         "host-model",
         help="Record or inspect the intended host chat model.",

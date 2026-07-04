@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 28,
+      "command_count": 29,
       "tiers": {
         "front_door": [
           "route",
@@ -31,6 +31,7 @@
           "phase",
           "trace",
           "classify",
+          "loop-fit",
           "memory",
           "lesson",
           "logs",
@@ -69,7 +70,8 @@
         "logs",
         "verify",
         "reflect",
-        "summary"
+        "summary",
+        "loop-fit"
       ]
     },
     "mcp": {

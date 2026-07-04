@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-07-04
+
+### Added
+
+- Added the read-only `loop-fit TASK [--json]` advisory. It assesses a task
+  against ordered loop-worthiness gates (is there a machine-checkable
+  done-condition, does the work recur, is there a reproduction environment,
+  does it need human judgment) and recommends a bounded self-driving loop
+  (`outcome run`), a supervised loop or verifier-gated plan, or doing the task
+  directly, with the criteria, matched signals, and a suggested next command.
+  It runs nothing, records no evidence, and needs no `.mythify` workspace.
+  Registered in the surface manifest (29 CLI commands). The staged-gate
+  structure draws on general decision-checklist design guidance (evaluate fit
+  in ordered steps, fail the cheapest disqualifier first) and the loop
+  engineering four-condition test.
+
 ## [4.0.0] - 2026-07-04
 
 Major release: one unified evidence spine, bounded autonomy, and honest
@@ -1167,75 +1183,75 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/aihxp/mythify/compare/v3.6.54...HEAD
-[3.6.54]: https://github.com/aihxp/mythify/compare/v3.6.53...v3.6.54
-[3.6.53]: https://github.com/aihxp/mythify/compare/v3.6.52...v3.6.53
-[3.6.52]: https://github.com/aihxp/mythify/compare/v3.6.51...v3.6.52
-[3.6.51]: https://github.com/aihxp/mythify/compare/v3.6.50...v3.6.51
-[3.6.50]: https://github.com/aihxp/mythify/compare/v3.6.49...v3.6.50
-[3.6.49]: https://github.com/aihxp/mythify/compare/v3.6.48...v3.6.49
-[3.6.48]: https://github.com/aihxp/mythify/compare/v3.6.47...v3.6.48
-[3.6.47]: https://github.com/aihxp/mythify/compare/v3.6.46...v3.6.47
-[3.6.46]: https://github.com/aihxp/mythify/compare/v3.6.45...v3.6.46
-[3.6.45]: https://github.com/aihxp/mythify/compare/v3.6.44...v3.6.45
-[3.6.44]: https://github.com/aihxp/mythify/compare/v3.6.43...v3.6.44
-[3.6.43]: https://github.com/aihxp/mythify/compare/v3.6.42...v3.6.43
-[3.6.42]: https://github.com/aihxp/mythify/compare/v3.6.41...v3.6.42
-[3.6.41]: https://github.com/aihxp/mythify/compare/v3.6.40...v3.6.41
-[3.6.40]: https://github.com/aihxp/mythify/compare/v3.6.39...v3.6.40
-[3.6.39]: https://github.com/aihxp/mythify/compare/v3.6.38...v3.6.39
-[3.6.38]: https://github.com/aihxp/mythify/compare/v3.6.37...v3.6.38
-[3.6.37]: https://github.com/aihxp/mythify/compare/v3.6.36...v3.6.37
-[3.6.36]: https://github.com/aihxp/mythify/compare/v3.6.35...v3.6.36
-[3.6.35]: https://github.com/aihxp/mythify/compare/v3.6.34...v3.6.35
-[3.6.34]: https://github.com/aihxp/mythify/compare/v3.6.33...v3.6.34
-[3.6.33]: https://github.com/aihxp/mythify/compare/v3.6.32...v3.6.33
-[3.6.32]: https://github.com/aihxp/mythify/compare/v3.6.31...v3.6.32
-[3.6.31]: https://github.com/aihxp/mythify/compare/v3.6.30...v3.6.31
-[3.6.30]: https://github.com/aihxp/mythify/compare/v3.6.29...v3.6.30
-[3.6.29]: https://github.com/aihxp/mythify/compare/v3.6.28...v3.6.29
-[3.6.28]: https://github.com/aihxp/mythify/compare/v3.6.27...v3.6.28
-[3.6.27]: https://github.com/aihxp/mythify/compare/v3.6.26...v3.6.27
-[3.6.26]: https://github.com/aihxp/mythify/compare/v3.6.25...v3.6.26
-[3.6.25]: https://github.com/aihxp/mythify/compare/v3.6.24...v3.6.25
-[3.6.24]: https://github.com/aihxp/mythify/compare/v3.6.23...v3.6.24
-[3.6.23]: https://github.com/aihxp/mythify/compare/v3.6.22...v3.6.23
-[3.6.22]: https://github.com/aihxp/mythify/compare/v3.6.21...v3.6.22
-[3.6.21]: https://github.com/aihxp/mythify/compare/v3.6.20...v3.6.21
-[3.6.20]: https://github.com/aihxp/mythify/compare/v3.6.19...v3.6.20
-[3.6.19]: https://github.com/aihxp/mythify/compare/v3.6.18...v3.6.19
-[3.6.18]: https://github.com/aihxp/mythify/compare/v3.6.17...v3.6.18
-[3.6.17]: https://github.com/aihxp/mythify/compare/v3.6.16...v3.6.17
-[3.6.16]: https://github.com/aihxp/mythify/compare/v3.6.15...v3.6.16
-[3.6.15]: https://github.com/aihxp/mythify/compare/v3.6.14...v3.6.15
-[3.6.14]: https://github.com/aihxp/mythify/compare/v3.6.13...v3.6.14
-[3.6.13]: https://github.com/aihxp/mythify/compare/v3.6.12...v3.6.13
-[3.6.12]: https://github.com/aihxp/mythify/compare/v3.6.11...v3.6.12
-[3.6.11]: https://github.com/aihxp/mythify/compare/v3.6.10...v3.6.11
-[3.6.10]: https://github.com/aihxp/mythify/compare/v3.6.9...v3.6.10
-[3.6.9]: https://github.com/aihxp/mythify/compare/v3.6.8...v3.6.9
-[3.6.8]: https://github.com/aihxp/mythify/compare/v3.6.7...v3.6.8
-[3.6.7]: https://github.com/aihxp/mythify/compare/v3.6.6...v3.6.7
-[3.6.6]: https://github.com/aihxp/mythify/compare/v3.6.5...v3.6.6
-[3.6.5]: https://github.com/aihxp/mythify/compare/v3.6.4...v3.6.5
-[3.6.4]: https://github.com/aihxp/mythify/compare/v3.6.3...v3.6.4
-[3.6.3]: https://github.com/aihxp/mythify/compare/v3.6.2...v3.6.3
-[3.6.2]: https://github.com/aihxp/mythify/compare/v3.6.1...v3.6.2
-[3.6.1]: https://github.com/aihxp/mythify/compare/v3.6.0...v3.6.1
-[3.6.0]: https://github.com/aihxp/mythify/compare/v3.5.0...v3.6.0
-[3.5.0]: https://github.com/aihxp/mythify/compare/v3.4.0...v3.5.0
-[3.4.0]: https://github.com/aihxp/mythify/compare/v3.3.0...v3.4.0
-[3.3.0]: https://github.com/aihxp/mythify/compare/v3.2.3...v3.3.0
-[3.2.3]: https://github.com/aihxp/mythify/compare/v3.2.2...v3.2.3
-[3.2.2]: https://github.com/aihxp/mythify/compare/v3.2.1...v3.2.2
-[3.2.1]: https://github.com/aihxp/mythify/compare/v3.2.0...v3.2.1
-[3.2.0]: https://github.com/aihxp/mythify/compare/v3.1.0...v3.2.0
-[3.1.0]: https://github.com/aihxp/mythify/compare/v3.0.1...v3.1.0
-[3.0.1]: https://github.com/aihxp/mythify/compare/v3.0.0...v3.0.1
-[3.0.0]: https://github.com/aihxp/mythify/compare/v2.5.0...v3.0.0
-[2.5.0]: https://github.com/aihxp/mythify/compare/v2.4.0...v2.5.0
-[2.4.0]: https://github.com/aihxp/mythify/compare/v2.3.0...v2.4.0
-[2.3.0]: https://github.com/aihxp/mythify/compare/v2.2.0...v2.3.0
-[2.2.0]: https://github.com/aihxp/mythify/compare/v2.1.0...v2.2.0
-[2.1.0]: https://github.com/aihxp/mythify/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/aihxp/mythify/releases/tag/v2.0.0
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v3.6.54...HEAD
+[3.6.54]: https://github.com/hannsxpeter/mythify/compare/v3.6.53...v3.6.54
+[3.6.53]: https://github.com/hannsxpeter/mythify/compare/v3.6.52...v3.6.53
+[3.6.52]: https://github.com/hannsxpeter/mythify/compare/v3.6.51...v3.6.52
+[3.6.51]: https://github.com/hannsxpeter/mythify/compare/v3.6.50...v3.6.51
+[3.6.50]: https://github.com/hannsxpeter/mythify/compare/v3.6.49...v3.6.50
+[3.6.49]: https://github.com/hannsxpeter/mythify/compare/v3.6.48...v3.6.49
+[3.6.48]: https://github.com/hannsxpeter/mythify/compare/v3.6.47...v3.6.48
+[3.6.47]: https://github.com/hannsxpeter/mythify/compare/v3.6.46...v3.6.47
+[3.6.46]: https://github.com/hannsxpeter/mythify/compare/v3.6.45...v3.6.46
+[3.6.45]: https://github.com/hannsxpeter/mythify/compare/v3.6.44...v3.6.45
+[3.6.44]: https://github.com/hannsxpeter/mythify/compare/v3.6.43...v3.6.44
+[3.6.43]: https://github.com/hannsxpeter/mythify/compare/v3.6.42...v3.6.43
+[3.6.42]: https://github.com/hannsxpeter/mythify/compare/v3.6.41...v3.6.42
+[3.6.41]: https://github.com/hannsxpeter/mythify/compare/v3.6.40...v3.6.41
+[3.6.40]: https://github.com/hannsxpeter/mythify/compare/v3.6.39...v3.6.40
+[3.6.39]: https://github.com/hannsxpeter/mythify/compare/v3.6.38...v3.6.39
+[3.6.38]: https://github.com/hannsxpeter/mythify/compare/v3.6.37...v3.6.38
+[3.6.37]: https://github.com/hannsxpeter/mythify/compare/v3.6.36...v3.6.37
+[3.6.36]: https://github.com/hannsxpeter/mythify/compare/v3.6.35...v3.6.36
+[3.6.35]: https://github.com/hannsxpeter/mythify/compare/v3.6.34...v3.6.35
+[3.6.34]: https://github.com/hannsxpeter/mythify/compare/v3.6.33...v3.6.34
+[3.6.33]: https://github.com/hannsxpeter/mythify/compare/v3.6.32...v3.6.33
+[3.6.32]: https://github.com/hannsxpeter/mythify/compare/v3.6.31...v3.6.32
+[3.6.31]: https://github.com/hannsxpeter/mythify/compare/v3.6.30...v3.6.31
+[3.6.30]: https://github.com/hannsxpeter/mythify/compare/v3.6.29...v3.6.30
+[3.6.29]: https://github.com/hannsxpeter/mythify/compare/v3.6.28...v3.6.29
+[3.6.28]: https://github.com/hannsxpeter/mythify/compare/v3.6.27...v3.6.28
+[3.6.27]: https://github.com/hannsxpeter/mythify/compare/v3.6.26...v3.6.27
+[3.6.26]: https://github.com/hannsxpeter/mythify/compare/v3.6.25...v3.6.26
+[3.6.25]: https://github.com/hannsxpeter/mythify/compare/v3.6.24...v3.6.25
+[3.6.24]: https://github.com/hannsxpeter/mythify/compare/v3.6.23...v3.6.24
+[3.6.23]: https://github.com/hannsxpeter/mythify/compare/v3.6.22...v3.6.23
+[3.6.22]: https://github.com/hannsxpeter/mythify/compare/v3.6.21...v3.6.22
+[3.6.21]: https://github.com/hannsxpeter/mythify/compare/v3.6.20...v3.6.21
+[3.6.20]: https://github.com/hannsxpeter/mythify/compare/v3.6.19...v3.6.20
+[3.6.19]: https://github.com/hannsxpeter/mythify/compare/v3.6.18...v3.6.19
+[3.6.18]: https://github.com/hannsxpeter/mythify/compare/v3.6.17...v3.6.18
+[3.6.17]: https://github.com/hannsxpeter/mythify/compare/v3.6.16...v3.6.17
+[3.6.16]: https://github.com/hannsxpeter/mythify/compare/v3.6.15...v3.6.16
+[3.6.15]: https://github.com/hannsxpeter/mythify/compare/v3.6.14...v3.6.15
+[3.6.14]: https://github.com/hannsxpeter/mythify/compare/v3.6.13...v3.6.14
+[3.6.13]: https://github.com/hannsxpeter/mythify/compare/v3.6.12...v3.6.13
+[3.6.12]: https://github.com/hannsxpeter/mythify/compare/v3.6.11...v3.6.12
+[3.6.11]: https://github.com/hannsxpeter/mythify/compare/v3.6.10...v3.6.11
+[3.6.10]: https://github.com/hannsxpeter/mythify/compare/v3.6.9...v3.6.10
+[3.6.9]: https://github.com/hannsxpeter/mythify/compare/v3.6.8...v3.6.9
+[3.6.8]: https://github.com/hannsxpeter/mythify/compare/v3.6.7...v3.6.8
+[3.6.7]: https://github.com/hannsxpeter/mythify/compare/v3.6.6...v3.6.7
+[3.6.6]: https://github.com/hannsxpeter/mythify/compare/v3.6.5...v3.6.6
+[3.6.5]: https://github.com/hannsxpeter/mythify/compare/v3.6.4...v3.6.5
+[3.6.4]: https://github.com/hannsxpeter/mythify/compare/v3.6.3...v3.6.4
+[3.6.3]: https://github.com/hannsxpeter/mythify/compare/v3.6.2...v3.6.3
+[3.6.2]: https://github.com/hannsxpeter/mythify/compare/v3.6.1...v3.6.2
+[3.6.1]: https://github.com/hannsxpeter/mythify/compare/v3.6.0...v3.6.1
+[3.6.0]: https://github.com/hannsxpeter/mythify/compare/v3.5.0...v3.6.0
+[3.5.0]: https://github.com/hannsxpeter/mythify/compare/v3.4.0...v3.5.0
+[3.4.0]: https://github.com/hannsxpeter/mythify/compare/v3.3.0...v3.4.0
+[3.3.0]: https://github.com/hannsxpeter/mythify/compare/v3.2.3...v3.3.0
+[3.2.3]: https://github.com/hannsxpeter/mythify/compare/v3.2.2...v3.2.3
+[3.2.2]: https://github.com/hannsxpeter/mythify/compare/v3.2.1...v3.2.2
+[3.2.1]: https://github.com/hannsxpeter/mythify/compare/v3.2.0...v3.2.1
+[3.2.0]: https://github.com/hannsxpeter/mythify/compare/v3.1.0...v3.2.0
+[3.1.0]: https://github.com/hannsxpeter/mythify/compare/v3.0.1...v3.1.0
+[3.0.1]: https://github.com/hannsxpeter/mythify/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/hannsxpeter/mythify/compare/v2.5.0...v3.0.0
+[2.5.0]: https://github.com/hannsxpeter/mythify/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/hannsxpeter/mythify/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/hannsxpeter/mythify/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/hannsxpeter/mythify/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/hannsxpeter/mythify/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/hannsxpeter/mythify/releases/tag/v2.0.0

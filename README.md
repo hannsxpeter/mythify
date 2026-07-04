@@ -1,6 +1,6 @@
 # Mythify
 
-[![CI](https://github.com/aihxp/mythify/actions/workflows/ci.yml/badge.svg)](https://github.com/aihxp/mythify/actions/workflows/ci.yml)
+[![CI](https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml/badge.svg)](https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **An evidence protocol for AI coding agents.** Mythify makes an AI agent plan
@@ -52,7 +52,7 @@ Mythify is a checkout you install locally. You need Python 3.9+ (for the CLI)
 and, optionally, Node 18+ (for the MCP server that plugs into agent tools).
 
 ```bash
-git clone https://github.com/aihxp/mythify.git
+git clone https://github.com/hannsxpeter/mythify.git
 cd mythify
 ./scripts/install_user.sh --project /path/to/your/project
 ```
@@ -128,6 +128,12 @@ Not sure which tool fits? `mythify route "your task"` reads your request and
 your current state and recommends the next move (just answer, make a plan,
 start a loop, review, and so on). It only advises; it never acts on its own.
 
+Not sure whether a task is even worth automating? `mythify loop-fit "your task"`
+answers a narrower question: should this be a hands-off loop, a supervised loop,
+or just done directly? It checks four things - is there a real pass/fail check,
+does the work repeat, is there a repo to work in, and does it need human taste -
+and recommends accordingly. A task with no objective check is never a loop.
+
 ## Autonomous loops (new in 4.0)
 
 Sometimes you want the agent to keep trying on its own until a check passes.
@@ -163,8 +169,8 @@ unbounded. Autonomy, but on Mythify's terms.
 
 ## Working from existing plans and audits
 
-If you use [godplans](https://github.com/aihxp/godplans) or
-[godaudits](https://github.com/aihxp/godaudits), Mythify reads their
+If you use [godplans](https://github.com/hannsxpeter/godplans) or
+[godaudits](https://github.com/hannsxpeter/godaudits), Mythify reads their
 `.godplans/PLAN.mdx` and `.godaudits/AUDIT.mdx` files directly:
 
 ```bash

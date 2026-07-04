@@ -13,7 +13,7 @@ merged.
 ## Getting started
 
 ```bash
-git clone https://github.com/aihxp/mythify.git
+git clone https://github.com/hannsxpeter/mythify.git
 cd mythify
 ```
 
@@ -118,7 +118,7 @@ Program output uses the ASCII markers `[OK]`, `[FAIL]`, and `[WARN]`.
 ## Reporting bugs and requesting features
 
 Use the issue templates at
-[https://github.com/aihxp/mythify/issues](https://github.com/aihxp/mythify/issues).
+[https://github.com/hannsxpeter/mythify/issues](https://github.com/hannsxpeter/mythify/issues).
 For security vulnerabilities, do not open a public issue; follow
 [SECURITY.md](SECURITY.md) instead.
 
