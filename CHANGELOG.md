@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `tests/test_routes.py`, a consolidated end-to-end guard for the workflow
+  router decision tree: every route id, the documented precedence order
+  (full-send language outranks outcome terms), and the active-campaign,
+  active-outcome, and active-research resume branches.
+- Extended `tests/test_interop.py` with CLI vs MCP route parity across all route
+  types (the seven stateless routes plus handoff and failure), so the two
+  runtimes cannot drift on routing decisions unnoticed.
+
 ## [3.6.57] - 2026-07-03
 
 ### Added
