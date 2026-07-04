@@ -96,6 +96,7 @@ from mythify_plan_horizon import (  # noqa: E402
 
 from mythify_outcomes import (  # noqa: E402
     cmd_outcome_check,
+    cmd_outcome_run,
     cmd_outcome_results,
     cmd_outcome_start,
     cmd_outcome_status,

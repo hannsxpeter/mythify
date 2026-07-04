@@ -212,6 +212,11 @@ def format_outcome_status(slug, goal, iterations=None):
     metric = goal.get("metric_command", "")
     if metric:
         lines.append("metric: {0}".format(metric))
+    agent = goal.get("agent_command", "")
+    if agent:
+        lines.append("agent: {0}".format(agent))
+    if goal.get("max_cost") is not None:
+        lines.append("cost: {0}/{1}".format(round(float(goal.get("cost_spent", 0.0)), 4), goal.get("max_cost")))
     allowed = goal.get("allowed_paths") or []
     if allowed:
         lines.append("scope (enforced post-hoc via git): {0}".format(", ".join(allowed)))
@@ -249,8 +254,12 @@ def cmd_outcome_start(args, state):
         "success_criteria": args.success,
         "verify_command": args.verify,
         "metric_command": args.metric or "",
+        "agent_command": getattr(args, "agent", None) or "",
         "max_iterations": args.max_iterations,
         "iteration_count": 0,
+        "max_cost": getattr(args, "max_cost", None),
+        "cost_spent": 0.0,
+        "escalate_after": getattr(args, "escalate_after", None),
         "allowed_paths": parse_allowed_paths(args.allowed_paths),
         "visibility": args.visibility,
         "status": "active",
@@ -289,6 +298,127 @@ def cmd_outcome_status(args, state):
     return 0
 
 
+def parse_reported_cost(output):
+    """Read a MYTHIFY_COST=<number> line an agent may emit; None if absent."""
+    match = re.search(r"MYTHIFY_COST\s*=\s*(-?\d+(?:\.\d+)?)", str(output or ""))
+    return float(match.group(1)) if match else None
+
+
+def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record=None):
+    """Run one verifier (and optional metric) iteration, enforce scope and the
+    cost budget, append the iteration and executed-verification records, update
+    the goal, and return the iteration record. Shared by outcome check (the host
+    made the attempt) and outcome run (the loop invoked the agent)."""
+    verify = run_shell_capture(goal["verify_command"], timeout)
+    metric_record = None
+    metric_ok = True
+    metric_score = None
+    if goal.get("metric_command"):
+        metric = run_shell_capture(goal["metric_command"], timeout)
+        metric_ok = metric["verified"]
+        metric_score = parse_metric_score(metric.get("stdout_tail", ""))
+        metric_record = {
+            "command": metric["command"],
+            "exit_code": metric["exit_code"],
+            "duration_seconds": metric["duration_seconds"],
+            "stdout_tail": metric["stdout_tail"],
+            "stderr_tail": metric["stderr_tail"],
+            "verified": metric["verified"],
+            "score": metric_score,
+        }
+    violations = scope_violations(state, goal.get("allowed_paths") or [])
+    verified = bool(verify["verified"] and metric_ok)
+    iteration_count = int(goal.get("iteration_count", 0))
+    max_iterations = int(goal.get("max_iterations", 1))
+    next_iteration = iteration_count + 1
+
+    # Cost ledger: an iteration costs what the agent reported, else one unit.
+    iteration_cost = 1.0
+    if agent_record and agent_record.get("cost") is not None:
+        iteration_cost = float(agent_record["cost"])
+    cost_spent = float(goal.get("cost_spent", 0.0)) + iteration_cost
+    max_cost = goal.get("max_cost")
+    budget_exhausted = max_cost is not None and cost_spent >= float(max_cost)
+
+    if violations:
+        status_after = "active"
+        next_action = (
+            "Scope violation: {0} file(s) changed outside the declared scope "
+            "({1}). Revert them or widen --allowed-paths before continuing.".format(
+                len(violations), ", ".join(violations[:5])
+            )
+        )
+    elif verified:
+        status_after = "succeeded"
+        next_action = "Outcome met. Report the evidence and stop."
+    elif budget_exhausted:
+        status_after = "failed"
+        next_action = "Cost budget exhausted ({0}/{1}). Summarize the blocker and stop.".format(
+            round(cost_spent, 4), max_cost
+        )
+    elif next_iteration >= max_iterations:
+        status_after = "failed"
+        next_action = "Iteration budget exhausted. Summarize the blocker and stop."
+    else:
+        status_after = "active"
+        next_action = (
+            "Outcome not met. Inspect verifier output, make another bounded attempt, "
+            "then run outcome check again."
+        )
+    record = {
+        "iteration": next_iteration,
+        "timestamp": now_iso(),
+        "notes": notes,
+        "agent": agent_record,
+        "cost": iteration_cost,
+        "cost_spent": cost_spent,
+        "verify": {
+            "command": verify["command"],
+            "exit_code": verify["exit_code"],
+            "duration_seconds": verify["duration_seconds"],
+            "stdout_tail": verify["stdout_tail"],
+            "stderr_tail": verify["stderr_tail"],
+            "verified": verify["verified"],
+        },
+        "metric": metric_record,
+        "verified": verified,
+        "scope_violations": violations,
+        "status_after": status_after,
+        "next_action": next_action,
+    }
+    append_jsonl(outcome_iterations_path(state, slug), record)
+    goal["iteration_count"] = next_iteration
+    goal["status"] = status_after
+    goal["last_verified"] = verified
+    goal["cost_spent"] = cost_spent
+    goal["updated"] = record["timestamp"]
+    if metric_score is not None:
+        best = goal.get("best_metric_score")
+        if best is None or metric_score > best:
+            goal["best_metric_score"] = metric_score
+    if status_after == "failed":
+        goal["stop_reason"] = "cost budget exhausted" if budget_exhausted else "iteration budget exhausted"
+    if status_after == "succeeded":
+        goal["stop_reason"] = "success criteria verified"
+    save_outcome(state, slug, goal)
+    verification_record = {
+        "kind": "executed",
+        "claim": "Outcome {0}: {1}".format(slug, goal.get("success_criteria", "")),
+        "command": goal["verify_command"],
+        "exit_code": verify["exit_code"],
+        "duration_seconds": verify["duration_seconds"],
+        "stdout_tail": verify["stdout_tail"],
+        "stderr_tail": verify["stderr_tail"],
+        "verified": verify["verified"],
+        "timestamp": record["timestamp"],
+        "outcome": slug,
+        "iteration": next_iteration,
+    }
+    verification_record.update(verification_step_context(state))
+    append_jsonl(state / "verifications.jsonl", verification_record)
+    return record
+
+
 def cmd_outcome_check(args, state):
     if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
         fail(OUTCOME_CHECK_DISABLED_MESSAGE)
@@ -315,100 +445,20 @@ def cmd_outcome_check(args, state):
         else:
             print("[FAIL] Outcome {0} failed: iteration budget exhausted.".format(slug))
         return 2
-    verify = run_shell_capture(goal["verify_command"], args.timeout)
-    metric_record = None
-    metric_ok = True
-    metric_score = None
-    if goal.get("metric_command"):
-        metric = run_shell_capture(goal["metric_command"], args.timeout)
-        metric_ok = metric["verified"]
-        metric_score = parse_metric_score(metric.get("stdout_tail", ""))
-        metric_record = {
-            "command": metric["command"],
-            "exit_code": metric["exit_code"],
-            "duration_seconds": metric["duration_seconds"],
-            "stdout_tail": metric["stdout_tail"],
-            "stderr_tail": metric["stderr_tail"],
-            "verified": metric["verified"],
-            "score": metric_score,
-        }
-    violations = scope_violations(state, goal.get("allowed_paths") or [])
-    verified = bool(verify["verified"] and metric_ok)
-    next_iteration = iteration_count + 1
-    if violations:
-        status_after = "active"
-        next_action = (
-            "Scope violation: {0} file(s) changed outside the declared scope "
-            "({1}). Revert them or widen --allowed-paths before continuing.".format(
-                len(violations), ", ".join(violations[:5])
-            )
-        )
-    elif verified:
-        status_after = "succeeded"
-        next_action = "Outcome met. Report the evidence and stop."
-    elif next_iteration >= max_iterations:
-        status_after = "failed"
-        next_action = "Iteration budget exhausted. Summarize the blocker and stop."
-    else:
-        status_after = "active"
-        next_action = (
-            "Outcome not met. Inspect verifier output, make another bounded attempt, "
-            "then run outcome check again."
-        )
-    record = {
-        "iteration": next_iteration,
-        "timestamp": now_iso(),
-        "notes": args.notes or "",
-        "verify": {
-            "command": verify["command"],
-            "exit_code": verify["exit_code"],
-            "duration_seconds": verify["duration_seconds"],
-            "stdout_tail": verify["stdout_tail"],
-            "stderr_tail": verify["stderr_tail"],
-            "verified": verify["verified"],
-        },
-        "metric": metric_record,
-        "verified": verified,
-        "scope_violations": violations,
-        "status_after": status_after,
-        "next_action": next_action,
-    }
-    append_jsonl(outcome_iterations_path(state, slug), record)
-    goal["iteration_count"] = next_iteration
-    goal["status"] = status_after
-    goal["last_verified"] = verified
-    goal["updated"] = record["timestamp"]
-    if metric_score is not None:
-        best = goal.get("best_metric_score")
-        if best is None or metric_score > best:
-            goal["best_metric_score"] = metric_score
-    if status_after == "failed":
-        goal["stop_reason"] = "iteration budget exhausted"
-    if status_after == "succeeded":
-        goal["stop_reason"] = "success criteria verified"
-    save_outcome(state, slug, goal)
-    verification_record = {
-        "kind": "executed",
-        "claim": "Outcome {0}: {1}".format(slug, goal.get("success_criteria", "")),
-        "command": goal["verify_command"],
-        "exit_code": verify["exit_code"],
-        "duration_seconds": verify["duration_seconds"],
-        "stdout_tail": verify["stdout_tail"],
-        "stderr_tail": verify["stderr_tail"],
-        "verified": verify["verified"],
-        "timestamp": record["timestamp"],
-        "outcome": slug,
-        "iteration": next_iteration,
-    }
-    verification_record.update(verification_step_context(state))
-    append_jsonl(state / "verifications.jsonl", verification_record)
+    record = perform_outcome_iteration(state, slug, goal, args.timeout, args.notes or "")
+    verify = record["verify"]
+    verified = record["verified"]
+    status_after = record["status_after"]
+    next_action = record["next_action"]
+    metric_record = record["metric"]
+    metric_score = metric_record.get("score") if metric_record else None
     if args.json_output:
         print(json.dumps({"goal": goal, "record": record}, indent=2))
     else:
         prefix = "[OK]" if verified else "[FAIL]"
         print(
             "{0} Outcome {1} iteration {2}/{3}: {4}".format(
-                prefix, slug, next_iteration, max_iterations, status_after
+                prefix, slug, record["iteration"], max_iterations, status_after
             )
         )
         print("verify exit: {0}".format(verify["exit_code"]))
@@ -424,6 +474,97 @@ def cmd_outcome_check(args, state):
             print("--- verify stderr (tail) ---")
             print(verify["stderr_tail"])
     return 0 if verified else 2
+
+
+def cmd_outcome_run(args, state):
+    """Self-driving dispatch loop: fire the agent command, run the verifier,
+    record evidence, and repeat until the outcome is met, the iteration or cost
+    budget is spent, the scope is violated, or the escalation threshold of
+    consecutive red verifications is hit. Bounded and evidence-gated by design.
+    """
+    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+        fail(OUTCOME_CHECK_DISABLED_MESSAGE)
+        return 2
+    slug, goal = load_outcome(state, args.name)
+    if not slug or goal is None:
+        print("[FAIL] No outcome found. Start one with outcome start.")
+        return 1
+    agent_command = (goal.get("agent_command") or "").strip()
+    if not agent_command:
+        fail(
+            "[FAIL] Outcome {0} has no agent command. Start it with "
+            "outcome start --agent \"CMD\" to run it autonomously.".format(slug)
+        )
+        return 1
+    if goal.get("status") in ("succeeded", "failed", "stopped"):
+        print("[OK] Outcome {0} is already {1}.".format(slug, goal.get("status")))
+        return 0 if goal.get("status") == "succeeded" else 2
+    escalate_after = goal.get("escalate_after")
+    consecutive_red = 0
+    final = goal.get("status", "active")
+    while True:
+        if int(goal.get("iteration_count", 0)) >= int(goal.get("max_iterations", 1)):
+            goal["status"] = "failed"
+            goal["stop_reason"] = "iteration budget exhausted"
+            goal["updated"] = now_iso()
+            save_outcome(state, slug, goal)
+            final = "failed"
+            break
+        attempt = run_shell_capture(agent_command, args.timeout)
+        agent_record = {
+            "command": agent_command,
+            "exit_code": attempt["exit_code"],
+            "duration_seconds": attempt["duration_seconds"],
+            "stdout_tail": attempt["stdout_tail"],
+            "stderr_tail": attempt["stderr_tail"],
+            "cost": parse_reported_cost(
+                (attempt.get("stdout_tail") or "") + "\n" + (attempt.get("stderr_tail") or "")
+            ),
+        }
+        record = perform_outcome_iteration(
+            state, slug, goal, args.timeout, args.notes or "", agent_record
+        )
+        print(
+            "iteration {0}/{1}: agent exit {2}, verify {3}, status {4}".format(
+                record["iteration"],
+                goal.get("max_iterations"),
+                attempt["exit_code"],
+                "pass" if record["verified"] else "fail",
+                record["status_after"],
+            )
+        )
+        if record["scope_violations"]:
+            goal["status"] = "stopped"
+            goal["stop_reason"] = "scope violation: {0}".format(
+                ", ".join(record["scope_violations"][:5])
+            )
+            goal["updated"] = now_iso()
+            save_outcome(state, slug, goal)
+            final = "stopped"
+            break
+        if record["status_after"] in ("succeeded", "failed"):
+            final = record["status_after"]
+            break
+        consecutive_red = 0 if record["verified"] else consecutive_red + 1
+        if escalate_after and consecutive_red >= int(escalate_after):
+            goal["status"] = "stopped"
+            goal["stop_reason"] = "escalated after {0} consecutive failed verifications".format(
+                consecutive_red
+            )
+            goal["updated"] = now_iso()
+            save_outcome(state, slug, goal)
+            final = "stopped"
+            break
+    goal = load_outcome(state, slug)[1] or goal
+    print("[{0}] Outcome {1} finished: {2} ({3})".format(
+        "OK" if final == "succeeded" else "FAIL",
+        slug,
+        final,
+        goal.get("stop_reason") or "",
+    ))
+    if goal.get("max_cost") is not None:
+        print("cost spent: {0}/{1}".format(round(float(goal.get("cost_spent", 0.0)), 4), goal.get("max_cost")))
+    return 0 if final == "succeeded" else 2
 
 
 def cmd_outcome_results(args, state):

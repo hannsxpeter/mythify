@@ -984,7 +984,35 @@ def build_parser(symbols):
     p.add_argument(
         "--allowed-paths",
         default="",
-        help="Comma-separated advisory path hints for host edits; not enforced as a sandbox.",
+        help=(
+            "Comma-separated scope paths. The CLI outcome loop enforces this "
+            "post-hoc via git: a check fails if files change outside the scope."
+        ),
+    )
+    p.add_argument(
+        "--agent",
+        default="",
+        help=(
+            "Command that attempts the work each iteration (an agent CLI or a "
+            "script). When set, outcome run drives the loop autonomously. The "
+            "command may print MYTHIFY_COST=<n> to report its cost."
+        ),
+    )
+    p.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        help=(
+            "Cost ceiling for the loop. Each iteration costs what the agent "
+            "reports via MYTHIFY_COST, else one unit; the loop fails when the "
+            "cumulative cost reaches this ceiling."
+        ),
+    )
+    p.add_argument(
+        "--escalate-after",
+        type=int,
+        default=None,
+        help="Stop and hand back to a human after N consecutive failed verifications.",
     )
     p.add_argument(
         "--visibility",
@@ -995,6 +1023,29 @@ def build_parser(symbols):
     p.add_argument("--name", help="Outcome name; defaults to a slug of the goal.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_outcome_start)
+
+    p = outcome_sub.add_parser(
+        "run",
+        help="Drive a self-driving outcome loop: fire the agent, verify, repeat.",
+        description=(
+            "Autonomously run an outcome started with --agent: each iteration "
+            "runs the agent command, then the verifier, records evidence, and "
+            "repeats until the outcome is met, the iteration or cost budget is "
+            "spent, the scope is violated, or the escalation threshold of "
+            "consecutive failures is reached. Bounded and evidence-gated. "
+            "Exits 0 on success, 2 otherwise. CLI-only."
+        ),
+    )
+    p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
+    p.add_argument("--notes", default="", help="Notes stamped on each iteration.")
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_VERIFY_TIMEOUT,
+        metavar="N",
+        help="Timeout in seconds for the agent and each verifier command.",
+    )
+    p.set_defaults(handler=cmd_outcome_run)
 
     p = outcome_sub.add_parser(
         "check",
