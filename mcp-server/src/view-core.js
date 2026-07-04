@@ -239,6 +239,52 @@ function evidenceRecordLabel(record) {
   return compactLabel(record.claim || record.command || record.evidence, "verification");
 }
 
+// Reminder thresholds. Both signals come from durable state that already
+// exists; neither adds new tracking. Drift is windowed (recent tail) and
+// stale-evidence self-resets the moment an executed verify is recorded, so
+// neither grows unbounded with the cumulative verification log.
+const ATTENTION_DRIFT_MIN_ATTESTED = 2;
+const ATTENTION_STALE_EXECUTED_RECORDS = 8;
+
+function evidenceAttentionFromDrift(records, recent) {
+  const window = recentTail(records, recent);
+  const executed = window.filter((record) => record.kind === "executed").length;
+  const attested = window.filter((record) => record.kind === "attested").length;
+  if (attested >= ATTENTION_DRIFT_MIN_ATTESTED && attested > executed) {
+    return [{
+      level: "warning",
+      source: "drift",
+      summary: "verification drift: recent evidence leans on attested claims",
+      detail: `${attested} attested vs ${executed} executed in the last ${window.length} records; record an executed verify`,
+      timestamp: window.length ? window[window.length - 1].timestamp || "" : "",
+    }];
+  }
+  return [];
+}
+
+function evidenceAttentionFromStaleExecuted(records) {
+  if (!records.length) {
+    return [];
+  }
+  let since = 0;
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    if (records[index].kind === "executed") {
+      break;
+    }
+    since += 1;
+  }
+  if (since >= ATTENTION_STALE_EXECUTED_RECORDS) {
+    return [{
+      level: "warning",
+      source: "session",
+      summary: "long run without an executed verify",
+      detail: `${since} records since the last executed check; run a real verifier or summarize`,
+      timestamp: records[records.length - 1].timestamp || "",
+    }];
+  }
+  return [];
+}
+
 function evidenceAttentionFromVerifications(records, recent) {
   const attention = [];
   for (const record of recentTail(records, recent)) {
@@ -450,6 +496,8 @@ export function buildEvidenceHarnessView(recent = 5) {
     ...evidenceAttentionFromVerifications(records, recent),
     ...evidenceAttentionFromBackground(background),
     ...evidenceAttentionFromGodArtifacts(godViews),
+    ...evidenceAttentionFromDrift(records, recent),
+    ...evidenceAttentionFromStaleExecuted(records),
   ];
   const view = {
     state_dir: resolveStateDir(),

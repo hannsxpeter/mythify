@@ -2128,6 +2128,53 @@ class TestResearchWorkflow(CliTestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Source not found", result.stderr)
 
+    def test_research_flags_uncited_claim_as_material(self):
+        self.init_workspace()
+        self.assertEqual(self.run_cli("research", "start", "Q?").returncode, 0)
+        add = self.run_cli(
+            "research", "add-claim", "Model asserts X.",
+            "--evidence", "recalled from training",
+        )
+        self.assertEqual(add.returncode, 0, add.stderr)
+        self.assertIn("no cited source", add.stdout)
+        summary = self.run_cli("research", "summary")
+        self.assertEqual(summary.returncode, 0, summary.stderr)
+        self.assertIn("provenance: no cited source", summary.stdout)
+
+    def test_research_flags_urlless_source_but_does_not_reject(self):
+        self.init_workspace()
+        self.assertEqual(self.run_cli("research", "start", "Q?").returncode, 0)
+        # A source with an empty URL must still be accepted (no rejecting validator).
+        src = self.run_cli("research", "add-source", "Hallway chat", "--url", "")
+        self.assertEqual(src.returncode, 0, src.stderr)
+        self.assertIn("S1", src.stdout)
+        add = self.run_cli(
+            "research", "add-claim", "They said Y.",
+            "--evidence", "verbal", "--source", "S1",
+        )
+        self.assertEqual(add.returncode, 0, add.stderr)
+        self.assertIn("no source URL", add.stdout)
+        summary = self.run_cli("research", "summary")
+        self.assertIn("cited source has no URL", summary.stdout)
+
+    def test_research_cited_url_claim_not_flagged(self):
+        self.init_workspace()
+        self.assertEqual(self.run_cli("research", "start", "Q?").returncode, 0)
+        self.assertEqual(
+            self.run_cli(
+                "research", "add-source", "Doc", "--url", "https://example.test/x"
+            ).returncode,
+            0,
+        )
+        add = self.run_cli(
+            "research", "add-claim", "Doc says Z.",
+            "--evidence", "section 2", "--source", "S1",
+        )
+        self.assertEqual(add.returncode, 0, add.stderr)
+        self.assertNotIn("[note]", add.stdout)
+        summary = self.run_cli("research", "summary")
+        self.assertNotIn("provenance:", summary.stdout)
+
 
 class TestCampaignWorkflow(CliTestCase):
     def test_campaign_generates_tasks_advances_loop_and_records_learning(self):
@@ -2423,6 +2470,15 @@ class TestPromptPackets(CliTestCase):
         self.assertEqual(payload["kind"], "failure")
         self.assertEqual(payload["context"]["failed_verification"]["exit_code"], 3)
         self.assertIn("packet failure demo", payload["next_prompt"])
+        # High-stakes guidance: hard-to-reverse fixes ask for labeled variants.
+        self.assertIn("2-3 labeled approaches with tradeoffs", payload["next_prompt"])
+
+        review = self.run_cli("prompt", "review", "--json")
+        self.assertEqual(review.returncode, 0, review.stderr)
+        self.assertIn(
+            "2-3 labeled approaches with tradeoffs",
+            json.loads(review.stdout)["next_prompt"],
+        )
 
         result = self.run_cli("prompt", "next", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -4276,6 +4332,47 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(payload["background"]["fanout_tasks"]["failed"], 1)
         self.assertEqual(payload["release_readiness"]["status"], "needs_evidence")
         self.assertEqual(self.state_snapshot(state), before)
+
+    def test_harness_flags_attested_drift_and_stale_executed(self):
+        self.init_workspace()
+        for index in range(8):
+            self.assertEqual(
+                self.run_cli(
+                    "verify", "claim", "worker done {0}".format(index), "transcript"
+                ).returncode,
+                0,
+            )
+        result = self.run_cli("harness", "--recent", "20", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summaries = [item["summary"] for item in json.loads(result.stdout)["attention"]]
+        self.assertTrue(
+            any("verification drift" in summary for summary in summaries), summaries
+        )
+        self.assertTrue(
+            any("without an executed verify" in summary for summary in summaries),
+            summaries,
+        )
+
+    def test_harness_reminders_silent_on_executed_evidence(self):
+        self.init_workspace()
+        for index in range(3):
+            self.assertEqual(
+                self.run_cli(
+                    "verify", "run", shell_py("raise SystemExit(0)"),
+                    "--claim", "check {0}".format(index),
+                ).returncode,
+                0,
+            )
+        result = self.run_cli("harness", "--recent", "20", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summaries = [item["summary"] for item in json.loads(result.stdout)["attention"]]
+        self.assertFalse(
+            any("verification drift" in summary for summary in summaries), summaries
+        )
+        self.assertFalse(
+            any("without an executed verify" in summary for summary in summaries),
+            summaries,
+        )
 
     def test_read_only_views_have_stable_empty_state_shapes(self):
         state = self.init_workspace()

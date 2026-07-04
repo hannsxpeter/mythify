@@ -45,6 +45,13 @@ Recall is cheap; re-deriving is not. Two mandatory recall points:
    `memory get --category discovery`. A decision made blind to a recorded
    discovery is how the same mistake gets made twice.
 
+Recall silently when it is relevant. Fold the recalled fact into the work
+instead of announcing that you consulted memory or explaining how the store
+works. Never surface an entry the current task did not call for: an unrelated
+memory dropped into the thread is noise, not context, and it makes the user
+wonder what else you are tracking. Relevance is the only trigger for showing
+memory; the mechanics stay out of sight.
+
 ## Lessons
 
     lesson add TITLE DETAIL [--tags a,b] [--global]

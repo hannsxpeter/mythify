@@ -674,6 +674,7 @@ function buildFailurePromptPacket({ verifyCommand = "" } = {}) {
   lines.push("- Fix the smallest likely root cause.");
   lines.push("- Rerun the failed verifier, or the provided verifier if it is more specific.");
   lines.push("- Report the failure, fix, and verification evidence in chat.");
+  lines.push("- If the fix is hard to reverse, first lay out 2-3 labeled approaches with tradeoffs, then recommend one.");
   if (verifyCommand) {
     lines.push(`- Verifier to run: ${verifyCommand}`);
   } else if (record?.command) {
@@ -786,6 +787,7 @@ function buildReviewPromptPacket({ goal = "", verifyCommand = "" } = {}) {
   lines.push("- Lead with actionable findings, with file and line references when possible.");
   lines.push("- Separate verified issues, warnings, open questions, and test gaps.");
   lines.push("- If fixes are requested, address findings one by one and verify the result.");
+  lines.push("- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs before recommending one.");
   if (verifyCommand) {
     lines.push(`- Suggested verifier: ${verifyCommand}`);
   }

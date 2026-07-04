@@ -722,6 +722,7 @@ class TestCliMcpInterop(unittest.TestCase):
             "What does the status command show?",              # direct
             "Add an export endpoint with validation and tests",  # plan
             "Research the latest wire format options",         # research
+            "what is the current pricing for the API",          # research (freshness)
             "Audit this module for risks",                     # review
             "Iterate until the unit tests pass",               # outcome
             "One shot this project, ship it",                  # campaign
@@ -733,6 +734,39 @@ class TestCliMcpInterop(unittest.TestCase):
                 self._assert_route_parity(client, prompt)
         finally:
             client.close()
+
+    def test_cli_and_mcp_harness_reminders_match(self):
+        # Item 6 parity: verification-drift and stale-executed reminders must
+        # fire identically from the CLI harness and the MCP evidence_harness.
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        for index in range(8):
+            self.assertEqual(
+                self.run_cli(
+                    "verify", "claim", "worker done {0}".format(index), "transcript"
+                ).returncode,
+                0,
+            )
+        cli = self.run_cli("harness", "--recent", "20", "--json")
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        cli_summaries = [item["summary"] for item in json.loads(cli.stdout)["attention"]]
+        client = self.start_mcp()
+        try:
+            mcp_payload = self.ok_json(
+                self.call_tool(
+                    client, "evidence_harness", {"recent": 20, "format": "json"}
+                )
+            )
+        finally:
+            client.close()
+        mcp_summaries = [item["summary"] for item in mcp_payload["attention"]]
+        for summaries in (cli_summaries, mcp_summaries):
+            self.assertIn(
+                "verification drift: recent evidence leans on attested claims",
+                summaries,
+            )
+            self.assertIn("long run without an executed verify", summaries)
+        self.assertEqual(cli_summaries, mcp_summaries)
 
     def test_cli_and_mcp_stateful_routes_match(self):
         init = self.run_cli("init")

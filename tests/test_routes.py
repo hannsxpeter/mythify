@@ -67,6 +67,61 @@ class TestRouteMatrix(RouteCase):
         self.assertEqual(payload["route"], "research")
         self.assertIn("research start", payload["next_command"])
 
+    def test_research_freshness_signals(self):
+        # Interrogative live/current/pricing lookups are source-backed and route
+        # to research via the classification task_type, not a route-forcing term.
+        for task in (
+            "what is the current pricing for the API",
+            "check the live status of the service",
+            "how much does it cost to run the API",
+        ):
+            self.assertEqual(self.route(task)["route"], "research", task)
+
+    def test_freshness_guards_do_not_overroute(self):
+        # Ordinary coding tasks that contain the same freshness word sequences
+        # must keep their real task type, not get pulled into research. These
+        # include the exact bigrams a mid-sentence route-forcing term would have
+        # matched (regression guard for the interrogative-anchored fix).
+        for task in (
+            "update the current pricing tier logic in billing.py",
+            "add a live status indicator component to the dashboard",
+            "fix the live status websocket reconnect bug",
+            "render the current pricing table on the pricing page",
+            "set the current price of the item",
+            "add a pricing field to the invoice model",
+            "the pricing calculation is off by one",
+            "keep the product docs up to date",
+            "ship this feature today",
+        ):
+            self.assertNotEqual(self.route(task)["route"], "research", task)
+
+    def test_freshness_terms_have_single_synced_source(self):
+        # Freshness routing now has one source of truth: the research task_type
+        # in classification-rules.json. Assert both byte-mirrored copies carry
+        # the terms and that classify still yields task_type='research', so
+        # single-copy drift or a semantic regression fails loudly.
+        terms = (
+            "what is the current pricing",
+            "check the live status",
+            "how much does it cost",
+        )
+        for rel in (
+            "protocol/classification-rules.json",
+            "mcp-server/protocol/classification-rules.json",
+        ):
+            data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
+            research = next(t for t in data["task_types"] if t["id"] == "research")
+            for term in terms:
+                self.assertIn(term, research["terms"], rel)
+        for task in (
+            "what is the current pricing for the API",
+            "check the live status of the service",
+            "how much does it cost to run the API",
+        ):
+            result = self.run_cli("classify", task, "--json", "--triage", "never")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["task_type"], "research", task)
+
     def test_review(self):
         payload = self.route("Audit this module and find the risks")
         self.assertEqual(payload["route"], "review")
