@@ -896,13 +896,63 @@ function teardownWorktree(projectRoot, worktree) {
   });
   const changed = status.status === 0 && String(status.stdout).trim() !== "";
   if (changed) {
-    return { isolated: true, branch: worktree.branch, path: worktree.dir, changed: true };
+    // Commit the worker's changes onto its branch so the diff is a real,
+    // mergeable commit in the main repo's object store, not uncommitted state
+    // stranded in a temp dir the OS may reap. Use an explicit identity so the
+    // commit succeeds even when the repo has none configured.
+    spawnSync("git", ["-C", worktree.dir, "add", "-A"], { encoding: "utf8" });
+    const commit = spawnSync(
+      "git",
+      [
+        "-C", worktree.dir,
+        "-c", "user.email=fanout@mythify.local",
+        "-c", "user.name=mythify-fanout",
+        "commit", "--no-gpg-sign", "-m", `fanout worker ${worktree.branch}`,
+      ],
+      { encoding: "utf8" }
+    );
+    if (commit.status !== 0) {
+      // Could not commit; leave everything in place for the host to recover.
+      return {
+        isolated: true,
+        branch: worktree.branch,
+        path: worktree.dir,
+        changed: true,
+        committed: false,
+        cleanup_failed: true,
+        note: String(commit.stderr || "commit failed").trim(),
+      };
+    }
+    // The branch now carries the commit; the temp worktree can be removed.
+    const remove = spawnSync(
+      "git", ["-C", projectRoot, "worktree", "remove", "--force", worktree.dir],
+      { encoding: "utf8" }
+    );
+    return {
+      isolated: true,
+      branch: worktree.branch,
+      path: remove.status === 0 ? null : worktree.dir,
+      changed: true,
+      committed: true,
+      cleanup_failed: remove.status !== 0,
+    };
   }
-  spawnSync("git", ["-C", projectRoot, "worktree", "remove", "--force", worktree.dir], {
-    encoding: "utf8",
-  });
-  spawnSync("git", ["-C", projectRoot, "branch", "-D", worktree.branch], { encoding: "utf8" });
-  return { isolated: true, branch: null, path: null, changed: false };
+  const remove = spawnSync(
+    "git", ["-C", projectRoot, "worktree", "remove", "--force", worktree.dir],
+    { encoding: "utf8" }
+  );
+  const branchDelete = spawnSync(
+    "git", ["-C", projectRoot, "branch", "-D", worktree.branch],
+    { encoding: "utf8" }
+  );
+  const cleaned = remove.status === 0 && branchDelete.status === 0;
+  return {
+    isolated: true,
+    branch: cleaned ? null : worktree.branch,
+    path: cleaned ? null : worktree.dir,
+    changed: false,
+    cleanup_failed: !cleaned,
+  };
 }
 
 async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot) {
@@ -927,63 +977,73 @@ async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot
     status: task.status,
   });
   const startedNs = process.hrtime.bigint();
-  let outcome;
   try {
-    outcome = await runWorker(
-      task.engine,
-      prompt,
-      task.model,
-      task.effort,
-      task.speed,
-      timeoutSeconds,
-      effectiveRoot
-    );
-  } catch (err) {
-    outcome = {
-      ok: false,
-      output: "",
-      error: `Internal worker error: ${err && err.message ? err.message : String(err)}`,
-    };
+    let outcome;
+    try {
+      outcome = await runWorker(
+        task.engine,
+        prompt,
+        task.model,
+        task.effort,
+        task.speed,
+        timeoutSeconds,
+        effectiveRoot
+      );
+    } catch (err) {
+      outcome = {
+        ok: false,
+        output: "",
+        error: `Internal worker error: ${err && err.message ? err.message : String(err)}`,
+      };
+    }
+    const durationSeconds = Number((Number(process.hrtime.bigint() - startedNs) / 1e9).toFixed(3));
+    // Redact worker output before it is persisted or returned. Unattended fanout
+    // logs are exactly where the article warns secrets a worker echoes would leak.
+    const outputText = redactSensitiveOutput(typeof outcome.output === "string" ? outcome.output : "");
+    if (typeof outcome.output === "string") {
+      outcome.output = outputText;
+    }
+    let outputBytes = 0;
+    try {
+      io.writeTextAtomic(path.join(jobDir, task.output_file), outputText);
+      outputBytes = Buffer.byteLength(outputText, "utf8");
+    } catch (err) {
+      outcome = {
+        ok: false,
+        output: outputText,
+        error: `${outcome.error ? `${outcome.error} ` : ""}Failed to write the task output file: ${err.message}`,
+      };
+    }
+    task.status = outcome.ok ? "completed" : "failed";
+    task.finished_at = io.isoNow();
+    task.duration_seconds = durationSeconds;
+    // Redact the error channel at the same choke point as the output: worker
+    // stderr tails end up here and can carry the same secrets.
+    task.error = outcome.ok
+      ? null
+      : redactSensitiveOutput(outcome.error || "Worker failed with no error detail.");
+    task.output_bytes = outputBytes;
+  } finally {
+    // Always tear the worktree down, even if the worker or a save threw, so an
+    // isolated task can never leak a worktree or branch.
+    if (worktree) {
+      task.worktree = teardownWorktree(projectRoot, worktree);
+    }
+    saveJob(job, jobDir);
+    appendProviderAudit({
+      ...providerAuditBase(job, task, prompt),
+      event: "fanout_task_finished",
+      status: task.status,
+      duration_seconds: task.duration_seconds,
+      output_metadata: {
+        output_file: task.output_file,
+        output_bytes: task.output_bytes || 0,
+        output_redacted: true,
+        error_redacted: true,
+        error_present: task.error != null,
+      },
+    });
   }
-  const durationSeconds = Number((Number(process.hrtime.bigint() - startedNs) / 1e9).toFixed(3));
-  // Redact worker output before it is persisted or returned. Unattended fanout
-  // logs are exactly where the article warns secrets a worker echoes would leak.
-  const outputText = redactSensitiveOutput(typeof outcome.output === "string" ? outcome.output : "");
-  if (typeof outcome.output === "string") {
-    outcome.output = outputText;
-  }
-  let outputBytes = 0;
-  try {
-    io.writeTextAtomic(path.join(jobDir, task.output_file), outputText);
-    outputBytes = Buffer.byteLength(outputText, "utf8");
-  } catch (err) {
-    outcome = {
-      ok: false,
-      output: outputText,
-      error: `${outcome.error ? `${outcome.error} ` : ""}Failed to write the task output file: ${err.message}`,
-    };
-  }
-  task.status = outcome.ok ? "completed" : "failed";
-  task.finished_at = io.isoNow();
-  task.duration_seconds = durationSeconds;
-  task.error = outcome.ok ? null : outcome.error || "Worker failed with no error detail.";
-  task.output_bytes = outputBytes;
-  if (worktree) {
-    task.worktree = teardownWorktree(projectRoot, worktree);
-  }
-  saveJob(job, jobDir);
-  appendProviderAudit({
-    ...providerAuditBase(job, task, prompt),
-    event: "fanout_task_finished",
-    status: task.status,
-    duration_seconds: task.duration_seconds,
-    output_metadata: {
-      output_file: task.output_file,
-      output_bytes: task.output_bytes,
-      output_redacted: true,
-      error_present: task.error !== null,
-    },
-  });
 }
 
 // Drains the task list through a fixed-size pool of sequential lanes.
@@ -1065,6 +1125,7 @@ function loadJob(jobId) {
   let interruptedNote = null;
   const unfinished = job.tasks.filter((t) => t.status === "running" || t.status === "pending");
   if (unfinished.length > 0 && !jobRegistry.has(job.id)) {
+    const root = projectRootDir();
     for (const task of unfinished) {
       task.status = "interrupted";
       task.error =
@@ -1072,7 +1133,18 @@ function loadJob(jobId) {
       if (task.started_at !== null && task.finished_at === null) {
         task.finished_at = io.isoNow();
       }
+      // An interrupted isolated task left a worktree the crashed process never
+      // tore down. Discard it best-effort: the work was incomplete anyway.
+      const wt = task.worktree;
+      if (wt && wt.isolated && wt.path) {
+        spawnSync("git", ["-C", root, "worktree", "remove", "--force", wt.path], { encoding: "utf8" });
+        if (wt.branch) {
+          spawnSync("git", ["-C", root, "branch", "-D", wt.branch], { encoding: "utf8" });
+        }
+        task.worktree = { ...wt, path: null, branch: null, cleaned_on_recovery: true };
+      }
     }
+    spawnSync("git", ["-C", root, "worktree", "prune"], { encoding: "utf8" });
     saveJob(job, jobDir);
     interruptedNote =
       "[WARN] This job was started by a previous server process; background workers die " +

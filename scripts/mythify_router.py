@@ -665,7 +665,9 @@ def workflow_route_state(state):
             } if pending else None,
         }
     outcome_view = None
-    if active_outcome:
+    # Only an outcome that is still active steers routing; a finished loop stays
+    # visible in status and background views but must not be a routing target.
+    if active_outcome and active_outcome.get("status") == "active":
         outcome_view = {
             "id": active_outcome_slug,
             "goal": active_outcome.get("goal", ""),

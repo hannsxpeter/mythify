@@ -108,6 +108,44 @@ class TestDispatchLoop(LoopCase):
         goal = json.loads(self.run_cli("outcome", "status", "u", "--json").stdout)["goal"]
         self.assertEqual(goal["cost_spent"], 2.0)
 
+    def test_negative_cost_is_clamped(self):
+        # An agent reporting negative cost must not drive the ledger down and
+        # neutralize --max-cost; each iteration is clamped to at least zero.
+        self.start("--max-iterations", "3", "--max-cost", "10", name="neg",
+                   verify="false", agent="echo MYTHIFY_COST=-5")
+        result = self.run_cli("outcome", "run", "neg")
+        goal = json.loads(self.run_cli("outcome", "status", "neg", "--json").stdout)["goal"]
+        self.assertGreaterEqual(goal["cost_spent"], 0.0)
+        self.assertIn("iteration budget exhausted", result.stdout)
+
+    def test_check_path_burns_no_cost(self):
+        # outcome check (the host made the attempt) must not spend budget; the
+        # cost ledger belongs to the self-driving run loop only.
+        self.run_cli("outcome", "start", "g", "--name", "chk", "--success", "x",
+                     "--verify", "false", "--max-cost", "5", "--max-iterations", "3")
+        self.run_cli("outcome", "check", "chk")
+        goal = json.loads(self.run_cli("outcome", "status", "chk", "--json").stdout)["goal"]
+        self.assertEqual(goal["cost_spent"], 0.0)
+
+    def test_scope_enforced_across_a_large_changeset(self):
+        # Scope enforcement must read the full git status, not a truncated tail:
+        # an out-of-scope file must still be flagged among hundreds of changes.
+        (self.project / "src").mkdir()
+        for i in range(250):
+            (self.project / "src" / "f{0}.txt".format(i)).write_text("x\n", encoding="utf-8")
+        (self.project / "AAA_escape.txt").write_text("out of scope\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-qm", "seed")
+        for i in range(250):
+            (self.project / "src" / "f{0}.txt".format(i)).write_text("y\n", encoding="utf-8")
+        (self.project / "AAA_escape.txt").write_text("changed out of scope\n", encoding="utf-8")
+        self.start("--max-iterations", "1", "--allowed-paths", "src", name="big",
+                   verify="false", agent="true")
+        result = self.run_cli("outcome", "run", "big")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("scope violation", result.stdout)
+        self.assertIn("AAA_escape.txt", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

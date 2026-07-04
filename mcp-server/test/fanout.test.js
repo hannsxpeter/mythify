@@ -1812,8 +1812,16 @@ test("fanout worktree isolation keeps writers off the main tree", async (t) => {
       assert.ok(wt && wt.isolated === true, "task ran in an isolated worktree");
       assert.ok(typeof wt.branch === "string" && wt.branch.length > 0, "the worktree branch is recorded");
       assert.equal(wt.changed, true, "the worker's change is preserved on the branch");
+      assert.equal(wt.committed, true, "the worker's change was committed onto the branch");
+      assert.equal(wt.path, null, "the temp worktree was removed after committing");
       assert.ok(!fs.existsSync(path.join(projectRoot, "WROTE.txt")), "the main tree is untouched");
-      assert.ok(fs.existsSync(path.join(wt.path, "WROTE.txt")), "the change is in the worktree");
+      // The change is a real, mergeable commit on the branch, surviving the
+      // temp dir removal.
+      const show = spawnSyncWt("git", ["-C", projectRoot, "show", `${wt.branch}:WROTE.txt`], {
+        encoding: "utf8",
+      });
+      assert.equal(show.status, 0, "the change is committed on the branch");
+      assert.match(show.stdout, /worker was here/, "the branch carries the worker's file");
     });
 
     await t.test("a non-writing worker's worktree and branch are cleaned up", async () => {
@@ -1838,6 +1846,44 @@ test("fanout worktree isolation keeps writers off the main tree", async (t) => {
       const lingering = String(branches.stdout).trim().split("\n").filter((line) => line.trim() !== "");
       assert.equal(lingering.length, 1, "only the writing worker's branch remains");
     });
+  } finally {
+    await client.close();
+  }
+});
+
+// The v4 redaction fix must also cover the ERROR channel: a failing worker's
+// stderr tail becomes task.error, persisted to job.json and returned.
+const FAILING_SECRET_WORKER = [
+  'process.stderr.write("boom sk-ant-secretsecretsecretsecret token=supersecretvalue\\n");',
+  "process.exit(1);",
+].join("\n");
+
+test("fanout redacts secrets in the worker error channel too", async () => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-err-");
+  const workerPath = path.join(root, "failing-worker.cjs");
+  fs.writeFileSync(workerPath, FAILING_SECRET_WORKER);
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "command",
+      MYTHIFY_FANOUT_COMMAND: `"${process.execPath}" "${workerPath}"`,
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: { tasks: [{ title: "Failer", prompt: "fail with a secret" }] },
+      })
+    );
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+    const job = JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"));
+    const err = job.tasks[0].error || "";
+    assert.ok(!err.includes("supersecretvalue"), "the token value is redacted in task.error");
+    assert.ok(!err.includes("sk-ant-secretsecretsecretsecret"), "the api key is redacted in task.error");
+    assert.match(err, /\[REDACTED\]/, "task.error shows the redaction marker");
   } finally {
     await client.close();
   }

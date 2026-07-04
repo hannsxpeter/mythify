@@ -1348,7 +1348,7 @@ def _append_stderr_notice(stderr_tail, notice):
     return (stderr_tail + "\n" + notice) if stderr_tail else notice
 
 
-def _read_file_tail_text(path, char_limit=TAIL_CHARS):
+def _read_file_tail_text(path, char_limit=TAIL_CHARS, redactor=None):
     try:
         size = path.stat().st_size
     except OSError:
@@ -1357,9 +1357,14 @@ def _read_file_tail_text(path, char_limit=TAIL_CHARS):
     try:
         with path.open("rb") as handle:
             handle.seek(max(0, size - byte_limit))
-            return handle.read().decode("utf-8", errors="replace")[-char_limit:]
+            window = handle.read().decode("utf-8", errors="replace")
     except OSError:
         return ""
+    # Redact the wider read window before the final char slice so a secret that
+    # straddles the char boundary is caught whole, matching the Node order.
+    if redactor is not None:
+        window = redactor(window)
+    return window[-char_limit:]
 
 
 def _file_size(path):
@@ -1429,8 +1434,8 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
                     process.kill()
                     process.wait(timeout=1)
                 exit_code = process.returncode
-        stdout_tail = redact_sensitive_output(_read_file_tail_text(stdout_path))
-        stderr_tail = redact_sensitive_output(_read_file_tail_text(stderr_path))
+        stdout_tail = _read_file_tail_text(stdout_path, redactor=redact_sensitive_output)
+        stderr_tail = _read_file_tail_text(stderr_path, redactor=redact_sensitive_output)
         total_size = _file_size(stdout_path) + _file_size(stderr_path)
     duration = (datetime.now(timezone.utc) - started).total_seconds()
     if (

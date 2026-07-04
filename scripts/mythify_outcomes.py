@@ -3,7 +3,7 @@
 import json
 import os
 import re
-import shlex
+import subprocess
 import sys
 
 from mythify_io import _write_text_atomic, append_jsonl, read_json, read_jsonl, write_json_atomic
@@ -152,12 +152,25 @@ def outcome_project_root(state):
 
 
 def git_changed_paths(root):
-    """Return the working-tree paths git reports as changed, or None off-git."""
-    run = run_shell_capture("git -C {0} status --porcelain".format(shlex.quote(str(root))), 30)
-    if run["exit_code"] != 0:
+    """Return the working-tree paths git reports as changed, or None off-git.
+
+    Reads the FULL, unredacted `git status --porcelain` output directly, not the
+    truncated/redacted human-facing tail: scope enforcement is a correctness
+    gate and must see every changed path and the real path text.
+    """
+    try:
+        run = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if run.returncode != 0:
         return None
     paths = []
-    for line in (run.get("stdout_tail") or "").splitlines():
+    for line in run.stdout.splitlines():
         entry = line[3:].strip() if len(line) > 3 else ""
         if " -> " in entry:
             entry = entry.split(" -> ", 1)[1]
@@ -332,23 +345,24 @@ def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record
     max_iterations = int(goal.get("max_iterations", 1))
     next_iteration = iteration_count + 1
 
-    # Cost ledger: an iteration costs what the agent reported, else one unit.
-    iteration_cost = 1.0
-    if agent_record and agent_record.get("cost") is not None:
-        iteration_cost = float(agent_record["cost"])
+    # Cost ledger applies only to the self-driving loop (an agent ran this
+    # iteration). The host-driven `outcome check` path burns no cost, matching
+    # the MCP outcome_check. Reported cost is clamped non-negative so a bad or
+    # adversarial agent cannot drive the ledger down and neutralize --max-cost.
+    iteration_cost = 0.0
+    if agent_record is not None:
+        reported = agent_record.get("cost")
+        iteration_cost = max(0.0, float(reported)) if reported is not None else 1.0
     cost_spent = float(goal.get("cost_spent", 0.0)) + iteration_cost
     max_cost = goal.get("max_cost")
-    budget_exhausted = max_cost is not None and cost_spent >= float(max_cost)
+    budget_exhausted = (
+        agent_record is not None and max_cost is not None and cost_spent >= float(max_cost)
+    )
 
-    if violations:
-        status_after = "active"
-        next_action = (
-            "Scope violation: {0} file(s) changed outside the declared scope "
-            "({1}). Revert them or widen --allowed-paths before continuing.".format(
-                len(violations), ", ".join(violations[:5])
-            )
-        )
-    elif verified:
+    # Scope violations are recorded here but only the self-driving loop
+    # (cmd_outcome_run) halts on them; the check path (CLI and MCP) surfaces them
+    # without blocking, so both runtimes reach the same terminal state.
+    if verified:
         status_after = "succeeded"
         next_action = "Outcome met. Report the evidence and stop."
     elif budget_exhausted:
@@ -364,6 +378,10 @@ def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record
         next_action = (
             "Outcome not met. Inspect verifier output, make another bounded attempt, "
             "then run outcome check again."
+        )
+    if violations:
+        next_action = "Scope note: {0} file(s) changed outside scope ({1}). {2}".format(
+            len(violations), ", ".join(violations[:5]), next_action
         )
     record = {
         "iteration": next_iteration,
