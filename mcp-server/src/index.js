@@ -14,7 +14,7 @@ import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { REDACTED_SECRET, redactSensitiveOutput } from "./redact.js";
+import { redactSensitiveOutput } from "./redact.js";
 import { registerAdapterTools } from "./adapter-tools.js";
 import { registerViewTools } from "./view-tools.js";
 import { registerWorkflowTools } from "./workflow-tools.js";
