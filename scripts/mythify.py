@@ -538,8 +538,14 @@ def target_plan_slug(state, name):
     return get_active_slug(state)
 
 
-def execute_recorded_verification(state, command, claim, timeout=None):
-    """Run COMMAND, append an executed verification record, return the record."""
+def execute_recorded_verification(state, command, claim, timeout=None, context=None):
+    """Run COMMAND, append an executed verification record, return the record.
+
+    When ``context`` (a plan/step_id/step_title/step_status dict) is given it is
+    stamped on the record verbatim; otherwise the active plan's in-progress step
+    is auto-detected. An explicit context lets ``plan verify`` scope evidence to
+    a specific step of any plan, not just the active one.
+    """
     run = run_shell_capture(command, timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT)
     record = {
         "kind": "executed",
@@ -552,7 +558,7 @@ def execute_recorded_verification(state, command, claim, timeout=None):
         "verified": run["verified"],
         "timestamp": now_iso(),
     }
-    record.update(verification_step_context(state))
+    record.update(context if context is not None else verification_step_context(state))
     append_jsonl(state / "verifications.jsonl", record)
     return record
 
@@ -894,15 +900,17 @@ def cmd_plan_create(args, state):
     stamp = now_iso()
     steps = []
     for index, item in enumerate(steps_input):
-        steps.append(
-            {
-                "id": index + 1,
-                "title": str(item["title"]),
-                "success_criteria": str(item.get("success_criteria", "")),
-                "status": "pending",
-                "result": None,
-            }
-        )
+        step = {
+            "id": index + 1,
+            "title": str(item["title"]),
+            "success_criteria": str(item.get("success_criteria", "")),
+            "status": "pending",
+            "result": None,
+        }
+        verify_command = str(item.get("verify_command", "")).strip()
+        if verify_command:
+            step["verify_command"] = verify_command
+        steps.append(step)
     plan = {
         "name": slug,
         "goal": args.goal,
@@ -1084,19 +1092,92 @@ def cmd_plan_add_step(args, state):
         fail("[FAIL] Plan not found: {0}".format(slug))
         return 1
     new_id = max([step.get("id", 0) for step in plan["steps"]] + [0]) + 1
-    plan["steps"].append(
-        {
-            "id": new_id,
-            "title": args.title,
-            "success_criteria": args.criteria or "",
-            "status": "pending",
-            "result": None,
-        }
-    )
+    step = {
+        "id": new_id,
+        "title": args.title,
+        "success_criteria": args.criteria or "",
+        "status": "pending",
+        "result": None,
+    }
+    verify_command = (getattr(args, "verify", None) or "").strip()
+    if verify_command:
+        step["verify_command"] = verify_command
+    plan["steps"].append(step)
     plan["last_updated"] = now_iso()
     save_plan(state, slug, plan)
     print("[OK] Added step {0} to plan {1}: {2}".format(new_id, slug, args.title))
+    if verify_command:
+        print("     verify: {0}".format(verify_command))
     return 0
+
+
+def cmd_plan_verify(args, state):
+    """Run a step's own verify command and record the evidence scoped to it.
+
+    This is the executable half of the evidence spine: a step that carries a
+    verify_command can prove its own definition of done. On success the step's
+    strict-evidence gate is satisfied, so `step ID completed` will pass.
+    """
+    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+        fail(VERIFY_RUN_DISABLED_MESSAGE)
+        return 2
+    try:
+        step_id = int(args.id)
+    except ValueError:
+        fail("[FAIL] Invalid step id: {0}. Step ids are integers.".format(args.id))
+        return 1
+    slug = target_plan_slug(state, args.plan)
+    if slug is None:
+        fail("[FAIL] No active plan. Create one with: plan create GOAL")
+        return 1
+    plan = load_plan(state, slug)
+    if plan is None:
+        fail("[FAIL] Plan not found: {0}".format(slug))
+        return 1
+    step = next((candidate for candidate in plan["steps"] if candidate.get("id") == step_id), None)
+    if step is None:
+        fail("[FAIL] Step {0} not found in plan {1}.".format(step_id, slug))
+        return 1
+    command = (step.get("verify_command") or "").strip()
+    if not command:
+        fail(
+            "[FAIL] Step {0} has no verify_command. Add one with "
+            "plan add-step --verify, or run verify run manually.".format(step_id)
+        )
+        return 1
+    if step.get("status") != "completed":
+        step["status"] = "in_progress"
+        step["updated_at"] = now_iso()
+        plan["last_updated"] = step["updated_at"]
+        save_plan(state, slug, plan)
+    context = {
+        "plan": slug,
+        "step_id": step_id,
+        "step_title": step.get("title"),
+        "step_status": "in_progress",
+    }
+    claim = "step {0}: {1}".format(step_id, step.get("title", ""))
+    record = execute_recorded_verification(state, command, claim, args.timeout, context)
+    if record["verified"]:
+        print(
+            "[OK] VERIFIED step {0}: {1} (exit 0, {2:.2f}s)".format(
+                step_id, command, record["duration_seconds"]
+            )
+        )
+        print("Next: python3 scripts/mythify.py step {0} completed \"verify run exit 0\"".format(step_id))
+        return 0
+    print(
+        "[FAIL] UNVERIFIED step {0}: {1} (exit {2}, {3:.2f}s)".format(
+            step_id, command, record["exit_code"], record["duration_seconds"]
+        )
+    )
+    if record["stdout_tail"]:
+        print("--- stdout (tail) ---")
+        print(record["stdout_tail"])
+    if record["stderr_tail"]:
+        print("--- stderr (tail) ---")
+        print(record["stderr_tail"])
+    return 2
 
 
 def cmd_plan_list(args, state):

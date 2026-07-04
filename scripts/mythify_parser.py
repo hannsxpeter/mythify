@@ -1064,7 +1064,9 @@ def build_parser(symbols):
         "--steps",
         help=(
             "JSON array of step objects: "
-            "[{\"title\": str, \"success_criteria\": str (optional)}]."
+            "[{\"title\": str, \"success_criteria\": str (optional), "
+            "\"verify_command\": str (optional)}]. A step's verify_command is "
+            "the executable proof of its done-condition; run it with plan verify."
         ),
     )
     p.add_argument(
@@ -1114,8 +1116,32 @@ def build_parser(symbols):
     )
     p.add_argument("title", help="Step title.")
     p.add_argument("--criteria", help="Success criteria for the step.")
+    p.add_argument(
+        "--verify",
+        help="Executable command that proves the step is done; run it with plan verify.",
+    )
     p.add_argument("--plan", help="Plan name; defaults to the active plan.")
     p.set_defaults(handler=cmd_plan_add_step)
+
+    p = plan_sub.add_parser(
+        "verify",
+        help="Run a step's own verify command and record the evidence scoped to it.",
+        description=(
+            "Execute the step's verify_command, mark the step in progress, and "
+            "record the executed verification against that step. On success the "
+            "strict-evidence gate is satisfied, so step ID completed will pass. "
+            "Exits 0 when verified, 2 when the command fails, 1 on usage errors."
+        ),
+    )
+    p.add_argument("id", help="Step id (1-based integer).")
+    p.add_argument("--plan", help="Plan name; defaults to the active plan.")
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_VERIFY_TIMEOUT,
+        help="Timeout in seconds for the verify command.",
+    )
+    p.set_defaults(handler=cmd_plan_verify)
 
     p = plan_sub.add_parser(
         "list",
