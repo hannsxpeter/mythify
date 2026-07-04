@@ -700,6 +700,59 @@ class TestCliMcpInterop(unittest.TestCase):
         self.assertEqual(cli_active, "- [ ] Ship feature X")
         self.assertEqual(cli_active, mcp_active)
 
+    def _assert_route_parity(self, client, task):
+        cli = self.run_cli("route", task, "--json", "--triage", "never")
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        cli_payload = json.loads(cli.stdout)
+        mcp_payload = self.ok_json(
+            self.call_tool(
+                client, "workflow_route", {"task": task, "format": "json", "triage": "never"}
+            )
+        )
+        self.assertEqual(
+            (cli_payload["route"], cli_payload["next_command"]),
+            (mcp_payload["route"], mcp_payload["next_command"]),
+            task,
+        )
+
+    def test_cli_and_mcp_stateless_routes_match(self):
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        prompts = [
+            "What does the status command show?",              # direct
+            "Add an export endpoint with validation and tests",  # plan
+            "Research the latest wire format options",         # research
+            "Audit this module for risks",                     # review
+            "Iterate until the unit tests pass",               # outcome
+            "One shot this project, ship it",                  # campaign
+            "Give me the next prompt packet",                  # prompt
+        ]
+        client = self.start_mcp()
+        try:
+            for prompt in prompts:
+                self._assert_route_parity(client, prompt)
+        finally:
+            client.close()
+
+    def test_cli_and_mcp_stateful_routes_match(self):
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        # handoff: active plan + resume language.
+        self.assertEqual(
+            self.run_cli(
+                "plan", "create", "feature", "--steps", json.dumps([{"title": "s1"}])
+            ).returncode,
+            0,
+        )
+        client = self.start_mcp()
+        try:
+            self._assert_route_parity(client, "continue from where we left off")
+            # failure: a red executed verification outranks everything else.
+            self.run_cli("verify", "run", "false", "--claim", "intentionally red")
+            self._assert_route_parity(client, "continue the work")
+        finally:
+            client.close()
+
     def test_cli_and_mcp_edge_fixture_route_matches(self):
         fixtures = REPO_ROOT / "tests" / "fixtures" / "godfiles"
         (self.project / ".godplans").mkdir()
