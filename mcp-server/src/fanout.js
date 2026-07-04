@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { redactSensitiveOutput } from "./redact.js";
 import {
   EFFORT_LEVELS,
@@ -851,9 +851,75 @@ function saveJob(job, jobDir) {
   io.writeJsonAtomic(path.join(jobDir, "job.json"), job);
 }
 
+// --- Worktree isolation -----------------------------------------------------
+// A task with isolation "worktree" runs in its own git worktree on a fresh
+// branch, so parallel writing workers cannot collide on the same files. When
+// the worker changed nothing the worktree and branch are removed; when it did,
+// they are left for the host to inspect and merge. Falls back to the shared
+// project root (with a note) when the project is not a git repository.
+
+function gitInsideWorkTree(projectRoot) {
+  const r = spawnSync("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], {
+    encoding: "utf8",
+  });
+  return r.status === 0 && String(r.stdout).trim() === "true";
+}
+
+function setupWorktree(projectRoot, label) {
+  if (!gitInsideWorkTree(projectRoot)) {
+    return { ok: false, note: "project is not a git repository; ran in the shared project root" };
+  }
+  const branch = `mythify/fanout-${label}-${crypto.randomBytes(3).toString("hex")}`;
+  let dir;
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-fanout-wt-"));
+  } catch (err) {
+    return { ok: false, note: `could not create worktree dir: ${err.message}` };
+  }
+  const r = spawnSync("git", ["-C", projectRoot, "worktree", "add", "-b", branch, dir, "HEAD"], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+    return { ok: false, note: `git worktree add failed: ${String(r.stderr || "").trim()}` };
+  }
+  return { ok: true, dir, branch };
+}
+
+function teardownWorktree(projectRoot, worktree) {
+  const status = spawnSync("git", ["-C", worktree.dir, "status", "--porcelain"], {
+    encoding: "utf8",
+  });
+  const changed = status.status === 0 && String(status.stdout).trim() !== "";
+  if (changed) {
+    return { isolated: true, branch: worktree.branch, path: worktree.dir, changed: true };
+  }
+  spawnSync("git", ["-C", projectRoot, "worktree", "remove", "--force", worktree.dir], {
+    encoding: "utf8",
+  });
+  spawnSync("git", ["-C", projectRoot, "branch", "-D", worktree.branch], { encoding: "utf8" });
+  return { isolated: true, branch: null, path: null, changed: false };
+}
+
 async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot) {
   task.status = "running";
   task.started_at = io.isoNow();
+  let effectiveRoot = projectRoot;
+  let worktree = null;
+  if (task.isolation === "worktree") {
+    const setup = setupWorktree(projectRoot, `${job.id}-t${task.id}`);
+    if (setup.ok) {
+      worktree = setup;
+      effectiveRoot = setup.dir;
+      task.worktree = { isolated: true, branch: setup.branch, path: setup.dir };
+    } else {
+      task.worktree = { isolated: false, note: setup.note };
+    }
+  }
   saveJob(job, jobDir);
   appendProviderAudit({
     ...providerAuditBase(job, task, prompt),
@@ -870,7 +936,7 @@ async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot
       task.effort,
       task.speed,
       timeoutSeconds,
-      projectRoot
+      effectiveRoot
     );
   } catch (err) {
     outcome = {
@@ -902,6 +968,9 @@ async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot
   task.duration_seconds = durationSeconds;
   task.error = outcome.ok ? null : outcome.error || "Worker failed with no error detail.";
   task.output_bytes = outputBytes;
+  if (worktree) {
+    task.worktree = teardownWorktree(projectRoot, worktree);
+  }
   saveJob(job, jobDir);
   appendProviderAudit({
     ...providerAuditBase(job, task, prompt),
@@ -1073,6 +1142,7 @@ function handleFanoutStart({
     const task = tasks[i] || {};
     const title = typeof task.title === "string" ? task.title : "";
     const taskRole = TASK_ROLES.includes(task.role) ? task.role : "worker";
+    const taskIsolation = task.isolation === "worktree" ? "worktree" : "none";
     const label = `Task ${i + 1}${title !== "" ? ` ("${title}")` : ""}`;
     if (typeof task.prompt !== "string" || task.prompt.trim() === "") {
       return `[FAIL] ${label}: prompt must be a non-empty string. No job was started.`;
@@ -1131,6 +1201,7 @@ function handleFanoutStart({
     resolvedTasks.push({
       title,
       role: taskRole,
+      isolation: taskIsolation,
       engine: taskEngine,
       model: taskModel,
       modelSource: modelSelection.modelSource,
@@ -1233,6 +1304,7 @@ function handleFanoutStart({
         id: i + 1,
         title: resolved.title,
         role: resolved.role,
+        isolation: resolved.isolation,
         status: "pending",
         engine: resolved.engine,
         ...taskCostMetadata,

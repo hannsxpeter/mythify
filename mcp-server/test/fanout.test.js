@@ -744,6 +744,7 @@ test("fanout with the command engine", async (t) => {
             "error",
             "finished_at",
             "id",
+            "isolation",
             "model",
             "model_ceiling_status",
             "model_source",
@@ -1757,4 +1758,87 @@ test("anthropic engine model alias mapping matches the spec table", () => {
     "claude-custom-model-1",
     "unknown model IDs pass through unchanged"
   );
+});
+
+// Worktree isolation: a writing worker runs in its own git worktree on a fresh
+// branch, so the change lands off the main tree for the host to merge; a worker
+// that changes nothing has its worktree and branch cleaned up.
+import { spawnSync as spawnSyncWt } from "node:child_process";
+
+function gitInit(dir) {
+  spawnSyncWt("git", ["-C", dir, "init", "-q"], { encoding: "utf8" });
+  spawnSyncWt("git", ["-C", dir, "config", "user.email", "t@t"], { encoding: "utf8" });
+  spawnSyncWt("git", ["-C", dir, "config", "user.name", "t"], { encoding: "utf8" });
+  fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
+  spawnSyncWt("git", ["-C", dir, "add", "-A"], { encoding: "utf8" });
+  spawnSyncWt("git", ["-C", dir, "commit", "-qm", "seed"], { encoding: "utf8" });
+}
+
+const WRITER_WORKER = [
+  'const fs = require("node:fs");',
+  'let p = "";',
+  'process.stdin.on("data", (d) => { p += d; });',
+  'process.stdin.on("end", () => {',
+  '  if (p.includes("WRITE")) { fs.writeFileSync("WROTE.txt", "worker was here\\n"); }',
+  '  process.stdout.write("WORKER-MARKER cwd=" + process.cwd() + "\\n");',
+  "});",
+].join("\n");
+
+test("fanout worktree isolation keeps writers off the main tree", async (t) => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-wt-");
+  gitInit(projectRoot);
+  const workerPath = path.join(root, "writer-worker.cjs");
+  fs.writeFileSync(workerPath, WRITER_WORKER);
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "command",
+      MYTHIFY_FANOUT_COMMAND: `"${process.execPath}" "${workerPath}"`,
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    await t.test("a writing worker leaves its branch and does not touch the main tree", async () => {
+      const started = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: { tasks: [{ title: "Writer", prompt: "WRITE something", isolation: "worktree" }] },
+        })
+      );
+      const jobId = jobIdOf(started);
+      await waitForAllFinished(client, jobId);
+      const job = JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"));
+      const wt = job.tasks[0].worktree;
+      assert.ok(wt && wt.isolated === true, "task ran in an isolated worktree");
+      assert.ok(typeof wt.branch === "string" && wt.branch.length > 0, "the worktree branch is recorded");
+      assert.equal(wt.changed, true, "the worker's change is preserved on the branch");
+      assert.ok(!fs.existsSync(path.join(projectRoot, "WROTE.txt")), "the main tree is untouched");
+      assert.ok(fs.existsSync(path.join(wt.path, "WROTE.txt")), "the change is in the worktree");
+    });
+
+    await t.test("a non-writing worker's worktree and branch are cleaned up", async () => {
+      const started = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: { tasks: [{ title: "Reader", prompt: "READ only", isolation: "worktree" }] },
+        })
+      );
+      const jobId = jobIdOf(started);
+      await waitForAllFinished(client, jobId);
+      const job = JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"));
+      const wt = job.tasks[0].worktree;
+      assert.equal(wt.changed, false, "no change was made");
+      assert.equal(wt.branch, null, "the branch was cleaned up");
+      assert.equal(wt.path, null, "the worktree path was removed");
+      // Exactly one mythify branch lingers: the writing worker's from the prior
+      // sub-test. The non-writing worker's branch was cleaned up, not added.
+      const branches = spawnSyncWt("git", ["-C", projectRoot, "branch", "--list", "mythify/*"], {
+        encoding: "utf8",
+      });
+      const lingering = String(branches.stdout).trim().split("\n").filter((line) => line.trim() !== "");
+      assert.equal(lingering.length, 1, "only the writing worker's branch remains");
+    });
+  } finally {
+    await client.close();
+  }
 });
