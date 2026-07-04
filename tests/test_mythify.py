@@ -3213,7 +3213,7 @@ class TestOutcome(CliTestCase):
         status = self.run_cli("outcome", "status")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("status: succeeded", status.stdout)
-        self.assertIn("allowed path hints (advisory): scripts, tests", status.stdout)
+        self.assertIn("scope (enforced post-hoc via git): scripts, tests", status.stdout)
         results = self.run_cli("outcome", "results")
         self.assertEqual(results.returncode, 0, results.stderr)
         self.assertIn("iteration 1: verified=True", results.stdout)

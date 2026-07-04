@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import sys
 
 from mythify_io import _write_text_atomic, append_jsonl, read_json, read_jsonl, write_json_atomic
@@ -144,6 +145,54 @@ def parse_allowed_paths(value):
     return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
+def outcome_project_root(state):
+    from pathlib import Path
+
+    return state.parent if state.name == ".mythify" else Path.cwd()
+
+
+def git_changed_paths(root):
+    """Return the working-tree paths git reports as changed, or None off-git."""
+    run = run_shell_capture("git -C {0} status --porcelain".format(shlex.quote(str(root))), 30)
+    if run["exit_code"] != 0:
+        return None
+    paths = []
+    for line in (run.get("stdout_tail") or "").splitlines():
+        entry = line[3:].strip() if len(line) > 3 else ""
+        if " -> " in entry:
+            entry = entry.split(" -> ", 1)[1]
+        if entry:
+            paths.append(entry.strip('"'))
+    return paths
+
+
+def paths_outside_scope(changed, allowed):
+    """Paths not contained by any allowed prefix. Empty allowed => no scope."""
+    if not allowed:
+        return []
+    prefixes = [item.rstrip("/") for item in allowed]
+    outside = []
+    for path in changed:
+        normalized = path.rstrip("/")
+        # Mythify's own state directory is never the agent's target.
+        if normalized == ".mythify" or normalized.startswith(".mythify/"):
+            continue
+        if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in prefixes):
+            continue
+        outside.append(path)
+    return outside
+
+
+def scope_violations(state, allowed_paths):
+    """Files changed outside the declared scope, enforced post-hoc via git."""
+    if not allowed_paths:
+        return []
+    changed = git_changed_paths(outcome_project_root(state))
+    if changed is None:
+        return []
+    return paths_outside_scope(changed, allowed_paths)
+
+
 def parse_metric_score(output):
     match = re.search(r"-?\d+(?:\.\d+)?", str(output or ""))
     return float(match.group(0)) if match else None
@@ -165,7 +214,7 @@ def format_outcome_status(slug, goal, iterations=None):
         lines.append("metric: {0}".format(metric))
     allowed = goal.get("allowed_paths") or []
     if allowed:
-        lines.append("allowed path hints (advisory): {0}".format(", ".join(allowed)))
+        lines.append("scope (enforced post-hoc via git): {0}".format(", ".join(allowed)))
     if iterations:
         last = iterations[-1]
         lines.append(
@@ -283,9 +332,18 @@ def cmd_outcome_check(args, state):
             "verified": metric["verified"],
             "score": metric_score,
         }
+    violations = scope_violations(state, goal.get("allowed_paths") or [])
     verified = bool(verify["verified"] and metric_ok)
     next_iteration = iteration_count + 1
-    if verified:
+    if violations:
+        status_after = "active"
+        next_action = (
+            "Scope violation: {0} file(s) changed outside the declared scope "
+            "({1}). Revert them or widen --allowed-paths before continuing.".format(
+                len(violations), ", ".join(violations[:5])
+            )
+        )
+    elif verified:
         status_after = "succeeded"
         next_action = "Outcome met. Report the evidence and stop."
     elif next_iteration >= max_iterations:
@@ -311,6 +369,7 @@ def cmd_outcome_check(args, state):
         },
         "metric": metric_record,
         "verified": verified,
+        "scope_violations": violations,
         "status_after": status_after,
         "next_action": next_action,
     }

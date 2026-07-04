@@ -823,7 +823,7 @@ function formatOutcomeStatus(slug, goal, iterations = []) {
     lines.push(`metric: ${goal.metric_command}`);
   }
   if (Array.isArray(goal.allowed_paths) && goal.allowed_paths.length > 0) {
-    lines.push(`allowed path hints (advisory): ${goal.allowed_paths.join(", ")}`);
+    lines.push(`scope (enforced by the CLI outcome loop via git): ${goal.allowed_paths.join(", ")}`);
   }
   if (iterations.length > 0) {
     const last = iterations[iterations.length - 1];

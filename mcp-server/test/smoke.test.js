@@ -1087,8 +1087,8 @@ test("mythify MCP server smoke test", async (t) => {
       assert.match(statusText, /status: succeeded/, "status reports success");
       assert.match(
         statusText,
-        /allowed path hints \(advisory\): mcp-server\/src, mcp-server\/test/,
-        "status labels allowed_paths as advisory hints"
+        /scope \(enforced by the CLI outcome loop via git\): mcp-server\/src, mcp-server\/test/,
+        "status labels allowed_paths as a CLI-enforced scope"
       );
 
       const failCommand = `${JSON.stringify(process.execPath)} -e "process.stdout.write('nope'); process.exit(4)"`;
