@@ -912,7 +912,8 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Convert godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks into a plan and set it active. Discovers the artifact at the project root when PATH is omitted; both present without `--source` is an error. Live tasks import in document order (superseded strikethrough tasks skipped, checked boxes import completed); each step keeps `source_id`, `verify_command`, `wave`, `phase`, plus `depends_on` and `fixes` when present. Sets `strict_context` and a `source` provenance block; re-importing the same artifact path is refused while the imported plan exists. Warns on frontmatter counter drift. Never edits the artifact. | 0; 1 on missing, ambiguous, unrecognized, or already-imported artifacts |
-| `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan. | 0; 1 if plan not found |
+| `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan, optionally with an executable `verify_command`. | 0; 1 if plan not found |
+| `plan verify ID [--plan NAME] [--timeout N]` | Run the step's `verify_command`, mark the step in progress, and record the executed verification scoped to that step so the strict-evidence gate is satisfied. CLI-only. | 0 verified; 2 command failed; 1 usage error |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
 | `plan switch NAME` | Set the active plan pointer. | 0; 1 if not found |
@@ -942,7 +943,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.57`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `4.0.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -976,7 +977,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Render a chat-ready next prompt for the active or named campaign's current task and phase. It must not mutate state, run checks, advance a phase, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and advances the campaign with evidence. |
 | `prompt_packet` | `{kind?: enum(research, analysis, failure, handoff, review, campaign, next), name?: string, goal?: string, verify_command?: string, format?: enum(text, json)}` | Render a chat-ready prompt packet for research to implementation, analysis to plan, failure recovery, handoff, review, campaign, or the next useful workflow move. It must not mutate state, run checks, advance work, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and records evidence. |
 | `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text and durable state. It returns `route`, `reason`, `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
-| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. `allowed_paths` are advisory host-edit hints, not a sandbox. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. |
+| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` is a scope the CLI `outcome run` loop enforces post-hoc via git; `outcome_check` (both runtimes) surfaces but does not block on it. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
 | `outcome_results` | `{name?: string, format?: enum(text, json)}` | Show all recorded verifier iterations and final state. |
@@ -2098,7 +2099,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.57. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v4.0.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2195,6 +2196,11 @@ them into both the Codex and Claude Code skills roots; 3.6.56 adds the CLI
 for autonomous agent work; 3.6.57 adds godplans and godaudits artifact
 awareness with the CLI `plan import` command, artifact-gated routing and
 readiness and harness surfacing, an executed campaign verifier, and the
-`mythify_godfiles.py` and `godfiles-core.js` shared parsers.
-The CLI reports 3.6.57 through `--version`; the MCP server reads `package.json`
+`mythify_godfiles.py` and `godfiles-core.js` shared parsers; 4.0.0 unifies the
+evidence spine with per-step `verify_command` and `plan verify`, adds the
+bounded self-driving `outcome run` loop with a cost budget ledger, git scope
+enforcement, and consecutive-failure escalation, adds git-worktree isolation
+for parallel writing fanout workers, and routes all recorded output through a
+single secret-redaction choke point (`redact.js`).
+The CLI reports 4.0.0 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

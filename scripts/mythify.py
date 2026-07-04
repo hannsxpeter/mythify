@@ -96,6 +96,7 @@ from mythify_plan_horizon import (  # noqa: E402
 
 from mythify_outcomes import (  # noqa: E402
     cmd_outcome_check,
+    cmd_outcome_run,
     cmd_outcome_results,
     cmd_outcome_start,
     cmd_outcome_status,
@@ -170,9 +171,9 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "3.6.57"
+VERSION = "4.0.0"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "243af70d48946558d8bee05557dec91542e2f6dca82ed33ce4794d8df8325443"
+PROTOCOL_SOURCE_SHA256 = "33c805589089782ef1f71ac8a26fd418b0c5603ed4f8447960fd20132a7ae22f"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -538,8 +539,14 @@ def target_plan_slug(state, name):
     return get_active_slug(state)
 
 
-def execute_recorded_verification(state, command, claim, timeout=None):
-    """Run COMMAND, append an executed verification record, return the record."""
+def execute_recorded_verification(state, command, claim, timeout=None, context=None):
+    """Run COMMAND, append an executed verification record, return the record.
+
+    When ``context`` (a plan/step_id/step_title/step_status dict) is given it is
+    stamped on the record verbatim; otherwise the active plan's in-progress step
+    is auto-detected. An explicit context lets ``plan verify`` scope evidence to
+    a specific step of any plan, not just the active one.
+    """
     run = run_shell_capture(command, timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT)
     record = {
         "kind": "executed",
@@ -552,7 +559,7 @@ def execute_recorded_verification(state, command, claim, timeout=None):
         "verified": run["verified"],
         "timestamp": now_iso(),
     }
-    record.update(verification_step_context(state))
+    record.update(context if context is not None else verification_step_context(state))
     append_jsonl(state / "verifications.jsonl", record)
     return record
 
@@ -894,15 +901,17 @@ def cmd_plan_create(args, state):
     stamp = now_iso()
     steps = []
     for index, item in enumerate(steps_input):
-        steps.append(
-            {
-                "id": index + 1,
-                "title": str(item["title"]),
-                "success_criteria": str(item.get("success_criteria", "")),
-                "status": "pending",
-                "result": None,
-            }
-        )
+        step = {
+            "id": index + 1,
+            "title": str(item["title"]),
+            "success_criteria": str(item.get("success_criteria", "")),
+            "status": "pending",
+            "result": None,
+        }
+        verify_command = str(item.get("verify_command", "")).strip()
+        if verify_command:
+            step["verify_command"] = verify_command
+        steps.append(step)
     plan = {
         "name": slug,
         "goal": args.goal,
@@ -1084,19 +1093,92 @@ def cmd_plan_add_step(args, state):
         fail("[FAIL] Plan not found: {0}".format(slug))
         return 1
     new_id = max([step.get("id", 0) for step in plan["steps"]] + [0]) + 1
-    plan["steps"].append(
-        {
-            "id": new_id,
-            "title": args.title,
-            "success_criteria": args.criteria or "",
-            "status": "pending",
-            "result": None,
-        }
-    )
+    step = {
+        "id": new_id,
+        "title": args.title,
+        "success_criteria": args.criteria or "",
+        "status": "pending",
+        "result": None,
+    }
+    verify_command = (getattr(args, "verify", None) or "").strip()
+    if verify_command:
+        step["verify_command"] = verify_command
+    plan["steps"].append(step)
     plan["last_updated"] = now_iso()
     save_plan(state, slug, plan)
     print("[OK] Added step {0} to plan {1}: {2}".format(new_id, slug, args.title))
+    if verify_command:
+        print("     verify: {0}".format(verify_command))
     return 0
+
+
+def cmd_plan_verify(args, state):
+    """Run a step's own verify command and record the evidence scoped to it.
+
+    This is the executable half of the evidence spine: a step that carries a
+    verify_command can prove its own definition of done. On success the step's
+    strict-evidence gate is satisfied, so `step ID completed` will pass.
+    """
+    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+        fail(VERIFY_RUN_DISABLED_MESSAGE)
+        return 2
+    try:
+        step_id = int(args.id)
+    except ValueError:
+        fail("[FAIL] Invalid step id: {0}. Step ids are integers.".format(args.id))
+        return 1
+    slug = target_plan_slug(state, args.plan)
+    if slug is None:
+        fail("[FAIL] No active plan. Create one with: plan create GOAL")
+        return 1
+    plan = load_plan(state, slug)
+    if plan is None:
+        fail("[FAIL] Plan not found: {0}".format(slug))
+        return 1
+    step = next((candidate for candidate in plan["steps"] if candidate.get("id") == step_id), None)
+    if step is None:
+        fail("[FAIL] Step {0} not found in plan {1}.".format(step_id, slug))
+        return 1
+    command = (step.get("verify_command") or "").strip()
+    if not command:
+        fail(
+            "[FAIL] Step {0} has no verify_command. Add one with "
+            "plan add-step --verify, or run verify run manually.".format(step_id)
+        )
+        return 1
+    if step.get("status") != "completed":
+        step["status"] = "in_progress"
+        step["updated_at"] = now_iso()
+        plan["last_updated"] = step["updated_at"]
+        save_plan(state, slug, plan)
+    context = {
+        "plan": slug,
+        "step_id": step_id,
+        "step_title": step.get("title"),
+        "step_status": "in_progress",
+    }
+    claim = "step {0}: {1}".format(step_id, step.get("title", ""))
+    record = execute_recorded_verification(state, command, claim, args.timeout, context)
+    if record["verified"]:
+        print(
+            "[OK] VERIFIED step {0}: {1} (exit 0, {2:.2f}s)".format(
+                step_id, command, record["duration_seconds"]
+            )
+        )
+        print("Next: python3 scripts/mythify.py step {0} completed \"verify run exit 0\"".format(step_id))
+        return 0
+    print(
+        "[FAIL] UNVERIFIED step {0}: {1} (exit {2}, {3:.2f}s)".format(
+            step_id, command, record["exit_code"], record["duration_seconds"]
+        )
+    )
+    if record["stdout_tail"]:
+        print("--- stdout (tail) ---")
+        print(record["stdout_tail"])
+    if record["stderr_tail"]:
+        print("--- stderr (tail) ---")
+        print(record["stderr_tail"])
+    return 2
 
 
 def cmd_plan_list(args, state):
@@ -1266,7 +1348,7 @@ def _append_stderr_notice(stderr_tail, notice):
     return (stderr_tail + "\n" + notice) if stderr_tail else notice
 
 
-def _read_file_tail_text(path, char_limit=TAIL_CHARS):
+def _read_file_tail_text(path, char_limit=TAIL_CHARS, redactor=None):
     try:
         size = path.stat().st_size
     except OSError:
@@ -1275,9 +1357,14 @@ def _read_file_tail_text(path, char_limit=TAIL_CHARS):
     try:
         with path.open("rb") as handle:
             handle.seek(max(0, size - byte_limit))
-            return handle.read().decode("utf-8", errors="replace")[-char_limit:]
+            window = handle.read().decode("utf-8", errors="replace")
     except OSError:
         return ""
+    # Redact the wider read window before the final char slice so a secret that
+    # straddles the char boundary is caught whole, matching the Node order.
+    if redactor is not None:
+        window = redactor(window)
+    return window[-char_limit:]
 
 
 def _file_size(path):
@@ -1347,8 +1434,8 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
                     process.kill()
                     process.wait(timeout=1)
                 exit_code = process.returncode
-        stdout_tail = redact_sensitive_output(_read_file_tail_text(stdout_path))
-        stderr_tail = redact_sensitive_output(_read_file_tail_text(stderr_path))
+        stdout_tail = _read_file_tail_text(stdout_path, redactor=redact_sensitive_output)
+        stderr_tail = _read_file_tail_text(stderr_path, redactor=redact_sensitive_output)
         total_size = _file_size(stdout_path) + _file_size(stderr_path)
     duration = (datetime.now(timezone.utc) - started).total_seconds()
     if (

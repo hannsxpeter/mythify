@@ -154,8 +154,9 @@ function main() {
     mcp.total_tools + " tools in total"
   );
 
+  // The beginner README names the tool count and points to design.md; the
+  // exhaustive per-tool reference (and drift guard) lives in design.md.
   for (const tool of allTools) {
-    requireIncludes("README.md", tool);
     requireIncludes("docs/design.md", tool);
   }
 

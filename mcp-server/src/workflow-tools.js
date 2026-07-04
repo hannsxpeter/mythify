@@ -896,7 +896,9 @@ function workflowRouteState() {
     };
   }
   let outcomeView = null;
-  if (activeOutcome) {
+  // Only an active outcome steers routing; a finished loop stays visible in
+  // status and background views but must not be a routing target.
+  if (activeOutcome && activeOutcome.status === "active") {
     outcomeView = {
       id: activeOutcomeSlug,
       goal: activeOutcome.goal || "",

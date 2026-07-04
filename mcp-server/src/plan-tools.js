@@ -60,6 +60,10 @@ export function registerPlanTools(server, deps) {
             z.object({
               title: z.string().describe("Step title."),
               success_criteria: z.string().optional().describe("How to tell the step is done. Defaults to empty."),
+              verify_command: z
+                .string()
+                .optional()
+                .describe("Executable proof of the step's done-condition; run it with the CLI plan verify."),
             })
           )
           .optional()
@@ -93,13 +97,20 @@ export function registerPlanTools(server, deps) {
         slugify(name !== undefined && name !== null && String(name).trim() !== "" ? name : goal) || "plan";
       const slug = uniquePlanSlug(base);
       const now = isoNow();
-      const planSteps = inputSteps.map((s, i) => ({
-        id: i + 1,
-        title: s.title,
-        success_criteria: s.success_criteria || "",
-        status: "pending",
-        result: null,
-      }));
+      const planSteps = inputSteps.map((s, i) => {
+        const step = {
+          id: i + 1,
+          title: s.title,
+          success_criteria: s.success_criteria || "",
+          status: "pending",
+          result: null,
+        };
+        const verifyCommand = String(s.verify_command || "").trim();
+        if (verifyCommand) {
+          step.verify_command = verifyCommand;
+        }
+        return step;
+      });
       const plan = {
         name: slug,
         goal,
@@ -134,10 +145,14 @@ export function registerPlanTools(server, deps) {
       inputSchema: {
         title: z.string().describe("Step title."),
         success_criteria: z.string().optional().describe("How to tell the step is done. Defaults to empty."),
+        verify_command: z
+          .string()
+          .optional()
+          .describe("Executable proof of the step's done-condition; run it with the CLI plan verify."),
         plan: z.string().optional().describe("Plan name; omit to use the active plan."),
       },
     },
-    guarded(({ title, success_criteria, plan: planName }) => {
+    guarded(({ title, success_criteria, verify_command, plan: planName }) => {
       const resolved = resolvePlan(planName);
       if (resolved.error) {
         return resolved.error;
@@ -154,6 +169,10 @@ export function registerPlanTools(server, deps) {
         status: "pending",
         result: null,
       };
+      const verifyCommand = String(verify_command || "").trim();
+      if (verifyCommand) {
+        step.verify_command = verifyCommand;
+      }
       plan.steps.push(step);
       savePlan(slug, plan);
       return `[OK] Added step ${step.id} to plan "${slug}": ${title}`;

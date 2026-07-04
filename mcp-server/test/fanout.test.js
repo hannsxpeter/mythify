@@ -744,6 +744,7 @@ test("fanout with the command engine", async (t) => {
             "error",
             "finished_at",
             "id",
+            "isolation",
             "model",
             "model_ceiling_status",
             "model_source",
@@ -1013,7 +1014,7 @@ case " $* " in *" --effort ${expectedEffort} "*) ;; *) args_ok=no ;; esac
 case " $* " in *" --max-turns "*) ;; *) args_ok=no ;; esac
 ctx=no
 case "$PROMPT" in *"${contextMarker}"*) ctx=yes ;; esac
-printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_ENTRYPOINT=%s CLAUDE_CODE_OAUTH_TOKEN=%s USER=%s MYTHIFY_FANOUT_DEPTH=%s MYTHIFY_DISABLE_FANOUT=%s TERM=%s","is_error":false}\\n' "$args_ok" "$ctx" "\${CLAUDECODE:-__unset__}" "\${ANTHROPIC_BASE_URL:-__unset__}" "\${CLAUDE_CODE_ENTRYPOINT:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:-__unset__}" "\${USER:-__unset__}" "\${MYTHIFY_FANOUT_DEPTH:-__unset__}" "\${MYTHIFY_DISABLE_FANOUT:-__unset__}" "\${TERM:-__unset__}"
+printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_ENTRYPOINT=%s CLAUDE_CODE_OAUTH_TOKEN=%s OAUTHSET=%s USER=%s MYTHIFY_FANOUT_DEPTH=%s MYTHIFY_DISABLE_FANOUT=%s TERM=%s","is_error":false}\\n' "$args_ok" "$ctx" "\${CLAUDECODE:-__unset__}" "\${ANTHROPIC_BASE_URL:-__unset__}" "\${CLAUDE_CODE_ENTRYPOINT:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:+yes}" "\${USER:-__unset__}" "\${MYTHIFY_FANOUT_DEPTH:-__unset__}" "\${MYTHIFY_DISABLE_FANOUT:-__unset__}" "\${TERM:-__unset__}"
 `;
   fs.writeFileSync(filePath, script, { mode: 0o755 });
 }
@@ -1055,6 +1056,7 @@ process.stdin.on("end", () => {
   const ctx = prompt.includes("${contextMarker}") ? "yes" : "no";
   const result = "STUB-CODEX args_ok=" + argsOk +
     " ctx=" + ctx +
+    " OPENAISET=" + (process.env.OPENAI_API_KEY ? "yes" : "no") +
     " OPENAI_API_KEY=" + (process.env.OPENAI_API_KEY || "__unset__") +
     " CODEX_HOME=" + (process.env.CODEX_HOME || "__unset__") +
     " MYTHIFY_FANOUT_DEPTH=" + (process.env.MYTHIFY_FANOUT_DEPTH || "__unset__") +
@@ -1095,6 +1097,7 @@ const argsOk = checks.every(Boolean) ? "yes" : "no";
 const ctx = prompt.includes("${contextMarker}") ? "yes" : "no";
 process.stdout.write("STUB-CURSOR args_ok=" + argsOk +
   " ctx=" + ctx +
+  " CURSORSET=" + (process.env.CURSOR_API_KEY ? "yes" : "no") +
   " CURSOR_API_KEY=" + (process.env.CURSOR_API_KEY || "__unset__") +
   " MYTHIFY_FANOUT_DEPTH=" + (process.env.MYTHIFY_FANOUT_DEPTH || "__unset__") +
   " MYTHIFY_DISABLE_FANOUT=" + (process.env.MYTHIFY_DISABLE_FANOUT || "__unset__") +
@@ -1167,8 +1170,12 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
       "CLAUDE_CODE_* harness variables are not passed through"
     );
     assert.ok(
-      results.includes("CLAUDE_CODE_OAUTH_TOKEN=stub-oauth-token-123"),
+      results.includes("OAUTHSET=yes"),
       "CLAUDE_CODE_OAUTH_TOKEN passes through for subscription auth"
+    );
+    assert.ok(
+      !results.includes("stub-oauth-token-123"),
+      "the OAUTH token value is redacted out of worker output"
     );
     assert.ok(results.includes("USER=stub-user"), "USER passes through for desktop auth");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
@@ -1295,7 +1302,7 @@ test("codex-cli engine drives a stub binary with local-login environment", async
     assert.ok(results.includes("STUB-CODEX"), "the codex stub output is returned");
     assert.ok(results.includes("args_ok=yes"), "codex exec argv matches the contract");
     assert.ok(results.includes("ctx=yes"), "the context block reached codex over stdin");
-    assert.ok(results.includes("OPENAI_API_KEY=__unset__"), "API key env does not pass through");
+    assert.ok(results.includes("OPENAISET=no"), "API key env does not pass through");
     assert.ok(results.includes(`CODEX_HOME=${codexHome}`), "CODEX_HOME passes through for local auth");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
     assert.ok(
@@ -1361,7 +1368,7 @@ test("cursor-agent engine drives a stub binary with local-login environment", as
     assert.ok(results.includes("STUB-CURSOR"), "the cursor stub output is returned");
     assert.ok(results.includes("args_ok=yes"), "cursor-agent argv matches the contract");
     assert.ok(results.includes("ctx=yes"), "the prompt file contains the assembled prompt");
-    assert.ok(results.includes("CURSOR_API_KEY=__unset__"), "API key env does not pass through");
+    assert.ok(results.includes("CURSORSET=no"), "API key env does not pass through");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
     assert.ok(
       results.includes("MYTHIFY_DISABLE_FANOUT=1"),
@@ -1751,4 +1758,133 @@ test("anthropic engine model alias mapping matches the spec table", () => {
     "claude-custom-model-1",
     "unknown model IDs pass through unchanged"
   );
+});
+
+// Worktree isolation: a writing worker runs in its own git worktree on a fresh
+// branch, so the change lands off the main tree for the host to merge; a worker
+// that changes nothing has its worktree and branch cleaned up.
+import { spawnSync as spawnSyncWt } from "node:child_process";
+
+function gitInit(dir) {
+  spawnSyncWt("git", ["-C", dir, "init", "-q"], { encoding: "utf8" });
+  spawnSyncWt("git", ["-C", dir, "config", "user.email", "t@t"], { encoding: "utf8" });
+  spawnSyncWt("git", ["-C", dir, "config", "user.name", "t"], { encoding: "utf8" });
+  fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
+  spawnSyncWt("git", ["-C", dir, "add", "-A"], { encoding: "utf8" });
+  spawnSyncWt("git", ["-C", dir, "commit", "-qm", "seed"], { encoding: "utf8" });
+}
+
+const WRITER_WORKER = [
+  'const fs = require("node:fs");',
+  'let p = "";',
+  'process.stdin.on("data", (d) => { p += d; });',
+  'process.stdin.on("end", () => {',
+  '  if (p.includes("WRITE")) { fs.writeFileSync("WROTE.txt", "worker was here\\n"); }',
+  '  process.stdout.write("WORKER-MARKER cwd=" + process.cwd() + "\\n");',
+  "});",
+].join("\n");
+
+test("fanout worktree isolation keeps writers off the main tree", async (t) => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-wt-");
+  gitInit(projectRoot);
+  const workerPath = path.join(root, "writer-worker.cjs");
+  fs.writeFileSync(workerPath, WRITER_WORKER);
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "command",
+      MYTHIFY_FANOUT_COMMAND: `"${process.execPath}" "${workerPath}"`,
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    await t.test("a writing worker leaves its branch and does not touch the main tree", async () => {
+      const started = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: { tasks: [{ title: "Writer", prompt: "WRITE something", isolation: "worktree" }] },
+        })
+      );
+      const jobId = jobIdOf(started);
+      await waitForAllFinished(client, jobId);
+      const job = JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"));
+      const wt = job.tasks[0].worktree;
+      assert.ok(wt && wt.isolated === true, "task ran in an isolated worktree");
+      assert.ok(typeof wt.branch === "string" && wt.branch.length > 0, "the worktree branch is recorded");
+      assert.equal(wt.changed, true, "the worker's change is preserved on the branch");
+      assert.equal(wt.committed, true, "the worker's change was committed onto the branch");
+      assert.equal(wt.path, null, "the temp worktree was removed after committing");
+      assert.ok(!fs.existsSync(path.join(projectRoot, "WROTE.txt")), "the main tree is untouched");
+      // The change is a real, mergeable commit on the branch, surviving the
+      // temp dir removal.
+      const show = spawnSyncWt("git", ["-C", projectRoot, "show", `${wt.branch}:WROTE.txt`], {
+        encoding: "utf8",
+      });
+      assert.equal(show.status, 0, "the change is committed on the branch");
+      assert.match(show.stdout, /worker was here/, "the branch carries the worker's file");
+    });
+
+    await t.test("a non-writing worker's worktree and branch are cleaned up", async () => {
+      const started = textOf(
+        await client.callTool({
+          name: "fanout_start",
+          arguments: { tasks: [{ title: "Reader", prompt: "READ only", isolation: "worktree" }] },
+        })
+      );
+      const jobId = jobIdOf(started);
+      await waitForAllFinished(client, jobId);
+      const job = JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"));
+      const wt = job.tasks[0].worktree;
+      assert.equal(wt.changed, false, "no change was made");
+      assert.equal(wt.branch, null, "the branch was cleaned up");
+      assert.equal(wt.path, null, "the worktree path was removed");
+      // Exactly one mythify branch lingers: the writing worker's from the prior
+      // sub-test. The non-writing worker's branch was cleaned up, not added.
+      const branches = spawnSyncWt("git", ["-C", projectRoot, "branch", "--list", "mythify/*"], {
+        encoding: "utf8",
+      });
+      const lingering = String(branches.stdout).trim().split("\n").filter((line) => line.trim() !== "");
+      assert.equal(lingering.length, 1, "only the writing worker's branch remains");
+    });
+  } finally {
+    await client.close();
+  }
+});
+
+// The v4 redaction fix must also cover the ERROR channel: a failing worker's
+// stderr tail becomes task.error, persisted to job.json and returned.
+const FAILING_SECRET_WORKER = [
+  'process.stderr.write("boom sk-ant-secretsecretsecretsecret token=supersecretvalue\\n");',
+  "process.exit(1);",
+].join("\n");
+
+test("fanout redacts secrets in the worker error channel too", async () => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-err-");
+  const workerPath = path.join(root, "failing-worker.cjs");
+  fs.writeFileSync(workerPath, FAILING_SECRET_WORKER);
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "command",
+      MYTHIFY_FANOUT_COMMAND: `"${process.execPath}" "${workerPath}"`,
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: { tasks: [{ title: "Failer", prompt: "fail with a secret" }] },
+      })
+    );
+    const jobId = jobIdOf(started);
+    await waitForAllFinished(client, jobId);
+    const job = JSON.parse(fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8"));
+    const err = job.tasks[0].error || "";
+    assert.ok(!err.includes("supersecretvalue"), "the token value is redacted in task.error");
+    assert.ok(!err.includes("sk-ant-secretsecretsecretsecret"), "the api key is redacted in task.error");
+    assert.match(err, /\[REDACTED\]/, "task.error shows the redaction marker");
+  } finally {
+    await client.close();
+  }
 });

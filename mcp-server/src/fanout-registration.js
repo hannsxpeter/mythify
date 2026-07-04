@@ -46,6 +46,12 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
                 .describe(
                   "Task role for model ceiling policy: worker by default, or reviewer for independent review tasks."
                 ),
+              isolation: z
+                .enum(["none", "worktree"])
+                .optional()
+                .describe(
+                  "Set worktree to run this writing worker in its own git worktree on a fresh branch so parallel writers cannot collide. A worker that changed files leaves its branch for the host to merge; one that changed nothing is cleaned up. Falls back to the shared project root off git."
+                ),
               model: z
                 .string()
                 .optional()
