@@ -929,6 +929,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|codex-desktop\|claude-desktop\|cursor-desktop] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. `--triage auto` runs one fast local model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
+| `loop-fit TASK [--json]` | Read-only loop-fit advisory. Assess a task against ordered gates: is there a machine-checkable done-condition, does the work recur, is there a reproduction environment (git repo), does it need human judgment. Recommend `loop` (bounded `outcome run`), `supervised` (verifier-gated plan or `outcome check`), or `direct`, with the criteria, matched signals, and a suggested next command. Runs nothing, records no evidence, and needs no `.mythify` workspace. | 0 |
 | `summary` | Full session report: plans and progress, memory count, project and global lesson counts, verification stats (executed passed, executed failed, attested count), reflection count. | 0 |
 
 Implementation notes:
@@ -2099,7 +2100,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v4.0.0. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v4.1.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2201,6 +2202,8 @@ evidence spine with per-step `verify_command` and `plan verify`, adds the
 bounded self-driving `outcome run` loop with a cost budget ledger, git scope
 enforcement, and consecutive-failure escalation, adds git-worktree isolation
 for parallel writing fanout workers, and routes all recorded output through a
-single secret-redaction choke point (`redact.js`).
-The CLI reports 4.0.0 through `--version`; the MCP server reads `package.json`
+single secret-redaction choke point (`redact.js`); 4.1.0 adds the read-only
+`loop-fit` advisory that recommends a bounded loop, a supervised loop, or doing
+a task directly, assessed against the loop-worthiness gates.
+The CLI reports 4.1.0 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

@@ -146,6 +146,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `campaign learn LESSON` | Record a learning that should improve later tasks. |
 | `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet for research, analysis, failure recovery, handoff, review, campaign, or next. |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
+| `loop-fit TASK [--json]` | Read-only advisory: assess a task against the loop-worthiness gates (machine-checkable done-condition, recurrence, reproduction environment, human judgment) and recommend a bounded self-driving loop, a supervised loop or verifier-gated plan, or doing it directly. Runs nothing. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
 | `host-model clear [--json]` | Clear the recorded host model switch. |
