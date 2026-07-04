@@ -11,6 +11,8 @@ decision records.
   ignore at first.
 - `release.md`: current release process, package artifacts, and publish checks.
 - `adapter-candidates.md`: generated adapter capability registry output.
+- `tool-use-contract.md`: deferred-tool discovery discipline: adapters must load
+  a tool's real schema before calling it and never invoke from a guessed schema.
 - `cli-to-model-runtime-migration.md`: migration path from drop-in CLI use to
   MCP and model-runtime integrations.
 - `claude-integrations.md`, `codex-integrations.md`, and
@@ -39,6 +41,9 @@ decision records.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
 - Keep MCP public surface claims at 41 tools: 38 core tools plus 3 fanout tools.
+- Keep `tool-use-contract.md` aligned with the `CLAUDE.md` / `AGENTS.md` MCP note
+  and the capability-registry guardrails; it restates their discovery discipline,
+  it does not diverge from them.
 - Keep release claims aligned to `mcp-server/package.json`,
   `mcp-server/package-lock.json`, `CHANGELOG.md`, and the latest GitHub
   release.

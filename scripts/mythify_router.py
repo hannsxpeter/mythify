@@ -452,6 +452,7 @@ def build_failure_prompt_packet(state, verify_command=""):
         "- Fix the smallest likely root cause.",
         "- Rerun the failed verifier, or the provided verifier if it is more specific.",
         "- Report the failure, fix, and verification evidence in chat.",
+        "- If the fix is hard to reverse, first lay out 2-3 labeled approaches with tradeoffs, then recommend one.",
     ])
     if verify_command:
         lines.append("- Verifier to run: {0}".format(verify_command))
@@ -552,6 +553,7 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
         "- Lead with actionable findings, with file and line references when possible.",
         "- Separate verified issues, warnings, open questions, and test gaps.",
         "- If fixes are requested, address findings one by one and verify the result.",
+        "- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs before recommending one.",
     ])
     if verify_command:
         lines.append("- Suggested verifier: {0}".format(verify_command))

@@ -171,7 +171,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 REPO_ROOT = SCRIPT_DIR.parent
 PROTOCOL_SOURCE_SHA256 = "2a3b9ebe62efc0c6f5d4a4d7f62b147acdaf38fc24f160e64a432e4fb02a1df2"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "

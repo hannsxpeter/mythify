@@ -172,6 +172,9 @@ def format_research_summary(slug, record):
             if source.get("note"):
                 lines.append("       note: {0}".format(source.get("note")))
     if claims:
+        url_by_source = {
+            source.get("id"): (source.get("url") or "") for source in sources
+        }
         lines.append("Claims:")
         for claim in claims:
             line = "  {0}. {1} confidence={2}".format(
@@ -179,10 +182,15 @@ def format_research_summary(slug, record):
                 claim.get("claim"),
                 claim.get("confidence", "medium"),
             )
-            if claim.get("source_id"):
-                line += " source={0}".format(claim.get("source_id"))
+            source_id = claim.get("source_id") or ""
+            if source_id:
+                line += " source={0}".format(source_id)
             lines.append(line)
             lines.append("       evidence: {0}".format(claim.get("evidence", "")))
+            if not source_id:
+                lines.append("       provenance: no cited source; treat as unverified material.")
+            elif not url_by_source.get(source_id):
+                lines.append("       provenance: cited source has no URL; treat as unverified material.")
     if questions:
         lines.append("Open questions:")
         for item in questions:
@@ -290,6 +298,17 @@ def cmd_research_add_claim(args, state):
     record.setdefault("claims", []).append(claim)
     save_research(state, slug, record)
     print("[OK] Added claim {0} to research {1}".format(claim["id"], slug))
+    # Provenance rule: a claim without an exact cited source URL is model
+    # material, not proof. Make the gap visible; never upgrade it to evidence.
+    if not source_id:
+        print("[note] Claim {0} has no cited source; recorded as material, not verification.".format(claim["id"]))
+    else:
+        url_by_source = {
+            source.get("id"): (source.get("url") or "")
+            for source in record.get("sources") or []
+        }
+        if not url_by_source.get(source_id):
+            print("[note] Claim {0} cites {1}, which has no source URL; recorded as material, not verification.".format(claim["id"], source_id))
     return 0
 
 

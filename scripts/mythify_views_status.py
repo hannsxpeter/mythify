@@ -406,6 +406,62 @@ def evidence_record_label(record):
     )
 
 
+# Reminder thresholds. Both signals are computed from durable state that
+# already exists; neither adds new tracking. Drift is windowed (recent tail)
+# and stale-evidence self-resets the moment an executed verify is recorded, so
+# neither grows unbounded with the cumulative verification log.
+ATTENTION_DRIFT_MIN_ATTESTED = 2
+ATTENTION_STALE_EXECUTED_RECORDS = 8
+
+
+def evidence_attention_from_drift(records, recent):
+    """Warn when the recent evidence window leans on attested claims.
+
+    Windowed over the last `recent` records so it reflects current work, not the
+    cumulative log. Silent unless attested claims both clear the floor and
+    outnumber executed verifications in that window.
+    """
+    window = recent_tail(records, recent)
+    executed = sum(1 for record in window if record.get("kind") == "executed")
+    attested = sum(1 for record in window if record.get("kind") == "attested")
+    if attested >= ATTENTION_DRIFT_MIN_ATTESTED and attested > executed:
+        return [{
+            "level": "warning",
+            "source": "drift",
+            "summary": "verification drift: recent evidence leans on attested claims",
+            "detail": "{0} attested vs {1} executed in the last {2} records; record an executed verify".format(
+                attested, executed, len(window)
+            ),
+            "timestamp": window[-1].get("timestamp", "") if window else "",
+        }]
+    return []
+
+
+def evidence_attention_from_stale_executed(records):
+    """Warn after a long run of records with no executed verification.
+
+    Counts records recorded since the last executed verify (self-resetting: the
+    next executed verify drops it back to zero), so it flags a long unverified
+    stretch of work without growing with the cumulative log.
+    """
+    if not records:
+        return []
+    since = 0
+    for record in reversed(records):
+        if record.get("kind") == "executed":
+            break
+        since += 1
+    if since >= ATTENTION_STALE_EXECUTED_RECORDS:
+        return [{
+            "level": "warning",
+            "source": "session",
+            "summary": "long run without an executed verify",
+            "detail": "{0} records since the last executed check; run a real verifier or summarize".format(since),
+            "timestamp": records[-1].get("timestamp", ""),
+        }]
+    return []
+
+
 def evidence_attention_from_verifications(records, recent):
     attention = []
     for record in recent_tail(records, recent):
@@ -605,6 +661,8 @@ def build_evidence_harness_view(state, recent=5):
         + evidence_attention_from_verifications(records, recent)
         + evidence_attention_from_background(background)
         + evidence_attention_from_god_artifacts(god_views)
+        + evidence_attention_from_drift(records, recent)
+        + evidence_attention_from_stale_executed(records)
     )
     view = {
         "state_dir": str(state),

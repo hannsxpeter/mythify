@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-07-04
+
+### Added
+
+- Added `docs/tool-use-contract.md`: a deferred-tool discovery-discipline
+  guardrail (never invoke a tool from a guessed schema; load its real schema
+  first), linked from `docs/README.md`.
+- Freshness routing: the `research` task type gains interrogative-anchored
+  terms ("what is the current pricing", "check the live status", "how much
+  does it cost") in both mirrored `classification-rules.json` copies, so clean
+  freshness questions route to research. The terms only tip classification
+  scoring; they are deliberately kept out of the route-forcing term list so
+  ordinary coding tasks are not pulled into research.
+- Research provenance advisory: `research summary` and `research add-claim` now
+  flag a claim with no cited source, or a cited source with no URL, as
+  "material, not verification". No rejecting validator is added; empty-URL
+  sources are still accepted.
+- High-stakes prompt guidance: the failure and review prompt packets gain one
+  self-gating line asking for 2-3 labeled approaches with tradeoffs when a fix
+  is hard to reverse. No new packet kind; route, kind, and next command are
+  unchanged.
+- Evidence-harness reminders: two attention items computed from existing
+  durable state, a windowed verification-drift signal and a self-resetting
+  long-run-without-executed-verify signal. Both stay silent on small or
+  executed-evidence sessions, and the CLI and MCP runtimes emit identical text.
+
+### Changed
+
+- Memory guidance (`skills/mythify/references/memory-system.md`): recall memory
+  silently when relevant; never surprise the user with unrelated memory or
+  narrate the memory mechanics.
+
 ## [4.1.0] - 2026-07-04
 
 ### Added

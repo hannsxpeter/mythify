@@ -2100,7 +2100,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v4.1.0. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v4.2.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2204,6 +2204,10 @@ enforcement, and consecutive-failure escalation, adds git-worktree isolation
 for parallel writing fanout workers, and routes all recorded output through a
 single secret-redaction choke point (`redact.js`); 4.1.0 adds the read-only
 `loop-fit` advisory that recommends a bounded loop, a supervised loop, or doing
-a task directly, assessed against the loop-worthiness gates.
-The CLI reports 4.1.0 through `--version`; the MCP server reads `package.json`
+a task directly, assessed against the loop-worthiness gates; 4.2.0 adds
+interrogative-anchored freshness routing to research, a research provenance
+advisory that flags uncited claims as material, verification-drift and
+long-run reminders in the evidence harness, a high-stakes labeled-variants
+prompt for hard-to-reverse fixes, and the tool-use-contract doc.
+The CLI reports 4.2.0 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.
