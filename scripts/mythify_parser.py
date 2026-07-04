@@ -916,7 +916,7 @@ def build_parser(symbols):
         action="store_true",
         help="Print machine-readable JSON instead of text.",
     )
-    p.set_defaults(handler=cmd_loop_fit, needs_state="optional")
+    p.set_defaults(handler=cmd_loop_fit, needs_state=False)
 
     host_model = sub.add_parser(
         "host-model",

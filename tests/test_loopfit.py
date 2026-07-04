@@ -90,12 +90,44 @@ class TestLoopFit(LoopFitCase):
         self.assertFalse((self.project / ".mythify").exists())
         self.assertIn("read-only", payload["guardrail"])
 
+    def test_repo_check_never_lifts_a_task_to_loop(self):
+        # A runnable check merely existing in the repo must not be treated as a
+        # done-condition for a task that names none: never recommend a loop.
+        self.git_init()
+        (self.project / "test").write_text("", encoding="utf-8")
+        payload = self.assess("rewrite every paragraph for tone")
+        self.assertNotEqual(payload["recommendation"], "loop")
+        self.assertFalse(payload["criteria"]["automated_verification"])
+
+    def test_punctuation_does_not_drop_keywords(self):
+        self.git_init()
+        (self.project / "package.json").write_text("{}", encoding="utf-8")
+        with_period = self.assess("run the unit tests.")
+        without = self.assess("run the unit tests")
+        self.assertEqual(with_period["recommendation"], without["recommendation"])
+        self.assertIn("tests", with_period["signals"]["verify_terms"])
+
+    def test_no_state_created_under_mythify_dir(self):
+        # Strictly read-only: even with MYTHIFY_DIR set, loop-fit creates nothing.
+        state_dir = self.project / "statedir"
+        result = self.run_cli("loop-fit", "run the tests", "--json")
+        # (default run has no MYTHIFY_DIR); now assert the explicit-dir case:
+        env = dict(os.environ)
+        env["HOME"] = str(self.home)
+        env["MYTHIFY_DIR"] = str(state_dir)
+        proc = subprocess.run(
+            [sys.executable, str(CLI), "loop-fit", "just answer a question"],
+            cwd=str(self.project), env=env, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(state_dir.exists(), "loop-fit must not create the .mythify tree")
+
     def test_text_output_shows_criteria_checklist(self):
         self.git_init()
         result = self.run_cli("loop-fit", "run the tests on every push")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Loop-fit:", result.stdout)
-        self.assertIn("automated verification available", result.stdout)
+        self.assertIn("task names a machine-checkable done-condition", result.stdout)
         self.assertIn("Suggested next:", result.stdout)
 
 

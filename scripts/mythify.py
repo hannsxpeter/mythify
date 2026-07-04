@@ -876,7 +876,10 @@ LOOPFIT_CHECK_FILES = (
 
 
 def _loopfit_has_any(text, terms):
-    lowered = " {0} ".format(" ".join(str(text).lower().split()))
+    # Normalize punctuation to spaces so "tests." matches "tests"; the padded
+    # word-boundary join still keeps "latest" from matching "test".
+    normalized = re.sub(r"[^a-z0-9 ]+", " ", str(text).lower())
+    lowered = " {0} ".format(" ".join(normalized.split()))
     matches = []
     for term in terms:
         needle = " {0} ".format(" ".join(term.split()))
@@ -892,25 +895,36 @@ def project_has_runnable_check(root):
     return False
 
 
-def project_is_git_repo(root):
-    if (root / ".git").exists():
-        return True
+def loopfit_project_context():
+    """Return (project_root, is_git_repo) for the directory the work happens in.
+
+    Resolved from the current working directory, never from where .mythify state
+    lives, so loop-fit stays strictly read-only and assesses the real project.
+    """
     try:
         run = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            ["git", "rev-parse", "--show-toplevel"],
             capture_output=True, text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
-        return False
-    return run.returncode == 0 and run.stdout.strip() == "true"
+        return Path.cwd(), False
+    if run.returncode == 0 and run.stdout.strip():
+        return Path(run.stdout.strip()), True
+    return Path.cwd(), False
 
 
 def assess_loop_fit(task, is_git_repo, has_check):
-    """Return a loop-fit recommendation for a task. Pure and deterministic."""
+    """Return a loop-fit recommendation for a task. Pure and deterministic.
+
+    The done-condition must come from the task itself (verify_hits); a runnable
+    check merely existing in the repo (has_check) is context, not proof that
+    THIS task is checkable, so it can lift a task to supervised but never to an
+    unattended loop.
+    """
     verify_hits = _loopfit_has_any(task, LOOPFIT_VERIFY_TERMS)
     recur_hits = _loopfit_has_any(task, LOOPFIT_RECUR_TERMS)
     judgment_hits = _loopfit_has_any(task, LOOPFIT_JUDGMENT_TERMS)
-    automated_verification = bool(verify_hits) or has_check
+    automated_verification = bool(verify_hits)
     reproduction_env = bool(is_git_repo)
     recurring = bool(recur_hits)
     needs_judgment = bool(judgment_hits)
@@ -921,19 +935,28 @@ def assess_loop_fit(task, is_git_repo, has_check):
         "needs_human_judgment": needs_judgment,
     }
     # Ordered gates: fail the cheapest disqualifier first.
-    if not automated_verification:
-        recommendation = "direct"
-        reason = (
-            "No machine-checkable done-condition is evident. A loop has nothing "
-            "to stop on without an objective gate; do it directly and record "
-            "evidence with verify run if a check exists, else verify claim."
-        )
-    elif needs_judgment and not (verify_hits and recurring):
+    if needs_judgment and not (automated_verification and recurring):
         recommendation = "direct"
         reason = (
             "The goal leans on human judgment. Automate only the checkable parts; "
             "keep the judgment call in the chat."
         )
+    elif not automated_verification:
+        if has_check:
+            recommendation = "supervised"
+            reason = (
+                "The task names no explicit check, but this repo has runnable "
+                "checks. Wrap it in a verifier-gated plan (plan add-step "
+                "--verify), not an unattended loop."
+            )
+        else:
+            recommendation = "direct"
+            reason = (
+                "No machine-checkable done-condition is evident. A loop has "
+                "nothing to stop on without an objective gate; do it directly "
+                "and record evidence with verify run if a check exists, else "
+                "verify claim."
+            )
     elif recurring and reproduction_env and not needs_judgment:
         recommendation = "loop"
         reason = (
@@ -993,7 +1016,7 @@ def format_loop_fit(payload):
         "Criteria:",
     ]
     labels = {
-        "automated_verification": "automated verification available",
+        "automated_verification": "task names a machine-checkable done-condition",
         "recurring": "work recurs / repeats",
         "reproduction_env": "reproduction environment (git repo)",
         "needs_human_judgment": "needs human judgment",
@@ -1001,16 +1024,18 @@ def format_loop_fit(payload):
     for key, label in labels.items():
         mark = "[x]" if payload["criteria"][key] else "[ ]"
         lines.append("  {0} {1}".format(mark, label))
+    if payload["signals"].get("has_runnable_check"):
+        lines.append("  (note) the repo has runnable checks")
     lines.append("Suggested next: {0}".format(payload["suggested_next"]))
     lines.append("Guardrail: {0}".format(payload["guardrail"]))
     return "\n".join(lines)
 
 
-def cmd_loop_fit(args, state):
-    root = state.parent if (state is not None and state.name == WORKSPACE_DIR_NAME) else Path.cwd()
+def cmd_loop_fit(args, _state):
+    root, is_git = loopfit_project_context()
     payload = assess_loop_fit(
         args.task,
-        project_is_git_repo(root),
+        is_git,
         project_has_runnable_check(root),
     )
     if args.json_output:
