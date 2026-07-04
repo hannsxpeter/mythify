@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
+import { redactSensitiveOutput } from "./redact.js";
 import {
   EFFORT_LEVELS,
   ENGINES,
@@ -879,7 +880,12 @@ async function runOneTask(job, jobDir, task, prompt, timeoutSeconds, projectRoot
     };
   }
   const durationSeconds = Number((Number(process.hrtime.bigint() - startedNs) / 1e9).toFixed(3));
-  const outputText = typeof outcome.output === "string" ? outcome.output : "";
+  // Redact worker output before it is persisted or returned. Unattended fanout
+  // logs are exactly where the article warns secrets a worker echoes would leak.
+  const outputText = redactSensitiveOutput(typeof outcome.output === "string" ? outcome.output : "");
+  if (typeof outcome.output === "string") {
+    outcome.output = outputText;
+  }
   let outputBytes = 0;
   try {
     io.writeTextAtomic(path.join(jobDir, task.output_file), outputText);

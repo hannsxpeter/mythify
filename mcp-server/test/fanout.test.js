@@ -1013,7 +1013,7 @@ case " $* " in *" --effort ${expectedEffort} "*) ;; *) args_ok=no ;; esac
 case " $* " in *" --max-turns "*) ;; *) args_ok=no ;; esac
 ctx=no
 case "$PROMPT" in *"${contextMarker}"*) ctx=yes ;; esac
-printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_ENTRYPOINT=%s CLAUDE_CODE_OAUTH_TOKEN=%s USER=%s MYTHIFY_FANOUT_DEPTH=%s MYTHIFY_DISABLE_FANOUT=%s TERM=%s","is_error":false}\\n' "$args_ok" "$ctx" "\${CLAUDECODE:-__unset__}" "\${ANTHROPIC_BASE_URL:-__unset__}" "\${CLAUDE_CODE_ENTRYPOINT:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:-__unset__}" "\${USER:-__unset__}" "\${MYTHIFY_FANOUT_DEPTH:-__unset__}" "\${MYTHIFY_DISABLE_FANOUT:-__unset__}" "\${TERM:-__unset__}"
+printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_ENTRYPOINT=%s CLAUDE_CODE_OAUTH_TOKEN=%s OAUTHSET=%s USER=%s MYTHIFY_FANOUT_DEPTH=%s MYTHIFY_DISABLE_FANOUT=%s TERM=%s","is_error":false}\\n' "$args_ok" "$ctx" "\${CLAUDECODE:-__unset__}" "\${ANTHROPIC_BASE_URL:-__unset__}" "\${CLAUDE_CODE_ENTRYPOINT:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:-__unset__}" "\${CLAUDE_CODE_OAUTH_TOKEN:+yes}" "\${USER:-__unset__}" "\${MYTHIFY_FANOUT_DEPTH:-__unset__}" "\${MYTHIFY_DISABLE_FANOUT:-__unset__}" "\${TERM:-__unset__}"
 `;
   fs.writeFileSync(filePath, script, { mode: 0o755 });
 }
@@ -1055,6 +1055,7 @@ process.stdin.on("end", () => {
   const ctx = prompt.includes("${contextMarker}") ? "yes" : "no";
   const result = "STUB-CODEX args_ok=" + argsOk +
     " ctx=" + ctx +
+    " OPENAISET=" + (process.env.OPENAI_API_KEY ? "yes" : "no") +
     " OPENAI_API_KEY=" + (process.env.OPENAI_API_KEY || "__unset__") +
     " CODEX_HOME=" + (process.env.CODEX_HOME || "__unset__") +
     " MYTHIFY_FANOUT_DEPTH=" + (process.env.MYTHIFY_FANOUT_DEPTH || "__unset__") +
@@ -1095,6 +1096,7 @@ const argsOk = checks.every(Boolean) ? "yes" : "no";
 const ctx = prompt.includes("${contextMarker}") ? "yes" : "no";
 process.stdout.write("STUB-CURSOR args_ok=" + argsOk +
   " ctx=" + ctx +
+  " CURSORSET=" + (process.env.CURSOR_API_KEY ? "yes" : "no") +
   " CURSOR_API_KEY=" + (process.env.CURSOR_API_KEY || "__unset__") +
   " MYTHIFY_FANOUT_DEPTH=" + (process.env.MYTHIFY_FANOUT_DEPTH || "__unset__") +
   " MYTHIFY_DISABLE_FANOUT=" + (process.env.MYTHIFY_DISABLE_FANOUT || "__unset__") +
@@ -1167,8 +1169,12 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
       "CLAUDE_CODE_* harness variables are not passed through"
     );
     assert.ok(
-      results.includes("CLAUDE_CODE_OAUTH_TOKEN=stub-oauth-token-123"),
+      results.includes("OAUTHSET=yes"),
       "CLAUDE_CODE_OAUTH_TOKEN passes through for subscription auth"
+    );
+    assert.ok(
+      !results.includes("stub-oauth-token-123"),
+      "the OAUTH token value is redacted out of worker output"
     );
     assert.ok(results.includes("USER=stub-user"), "USER passes through for desktop auth");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
@@ -1295,7 +1301,7 @@ test("codex-cli engine drives a stub binary with local-login environment", async
     assert.ok(results.includes("STUB-CODEX"), "the codex stub output is returned");
     assert.ok(results.includes("args_ok=yes"), "codex exec argv matches the contract");
     assert.ok(results.includes("ctx=yes"), "the context block reached codex over stdin");
-    assert.ok(results.includes("OPENAI_API_KEY=__unset__"), "API key env does not pass through");
+    assert.ok(results.includes("OPENAISET=no"), "API key env does not pass through");
     assert.ok(results.includes(`CODEX_HOME=${codexHome}`), "CODEX_HOME passes through for local auth");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
     assert.ok(
@@ -1361,7 +1367,7 @@ test("cursor-agent engine drives a stub binary with local-login environment", as
     assert.ok(results.includes("STUB-CURSOR"), "the cursor stub output is returned");
     assert.ok(results.includes("args_ok=yes"), "cursor-agent argv matches the contract");
     assert.ok(results.includes("ctx=yes"), "the prompt file contains the assembled prompt");
-    assert.ok(results.includes("CURSOR_API_KEY=__unset__"), "API key env does not pass through");
+    assert.ok(results.includes("CURSORSET=no"), "API key env does not pass through");
     assert.ok(results.includes("MYTHIFY_FANOUT_DEPTH=1"), "the depth guard is set on the worker");
     assert.ok(
       results.includes("MYTHIFY_DISABLE_FANOUT=1"),

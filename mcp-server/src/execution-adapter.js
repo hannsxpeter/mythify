@@ -3,13 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ADAPTER_CANDIDATES } from "./capability-registry.js";
+import { redactSensitiveOutput } from "./redact.js";
 
 function isoNow() {
   return new Date().toISOString();
 }
 
 function tailText(text, limit = 4000) {
-  const value = String(text || "");
+  const value = redactSensitiveOutput(String(text || ""));
   if (value.length <= limit) {
     return value;
   }

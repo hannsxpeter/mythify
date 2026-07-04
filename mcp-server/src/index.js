@@ -14,6 +14,7 @@ import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { REDACTED_SECRET, redactSensitiveOutput } from "./redact.js";
 import { registerAdapterTools } from "./adapter-tools.js";
 import { registerViewTools } from "./view-tools.js";
 import { registerWorkflowTools } from "./workflow-tools.js";
@@ -50,7 +51,6 @@ import { registerFanoutTools } from "./fanout.js";
 const PACKAGE_JSON = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const VERSION = PACKAGE_JSON.version;
 const TAIL_CHARS = 4000;
-const REDACTED_SECRET = "[REDACTED]";
 const DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const JSONL_LOCK_TIMEOUT_MS = 10000;
 const JSONL_LOCK_POLL_MS = 50;
@@ -155,34 +155,6 @@ function findExistingSlugByName(name, pathForSlug) {
 function tail(text) {
   const s = String(text == null ? "" : text);
   return s.length > TAIL_CHARS ? s.slice(-TAIL_CHARS) : s;
-}
-
-function redactSensitiveOutput(text) {
-  let value = String(text == null ? "" : text);
-  if (value === "") {
-    return "";
-  }
-  value = value.replace(
-    /\b(authorization\s*[:=]\s*bearer\s+)([A-Za-z0-9._~+/\-=]+)/gi,
-    `$1${REDACTED_SECRET}`
-  );
-  value = value.replace(
-    /\b([A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)[A-Za-z0-9_-]*\s*=\s*)([^\s,;]+)/gi,
-    `$1${REDACTED_SECRET}`
-  );
-  value = value.replace(
-    /(["']?[A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)[A-Za-z0-9_-]*["']?\s*:\s*)(["'])([^"']+)(["'])/gi,
-    `$1$2${REDACTED_SECRET}$4`
-  );
-  value = value.replace(
-    /\b((?:authorization|x-api-key|api-key|api_key|token|secret|password|passwd|credential)\s*:\s*)([^\s,;}]+)/gi,
-    `$1${REDACTED_SECRET}`
-  );
-  value = value.replace(
-    /\b(sk-ant-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9_-]{20,})\b/g,
-    REDACTED_SECRET
-  );
-  return value;
 }
 
 function verifyMaxOutputBytes() {
