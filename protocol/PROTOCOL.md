@@ -149,14 +149,16 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
 | `host-model clear [--json]` | Clear the recorded host model switch. |
-| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--max-iterations N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start a supervised outcome loop with verifier, optional metric, and retry budget. |
-| `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric, record the iteration, and return success, retry, or budget exhaustion. |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop with verifier, optional metric, optional agent command, iteration and cost budgets, git-enforced scope, and escalation. |
+| `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric, record the iteration, and return success, retry, or budget exhaustion. The host made the attempt. |
+| `outcome run [NAME] [--notes TEXT] [--timeout N]` | Drive a self-driving loop started with `--agent`: fire the agent, run the verifier, record evidence, and repeat until success, iteration or cost budget, scope violation, or escalation. Bounded and evidence-gated. CLI-only. |
 | `outcome status [NAME] [--json]` | Show the active or named outcome loop. |
 | `outcome results [NAME] [--json]` | Show all verifier iterations and final outcome state. |
 | `outcome stop [NAME] --reason TEXT [--json]` | Stop an outcome loop and clear the active pointer when it matches. |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan and set it active. |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Import godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks as a plan whose steps keep each task's verify command under strict step-scoped evidence. |
-| `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step to the named or active plan. |
+| `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step to the named or active plan, optionally with an executable verify command. |
+| `plan verify ID [--plan NAME] [--timeout N]` | Run a step's own verify command and record the evidence scoped to that step, satisfying the strict-evidence gate. |
 | `plan list` | List plans with active marker and progress. |
 | `plan show [NAME]` | Full detail of the named or active plan. |
 | `plan switch NAME` | Set the active plan pointer. |

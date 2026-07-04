@@ -7,15 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-07-04
+
+Major release: one unified evidence spine, bounded autonomy, and honest
+hardening. No new runtime dependencies; the CLI stays zero-dependency Python.
+
 ### Added
 
-- Added `tests/test_routes.py`, a consolidated end-to-end guard for the workflow
-  router decision tree: every route id, the documented precedence order
-  (full-send language outranks outcome terms), and the active-campaign,
-  active-outcome, and active-research resume branches.
-- Extended `tests/test_interop.py` with CLI vs MCP route parity across all route
-  types (the seven stateless routes plus handoff and failure), so the two
-  runtimes cannot drift on routing decisions unnoticed.
+- Unified evidence spine: plan steps carry a first-class `verify_command`
+  across `plan create --steps`, `plan add-step --verify`, `plan import`,
+  outcomes, and campaigns (CLI and MCP schema). New `plan verify ID` runs a
+  step's own verify command and records the evidence scoped to that step, so
+  the strict-evidence gate is satisfied and `step ID completed` passes.
+- Bounded self-driving loop: `outcome start --agent CMD` marks a loop
+  self-driving, and `outcome run` fires the agent, runs the verifier, records
+  evidence, and repeats until success, the iteration budget, the cost budget,
+  a scope violation, or a consecutive-failure escalation. Stays evidence-first
+  (the verifier decides success) and bounded at all times.
+- Cost budget ledger: `outcome start --max-cost N`. Each iteration costs what
+  the agent reports via a `MYTHIFY_COST=<n>` line, else one unit; the loop
+  fails when the cumulative cost reaches the ceiling.
+- Escalation: `outcome start --escalate-after N` stops and hands back to a
+  human after N consecutive failed verifications.
+- Git-worktree isolation for fanout: a task with `isolation: "worktree"` runs
+  in its own git worktree on a fresh branch so parallel writers cannot collide.
+  A worker that changed files leaves its branch to merge; one that changed
+  nothing is cleaned up. Falls back to the shared root off git.
+- New tests: `tests/test_evidence_spine.py`, `tests/test_autonomy.py`,
+  `tests/test_routes.py` (all-route matrix), a worktree isolation test, and
+  CLI/MCP route parity across all route types in `tests/test_interop.py`.
+
+### Changed
+
+- `--allowed-paths` is now a real control: the CLI outcome loop enforces it
+  post-hoc via git and blocks success when files change outside the declared
+  scope, instead of being a purely advisory label. Labels updated in CLI and
+  MCP so the control is no longer misleading.
+- Secret redaction is unified into a single choke point
+  (`mcp-server/src/redact.js`) imported by every surface that captures output.
+
+### Fixed
+
+- Security: fanout worker output was written to disk and returned in the clear
+  while the audit stamped `output_redacted: true`. Worker output is now
+  redacted before persist and return, so the flag is honest and secrets a
+  worker echoes no longer land in plaintext `.mythify/` files. The
+  execution-adapter and host-cli output tails now redact as well.
 
 ## [3.6.57] - 2026-07-03
 

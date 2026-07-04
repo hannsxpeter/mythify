@@ -942,7 +942,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `3.6.57`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `4.0.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 18. Use the registration API that the
@@ -2098,7 +2098,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v3.6.57. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v4.0.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2195,6 +2195,11 @@ them into both the Codex and Claude Code skills roots; 3.6.56 adds the CLI
 for autonomous agent work; 3.6.57 adds godplans and godaudits artifact
 awareness with the CLI `plan import` command, artifact-gated routing and
 readiness and harness surfacing, an executed campaign verifier, and the
-`mythify_godfiles.py` and `godfiles-core.js` shared parsers.
-The CLI reports 3.6.57 through `--version`; the MCP server reads `package.json`
+`mythify_godfiles.py` and `godfiles-core.js` shared parsers; 4.0.0 unifies the
+evidence spine with per-step `verify_command` and `plan verify`, adds the
+bounded self-driving `outcome run` loop with a cost budget ledger, git scope
+enforcement, and consecutive-failure escalation, adds git-worktree isolation
+for parallel writing fanout workers, and routes all recorded output through a
+single secret-redaction choke point (`redact.js`).
+The CLI reports 4.0.0 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.
