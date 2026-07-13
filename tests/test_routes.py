@@ -152,7 +152,7 @@ class TestRouteMatrix(RouteCase):
         self.run_cli("verify", "run", "false", "--claim", "intentionally red")
         payload = self.route("continue the work")
         self.assertEqual(payload["route"], "failure")
-        self.assertEqual(payload["next_command"], "python3 scripts/mythify.py prompt failure")
+        self.assertEqual(payload["next_command"], "mythify prompt failure")
 
     def test_handoff_on_active_plan_resume(self):
         self.run_cli("plan", "create", "feature", "--steps", json.dumps([{"title": "s1"}]))

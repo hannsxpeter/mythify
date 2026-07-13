@@ -466,7 +466,7 @@ function evidenceNextAction(view) {
       const summary = god[source];
       if (summary && summary.next_task_id) {
         return (
-          `import the open ${source} tasks: python3 scripts/mythify.py ` +
+          `import the open ${source} tasks: mythify ` +
           `plan import --source ${source}`
         );
       }

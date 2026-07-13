@@ -1,33 +1,84 @@
 name: Release assets
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
-  upload-assets:
-    name: Build and upload release assets
+  verify-build-release:
+    name: Verify, build, and publish release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          ref: ${{ github.event.release.tag_name }}
-      - uses: actions/setup-python@v6
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+      - name: Install MCP dependencies
+        run: npm ci --prefix mcp-server
+      - name: Validate release tag and package versions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python3 scripts/package_cli.py --check-release-tag "$TAG"
+      - name: Run Python suite
+        run: python3 -m unittest discover -s tests -v
+      - name: Run Node MCP suite
+        run: npm test --prefix mcp-server
+      - name: Run CLI and MCP interop suite
+        run: python3 -m unittest tests.test_interop -v
+      - name: Run distribution tests
+        run: python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_package tests.test_release_version -v
+      - name: Check public and runtime manifests
+        run: |
+          node scripts/check_surface_manifest.mjs
+          node scripts/check_classification_rules_manifest.mjs
+      - name: Check generated docs and runtime size
+        run: |
+          node scripts/build_registry_docs.mjs --check
+          python3 scripts/check_runtime_source_size.py
+      - name: Check protocol variants and whitespace
+        run: |
+          python3 scripts/mythify.py protocol check CLAUDE.md AGENTS.md .cursorrules
+          git diff --check
+      - name: Audit MCP dependencies
+        run: npm audit --prefix mcp-server --audit-level=moderate
       - name: Build skill package
-        run: python scripts/package_skill.py
+        run: python3 scripts/package_skill.py
+      - name: Build standalone CLI package
+        run: python3 scripts/package_cli.py
       - name: Build npm tarball
         run: npm pack
         working-directory: mcp-server
-      - name: Upload assets to the release
+      - name: Build and verify flat release checksums
+        run: |
+          mkdir -p dist/release-assets
+          cp dist/mythify.skill dist/mythify-cli-*.tar.gz mcp-server/mythify-mcp-*.tgz dist/release-assets/
+          python3 scripts/build_release_checksums.py \
+            --output dist/release-assets/SHA256SUMS \
+            dist/release-assets/mythify.skill \
+            dist/release-assets/mythify-cli-*.tar.gz \
+            dist/release-assets/mythify-mcp-*.tgz
+          python3 scripts/build_release_checksums.py \
+            --check dist/release-assets/SHA256SUMS \
+            --directory dist/release-assets
+      - name: Create verified GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" dist/mythify.skill mcp-server/mythify-mcp-*.tgz --clobber
+          TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$TAG"
+          dist/release-assets/*
+          --verify-tag
+          --title "Mythify $TAG"
+          --generate-notes

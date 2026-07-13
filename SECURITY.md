@@ -4,6 +4,7 @@
 
 | Version | Supported |
 | :--- | :--- |
+| 4.x | Yes |
 | 3.x | Yes |
 | 2.x | Yes |
 | Anything earlier | No (unreleased prototypes) |

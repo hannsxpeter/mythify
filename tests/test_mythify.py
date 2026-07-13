@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,15 +45,16 @@ CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
 WORKFLOW_ROUTER = REPO_ROOT / "protocol" / "workflow-router.json"
 
 NO_WORKSPACE_MESSAGE = (
-    "[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init"
+    "[FAIL] No .mythify workspace found. Run: mythify init"
 )
 EVIDENCE_MESSAGE = (
     "[FAIL] Evidence required: pass a RESULT describing what proves this status."
 )
 VERIFIED_EVIDENCE_MESSAGE = (
     "[FAIL] Verified evidence required: strict evidence mode is enabled by "
-    "default, but no passing 'verify run' was recorded since this step started. "
-    "Run 'verify run' with a passing check first, or set "
+    "default, but no passing executed 'verify run' with exit code 0 was recorded "
+    "since this step started. When the step stores a verify_command, the recorded "
+    "command must match it. Run the step's verifier first, or set "
     "MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion."
 )
 VERIFY_RUN_DISABLED_MESSAGE = (
@@ -676,6 +678,16 @@ class TestProtocolHandshake(CliTestCase):
             PY_WORKFLOWS,
             self.project / "scripts" / "mythify_workflows.py",
         )
+        for name in (
+            "mythify_log_compaction.py",
+            "mythify_loopfit.py",
+            "mythify_provenance.py",
+            "mythify_runtime_helpers.py",
+        ):
+            shutil.copy2(
+                REPO_ROOT / "scripts" / name,
+                self.project / "scripts" / name,
+            )
         shutil.copy2(
             OPERATION_REGISTRY,
             self.project / "protocol" / "operation-registry.json",
@@ -2311,7 +2323,7 @@ class TestCampaignWorkflow(CliTestCase):
         self.assertIn("Continue Mythify campaign: project-shot", payload["next_prompt"])
         self.assertIn("Current task 1: Build the first slice", payload["next_prompt"])
         self.assertIn(
-            "python3 scripts/mythify.py campaign advance project-shot",
+            "mythify campaign advance project-shot",
             payload["next_prompt"],
         )
         self.assertIn("steering material", payload["guardrail"])
@@ -3011,6 +3023,59 @@ class TestStepUpdates(CliTestCase):
         self.assertEqual(plan["steps"][0]["status"], "completed")
         self.assertIn("Next pending", result.stdout)
 
+    def test_stored_verify_command_rejects_unrelated_and_inconsistent_records(self):
+        state = self.init_workspace()
+        steps = json.dumps([{"title": "Bound step", "verify_command": "true"}])
+        created = self.run_cli("plan", "create", "Bound plan", "--steps", steps)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertEqual(self.run_cli("step", "1", "in_progress").returncode, 0)
+        unrelated = self.run_cli("verify", "run", "printf unrelated")
+        self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
+        refused = self.run_cli("step", "1", "completed", "wrong verifier")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn(VERIFIED_EVIDENCE_MESSAGE, refused.stderr)
+
+        plan = self.read_json(state / "plans" / "bound-plan.json")
+        inconsistent = {
+            "kind": "executed",
+            "command": "true",
+            "exit_code": 9,
+            "verified": True,
+            "timestamp": plan["steps"][0]["updated_at"],
+            "plan": "bound-plan",
+            "step_id": 1,
+        }
+        with open(str(state / "verifications.jsonl"), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(inconsistent) + "\n")
+        refused = self.run_cli("step", "1", "completed", "inconsistent verifier")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn(VERIFIED_EVIDENCE_MESSAGE, refused.stderr)
+
+        expected = self.run_cli("verify", "run", "true")
+        self.assertEqual(expected.returncode, 0, expected.stderr)
+        completed = self.run_cli("step", "1", "completed", "expected verifier")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_restarting_step_invalidates_prior_same_second_verification(self):
+        self.init_workspace()
+        steps = json.dumps([{"title": "Restarted", "verify_command": "true"}])
+        self.assertEqual(
+            self.run_cli("plan", "create", "Restart cursor", "--steps", steps).returncode,
+            0,
+        )
+        self.assertEqual(self.run_cli("step", "1", "in_progress").returncode, 0)
+        self.assertEqual(self.run_cli("verify", "run", "true").returncode, 0)
+        self.assertEqual(self.run_cli("step", "1", "pending").returncode, 0)
+        self.assertEqual(self.run_cli("step", "1", "in_progress").returncode, 0)
+        refused = self.run_cli("step", "1", "completed", "old evidence")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn(VERIFIED_EVIDENCE_MESSAGE, refused.stderr)
+        self.assertEqual(self.run_cli("verify", "run", "true").returncode, 0)
+        self.assertEqual(
+            self.run_cli("step", "1", "completed", "fresh evidence").returncode,
+            0,
+        )
+
     def test_gate_on_accepts_cross_runtime_timestamp_formats_within_same_second(self):
         state, plan_file = self.make_plan()
         in_progress = self.run_cli("step", "1", "in_progress")
@@ -3234,6 +3299,20 @@ class TestLessons(CliTestCase):
 
 
 class TestOutcome(CliTestCase):
+    def init_clean_git_workspace(self, tracked=None):
+        tracked = tracked or {}
+        subprocess.run(["git", "init", "-q"], cwd=self.project, check=True)
+        subprocess.run(["git", "config", "user.email", "mythify@example.invalid"], cwd=self.project, check=True)
+        subprocess.run(["git", "config", "user.name", "Mythify Test"], cwd=self.project, check=True)
+        (self.project / ".gitignore").write_text(".mythify/\n", encoding="utf-8")
+        for name, content in tracked.items():
+            path = self.project / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.project, check=True)
+        return self.init_workspace()
+
     def test_outcome_start_check_and_results_success(self):
         state = self.init_workspace()
         started = self.run_cli(
@@ -3278,6 +3357,36 @@ class TestOutcome(CliTestCase):
         self.assertIs(verification["verified"], True)
         self.assertIsNone(verification["plan"])
         self.assertIsNone(verification["step_id"])
+        self.assertEqual(
+            sorted(verification["provenance"]),
+            ["git_commit", "mythify_version", "worktree_clean"],
+        )
+        self.assertIsNone(verification["provenance"]["git_commit"])
+        self.assertRegex(
+            verification["provenance"]["mythify_version"],
+            r"^\d+\.\d+\.\d+$",
+        )
+
+    def test_supervised_outcome_check_keeps_scope_hints_advisory(self):
+        state = self.init_clean_git_workspace()
+        started = self.run_cli(
+            "outcome", "start", "Supervised scope hint", "--success", "verifier passes",
+            "--verify", shell_py("raise SystemExit(0)"),
+            "--allowed-paths", "src", "--name", "supervised-scope-hint",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        (self.project / "outside.txt").write_text("advisory\n", encoding="utf-8")
+
+        checked = self.run_cli("outcome", "check", "--json")
+
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        payload = json.loads(checked.stdout)
+        self.assertIn("outside.txt", payload["record"]["scope_violations"])
+        self.assertIs(payload["record"]["verified"], True)
+        self.assertEqual(payload["record"]["status_after"], "succeeded")
+        verification = self.read_jsonl(state / "verifications.jsonl")[-1]
+        self.assertIs(verification["verified"], True)
+        self.assertEqual(verification["exit_code"], 0)
 
     def test_outcome_check_redacts_verifier_and_metric_output_tails(self):
         state = self.init_workspace()
@@ -3331,6 +3440,26 @@ class TestOutcome(CliTestCase):
         self.assertNotIn(metric_secret, combined)
         self.assertIn("[REDACTED]", combined)
 
+    def test_outcome_start_rejects_nonfinite_cost_and_invalid_escalation_without_mutation(self):
+        state = self.init_workspace()
+        before = self.state_snapshot(state)
+        for value in ("nan", "inf", "-inf", "0", "-1"):
+            result = self.run_cli(
+                "outcome", "start", "Invalid cost", "--success", "never",
+                "--verify", "false", "--max-cost={0}".format(value),
+            )
+            self.assertEqual(result.returncode, 1, value)
+            self.assertIn("finite and greater than 0", result.stdout + result.stderr)
+            self.assertEqual(self.state_snapshot(state), before)
+        for value in ("0", "-1"):
+            result = self.run_cli(
+                "outcome", "start", "Invalid escalation", "--success", "never",
+                "--verify", "false", "--escalate-after={0}".format(value),
+            )
+            self.assertEqual(result.returncode, 1, value)
+            self.assertIn("--escalate-after >= 1", result.stdout + result.stderr)
+            self.assertEqual(self.state_snapshot(state), before)
+
     def test_outcome_check_fails_after_iteration_budget(self):
         state = self.init_workspace()
         started = self.run_cli(
@@ -3354,6 +3483,37 @@ class TestOutcome(CliTestCase):
         goal = self.read_json(outcome_dirs[0] / "goal.json")
         self.assertEqual(goal["status"], "failed")
         self.assertEqual(goal["iteration_count"], 1)
+
+    def test_outcome_metric_failure_records_combined_unverified_evidence(self):
+        state = self.init_workspace()
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Require verifier and metric",
+            "--success",
+            "verifier and metric pass",
+            "--verify",
+            shell_py("raise SystemExit(0)"),
+            "--metric",
+            shell_py("raise SystemExit(9)"),
+            "--max-iterations",
+            "1",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+
+        checked = self.run_cli("outcome", "check", "--json")
+        self.assertEqual(checked.returncode, 2, checked.stderr)
+        payload = json.loads(checked.stdout)
+        self.assertIs(payload["record"]["verify"]["verified"], True)
+        self.assertIs(payload["record"]["metric"]["verified"], False)
+        self.assertIs(payload["record"]["verified"], False)
+
+        verification = self.read_jsonl(state / "verifications.jsonl")[-1]
+        self.assertIs(verification["verified"], False)
+        self.assertEqual(verification["exit_code"], 9)
+        self.assertIs(verification["outcome_verify"]["verified"], True)
+        self.assertIs(verification["outcome_metric"]["verified"], False)
+        self.assertEqual(verification["outcome_metric"]["exit_code"], 9)
 
     def test_outcome_check_disabled_refuses_records_nothing_and_exits_two(self):
         state = self.init_workspace()
@@ -3403,6 +3563,95 @@ class TestOutcome(CliTestCase):
         self.assertEqual(stopped.returncode, 0, stopped.stderr)
         self.assertFalse((state / "outcomes" / "active").exists())
 
+    def test_scoped_outcome_run_refuses_non_git_before_agent_execution(self):
+        state = self.init_workspace()
+        started = self.run_cli(
+            "outcome", "start", "Scoped non-git", "--success", "never",
+            "--verify", "false", "--agent",
+            shell_py("from pathlib import Path; Path('forbidden.txt').write_text('x')"),
+            "--allowed-paths", "src", "--max-iterations", "1",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        run = self.run_cli("outcome", "run")
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("stopped before agent execution", run.stderr)
+        self.assertFalse((self.project / "forbidden.txt").exists())
+        goal = self.read_json(next((state / "outcomes").glob("*/goal.json")))
+        self.assertIn("scope inspection unavailable", goal["stop_reason"])
+
+    def test_scoped_outcome_run_detects_agent_committed_outside_path(self):
+        state = self.init_clean_git_workspace()
+        agent = shell_py(
+            "from pathlib import Path; import subprocess; "
+            "Path('forbidden.txt').write_text('x'); "
+            "subprocess.run(['git','add','forbidden.txt'], check=True); "
+            "subprocess.run(['git','commit','-qm','agent commit'], check=True)"
+        )
+        started = self.run_cli(
+            "outcome", "start", "Committed bypass", "--success", "never",
+            "--verify", "false", "--agent", agent, "--allowed-paths", "src",
+            "--max-iterations", "1", "--name", "committed-bypass",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        run = self.run_cli("outcome", "run")
+        self.assertEqual(run.returncode, 2)
+        rows = self.read_jsonl(state / "outcomes" / "committed-bypass" / "iterations.jsonl")
+        self.assertIn("forbidden.txt", rows[-1]["scope_violations"])
+        goal = self.read_json(state / "outcomes" / "committed-bypass" / "goal.json")
+        self.assertEqual(goal["status"], "stopped")
+        self.assertIn("forbidden.txt", goal["stop_reason"])
+
+    def test_scoped_outcome_run_never_verifies_passing_out_of_scope_attempt(self):
+        state = self.init_clean_git_workspace()
+        agent = shell_py(
+            "from pathlib import Path; Path('outside.txt').write_text('x')"
+        )
+        started = self.run_cli(
+            "outcome", "start", "Passing scope bypass", "--success", "verifier passes",
+            "--verify", shell_py("raise SystemExit(0)"), "--agent", agent,
+            "--allowed-paths", "src", "--max-iterations", "1",
+            "--name", "passing-scope-bypass",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+
+        run = self.run_cli("outcome", "run")
+
+        self.assertEqual(run.returncode, 2, run.stderr)
+        iteration = self.read_jsonl(
+            state / "outcomes" / "passing-scope-bypass" / "iterations.jsonl"
+        )[-1]
+        self.assertIs(iteration["verify"]["verified"], True)
+        self.assertIs(iteration["verified"], False)
+        self.assertEqual(iteration["status_after"], "stopped")
+        self.assertIn("outside.txt", iteration["scope_violations"])
+        verification = self.read_jsonl(state / "verifications.jsonl")[-1]
+        self.assertIs(verification["verified"], False)
+        self.assertEqual(verification["exit_code"], -1)
+        self.assertIn("scope violation", verification["stderr_tail"])
+        goal = self.read_json(
+            state / "outcomes" / "passing-scope-bypass" / "goal.json"
+        )
+        self.assertEqual(goal["status"], "stopped")
+        self.assertIs(goal["last_verified"], False)
+
+    def test_scoped_outcome_run_checks_both_rename_paths(self):
+        state = self.init_clean_git_workspace({"forbidden.txt": "outside\n"})
+        agent = shell_py(
+            "from pathlib import Path; import subprocess; Path('src').mkdir(); "
+            "subprocess.run(['git','mv','forbidden.txt','src/moved.txt'], check=True)"
+        )
+        started = self.run_cli(
+            "outcome", "start", "Rename bypass", "--success", "never",
+            "--verify", "false", "--agent", agent, "--allowed-paths", "src",
+            "--max-iterations", "1", "--name", "rename-bypass",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        run = self.run_cli("outcome", "run")
+        self.assertEqual(run.returncode, 2)
+        rows = self.read_jsonl(state / "outcomes" / "rename-bypass" / "iterations.jsonl")
+        self.assertIn("forbidden.txt", rows[-1]["scope_violations"])
+        self.assertNotIn("src/moved.txt", rows[-1]["scope_violations"])
+
 
 class TestVerify(CliTestCase):
     def test_run_passing_command_verified_exit_zero(self):
@@ -3419,7 +3668,7 @@ class TestVerify(CliTestCase):
             set(record.keys()),
             {"kind", "claim", "command", "exit_code", "duration_seconds",
              "stdout_tail", "stderr_tail", "verified", "timestamp", "plan",
-             "step_id", "step_title", "step_status"},
+             "step_id", "step_title", "step_status", "provenance"},
         )
         self.assertEqual(record["kind"], "executed")
         self.assertEqual(record["claim"], "exit zero works")
@@ -3430,6 +3679,10 @@ class TestVerify(CliTestCase):
         self.assertIsNone(record["step_id"])
         self.assertIsNone(record["step_title"])
         self.assertIsNone(record["step_status"])
+        self.assertEqual(
+            sorted(record["provenance"]),
+            ["git_commit", "mythify_version", "worktree_clean"],
+        )
 
     def test_run_without_disable_var_unchanged_passing(self):
         state = self.init_workspace()
@@ -3539,6 +3792,66 @@ class TestVerify(CliTestCase):
         self.assertEqual(record["exit_code"], -1)
         self.assertIs(record["verified"], False)
         self.assertIn("(timed out after 1 seconds)", record["stderr_tail"])
+
+    def test_run_timeout_kills_descendant_process_tree(self):
+        self.init_workspace()
+        marker = self.project / "late-descendant-output.txt"
+        child_script = self.project / "late-descendant.py"
+        child_script.write_text(
+            "import pathlib, time\n"
+            "time.sleep(0.7)\n"
+            f"pathlib.Path({str(marker)!r}).write_text('leaked', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        command = shell_py(
+            "import subprocess, sys, time; "
+            f"subprocess.Popen([sys.executable, {str(child_script)!r}]); "
+            "time.sleep(5)"
+        )
+
+        result = self.run_cli("verify", "run", command, "--timeout", "0.1")
+
+        self.assertEqual(result.returncode, 2, result.stderr)
+        time.sleep(0.9)
+        self.assertFalse(marker.exists(), "timed-out verifier descendant still ran")
+
+    def test_windows_taskkill_failure_falls_back_and_reports_uncontained_tree(self):
+        mythify = load_cli_module()
+        descendant = SimpleNamespace(alive=True)
+
+        class FakeProcess:
+            pid = 4242
+            killed = False
+
+            def kill(self):
+                self.killed = True
+
+        process = FakeProcess()
+        failed_taskkill = SimpleNamespace(returncode=1)
+        with mock.patch.object(mythify.os, "name", "nt"), mock.patch.object(
+            mythify.subprocess, "run", return_value=failed_taskkill
+        ):
+            contained = mythify.terminate_process_tree(process)
+
+        self.assertFalse(contained)
+        self.assertTrue(process.killed, "parent fallback was not killed")
+        self.assertTrue(descendant.alive, "test must model an uncontained descendant")
+
+        real_terminate = mythify.terminate_process_tree
+
+        def unconfirmed_termination(real_process):
+            real_terminate(real_process)
+            return False
+
+        with mock.patch.object(
+            mythify, "terminate_process_tree", side_effect=unconfirmed_termination
+        ):
+            run = mythify.run_shell_capture(
+                shell_py("import time; time.sleep(5)"),
+                0.05,
+            )
+        self.assertTrue(run["containment_failed"])
+        self.assertIn("containment could not be confirmed", run["stderr_tail"])
 
     def test_run_output_limit_records_minus_one_and_exits_two(self):
         state = self.init_workspace()
@@ -3716,6 +4029,37 @@ class TestLogsCompact(CliTestCase):
         self.assertTrue(reflection_archive.exists())
         self.assertIn("claim-0", verification_archive.read_text(encoding="utf-8"))
         self.assertIn("action-0", reflection_archive.read_text(encoding="utf-8"))
+
+    def test_jsonl_append_recovers_lock_owned_by_dead_process(self):
+        state = self.init_workspace()
+        log = state / "verifications.jsonl"
+        lock_dir = self.jsonl_lock_dir(state, log)
+        lock_dir.mkdir(parents=True)
+        (lock_dir / "owner.json").write_text(
+            json.dumps({"pid": 99999999, "created_unix": 0}) + "\n",
+            encoding="utf-8",
+        )
+        result = self.run_cli("verify", "claim", "recovered", "stale lock removed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(lock_dir.exists())
+        self.assertEqual(self.read_jsonl(log)[-1]["claim"], "recovered")
+
+    def test_jsonl_append_recovers_ownerless_and_malformed_locks_after_grace(self):
+        state = self.init_workspace()
+        log = state / "verifications.jsonl"
+        lock_dir = self.jsonl_lock_dir(state, log)
+        for index, owner_text in enumerate((None, "{truncated")):
+            with self.subTest(owner_text=owner_text):
+                lock_dir.mkdir(parents=True)
+                if owner_text is not None:
+                    (lock_dir / "owner.json").write_text(owner_text, encoding="utf-8")
+                started = time.monotonic()
+                result = self.run_cli(
+                    "verify", "claim", "recovered-{0}".format(index), "stale lock removed"
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertLess(time.monotonic() - started, 5)
+                self.assertFalse(lock_dir.exists())
 
     def test_logs_compact_lock_preserves_concurrent_append(self):
         state = self.init_workspace()
@@ -4108,7 +4452,12 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("[OK] Release readiness", result.stdout)
         self.assertIn("Readiness: needs_evidence", result.stdout)
-        self.assertIn("Python test suite: passed", result.stdout)
+        self.assertRegex(
+            result.stdout,
+            r"Current provenance: commit=unavailable; version=\d+\.\d+\.\d+",
+        )
+        self.assertIn(", 0 stale", result.stdout)
+        self.assertIn("Python test suite: missing", result.stdout)
         self.assertIn("Node MCP suite: missing", result.stdout)
         self.assertIn("Project git: [~] unknown", result.stdout)
         self.assertIn("Roadmap: [x] present; - [>] Release readiness view.", result.stdout)
@@ -4119,8 +4468,14 @@ class TestStatusAndSummary(CliTestCase):
         self.assertEqual(json_result.returncode, 0, json_result.stderr)
         payload = json.loads(json_result.stdout)
         self.assertEqual(payload["status"], "needs_evidence")
-        self.assertEqual(payload["counts"]["passed"], 1)
-        self.assertEqual(payload["counts"]["missing"], 9)
+        self.assertEqual(payload["counts"]["passed"], 0)
+        self.assertEqual(payload["counts"]["missing"], 13)
+        self.assertEqual(payload["counts"]["stale"], 0)
+        self.assertIsNone(payload["current_provenance"]["git_commit"])
+        self.assertRegex(
+            payload["current_provenance"]["mythify_version"],
+            r"^\d+\.\d+\.\d+$",
+        )
         self.assertEqual(payload["project_state"]["roadmap"]["status"], "present")
         self.assertEqual(payload["project_state"]["git"]["status"], "unknown")
         self.assertEqual(self.state_snapshot(state), before)

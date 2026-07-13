@@ -174,6 +174,158 @@ async function waitForAllFinished(client, jobId, deadlineMs = 60000) {
   }
 }
 
+test("fanout status and results reject persisted path traversal", async (t) => {
+  const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-paths-");
+  const client = await startServer({}, stateDir, homeDir);
+  let unrelatedWorktree = null;
+  try {
+    await t.test("job id cannot escape the fanout root", async () => {
+      const outsideDir = path.join(stateDir, "outside-job");
+      fs.mkdirSync(outsideDir, { recursive: true });
+      fs.writeFileSync(path.join(outsideDir, "job.json"), JSON.stringify({ id: "outside", tasks: [] }));
+      const status = textOf(
+        await client.callTool({ name: "fanout_status", arguments: { job_id: "../../outside-job" } })
+      );
+      assert.match(status, /^\[FAIL\] Invalid fanout job id/);
+    });
+
+    await t.test("persisted output file cannot escape its job directory", async () => {
+      const jobId = "fo-20260713121212-abcd";
+      const jobDir = path.join(stateDir, "fanout", jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      const secret = path.join(root, "outside-secret.txt");
+      fs.writeFileSync(secret, "DO-NOT-READ");
+      fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({
+        id: jobId,
+        created: "2026-07-13T12:12:12Z",
+        last_updated: "2026-07-13T12:12:12Z",
+        visibility: "summary",
+        tasks: [{
+          id: 1,
+          title: "malicious",
+          status: "completed",
+          engine: "command",
+          output_file: "../../../outside-secret.txt",
+          output_bytes: 11,
+          duration_seconds: 0,
+        }],
+      }));
+      const results = textOf(
+        await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+      );
+      assert.match(results, /Invalid persisted task output path/);
+      assert.doesNotMatch(results, /DO-NOT-READ/);
+    });
+
+    await t.test("interrupted recovery refuses another registered worktree and branch", async () => {
+      gitInit(projectRoot);
+      unrelatedWorktree = path.join(root, "unrelated-worktree");
+      const unrelatedBranch = "unrelated-recovery-target";
+      const added = spawnSyncWt(
+        "git",
+        ["-C", projectRoot, "worktree", "add", "-b", unrelatedBranch, unrelatedWorktree, "HEAD"],
+        { encoding: "utf8" }
+      );
+      assert.equal(added.status, 0, added.stderr);
+      const jobId = "fo-20260713131313-abcd";
+      const jobDir = path.join(stateDir, "fanout", jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({
+        id: jobId,
+        created: "2026-07-13T13:13:13Z",
+        last_updated: "2026-07-13T13:13:13Z",
+        visibility: "summary",
+        tasks: [{
+          id: 1,
+          title: "crafted recovery target",
+          status: "running",
+          engine: "command",
+          output_file: "task-1-output.md",
+          worktree: {
+            isolated: true,
+            path: unrelatedWorktree,
+            branch: unrelatedBranch,
+          },
+        }],
+      }));
+
+      const status = textOf(
+        await client.callTool({ name: "fanout_status", arguments: { job_id: jobId } })
+      );
+
+      assert.match(status, /marked interrupted/);
+      assert.equal(fs.existsSync(unrelatedWorktree), true, "unrelated worktree was preserved");
+      const branch = spawnSyncWt(
+        "git", ["-C", projectRoot, "branch", "--list", unrelatedBranch], { encoding: "utf8" }
+      );
+      assert.match(branch.stdout, new RegExp(unrelatedBranch));
+      const stored = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
+      assert.equal(stored.tasks[0].worktree.path, unrelatedWorktree);
+      assert.equal(stored.tasks[0].worktree.branch, unrelatedBranch);
+      assert.equal(stored.tasks[0].worktree.cleaned_on_recovery, false);
+      assert.equal(stored.tasks[0].worktree.cleanup_failed, true);
+    });
+
+    await t.test("interrupted recovery removes only its registered job-owned worktree", async () => {
+      const jobId = "fo-20260713141414-bcde";
+      const branchName = `mythify/fanout-${jobId}-t1-abcdef`;
+      const ownedWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-fanout-wt-"));
+      const added = spawnSyncWt(
+        "git",
+        ["-C", projectRoot, "worktree", "add", "-b", branchName, ownedWorktree, "HEAD"],
+        { encoding: "utf8" }
+      );
+      assert.equal(added.status, 0, added.stderr);
+      const jobDir = path.join(stateDir, "fanout", jobId);
+      fs.mkdirSync(jobDir, { recursive: true });
+      fs.writeFileSync(path.join(jobDir, "job.json"), JSON.stringify({
+        id: jobId,
+        created: "2026-07-13T14:14:14Z",
+        last_updated: "2026-07-13T14:14:14Z",
+        visibility: "summary",
+        tasks: [{
+          id: 1,
+          title: "owned recovery target",
+          status: "running",
+          engine: "command",
+          output_file: "task-1-output.md",
+          worktree: { isolated: true, path: ownedWorktree, branch: branchName },
+        }],
+      }));
+
+      textOf(await client.callTool({ name: "fanout_status", arguments: { job_id: jobId } }));
+
+      assert.equal(fs.existsSync(ownedWorktree), false);
+      const branch = spawnSyncWt(
+        "git", ["-C", projectRoot, "branch", "--list", branchName], { encoding: "utf8" }
+      );
+      assert.equal(branch.stdout.trim(), "");
+      const stored = JSON.parse(fs.readFileSync(path.join(jobDir, "job.json"), "utf8"));
+      assert.equal(stored.tasks[0].worktree.path, null);
+      assert.equal(stored.tasks[0].worktree.branch, null);
+      assert.equal(stored.tasks[0].worktree.cleaned_on_recovery, true);
+      assert.equal(stored.tasks[0].worktree.cleanup_failed, false);
+      assert.deepEqual(stored.tasks[0].worktree.recovery_original, {
+        path: ownedWorktree,
+        branch: branchName,
+      });
+    });
+  } finally {
+    await client.close();
+    if (unrelatedWorktree && fs.existsSync(unrelatedWorktree)) {
+      spawnSyncWt(
+        "git", ["-C", projectRoot, "worktree", "remove", "--force", unrelatedWorktree],
+        { encoding: "utf8" }
+      );
+      spawnSyncWt(
+        "git", ["-C", projectRoot, "branch", "-D", "unrelated-recovery-target"],
+        { encoding: "utf8" }
+      );
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fanout with the command engine", async (t) => {
   const { root, projectRoot, stateDir, homeDir } = makeProject("mythify-fanout-cmd-");
   const workerPath = path.join(root, "echo-worker.cjs");

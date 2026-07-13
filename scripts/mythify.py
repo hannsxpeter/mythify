@@ -15,8 +15,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
-import shlex
 import signal
 import subprocess
 import sys
@@ -66,12 +64,10 @@ from mythify_io import (  # noqa: E402
     _write_text_atomic,
     append_jsonl,
     configure_durable_io,
-    jsonl_file_lock,
     read_json,
     read_jsonl,
     read_jsonl_since,
     write_json_atomic,
-    write_jsonl_atomic,
 )
 from mythify_memory import (  # noqa: E402
     MEMORY_CATEGORIES,
@@ -92,6 +88,19 @@ from mythify_plan_horizon import (  # noqa: E402
     build_default_plan_steps,
     env_plan_horizon,
     parse_plan_horizon,
+)
+from mythify_loopfit import cmd_loop_fit  # noqa: E402
+from mythify_log_compaction import cmd_logs_compact  # noqa: E402
+from mythify_provenance import current_verification_provenance  # noqa: E402
+from mythify_runtime_helpers import (  # noqa: E402
+    now_iso,
+    now_stamp,
+    redact_sensitive_output,
+    slugify,
+    tail_text,
+    timestamp_after,
+    timestamp_at_or_after,
+    timestamp_sort_key,
 )
 
 from mythify_outcomes import (  # noqa: E402
@@ -171,21 +180,22 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "4.2.0"
+VERSION = "4.3.0"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "2a3b9ebe62efc0c6f5d4a4d7f62b147acdaf38fc24f160e64a432e4fb02a1df2"
+PROTOCOL_SOURCE_SHA256 = "f4d6e09acc32ab86d2ab976762d79ff4c2c721f0ddb7eb1869ea4f2958a48c8d"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
-    "[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init"
+    "[FAIL] No .mythify workspace found. Run: mythify init"
 )
 EVIDENCE_MESSAGE = (
     "[FAIL] Evidence required: pass a RESULT describing what proves this status."
 )
 VERIFIED_EVIDENCE_MESSAGE = (
     "[FAIL] Verified evidence required: strict evidence mode is enabled by "
-    "default, but no passing 'verify run' was recorded since this step started. "
-    "Run 'verify run' with a passing check first, or set "
+    "default, but no passing executed 'verify run' with exit code 0 was recorded "
+    "since this step started. When the step stores a verify_command, the recorded "
+    "command must match it. Run the step's verifier first, or set "
     "MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion."
 )
 STRICT_CONTEXT_NOTICE = (
@@ -211,78 +221,9 @@ STATUS_ICONS = {
 
 REFLECT_OUTCOMES = ("success", "partial", "failure")
 TAIL_CHARS = 4000
-REDACTED_SECRET = "[REDACTED]"
 DEFAULT_VERIFY_TIMEOUT = 300.0
 DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 DEFAULT_LOG_COMPACT_KEEP = 1000
-LOG_COMPACT_TARGETS = ("verifications.jsonl", "reflections.jsonl")
-# ---------------------------------------------------------------------------
-# Time and text helpers
-# ---------------------------------------------------------------------------
-
-def now_iso():
-    """Current UTC time as an ISO-8601 string."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def parse_iso_timestamp(value):
-    text = str(value or "").strip()
-    if not text:
-        return None
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        stamp = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    return stamp.astimezone(timezone.utc)
-
-
-def timestamp_sort_key(value):
-    stamp = parse_iso_timestamp(value)
-    if stamp is not None:
-        return (1, stamp.timestamp(), str(value or ""))
-    return (0, str(value or ""))
-
-
-def timestamp_at_or_after(value, lower_bound, allow_same_second=False):
-    left = parse_iso_timestamp(value)
-    right = parse_iso_timestamp(lower_bound)
-    if left is not None and right is not None:
-        if allow_same_second:
-            left = left.replace(microsecond=0)
-            right = right.replace(microsecond=0)
-        return left >= right
-    return str(value or "") >= str(lower_bound or "")
-
-
-def timestamp_after(value, lower_bound):
-    left = parse_iso_timestamp(value)
-    right = parse_iso_timestamp(lower_bound)
-    if left is not None and right is not None:
-        return left > right
-    return str(value or "") > str(lower_bound or "")
-
-
-def now_stamp():
-    """Current UTC time as YYYYMMDDHHMMSS, for filenames."""
-    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-
-
-def slugify(text):
-    """Lowercase, collapse runs of non-alphanumerics to '-', strip edge '-',
-    truncate to 40 characters."""
-    chars = []
-    for ch in str(text).lower():
-        if ("a" <= ch <= "z") or ("0" <= ch <= "9"):
-            chars.append(ch)
-        elif chars and chars[-1] != "-":
-            chars.append("-")
-    return "".join(chars).strip("-")[:40]
-
-
 def sha256_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -558,6 +499,7 @@ def execute_recorded_verification(state, command, claim, timeout=None, context=N
         "stderr_tail": run["stderr_tail"],
         "verified": run["verified"],
         "timestamp": now_iso(),
+        "provenance": current_verification_provenance(VERSION, state=state),
     }
     record.update(context if context is not None else verification_step_context(state))
     append_jsonl(state / "verifications.jsonl", record)
@@ -662,52 +604,6 @@ def describe_next_pending(plan):
     if step.get("verify_command"):
         line += "\nNext verify: {0}".format(step["verify_command"])
     return line
-
-
-def tail_text(text, limit=TAIL_CHARS):
-    return str(text or "")[-limit:]
-
-
-def redact_sensitive_output(text):
-    value = str(text or "")
-    if not value:
-        return ""
-    value = re.sub(
-        r"(?i)\b(authorization\s*[:=]\s*bearer\s+)([A-Za-z0-9._~+/\-=]+)",
-        r"\1" + REDACTED_SECRET,
-        value,
-    )
-    value = re.sub(
-        r"(?i)\b([A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)"
-        r"[A-Za-z0-9_-]*\s*=\s*)([^\s,;]+)",
-        r"\1" + REDACTED_SECRET,
-        value,
-    )
-    value = re.sub(
-        r"(?i)([\"']?[A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|credential)"
-        r"[A-Za-z0-9_-]*[\"']?\s*:\s*)([\"'])([^\"']+)([\"'])",
-        r"\1\2" + REDACTED_SECRET + r"\4",
-        value,
-    )
-    value = re.sub(
-        r"(?i)\b((?:authorization|x-api-key|api-key|api_key|token|secret|password|passwd|credential)"
-        r"\s*:\s*)([^\s,;}]+)",
-        r"\1" + REDACTED_SECRET,
-        value,
-    )
-    value = re.sub(
-        r"\b("
-        r"sk-ant-[A-Za-z0-9_-]{16,}|"
-        r"sk-[A-Za-z0-9_-]{16,}|"
-        r"github_pat_[A-Za-z0-9_]{20,}|"
-        r"gh[pousr]_[A-Za-z0-9_]{20,}|"
-        r"npm_[A-Za-z0-9_-]{20,}"
-        r")\b",
-        REDACTED_SECRET,
-        value,
-    )
-    return value
-
 
 
 # ---------------------------------------------------------------------------
@@ -845,206 +741,6 @@ def cmd_status(args, state):
 # ---------------------------------------------------------------------------
 # Loop-fit advisory
 # ---------------------------------------------------------------------------
-# Read-only decision support: should a task be run as a bounded self-driving
-# loop, a host-supervised loop, or done directly? Structured as ordered gates
-# (evaluate fit before recommending) and grounded in whether an objective,
-# machine-checkable gate exists at all: without one, a loop has nothing to stop
-# on, so the honest answer is "do it directly."
-
-LOOPFIT_VERIFY_TERMS = (
-    "test", "tests", "build", "lint", "passes", "pass", "compile", "typecheck",
-    "type check", "e2e", "ci", "coverage", "benchmark", "smoke", "exit 0",
-    "assert", "regression", "check that", "verify",
-)
-LOOPFIT_RECUR_TERMS = (
-    "every", "each", "recurring", "recur", "nightly", "daily", "weekly", "hourly",
-    "regenerate", "re-run", "rerun", "keep going", "continuously", "watch",
-    "monitor", "until", "per pr", "each pr", "batch", "for all", "sweep",
-    "repeatedly", "for every", "on every",
-)
-LOOPFIT_JUDGMENT_TERMS = (
-    "design", "ux", "aesthetic", "subjective", "judgment", "judgement", "decide",
-    "tradeoff", "trade-off", "opinion", "creative", "wording", "prioritize",
-    "which is better", "looks good", "beautiful", "brainstorm", "explore",
-    "what should", "recommend", "advise",
-)
-LOOPFIT_CHECK_FILES = (
-    "pyproject.toml", "setup.py", "tox.ini", "pytest.ini", "package.json",
-    "Makefile", "makefile", "Cargo.toml", "go.mod", "build.gradle", "pom.xml",
-    "tests", "test",
-)
-
-
-def _loopfit_has_any(text, terms):
-    # Normalize punctuation to spaces so "tests." matches "tests"; the padded
-    # word-boundary join still keeps "latest" from matching "test".
-    normalized = re.sub(r"[^a-z0-9 ]+", " ", str(text).lower())
-    lowered = " {0} ".format(" ".join(normalized.split()))
-    matches = []
-    for term in terms:
-        needle = " {0} ".format(" ".join(term.split()))
-        if needle in lowered:
-            matches.append(term)
-    return matches
-
-
-def project_has_runnable_check(root):
-    for name in LOOPFIT_CHECK_FILES:
-        if (root / name).exists():
-            return True
-    return False
-
-
-def loopfit_project_context():
-    """Return (project_root, is_git_repo) for the directory the work happens in.
-
-    Resolved from the current working directory, never from where .mythify state
-    lives, so loop-fit stays strictly read-only and assesses the real project.
-    """
-    try:
-        run = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return Path.cwd(), False
-    if run.returncode == 0 and run.stdout.strip():
-        return Path(run.stdout.strip()), True
-    return Path.cwd(), False
-
-
-def assess_loop_fit(task, is_git_repo, has_check):
-    """Return a loop-fit recommendation for a task. Pure and deterministic.
-
-    The done-condition must come from the task itself (verify_hits); a runnable
-    check merely existing in the repo (has_check) is context, not proof that
-    THIS task is checkable, so it can lift a task to supervised but never to an
-    unattended loop.
-    """
-    verify_hits = _loopfit_has_any(task, LOOPFIT_VERIFY_TERMS)
-    recur_hits = _loopfit_has_any(task, LOOPFIT_RECUR_TERMS)
-    judgment_hits = _loopfit_has_any(task, LOOPFIT_JUDGMENT_TERMS)
-    automated_verification = bool(verify_hits)
-    reproduction_env = bool(is_git_repo)
-    recurring = bool(recur_hits)
-    needs_judgment = bool(judgment_hits)
-    criteria = {
-        "automated_verification": automated_verification,
-        "recurring": recurring,
-        "reproduction_env": reproduction_env,
-        "needs_human_judgment": needs_judgment,
-    }
-    # Ordered gates: fail the cheapest disqualifier first.
-    if needs_judgment and not (automated_verification and recurring):
-        recommendation = "direct"
-        reason = (
-            "The goal leans on human judgment. Automate only the checkable parts; "
-            "keep the judgment call in the chat."
-        )
-    elif not automated_verification:
-        if has_check:
-            recommendation = "supervised"
-            reason = (
-                "The task names no explicit check, but this repo has runnable "
-                "checks. Wrap it in a verifier-gated plan (plan add-step "
-                "--verify), not an unattended loop."
-            )
-        else:
-            recommendation = "direct"
-            reason = (
-                "No machine-checkable done-condition is evident. A loop has "
-                "nothing to stop on without an objective gate; do it directly "
-                "and record evidence with verify run if a check exists, else "
-                "verify claim."
-            )
-    elif recurring and reproduction_env and not needs_judgment:
-        recommendation = "loop"
-        reason = (
-            "Recurring, machine-checkable, and runs in a reproduction environment: "
-            "worth a bounded self-driving loop."
-        )
-    else:
-        recommendation = "supervised"
-        reason = (
-            "Machine-checkable but one-off or judgment-adjacent: run a "
-            "verifier-gated plan or a host-supervised outcome loop, not an "
-            "unattended one."
-        )
-    quoted = shlex.quote(str(task or "").strip() or "task")
-    if recommendation == "loop":
-        suggested = (
-            "python3 scripts/mythify.py outcome start {0} --success DEFINE "
-            "--verify DEFINE_CHECK --agent DEFINE_AGENT --max-iterations 5 "
-            "--max-cost 100 --escalate-after 3, then outcome run".format(quoted)
-        )
-    elif recommendation == "supervised":
-        suggested = (
-            "python3 scripts/mythify.py plan create {0} "
-            "--steps '[{{\"title\": \"...\", \"verify_command\": \"DEFINE_CHECK\"}}]', "
-            "then plan verify 1; or outcome start ... --verify ... then outcome check".format(quoted)
-        )
-    else:
-        suggested = (
-            "Do it directly in the chat. Run verify run if an executable check "
-            "exists, else record a verify claim."
-        )
-    return {
-        "kind": "loop_fit",
-        "task": str(task or ""),
-        "recommendation": recommendation,
-        "reason": reason,
-        "criteria": criteria,
-        "signals": {
-            "verify_terms": verify_hits,
-            "recurring_terms": recur_hits,
-            "judgment_terms": judgment_hits,
-            "has_runnable_check": has_check,
-            "is_git_repo": is_git_repo,
-        },
-        "suggested_next": suggested,
-        "guardrail": (
-            "loop-fit is read-only decision support; it does not run anything, "
-            "start a loop, or record evidence."
-        ),
-    }
-
-
-def format_loop_fit(payload):
-    lines = [
-        "[OK] Loop-fit: {0}".format(payload["recommendation"]),
-        "Reason: {0}".format(payload["reason"]),
-        "Criteria:",
-    ]
-    labels = {
-        "automated_verification": "task names a machine-checkable done-condition",
-        "recurring": "work recurs / repeats",
-        "reproduction_env": "reproduction environment (git repo)",
-        "needs_human_judgment": "needs human judgment",
-    }
-    for key, label in labels.items():
-        mark = "[x]" if payload["criteria"][key] else "[ ]"
-        lines.append("  {0} {1}".format(mark, label))
-    if payload["signals"].get("has_runnable_check"):
-        lines.append("  (note) the repo has runnable checks")
-    lines.append("Suggested next: {0}".format(payload["suggested_next"]))
-    lines.append("Guardrail: {0}".format(payload["guardrail"]))
-    return "\n".join(lines)
-
-
-def cmd_loop_fit(args, _state):
-    root, is_git = loopfit_project_context()
-    payload = assess_loop_fit(
-        args.task,
-        is_git,
-        project_has_runnable_check(root),
-    )
-    if args.json_output:
-        print(json.dumps(payload, indent=2))
-    else:
-        print(format_loop_fit(payload))
-    return 0
-
-
 def cmd_classify(args, _state):
     result = classify_task_text(args.task)
     result["model_policy"] = build_model_policy(
@@ -1350,6 +1046,7 @@ def cmd_plan_verify(args, state):
         )
         return 1
     if step.get("status") != "completed":
+        step["verification_cursor"] = len(read_jsonl(state / "verifications.jsonl"))
         step["status"] = "in_progress"
         step["updated_at"] = now_iso()
         plan["last_updated"] = step["updated_at"]
@@ -1368,7 +1065,7 @@ def cmd_plan_verify(args, state):
                 step_id, command, record["duration_seconds"]
             )
         )
-        print("Next: python3 scripts/mythify.py step {0} completed \"verify run exit 0\"".format(step_id))
+        print("Next: mythify step {0} completed \"verify run exit 0\"".format(step_id))
         return 0
     print(
         "[FAIL] UNVERIFIED step {0}: {1} (exit {2}, {3:.2f}s)".format(
@@ -1518,11 +1215,21 @@ def cmd_step(args, state):
         return 1
     if args.status == "completed" and strict_step_evidence_enabled():
         strict_context = bool(plan.get("strict_context"))
+        expected_command = str(step.get("verify_command") or "").strip()
         lower_bound = step.get("updated_at") or plan.get("created", "")
-        records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
+        cursor = step.get("verification_cursor")
+        if isinstance(cursor, int) and cursor >= 0:
+            records = read_jsonl(state / "verifications.jsonl")[cursor:]
+        else:
+            records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
         satisfied = any(
             record.get("kind") == "executed"
             and record.get("verified") is True
+            and record.get("exit_code") == 0
+            and (
+                not expected_command
+                or str(record.get("command") or "").strip() == expected_command
+            )
             and verification_record_counts_for_step(record, slug, step_id, strict_context)
             and timestamp_at_or_after(
                 record.get("timestamp", ""),
@@ -1536,6 +1243,8 @@ def cmd_step(args, state):
             if strict_context:
                 fail(STRICT_CONTEXT_NOTICE)
             return 1
+    if args.status == "in_progress":
+        step["verification_cursor"] = len(read_jsonl(state / "verifications.jsonl"))
     step["status"] = args.status
     if args.result is not None:
         step["result"] = args.result
@@ -1595,6 +1304,35 @@ def signal_name(signum):
         return str(signum)
 
 
+def terminate_process_tree(process):
+    if process is None:
+        return True
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return True
+        except (OSError, ProcessLookupError):
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+    return False
+
+
 def run_shell_capture(command, timeout, max_output_bytes=None):
     max_output_bytes = (
         verify_max_output_bytes() if max_output_bytes is None else max_output_bytes
@@ -1602,6 +1340,7 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
     started = datetime.now(timezone.utc)
     timed_out = False
     output_limit_exceeded = False
+    containment_failed = False
     spawn_error = None
     exit_code = None
     with tempfile.TemporaryDirectory(prefix="mythify-capture-") as tempdir:
@@ -1614,6 +1353,7 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
                     shell=True,
                     stdout=stdout_file,
                     stderr=stderr_file,
+                    start_new_session=(os.name != "nt"),
                 )
             except OSError as exc:
                 process = None
@@ -1623,18 +1363,20 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
                 while process.poll() is None:
                     if time.monotonic() >= deadline:
                         timed_out = True
-                        process.kill()
+                        containment_failed = not terminate_process_tree(process)
                         break
                     total_size = _file_size(stdout_path) + _file_size(stderr_path)
                     if total_size > max_output_bytes:
                         output_limit_exceeded = True
-                        process.kill()
+                        containment_failed = not terminate_process_tree(process)
                         break
                     time.sleep(0.02)
                 try:
                     process.wait(timeout=1)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    containment_failed = (
+                        not terminate_process_tree(process) or containment_failed
+                    )
                     process.wait(timeout=1)
                 exit_code = process.returncode
         stdout_tail = _read_file_tail_text(stdout_path, redactor=redact_sensitive_output)
@@ -1671,6 +1413,11 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
             "(terminated by signal {0})".format(signal_name(-exit_code)),
         )
         exit_code = -1
+    if containment_failed:
+        stderr_tail = _append_stderr_notice(
+            stderr_tail,
+            "(process-tree containment could not be confirmed; the parent was killed)",
+        )
     return {
         "command": command,
         "exit_code": exit_code,
@@ -1680,6 +1427,7 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
         "verified": exit_code == 0 and not timed_out and not output_limit_exceeded,
         "timed_out": timed_out,
         "output_limit_exceeded": output_limit_exceeded,
+        "containment_failed": containment_failed,
     }
 
 
@@ -1689,6 +1437,9 @@ configure_outcome_loops(
     slugify_func=slugify,
     run_shell_capture_func=run_shell_capture,
     verification_step_context_func=verification_step_context,
+    verification_provenance_func=lambda state: current_verification_provenance(
+        VERSION, state=state
+    ),
     fail_func=fail,
 )
 
@@ -1803,102 +1554,6 @@ def cmd_reflect(args, state):
     return 0
 
 
-def compact_archive_path(state, log_name):
-    archive_dir = state / "logs" / "archive"
-    stamp = now_stamp()
-    stem = Path(log_name).stem
-    candidate = archive_dir / "{0}-{1}.jsonl".format(stem, stamp)
-    counter = 2
-    while candidate.exists():
-        candidate = archive_dir / "{0}-{1}-{2}.jsonl".format(stem, stamp, counter)
-        counter += 1
-    return candidate
-
-
-def compact_jsonl_log(state, log_name, keep, dry_run):
-    path = state / log_name
-    with jsonl_file_lock(path):
-        return compact_jsonl_log_locked(state, log_name, keep, dry_run)
-
-
-def compact_jsonl_log_locked(state, log_name, keep, dry_run):
-    path = state / log_name
-    result = {
-        "log": log_name,
-        "path": str(path),
-        "status": "missing",
-        "raw_lines": 0,
-        "total_records": 0,
-        "retained_records": 0,
-        "removed_records": 0,
-        "archived": False,
-        "archive_path": None,
-    }
-    if not path.exists():
-        return result
-    raw_text = path.read_text(encoding="utf-8")
-    records = read_jsonl(path)
-    total = len(records)
-    retained = min(total, keep)
-    removed = max(0, total - keep)
-    result.update({
-        "status": "unchanged" if removed == 0 else "would_compact",
-        "raw_lines": len(raw_text.splitlines()),
-        "total_records": total,
-        "retained_records": retained,
-        "removed_records": removed,
-    })
-    if removed == 0:
-        return result
-    archive_path = compact_archive_path(state, log_name)
-    result["archive_path"] = str(archive_path)
-    if dry_run:
-        return result
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_text_atomic(archive_path, raw_text)
-    write_jsonl_atomic(path, records[-keep:])
-    result["status"] = "compacted"
-    result["archived"] = True
-    return result
-
-
-def format_log_compaction_result(result):
-    before = result["total_records"]
-    after = result["retained_records"]
-    line = "{0}: {1}, records {2} -> {3}".format(
-        result["log"], result["status"], before, after
-    )
-    if result["archive_path"]:
-        line += ", archive {0}".format(result["archive_path"])
-    if result["raw_lines"] != before:
-        line += ", raw lines {0}".format(result["raw_lines"])
-    return line
-
-
-def cmd_logs_compact(args, state):
-    if args.keep < 1:
-        fail("[FAIL] logs compact requires --keep >= 1.")
-        return 1
-    results = [
-        compact_jsonl_log(state, log_name, args.keep, args.dry_run)
-        for log_name in LOG_COMPACT_TARGETS
-    ]
-    payload = {
-        "status": "ok",
-        "dry_run": args.dry_run,
-        "keep": args.keep,
-        "logs": results,
-    }
-    if args.json_output:
-        print(json.dumps(payload, indent=2))
-    else:
-        label = "dry run" if args.dry_run else "complete"
-        print("[OK] Log compaction {0}.".format(label))
-        for result in results:
-            print(format_log_compaction_result(result))
-    return 0
-
-
 def cmd_summary(args, state):
     slugs = list_plan_slugs(state)
     active = get_active_slug(state)
@@ -1953,6 +1608,7 @@ configure_views(
     now_iso_func=now_iso,
     slugify_func=slugify,
     fail_func=fail,
+    mythify_version=VERSION,
 )
 
 configure_prompt_router(

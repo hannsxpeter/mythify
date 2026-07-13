@@ -4,6 +4,11 @@ import {
   VIEW_TOOL_NAMES,
   registerViewTools,
 } from "../src/view-tools.js";
+import {
+  releaseReadinessStatus,
+  summarizeReleaseGate,
+} from "../src/view-status-core.js";
+import { verificationFreshness } from "../src/verification-provenance.js";
 
 function viewDeps() {
   return {
@@ -65,5 +70,98 @@ test("view tool registrar rejects missing required deps", () => {
   assert.throws(
     () => registerViewTools({ registerTool() {} }, {}),
     /requires deps\.guarded/
+  );
+});
+
+test("P-MUST-02 readiness accepts only fresh passing evidence", () => {
+  const gate = {
+    id: "tests",
+    label: "Tests",
+    required: true,
+    sources: ["tests/"],
+    commands: ["python3 -m unittest discover -s tests -v"],
+  };
+  const current = { git_commit: "current", worktree_clean: true, mythify_version: "4.3.0" };
+  const base = {
+    kind: "executed",
+    claim: "suite passes",
+    command: "python3 -m unittest discover -s tests -v",
+    exit_code: 0,
+    verified: true,
+    timestamp: "2026-07-13T00:00:00Z",
+  };
+
+  const legacy = summarizeReleaseGate(gate, [base], current);
+  assert.equal(legacy.status, "stale");
+  assert.deepEqual(legacy.freshness, {
+    status: "legacy",
+    reason: "missing_provenance",
+  });
+  assert.equal(legacy.latest_record.provenance, null);
+
+  const stale = summarizeReleaseGate(
+    gate,
+    [{ ...base, provenance: { git_commit: "old", worktree_clean: true, mythify_version: "4.3.0" } }],
+    current
+  );
+  assert.equal(stale.status, "stale");
+  assert.equal(stale.freshness.reason, "git_commit_mismatch");
+  assert.equal(releaseReadinessStatus([stale], { status: "clean" }), "needs_evidence");
+
+  const versionStale = summarizeReleaseGate(
+    gate,
+    [{ ...base, provenance: { git_commit: "current", worktree_clean: true, mythify_version: "4.2.0" } }],
+    current
+  );
+  assert.equal(versionStale.status, "stale");
+  assert.equal(versionStale.freshness.reason, "mythify_version_mismatch");
+
+  const fresh = summarizeReleaseGate(
+    gate,
+    [{ ...base, provenance: { git_commit: "current", worktree_clean: true, mythify_version: "4.3.0" } }],
+    current
+  );
+  assert.equal(fresh.status, "passed");
+  assert.equal(fresh.freshness.status, "fresh");
+  assert.equal(
+    releaseReadinessStatus([fresh], { status: "clean" }),
+    "ready_for_release_review"
+  );
+  assert.deepEqual(
+    verificationFreshness(
+      { provenance: { git_commit: "recorded", worktree_clean: true, mythify_version: "4.3.0" } },
+      { git_commit: null, worktree_clean: null, mythify_version: "4.3.0" }
+    ),
+    { status: "stale", reason: "current_git_commit_unavailable" }
+  );
+  const spoof = summarizeReleaseGate(
+    gate,
+    [{ ...base, command: "true", claim: "python3 -m unittest discover -s tests -v" }],
+    current
+  );
+  assert.equal(spoof.status, "missing");
+  const inconsistent = summarizeReleaseGate(
+    gate,
+    [{ ...base, exit_code: 9, provenance: { git_commit: "current", worktree_clean: true, mythify_version: "4.3.0" } }],
+    current
+  );
+  assert.equal(inconsistent.status, "failed");
+  assert.deepEqual(
+    verificationFreshness(
+      { provenance: { git_commit: null, worktree_clean: null, mythify_version: "4.3.0" } },
+      { git_commit: null, worktree_clean: null, mythify_version: "4.3.0" }
+    ),
+    { status: "stale", reason: "current_git_commit_unavailable" }
+  );
+  assert.deepEqual(
+    verificationFreshness(
+      { provenance: { git_commit: "current", worktree_clean: false, mythify_version: "4.3.0" } },
+      current
+    ),
+    { status: "stale", reason: "recorded_worktree_dirty" }
+  );
+  assert.deepEqual(
+    verificationFreshness({ provenance: [] }, current),
+    { status: "legacy", reason: "missing_provenance" }
   );
 });

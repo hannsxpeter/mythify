@@ -36,6 +36,7 @@ export function registerPlanTools(server, deps) {
   const savePlan = requireDep(deps, "savePlan");
   const strictStepEvidenceEnabled = requireDep(deps, "strictStepEvidenceEnabled");
   const readJsonlSince = requireDep(deps, "readJsonlSince");
+  const readJsonl = requireDep(deps, "readJsonl");
   const verificationsPath = requireDep(deps, "verificationsPath");
   const verificationRecordMatchesStep = requireDep(deps, "verificationRecordMatchesStep");
   const timestampAtOrAfter = requireDep(deps, "timestampAtOrAfter");
@@ -186,7 +187,8 @@ export function registerPlanTools(server, deps) {
       description:
         "Set a step's status (pending, in_progress, completed, failed, skipped) on the named or active plan. " +
         "Marking a step completed or failed REQUIRES a result describing the evidence; without it the plan is left unmodified. " +
-        "By default, completed also requires a passing verify_run since the step started; set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. " +
+        "By default, completed also requires an executed verify_run with verified true and exit code 0 since the step started. " +
+        "When the step stores verify_command, the recorded command must match it. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. " +
         "Use this as you start, finish, fail, or skip each step of the active plan.",
       inputSchema: {
         step_id: z.number().int().describe("The 1-based id of the step to update."),
@@ -223,27 +225,45 @@ export function registerPlanTools(server, deps) {
           typeof step.updated_at === "string" && step.updated_at !== ""
             ? step.updated_at
             : plan.created;
-        const verifications = readJsonlSince(verificationsPath(), lowerBound);
+        const cursor = Number.isInteger(step.verification_cursor) && step.verification_cursor >= 0
+          ? step.verification_cursor
+          : null;
+        const verifications = cursor === null
+          ? readJsonlSince(verificationsPath(), lowerBound)
+          : readJsonl(verificationsPath()).slice(cursor);
+        const expectedCommand = String(step.verify_command || "").trim();
         const hasPassingRun = verifications.some(
-          (record) =>
-            record &&
-            record.kind === "executed" &&
-            record.verified === true &&
-            typeof record.timestamp === "string" &&
-            verificationRecordMatchesStep(record, slug, step_id) &&
-            timestampAtOrAfter(
-              record.timestamp,
-              lowerBound,
-              verificationRecordHasExplicitStepContext(record, slug, step_id)
-            )
+          (record) => {
+            const explicitContext = verificationRecordHasExplicitStepContext(
+              record,
+              slug,
+              step_id
+            );
+            return (
+              record &&
+              record.kind === "executed" &&
+              record.verified === true &&
+              record.exit_code === 0 &&
+              (expectedCommand === "" || String(record.command || "").trim() === expectedCommand) &&
+              typeof record.timestamp === "string" &&
+              (plan.strict_context === true
+                ? explicitContext
+                : verificationRecordMatchesStep(record, slug, step_id)) &&
+              timestampAtOrAfter(record.timestamp, lowerBound, explicitContext)
+            );
+          }
         );
         if (!hasPassingRun) {
           return (
-            "[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing 'verify run' " +
-            "was recorded since this step started. Run 'verify run' with a passing check first, or set " +
+            "[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing executed " +
+            "'verify run' with exit code 0 was recorded since this step started. When the step stores a verify_command, " +
+            "the recorded command must match it. Run the step's verifier first, or set " +
             "MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion."
           );
         }
+      }
+      if (status === "in_progress") {
+        step.verification_cursor = readJsonl(verificationsPath()).length;
       }
       step.status = status;
       if (hasResult) {

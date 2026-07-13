@@ -3,6 +3,10 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { godauditsSummary, godplansSummary } from "./godfiles-core.js";
+import {
+  currentVerificationProvenanceForStateDir,
+  verificationFreshness,
+} from "./verification-provenance.js";
 
 let deps = {};
 
@@ -32,88 +36,17 @@ function containsAny(text, needles) {
   return needles.filter((needle) => lower.includes(String(needle).toLowerCase()));
 }
 
-export const RELEASE_READINESS_GATES = [
-  {
-    id: "python_tests",
-    label: "Python test suite",
-    required: true,
-    sources: ["tests/"],
-    match_any: ["python3 -m unittest discover -s tests", "Python suite passes"],
-  },
-  {
-    id: "node_mcp_tests",
-    label: "Node MCP suite",
-    required: true,
-    sources: ["mcp-server/test/"],
-    match_any: ["npm test --prefix mcp-server", "Node MCP suite passes"],
-  },
-  {
-    id: "surface_manifest",
-    label: "Surface manifest check",
-    required: true,
-    sources: ["protocol/surface-manifest.json", "scripts/check_surface_manifest.mjs"],
-    match_any: ["node scripts/check_surface_manifest.mjs", "surface manifest"],
-  },
-  {
-    id: "classification_rules_manifest",
-    label: "Classification rules manifest check",
-    required: true,
-    sources: [
-      "protocol/classification-rules.json",
-      "mcp-server/protocol/classification-rules.json",
-      "scripts/check_classification_rules_manifest.mjs",
-    ],
-    match_any: ["node scripts/check_classification_rules_manifest.mjs", "classification rules manifest"],
-  },
-  {
-    id: "registry_docs",
-    label: "Generated registry docs check",
-    required: true,
-    sources: ["scripts/build_registry_docs.mjs", "docs/adapter-candidates.md"],
-    match_any: ["node scripts/build_registry_docs.mjs --check", "registry docs", "generated docs"],
-  },
-  {
-    id: "protocol_check",
-    label: "Protocol variants check",
-    required: true,
-    sources: ["protocol/PROTOCOL.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"],
-    match_any: ["python3 scripts/mythify.py protocol check", "protocol check"],
-  },
-  {
-    id: "variant_idempotence",
-    label: "Generated variants idempotence",
-    required: true,
-    sources: ["scripts/build_variants.py", "AGENTS.md", "CLAUDE.md", ".cursorrules"],
-    match_any: ["scripts/build_variants.py", "generated variants", "variant idempotence"],
-  },
-  {
-    id: "whitespace",
-    label: "Whitespace check",
-    required: true,
-    sources: ["git diff --check"],
-    match_any: ["git diff --check", "whitespace"],
-  },
-  {
-    id: "forbidden_dash_scan",
-    label: "Forbidden dash scan",
-    required: true,
-    sources: ["AGENTS.md", "docs/design.md"],
-    match_any: ["forbidden dash", "dash scan"],
-  },
-  {
-    id: "emoji_scan",
-    label: "Emoji scan",
-    required: true,
-    sources: ["AGENTS.md", "docs/design.md"],
-    match_any: ["emoji scan", "emoji-like"],
-  },
-];
+const RELEASE_GATES_MANIFEST = JSON.parse(
+  fs.readFileSync(new URL("../protocol/release-gates.json", import.meta.url), "utf8")
+);
+export const RELEASE_READINESS_GATES = RELEASE_GATES_MANIFEST.gates;
 
 export const RELEASE_READINESS_ICONS = {
   passed: "[x]",
   failed: "[!]",
   missing: "[ ]",
   unknown: "[~]",
+  stale: "[~]",
   clean: "[x]",
   dirty: "[!]",
   present: "[x]",
@@ -130,34 +63,50 @@ export function verificationSearchText(record) {
     .toLowerCase();
 }
 
+export function normalizeVerificationCommand(value) {
+  return String(value || "").trim().split(/\s+/).filter(Boolean).join(" ");
+}
+
 export function latestMatchingVerification(records, gate) {
-  const needles = gate.match_any.map((item) => item.toLowerCase());
+  const commands = new Set((gate.commands || []).map(normalizeVerificationCommand));
   const matches = records.filter(
     (record) =>
       record.kind === "executed" &&
-      needles.some((needle) => verificationSearchText(record).includes(needle))
+      commands.has(normalizeVerificationCommand(record.command))
   );
   return matches.length > 0 ? matches[matches.length - 1] : null;
 }
 
-export function summarizeReleaseGate(gate, records) {
+export function summarizeReleaseGate(gate, records, currentProvenance = null) {
   const record = latestMatchingVerification(records, gate);
-  const status = record ? (record.verified === true ? "passed" : "failed") : "missing";
+  const freshness = record ? verificationFreshness(record, currentProvenance || {}) : null;
+  let status = "missing";
+  if (record) {
+    if (record.verified !== true || record.exit_code !== 0) {
+      status = "failed";
+    } else if (currentProvenance && freshness.status !== "fresh") {
+      status = "stale";
+    } else {
+      status = "passed";
+    }
+  }
   return {
     id: gate.id,
     label: gate.label,
     required: gate.required,
     sources: [...gate.sources],
     status,
+    freshness,
     latest_record: record
       ? {
           timestamp: record.timestamp || "",
-          claim: record.claim,
+          claim: record.claim ?? null,
           command: record.command || "",
-          exit_code: record.exit_code,
-          verified: record.verified,
-          plan: record.plan,
-          step_id: record.step_id,
+          exit_code: record.exit_code ?? null,
+          verified: record.verified ?? null,
+          plan: record.plan ?? null,
+          step_id: record.step_id ?? null,
+          provenance: record.provenance ?? null,
         }
       : null,
   };
@@ -229,10 +178,11 @@ export function roadmapSummary(root) {
 export function releaseReadinessStatus(gates, gitState) {
   const failed = gates.filter((gate) => gate.status === "failed").length;
   const missing = gates.filter((gate) => gate.status === "missing").length;
+  const stale = gates.filter((gate) => gate.status === "stale").length;
   if (failed > 0 || gitState.status === "dirty") {
     return "blocked";
   }
-  if (missing > 0) {
+  if (missing > 0 || stale > 0) {
     return "needs_evidence";
   }
   if (gitState.status === "unknown") {
@@ -244,14 +194,18 @@ export function releaseReadinessStatus(gates, gitState) {
 export function buildReleaseReadinessView() {
   const stateDir = resolveStateDir();
   const records = readJsonl(verificationsPath());
-  const gates = RELEASE_READINESS_GATES.map((gate) => summarizeReleaseGate(gate, records));
+  const currentProvenance = currentVerificationProvenanceForStateDir(stateDir);
+  const gates = RELEASE_READINESS_GATES.map((gate) =>
+    summarizeReleaseGate(gate, records, currentProvenance)
+  );
   const root = projectRootFromState(stateDir);
   const gitState = gitStatusSummary(root);
   const roadmap = roadmapSummary(root);
-  const counts = countStatuses(gates, ["passed", "failed", "missing", "unknown"]);
+  const counts = countStatuses(gates, ["passed", "failed", "missing", "stale", "unknown"]);
   return {
     state_dir: stateDir,
     project_root: root,
+    current_provenance: currentProvenance,
     status: releaseReadinessStatus(gates, gitState),
     gates,
     counts: { total: gates.length, ...counts },
@@ -272,6 +226,9 @@ export function formatReleaseGate(row) {
   const record = row.latest_record;
   if (record) {
     line += ` (exit ${record.exit_code}, ${record.timestamp || "unknown-time"})`;
+    if (row.freshness?.status !== "fresh") {
+      line += `, freshness=${row.freshness?.reason || "unknown"}`;
+    }
   } else {
     line += " (no recorded executed verifier)";
   }
@@ -283,9 +240,15 @@ export function formatReleaseReadinessView(view) {
   const lines = [`[OK] Release readiness: ${view.state_dir}`];
   const counts = view.counts;
   lines.push(`Readiness: ${view.status}`);
+  const provenance = view.current_provenance || {};
+  lines.push(
+    `Current provenance: commit=${provenance.git_commit || "unavailable"}; ` +
+      `version=${provenance.mythify_version || "unknown"}`
+  );
   lines.push(
     `Recorded gates: ${counts.total} total; ${counts.passed || 0} passed, ` +
-      `${counts.failed || 0} failed, ${counts.missing || 0} missing`
+      `${counts.failed || 0} failed, ${counts.missing || 0} missing, ` +
+      `${counts.stale || 0} stale`
   );
   lines.push("Gates:");
   for (const gate of view.gates) {

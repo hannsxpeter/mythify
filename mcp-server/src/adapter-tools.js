@@ -24,6 +24,7 @@ import {
 import {
   DEFAULT_MODEL_PROVIDER,
   LOCAL_MODEL_ROLES,
+  MODEL_PROVIDER_API_KEY_ENVS,
   MODEL_PROVIDER_IDS,
   formatLocalModelRun,
   formatProviderProbe,
@@ -168,7 +169,7 @@ export function registerAdapterTools(server, deps) {
         api_key_env: z
           .string()
           .optional()
-          .describe("Environment variable containing the API key. Defaults to MYTHIFY_OPENAI_COMPAT_API_KEY."),
+          .describe(`Allowlisted environment variable containing the API key. Allowed: ${MODEL_PROVIDER_API_KEY_ENVS.join(", ")}. Defaults to MYTHIFY_OPENAI_COMPAT_API_KEY.`),
         timeout_seconds: z
           .number()
           .positive()
@@ -229,7 +230,7 @@ export function registerAdapterTools(server, deps) {
         api_key_env: z
           .string()
           .optional()
-          .describe("Environment variable containing an optional local provider API key. Defaults to MYTHIFY_OPENAI_COMPAT_API_KEY."),
+          .describe(`Allowlisted environment variable containing an optional local provider API key. Allowed: ${MODEL_PROVIDER_API_KEY_ENVS.join(", ")}. Defaults to MYTHIFY_OPENAI_COMPAT_API_KEY.`),
         timeout_seconds: z
           .number()
           .positive()

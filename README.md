@@ -48,8 +48,8 @@ That is the whole product. The rest is convenience around that loop.
 
 ## Install (2 minutes)
 
-Mythify is a checkout you install locally. You need Python 3.9+ (for the CLI)
-and, optionally, Node 18+ (for the MCP server that plugs into agent tools).
+Mythify needs Python 3.9+ for the CLI and, optionally, Node 20+ for the MCP
+server that plugs into agent tools.
 
 ```bash
 git clone https://github.com/hannsxpeter/mythify.git
@@ -57,12 +57,57 @@ cd mythify
 ./scripts/install_user.sh --project /path/to/your/project
 ```
 
-That installs a `mythify` command and sets up your project. If you would rather
-not install anything, you can run the CLI straight from the checkout with
-`python3 scripts/mythify.py ...` from your project directory.
+That copies a versioned, self-contained CLI runtime under
+`$XDG_DATA_HOME/mythify/VERSION/cli` or
+`$HOME/.local/share/mythify/VERSION/cli`, installs `mythify` and
+`mythify-uninstall` under `$HOME/.local/bin`, and sets up your project. The
+installed command does not depend on the checkout, so you can move or delete
+the checkout after installation. Rerun the installer to replace the installed
+files safely with the selected version.
+
+To build the standalone CLI release artifact from a source checkout:
+
+```bash
+python3 scripts/package_cli.py
+tar -xzf dist/mythify-cli-VERSION.tar.gz
+./mythify-cli-VERSION/scripts/install_user.sh \
+  --skip-mcp \
+  --project /path/to/your/project
+```
+
+If you downloaded `mythify-cli-VERSION.tar.gz` from a GitHub release, start at
+the `tar` command. The downloaded archive is already built and does not need a
+source checkout.
+
+The tar archive contains the Python runtime, protocol manifests, chat skills,
+and its install entry point. Its contents and gzip metadata are deterministic,
+so the same source tree produces the same archive bytes.
+
+Remove the user installation with:
+
+```bash
+mythify-uninstall
+```
+
+Uninstall removes the Mythify launchers, current versioned runtime data, chat
+skills, and optional hook selected by that installation. It preserves skipped
+or unrelated artifacts, other installed versions, and every project's
+`.mythify` state directory. An ownership manifest binds installed files by
+content hash and installed directories by a private marker, so uninstall fails
+closed without deleting anything when ownership evidence is missing or changed.
+
+If you would rather not install anything, run the CLI straight from the
+checkout with `python3 scripts/mythify.py ...` from your project directory.
 
 There is no `npm install mythify` and no account to create. Mythify is
 zero-dependency Python plus a small optional Node server.
+
+The GitHub release also contains `mythify-mcp-VERSION.tgz`. To add MCP support
+without a source checkout, create a small runtime directory, run
+`npm install /path/to/mythify-mcp-VERSION.tgz` there, and configure your MCP
+client to execute `node node_modules/mythify-mcp/src/index.js` with
+`MYTHIFY_DIR` set to your project's `.mythify` directory. This is a local
+tarball install; Mythify does not publish the package to an npm registry.
 
 ## Your first loop
 
@@ -112,8 +157,9 @@ of done is a check" idea, made concrete.
 - `verify claim "..."` records a plain-English claim when nothing is runnable.
   It is always marked second-class and never counts as real proof.
 
-By default, completing a step requires a real `verify run` that passed after the
-step started. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only if you knowingly want
+By default, completing a step requires a real `verify run` with exit code 0
+after the step started. If the step stores `verify_command`, the recorded
+command must match it. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only if you knowingly want
 the old prose-only behavior.
 
 ### Memory and lessons
@@ -213,7 +259,7 @@ The everyday commands:
 | `plan add-step TITLE [--verify CMD]` | Add a step, optionally with its check. |
 | `plan verify ID` | Run a step's own check and record scoped evidence. |
 | `plan import [--source godplans\|godaudits]` | Import a PLAN.mdx / AUDIT.mdx as a plan. |
-| `step ID STATUS [RESULT]` | Update a step; `completed` needs a passing verify. |
+| `step ID STATUS [RESULT]` | Update a step; `completed` needs a passing exit-0 verify matching any stored command. |
 | `verify run "CMD" [--claim ...]` | Run a command and record the exit code as evidence. |
 | `outcome start GOAL --success ... --verify ...` | Start a verifier-backed loop (add `--agent` to self-drive). |
 | `outcome run` | Drive a self-driving loop to success or a bounded stop. |
@@ -225,22 +271,34 @@ analysis, and the full MCP tool set). The complete, exhaustive reference lives
 in [docs/design.md](docs/design.md); a quick tour is in
 [docs/start-here.md](docs/start-here.md).
 
+## Evidence, honestly
+
+A [reproducible Codex smoke comparison](docs/evidence/efficacy-reproduction.md)
+ran two paired trials of one small Python bug fix. Bare and Mythify both passed
+2 of 2 external verifiers. The Mythify condition also produced executed,
+passing evidence for the expected verifier command. This confirms the evidence
+mechanism in that small run, not a general improvement in task success or
+speed. The sample was tiny, order was fixed, the account default model was not
+pinned, and monetary cost and subscription quota were not measured.
+
 ## How it is built
 
 Two runtimes over one state folder:
 
 - **CLI** (`scripts/mythify.py` and friends): zero-dependency Python 3.9+.
-- **MCP server** (`mcp-server/`): Node 18+, exposes the same state as MCP tools
+- **MCP server** (`mcp-server/`): Node 20+, exposes the same state as MCP tools
   plus fanout.
 
-Both read and write the same `.mythify/` directory, so they always agree. The
-protocol text itself (`protocol/PROTOCOL.md`) is the source for the drop-in
-rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
+Both read and write the same `.mythify/` directory. Shared manifests, semantic
+contract checks, and interop tests keep their independent implementations
+aligned. The protocol text itself (`protocol/PROTOCOL.md`) is the source for
+the drop-in rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
 
 ## Learn more
 
 - [docs/start-here.md](docs/start-here.md) - the shortest path to using Mythify.
 - [docs/design.md](docs/design.md) - the complete design and command reference.
+- [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md) - the reproducible product-evidence smoke run and caveats.
 - [CHANGELOG.md](CHANGELOG.md) - what changed in each release.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to contribute.
 

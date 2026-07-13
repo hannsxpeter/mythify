@@ -13,6 +13,13 @@ const PACKAGE_MANIFEST_PATH = path.join(
   "protocol",
   "surface-manifest.json"
 );
+const RELEASE_GATES_PATH = path.join(REPO_ROOT, "protocol", "release-gates.json");
+const PACKAGE_RELEASE_GATES_PATH = path.join(
+  REPO_ROOT,
+  "mcp-server",
+  "protocol",
+  "release-gates.json"
+);
 
 function readText(relativePath) {
   return fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf8");
@@ -77,6 +84,20 @@ function requireIncludes(relativePath, needle) {
   }
 }
 
+function requireExcludes(relativePath, needle) {
+  const text = readText(relativePath);
+  if (text.includes(needle)) {
+    fail(relativePath + " contains forbidden stale text: " + needle);
+  }
+}
+
+function requireMatches(relativePath, pattern, label) {
+  const text = readText(relativePath);
+  if (!pattern.test(text)) {
+    fail(relativePath + " missing required contract: " + label);
+  }
+}
+
 function registeredTools(relativePaths) {
   const paths = Array.isArray(relativePaths) ? relativePaths : [relativePaths];
   const names = [];
@@ -98,11 +119,29 @@ function main() {
   if (JSON.stringify(manifest) !== JSON.stringify(packageManifest)) {
     fail("Surface manifest package mirror drifted");
   }
+  const releaseGates = JSON.parse(fs.readFileSync(RELEASE_GATES_PATH, "utf8"));
+  const packageReleaseGates = JSON.parse(
+    fs.readFileSync(PACKAGE_RELEASE_GATES_PATH, "utf8")
+  );
+  if (JSON.stringify(releaseGates) !== JSON.stringify(packageReleaseGates)) {
+    fail("Release gates package mirror drifted");
+  }
   const cli = manifest.surfaces.cli;
   const mcp = manifest.surfaces.mcp;
   const coreTools = mcp.core_tools;
   const fanoutTools = mcp.fanout_tools;
   const allTools = [...coreTools, ...fanoutTools];
+  const packageJson = JSON.parse(readText("mcp-server/package.json"));
+  const releaseMajor = packageJson.version.split(".")[0] + ".x";
+  const cliVersionMatch = readText("scripts/mythify.py").match(
+    /^VERSION = "([^"]+)"$/m
+  );
+
+  if (!cliVersionMatch) {
+    fail("scripts/mythify.py missing VERSION constant");
+  } else {
+    requireEqual("CLI and MCP version", cliVersionMatch[1], packageJson.version);
+  }
 
   requireUnique("CLI commands", cli.commands);
   requireUnique("MCP tools", allTools);
@@ -152,6 +191,155 @@ function main() {
   requireIncludes(
     "mcp-server/src/index.js",
     mcp.total_tools + " tools in total"
+  );
+  requireMatches(
+    "docs/design.md",
+    new RegExp(
+      "package\\.json: name `mythify-mcp`, version `" +
+        packageJson.version.replaceAll(".", "\\.") +
+        "`"
+    ),
+    "MCP package version row matches package.json"
+  );
+  requireIncludes("SECURITY.md", "| " + releaseMajor + " | Yes |");
+  requireIncludes(
+    "roadmap.md",
+    "Current release target: `v" + packageJson.version + "`"
+  );
+  requireIncludes(
+    "roadmap.md",
+    "Release gate: pending for `v" + packageJson.version + "`"
+  );
+  requireExcludes(
+    "roadmap.md",
+    "Release gate: passed for `v" + packageJson.version + "`"
+  );
+  requireMatches(
+    "docs/design.md",
+    /\| `outcome start GOAL[^\n]+--agent COMMAND[^\n]+--max-cost N[^\n]+--escalate-after N[^\n]+--allowed-paths CSV/,
+    "CLI outcome start row binds agent, cost, escalation, and path controls"
+  );
+  requireMatches(
+    "docs/design.md",
+    /\| `outcome run \[NAME\][^\n]+\| Drive a self-driving loop/,
+    "CLI outcome run row"
+  );
+  requireMatches(
+    "docs/design.md",
+    /\| `plan create GOAL \[--steps JSON\][^\n]+\| Create plan[^\n]+"verify_command": str \(optional\)/,
+    "CLI plan create verify_command schema"
+  );
+  requireMatches(
+    "docs/design.md",
+    /\| `plan add-step TITLE \[--criteria TEXT\] \[--verify COMMAND\] \[--plan NAME\]`/,
+    "CLI plan add-step verify command"
+  );
+  requireMatches(
+    "docs/design.md",
+    /\| `plan_create` \| `\{[^\n]+steps\?: \[\{title: string, success_criteria\?: string, verify_command\?: string\}\]/,
+    "MCP plan_create verify_command schema"
+  );
+  requireMatches(
+    "docs/design.md",
+    /\| `plan_add_step` \| `\{title: string, success_criteria\?: string, verify_command\?: string, plan\?: string\}`/,
+    "MCP plan_add_step verify_command schema"
+  );
+  requireMatches(
+    "docs/design.md",
+    /result alone does not satisfy strict completion; a passing step-scoped[\s\S]{0,160}recorded after the step starts/,
+    "strict completion requires step-scoped verification after start"
+  );
+  requireMatches(
+    "docs/design.md",
+    /`init`, `protocol check`, `trace` analysis commands, `classify`, and\s+`loop-fit` do not require a workspace\. `route` treats the workspace as optional/,
+    "workspace-free command list and optional route workspace"
+  );
+  requireMatches(
+    "docs/design.md",
+    /the full self-contained instruction for this worker; the worker sees only that prompt plus readable `context_paths` content/,
+    "fanout prompt isolation contract"
+  );
+  requireMatches(
+    "docs/design.md",
+    /The canonical behavioral protocol is generated and hash-checked[\s\S]{0,240}no stale fixed line ceiling overrides contract\s+completeness/,
+    "generated protocol has no stale fixed line ceiling"
+  );
+  requireMatches(
+    "docs/design.md",
+    /A passing record satisfies a\s+gate only when `verified` is true, `exit_code` is zero,[\s\S]{0,180}`provenance\.worktree_clean`[\s\S]{0,100}`provenance\.mythify_version` match the clean current checkout/,
+    "release readiness binds evidence to command result and clean provenance"
+  );
+  requireMatches(
+    "docs/design.md",
+    /Legacy records[\s\S]{0,180}freshness `legacy`[\s\S]{0,120}gate status\s+`stale`/,
+    "legacy evidence remains readable but cannot satisfy readiness"
+  );
+  requireMatches(
+    "docs/design.md",
+    /top-level `current_provenance`[\s\S]{0,160}gate counts including `stale`/,
+    "readiness reports current provenance and stale counts"
+  );
+  requireMatches(
+    "docs/design.md",
+    /current Git commit is unavailable[\s\S]{0,80}`current_git_commit_unavailable`/,
+    "readiness fails closed when current Git provenance is unavailable"
+  );
+  requireIncludes(
+    "docs/design.md",
+    '"provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "mythify_version": "semver string"}'
+  );
+  requireIncludes("docs/design.md", "scripts/package_cli.py");
+  requireIncludes("docs/design.md", "mythify-uninstall");
+  requireIncludes("docs/design.md", "passing_expected_verifications");
+  requireMatches(
+    "docs/design.md",
+    /`allowed_paths` are not a sandbox[\s\S]{0,260}`outcome run`\s+enforces/,
+    "outcome allowed-path enforcement distinction"
+  );
+  requireMatches(
+    "docs/design.md",
+    /"verify_command": "str \(optional and absent unless supplied\)"[\s\S]{0,900}`plan create` and\s+`plan add-step` both persist/,
+    "normal plan steps persist optional verify_command"
+  );
+  requireMatches(
+    "docs/design.md",
+    /`verification_cursor`[\s\S]{0,220}prevents old same-second evidence from being reused/,
+    "step completion uses an append-order verification cursor"
+  );
+  requireMatches(
+    "docs/design.md",
+    /isolation\?: enum\(none, worktree\)[\s\S]{0,1600}changed work is committed for host merge/,
+    "fanout worktree isolation is part of the public schema"
+  );
+  requireIncludes("README.md", "docs/evidence/efficacy-reproduction.md");
+  requireExcludes("README.md", "so they always agree");
+  requireIncludes(".github/workflows/release.yml", "python3 scripts/package_cli.py");
+  requireIncludes(".github/workflows/release.yml", "dist/mythify-cli-*.tar.gz");
+  requireIncludes(".github/workflows/release.yml", "SHA256SUMS");
+  requireIncludes(".github/workflows/release.yml", "--check-release-tag");
+  requireIncludes(".github/workflows/release.yml", "scripts/build_release_checksums.py");
+  requireIncludes(
+    "docs/release.md",
+    "dist/mythify-cli-" + packageJson.version + ".tar.gz"
+  );
+  requireIncludes("docs/release.md", "SHA256SUMS");
+  requireIncludes("docs/release.md", "scripts/build_release_checksums.py");
+  requireIncludes("roadmap.md", "standalone CLI tarball");
+  requireIncludes("roadmap.md", "`SHA256SUMS`");
+  requireIncludes(
+    "docs/design.md",
+    "the " + mcp.core_tool_count + " core tools plus"
+  );
+  requireMatches(
+    "docs/design.md",
+    new RegExp(
+      "### Smoke coverage[\\s\\S]{0,700}" + mcp.total_tools + "-tool set equality"
+    ),
+    "smoke coverage tool count matches the manifest"
+  );
+  requireIncludes(
+    "docs/design.md",
+    "### Tools (" + mcp.fanout_tool_count + ", total " + mcp.total_tools + ")"
   );
 
   // The beginner README names the tool count and points to design.md; the

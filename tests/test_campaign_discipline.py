@@ -150,7 +150,7 @@ class TestCampaignHygiene(CampaignCliCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         prompt = self.run_cli("campaign", "prompt", "shape")
         self.assertEqual(prompt.returncode, 0, prompt.stderr)
-        self.assertIn("python3 scripts/mythify.py campaign advance shape", prompt.stdout)
+        self.assertIn("mythify campaign advance shape", prompt.stdout)
 
 
 if __name__ == "__main__":

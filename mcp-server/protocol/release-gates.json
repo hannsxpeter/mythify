@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "id": "python_tests",
+      "label": "Python test suite",
+      "required": true,
+      "sources": [
+        "tests/"
+      ],
+      "commands": [
+        "python3 -m unittest discover -s tests -v"
+      ]
+    },
+    {
+      "id": "node_mcp_tests",
+      "label": "Node MCP suite",
+      "required": true,
+      "sources": [
+        "mcp-server/test/"
+      ],
+      "commands": [
+        "npm test --prefix mcp-server"
+      ]
+    },
+    {
+      "id": "interop_tests",
+      "label": "CLI and MCP interop suite",
+      "required": true,
+      "sources": [
+        "tests/test_interop.py"
+      ],
+      "commands": [
+        "python3 -m unittest tests.test_interop -v"
+      ]
+    },
+    {
+      "id": "distribution_tests",
+      "label": "Installer and release artifact tests",
+      "required": true,
+      "sources": [
+        "tests/test_install_user.py",
+        "tests/test_release_checksums.py",
+        "tests/test_mcp_package.py",
+        "tests/test_release_version.py"
+      ],
+      "commands": [
+        "python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_package tests.test_release_version -v"
+      ]
+    },
+    {
+      "id": "surface_manifest",
+      "label": "Surface manifest check",
+      "required": true,
+      "sources": [
+        "protocol/surface-manifest.json",
+        "mcp-server/protocol/surface-manifest.json",
+        "scripts/check_surface_manifest.mjs"
+      ],
+      "commands": [
+        "node scripts/check_surface_manifest.mjs"
+      ]
+    },
+    {
+      "id": "classification_rules_manifest",
+      "label": "Runtime manifest mirror check",
+      "required": true,
+      "sources": [
+        "protocol/classification-rules.json",
+        "mcp-server/protocol/classification-rules.json",
+        "scripts/check_classification_rules_manifest.mjs"
+      ],
+      "commands": [
+        "node scripts/check_classification_rules_manifest.mjs"
+      ]
+    },
+    {
+      "id": "registry_docs",
+      "label": "Generated registry docs check",
+      "required": true,
+      "sources": [
+        "scripts/build_registry_docs.mjs",
+        "docs/adapter-candidates.md"
+      ],
+      "commands": [
+        "node scripts/build_registry_docs.mjs --check"
+      ]
+    },
+    {
+      "id": "runtime_source_size",
+      "label": "Runtime source size guard",
+      "required": true,
+      "sources": [
+        "scripts/check_runtime_source_size.py",
+        "tests/test_runtime_source_size.py"
+      ],
+      "commands": [
+        "python3 scripts/check_runtime_source_size.py"
+      ]
+    },
+    {
+      "id": "protocol_check",
+      "label": "Protocol variants check",
+      "required": true,
+      "sources": [
+        "protocol/PROTOCOL.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".cursorrules"
+      ],
+      "commands": [
+        "python3 scripts/mythify.py protocol check CLAUDE.md AGENTS.md .cursorrules"
+      ]
+    },
+    {
+      "id": "whitespace",
+      "label": "Whitespace check",
+      "required": true,
+      "sources": [
+        "git diff --check"
+      ],
+      "commands": [
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "dependency_audit",
+      "label": "MCP dependency audit",
+      "required": true,
+      "sources": [
+        "mcp-server/package-lock.json"
+      ],
+      "commands": [
+        "npm audit --prefix mcp-server --audit-level=moderate"
+      ]
+    },
+    {
+      "id": "release_tag",
+      "label": "Release tag and package version check",
+      "required": true,
+      "sources": [
+        "scripts/package_cli.py",
+        "mcp-server/package.json"
+      ],
+      "commands": [
+        "python3 scripts/package_cli.py --check-release-tag v4.3.0"
+      ]
+    },
+    {
+      "id": "release_assets",
+      "label": "Flat release asset checksum check",
+      "required": true,
+      "sources": [
+        "scripts/build_release_checksums.py",
+        ".github/workflows/release.yml"
+      ],
+      "commands": [
+        "python3 scripts/build_release_checksums.py --check dist/release-assets/SHA256SUMS --directory dist/release-assets"
+      ]
+    }
+  ]
+}

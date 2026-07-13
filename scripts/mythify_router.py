@@ -743,38 +743,38 @@ def route_command_for(route, task, state_view):
     quoted_task = shlex.quote(str(task or "").strip() or "task")
     packet = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
     if route == "failure":
-        return "python3 scripts/mythify.py prompt failure"
+        return "mythify prompt failure"
     if route == "campaign":
         if state_view.get("active_campaign"):
-            return "python3 scripts/mythify.py campaign prompt"
+            return "mythify campaign prompt"
         return (
-            "python3 scripts/mythify.py campaign start {0} --success {1}"
+            "mythify campaign start {0} --success {1}"
         ).format(quoted_task, shlex.quote("done criteria are verified"))
     if route == "outcome":
         if state_view.get("active_outcome"):
-            return "python3 scripts/mythify.py outcome status"
+            return "mythify outcome status"
         return (
-            "python3 scripts/mythify.py outcome start {0} --success {1} --verify {2}"
+            "mythify outcome start {0} --success {1} --verify {2}"
         ).format(quoted_task, shlex.quote("DEFINE SUCCESS"), shlex.quote("DEFINE VERIFIER"))
     if route == "research":
         if state_view.get("active_research"):
-            return "python3 scripts/mythify.py prompt research"
-        return "python3 scripts/mythify.py research start {0}".format(quoted_task)
+            return "mythify prompt research"
+        return "mythify research start {0}".format(quoted_task)
     if route == "review":
         if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
-            return "python3 scripts/mythify.py plan import --source godaudits"
-        return "python3 scripts/mythify.py prompt review --goal {0}".format(quoted_task)
+            return "mythify plan import --source godaudits"
+        return "mythify prompt review --goal {0}".format(quoted_task)
     if route == "handoff":
-        return "python3 scripts/mythify.py prompt handoff --goal {0}".format(quoted_task)
+        return "mythify prompt handoff --goal {0}".format(quoted_task)
     if route == "plan":
         if god_artifact_has_open_tasks(state_view.get("godplans_plan")):
-            return "python3 scripts/mythify.py plan import --source godplans"
-        return "python3 scripts/mythify.py plan create {0} --horizon {1}".format(
+            return "mythify plan import --source godplans"
+        return "mythify plan create {0} --horizon {1}".format(
             quoted_task,
             route_plan_horizon(),
         )
     if route == "prompt":
-        return "python3 scripts/mythify.py prompt {0}".format(packet)
+        return "mythify prompt {0}".format(packet)
     return "Answer directly in the initiating chat; run verify run if an executable completion check exists."
 
 
@@ -965,14 +965,14 @@ def build_workflow_route(task, state, classification):
         "next_command": route_command_for(route, task, state_view),
         "prompt_packet": {
             "kind": packet_kind,
-            "command": "python3 scripts/mythify.py prompt {0}".format(packet_kind),
+            "command": "mythify prompt {0}".format(packet_kind),
         },
         "verification_strategy": classification.get("verification", ""),
         "chat_policy": {
             "executor": "initiating_host",
             "surface": "chat",
             "report_issues": True,
-            "progress_command": "python3 scripts/mythify.py report --since last --cursor chat --format chat",
+            "progress_command": "mythify report --since last --cursor chat --format chat",
             "host_boundary": "Run the next step in the chat or host that initiated Mythify unless the user explicitly hands it elsewhere.",
         },
         "pause_rules": [
@@ -1031,5 +1031,4 @@ def cmd_route(args, state):
     else:
         print(format_workflow_route(payload))
     return 0
-
 

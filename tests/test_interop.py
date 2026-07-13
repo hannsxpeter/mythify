@@ -307,6 +307,87 @@ class TestCliMcpInterop(unittest.TestCase):
         self.assertEqual(mcp_record["plan"], "record-shape-goal")
         self.assertEqual(cli_record["step_id"], 1)
         self.assertEqual(mcp_record["step_id"], 2)
+        self.assertEqual(
+            cli_record["provenance"],
+            mcp_record["provenance"],
+        )
+        self.assertIsNone(cli_record["provenance"]["git_commit"])
+        self.assertTrue(cli_record["provenance"]["mythify_version"])
+
+    def test_p_must_02_cli_and_mcp_readiness_freshness_decisions_match(self):
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        subprocess.run(["git", "init", "-q"], cwd=self.project, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "mythify@example.invalid"],
+            cwd=self.project,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Mythify Test"],
+            cwd=self.project,
+            check=True,
+        )
+        subprocess.run(["git", "add", ".gitignore"], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-qm", "initial"], cwd=self.project, check=True)
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.project,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        version = self.run_cli("--version").stdout.strip().removeprefix("Mythify v")
+        gates = json.loads(
+            (REPO_ROOT / "protocol" / "release-gates.json").read_text(encoding="utf-8")
+        )["gates"]
+        path = self.project / ".mythify" / "verifications.jsonl"
+
+        def write_record(provenance):
+            records = []
+            for gate in gates:
+                records.append({
+                    "kind": "executed",
+                    "claim": gate["label"],
+                    "command": gate["commands"][0],
+                    "exit_code": 0,
+                    "duration_seconds": 1.0,
+                    "stdout_tail": "",
+                    "stderr_tail": "",
+                    "verified": True,
+                    "timestamp": "2026-07-13T00:00:00Z",
+                    "provenance": provenance,
+                })
+            path.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+
+        client = self.start_mcp()
+        try:
+            for provenance, expected in (
+                ({"git_commit": commit, "worktree_clean": True, "mythify_version": "0.0.0"}, "needs_evidence"),
+                ({"git_commit": commit, "worktree_clean": True, "mythify_version": version}, "ready_for_release_review"),
+            ):
+                write_record(provenance)
+                cli = self.run_cli("readiness", "--json")
+                self.assertEqual(cli.returncode, 0, cli.stderr)
+                cli_payload = json.loads(cli.stdout)
+                mcp_payload = self.ok_json(
+                    self.call_tool(client, "release_readiness", {"format": "json"})
+                )
+                self.assertEqual(cli_payload["status"], expected)
+                self.assertEqual(cli_payload["status"], mcp_payload["status"])
+                self.assertEqual(cli_payload["counts"], mcp_payload["counts"])
+                self.assertEqual(
+                    cli_payload["current_provenance"],
+                    mcp_payload["current_provenance"],
+                )
+                self.assertEqual(cli_payload["gates"], mcp_payload["gates"])
+                if expected == "needs_evidence":
+                    self.assertEqual(cli_payload["counts"]["stale"], len(gates))
+        finally:
+            client.close()
 
     def test_cli_and_mcp_gate_decisions_accept_each_others_verify_run_records(self):
         init = self.run_cli("init")
@@ -677,6 +758,53 @@ class TestCliMcpInterop(unittest.TestCase):
             any(item.get("action") == "mcp reflected" for item in reflections),
             "CLI can read MCP reflection records from disk",
         )
+
+    def test_metric_failure_stays_unverified_across_cli_and_mcp(self):
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        started = self.run_cli(
+            "outcome",
+            "start",
+            "Shared metric contract",
+            "--success",
+            "verifier and metric pass",
+            "--verify",
+            shell_py("raise SystemExit(0)"),
+            "--metric",
+            shell_py("raise SystemExit(9)"),
+            "--max-iterations",
+            "1",
+            "--name",
+            "shared-metric-contract",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+
+        client = self.start_mcp()
+        try:
+            checked = self.call_tool(
+                client,
+                "outcome_check",
+                {"name": "shared-metric-contract", "format": "json"},
+            )
+            self.assertIn("[FAIL]", checked)
+            self.assertIn('"verified": false', checked)
+        finally:
+            client.close()
+
+        verification = self.read_jsonl("verifications.jsonl")[-1]
+        self.assertIs(verification["verified"], False)
+        self.assertEqual(verification["exit_code"], 9)
+        self.assertIs(verification["outcome_verify"]["verified"], True)
+        self.assertIs(verification["outcome_metric"]["verified"], False)
+
+        history = self.run_cli("history", "--json")
+        self.assertEqual(history.returncode, 0, history.stderr)
+        history_records = json.loads(history.stdout)["records"]
+        shared = next(
+            row for row in history_records
+            if row.get("claim") == "Outcome shared-metric-contract: verifier and metric pass"
+        )
+        self.assertIs(shared["verified"], False)
 
     def test_cli_and_mcp_roadmap_active_slice_match(self):
         (self.project / "roadmap.md").write_text(

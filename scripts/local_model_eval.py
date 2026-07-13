@@ -14,6 +14,7 @@ cursor-agent.
 
 import argparse
 import json
+import math
 import os
 import shutil
 import shlex
@@ -26,6 +27,13 @@ from pathlib import Path
 ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
 MYTHIFY_PROFILES = ("auto", "fast", "standard")
 SPEED_LEVELS = ("auto", "standard", "fast")
+BILLING_POSTURES = (
+    "unknown",
+    "subscription_included_authentication",
+    "metered_api",
+    "local_compute",
+)
+MEASUREMENT_STATUSES = ("unknown", "not_measured", "unavailable", "measured")
 DEFAULT_CLAUDE_PERMISSION_MODE = "bypassPermissions"
 TAIL_CHARS = 4000
 
@@ -374,67 +382,13 @@ def install_mythify(workspace):
         root / "protocol" / "workflow-router.json",
         workspace / "protocol" / "workflow-router.json",
     )
+    shutil.copy2(
+        root / "protocol" / "release-gates.json",
+        workspace / "protocol" / "release-gates.json",
+    )
     shutil.copy2(root / "scripts" / "mythify.py", workspace / "scripts" / "mythify.py")
-    shutil.copy2(
-        root / "scripts" / "mythify_classification.py",
-        workspace / "scripts" / "mythify_classification.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_godfiles.py",
-        workspace / "scripts" / "mythify_godfiles.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_host_model.py",
-        workspace / "scripts" / "mythify_host_model.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_io.py",
-        workspace / "scripts" / "mythify_io.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_memory.py",
-        workspace / "scripts" / "mythify_memory.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_model_policy.py",
-        workspace / "scripts" / "mythify_model_policy.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_model_triage.py",
-        workspace / "scripts" / "mythify_model_triage.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_outcomes.py",
-        workspace / "scripts" / "mythify_outcomes.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_parser.py",
-        workspace / "scripts" / "mythify_parser.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_plan_horizon.py",
-        workspace / "scripts" / "mythify_plan_horizon.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_router.py",
-        workspace / "scripts" / "mythify_router.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_trace.py",
-        workspace / "scripts" / "mythify_trace.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_views.py",
-        workspace / "scripts" / "mythify_views.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_views_status.py",
-        workspace / "scripts" / "mythify_views_status.py",
-    )
-    shutil.copy2(
-        root / "scripts" / "mythify_workflows.py",
-        workspace / "scripts" / "mythify_workflows.py",
-    )
+    for source in sorted((root / "scripts").glob("mythify_*.py")):
+        shutil.copy2(source, workspace / "scripts" / source.name)
     init = subprocess.run(
         [sys.executable, "scripts/mythify.py", "init"],
         cwd=str(workspace),
@@ -489,6 +443,24 @@ def prompt_for(mode, scenario_name, mythify_profile="standard"):
                 ]
             )
     return "\n".join(base) + "\n"
+
+
+def comparison_conditions():
+    """Describe the control and treatment without relying on model output."""
+    return {
+        "bare": {
+            "steering": "task_prompt_only",
+            "mythify_installed": False,
+            "protocol_files": [],
+            "required_external_verifier": "python3 -m unittest",
+        },
+        "mythify": {
+            "steering": "mythify_protocol",
+            "mythify_installed": True,
+            "protocol_files": ["AGENTS.md", "scripts/mythify.py", "protocol/*.json"],
+            "required_external_verifier": "python3 -m unittest",
+        },
+    }
 
 
 def run_claude(workspace, prompt, model, timeout, speed="auto"):
@@ -613,18 +585,38 @@ def run_engine(engine, workspace, prompt, model, timeout, speed="auto"):
     raise ValueError("unknown engine: " + engine)
 
 
-def count_mythify_records(workspace):
+def count_mythify_records(workspace, expected_command):
     state = workspace / ".mythify"
     verifications = 0
+    passing_expected_verifications = 0
     plans = 0
     verification_path = state / "verifications.jsonl"
     if verification_path.is_file():
         with verification_path.open("r", encoding="utf-8") as handle:
-            verifications = sum(1 for line in handle if line.strip())
+            for line in handle:
+                if not line.strip():
+                    continue
+                verifications += 1
+                try:
+                    record = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    isinstance(record, dict)
+                    and record.get("kind") == "executed"
+                    and record.get("verified") is True
+                    and record.get("exit_code") == 0
+                    and record.get("command") == expected_command
+                ):
+                    passing_expected_verifications += 1
     plans_dir = state / "plans"
     if plans_dir.is_dir():
         plans = len([p for p in plans_dir.glob("*.json") if p.is_file()])
-    return {"verifications": verifications, "plans": plans}
+    return {
+        "verifications": verifications,
+        "passing_expected_verifications": passing_expected_verifications,
+        "plans": plans,
+    }
 
 
 def verify_workspace(workspace, timeout):
@@ -641,7 +633,8 @@ def run_one(mode, engine, model, speed, parent, timeout, scenario_name, iteratio
     prompt = prompt_for(mode, scenario_name, resolved_profile or "standard")
     model_result = run_engine(engine, workspace, prompt, model, timeout, speed)
     verification = verify_workspace(workspace, 120)
-    records = count_mythify_records(workspace)
+    expected_command = scenario.get("fanout_merge_verifier", "python3 -m unittest")
+    records = count_mythify_records(workspace, expected_command)
     return {
         "scenario": scenario_name,
         "task_category": scenario.get("task_category", "unknown"),
@@ -670,7 +663,7 @@ def mythify_evidence_ok(run):
     if run["mode"] != "mythify":
         return False
     records = run["mythify_records"]
-    if records["verifications"] <= 0:
+    if records.get("passing_expected_verifications", 0) <= 0:
         return False
     if run.get("mythify_profile") == "fast":
         return True
@@ -811,14 +804,11 @@ def profile_overhead_effect(summary, runs):
     mythify_avg = mythify["avg_model_duration_seconds"]
     delta = round(mythify_avg - bare_avg, 3)
     if delta > 0:
-        conclusion = "overhead"
-        winner = "bare"
+        observed_lower = "bare"
     elif delta < 0:
-        conclusion = "faster"
-        winner = "mythify"
+        observed_lower = "mythify"
     else:
-        conclusion = "no_change"
-        winner = "tie"
+        observed_lower = "tie"
 
     profiles = {}
     for run in runs:
@@ -848,13 +838,49 @@ def profile_overhead_effect(summary, runs):
         "mythify_avg_model_duration_seconds": mythify_avg,
         "avg_model_duration_delta_seconds": delta,
         "avg_model_duration_ratio": duration_ratio(mythify_avg, bare_avg),
-        "winner_by_lower_avg_duration": winner,
-        "conclusion": conclusion,
+        "observed_lower_duration_mode": observed_lower,
+        "inference": "inconclusive",
+        "conclusion": "no_claim",
         "profiles": profile_rows,
         "bare_speed": "",
         "mythify_speed": "",
         "statistical_strength": "local_smoke",
-        "caveat": "Durations are local subprocess wall-clock measurements and include CLI startup, prompt handling, and protocol work.",
+        "caveat": "Durations are descriptive local subprocess measurements only; this smoke sample supports no categorical speed winner.",
+    }
+
+
+def build_cost_metadata(
+    billing_posture,
+    monetary_cost_status,
+    monetary_cost_dollars,
+    subscription_quota_status,
+):
+    if billing_posture not in BILLING_POSTURES:
+        raise ValueError("invalid billing posture")
+    if monetary_cost_status not in MEASUREMENT_STATUSES:
+        raise ValueError("invalid monetary cost measurement status")
+    if subscription_quota_status not in MEASUREMENT_STATUSES:
+        raise ValueError("invalid subscription quota measurement status")
+    if monetary_cost_status == "measured":
+        if monetary_cost_dollars is None:
+            raise ValueError("measured monetary cost requires a dollar value")
+        value = float(monetary_cost_dollars)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("monetary cost dollars must be finite and nonnegative")
+    elif monetary_cost_dollars is not None:
+        raise ValueError("monetary cost dollars require measurement status measured")
+    else:
+        value = None
+    return {
+        "billing_posture": billing_posture,
+        "monetary_cost": {
+            "measurement_status": monetary_cost_status,
+            "currency": "USD",
+            "value_dollars": value,
+        },
+        "subscription_quota": {
+            "measurement_status": subscription_quota_status,
+        },
     }
 
 
@@ -1107,6 +1133,256 @@ def role_strength_effect(summary, runs):
     }
 
 
+def _completed_paired_trials(runs):
+    modes_by_trial = {}
+    for run in runs:
+        key = (run.get("scenario"), run.get("iteration"))
+        modes_by_trial.setdefault(key, set()).add(run.get("mode"))
+    return sum(1 for modes in modes_by_trial.values() if {"bare", "mythify"} <= modes)
+
+
+def _allowed_enum(value, allowed, label):
+    if value not in allowed:
+        raise ValueError("invalid {0}".format(label))
+    return value
+
+
+def _integer(value, label, minimum=None):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("{0} must be an integer".format(label))
+    if minimum is not None and value < minimum:
+        raise ValueError("{0} must be at least {1}".format(label, minimum))
+    return value
+
+
+def _finite_number(value, label, minimum=None):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("{0} must be numeric".format(label))
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("{0} must be finite".format(label))
+    if minimum is not None and number < minimum:
+        raise ValueError("{0} must be at least {1}".format(label, minimum))
+    return value
+
+
+def _sanitized_mythify_records(records):
+    if not isinstance(records, dict):
+        raise ValueError("mythify_records must be an object")
+    return {
+        "verifications": _integer(records.get("verifications", 0), "verification count", 0),
+        "passing_expected_verifications": _integer(
+            records.get("passing_expected_verifications", 0),
+            "passing expected verification count",
+            0,
+        ),
+        "plans": _integer(records.get("plans", 0), "plan count", 0),
+    }
+
+
+def _sanitized_run(run):
+    if not isinstance(run, dict):
+        raise ValueError("run must be an object")
+    scenario = _allowed_enum(run.get("scenario"), tuple(SCENARIOS), "run scenario")
+    mode = _allowed_enum(run.get("mode"), ("bare", "mythify"), "run mode")
+    profile = "" if mode == "bare" else _allowed_enum(
+        run.get("mythify_profile"), ("fast", "standard"), "run Mythify profile"
+    )
+    return {
+        "scenario": scenario,
+        "task_category": SCENARIOS[scenario]["task_category"],
+        "iteration": _integer(run.get("iteration"), "run iteration", 1),
+        "mode": mode,
+        "mythify_profile": profile,
+        "speed": _allowed_enum(run.get("speed", "auto"), SPEED_LEVELS, "run speed"),
+        "model_exit_code": _integer(run.get("model_exit_code"), "model exit code"),
+        "model_duration_seconds": _finite_number(
+            run.get("model_duration_seconds"), "model duration", 0
+        ),
+        "verify_exit_code": _integer(run.get("verify_exit_code"), "verifier exit code"),
+        "mythify_records": _sanitized_mythify_records(run.get("mythify_records", {})),
+    }
+
+
+def _sanitized_cost_metadata(value):
+    if not isinstance(value, dict):
+        raise ValueError("cost_metadata must be an object")
+    monetary = value.get("monetary_cost", {})
+    quota = value.get("subscription_quota", {})
+    if not isinstance(monetary, dict) or not isinstance(quota, dict):
+        raise ValueError("cost metadata measurement fields must be objects")
+    if monetary.get("currency", "USD") != "USD":
+        raise ValueError("monetary cost currency must be USD")
+    return build_cost_metadata(
+        value.get("billing_posture", "unknown"),
+        monetary.get("measurement_status", "unknown"),
+        monetary.get("value_dollars"),
+        quota.get("measurement_status", "unknown"),
+    )
+
+
+def build_sanitized_summary(report):
+    """Build a publishable summary with no prompts, output tails, or paths."""
+    if not isinstance(report, dict):
+        raise ValueError("report must be an object")
+    engine = _allowed_enum(report.get("engine"), ENGINES, "report engine")
+    scenario = _allowed_enum(
+        report.get("scenario"), tuple(SCENARIOS) + ("all",), "report scenario"
+    )
+    profile = _allowed_enum(
+        report.get("mythify_profile", "auto"), MYTHIFY_PROFILES, "report Mythify profile"
+    )
+    repeat = _integer(report.get("repeat"), "repeat count", 1)
+    scenario_names = list(SCENARIOS) if scenario == "all" else [scenario]
+    scenario_count = len(scenario_names)
+    raw_runs = report.get("runs", [])
+    if not isinstance(raw_runs, list):
+        raise ValueError("runs must be an array")
+    runs = [_sanitized_run(run) for run in raw_runs]
+    summary = summarize_runs(runs)
+    profile_overhead = profile_overhead_effect(summary, runs)
+    profile_overhead["bare_speed"] = _allowed_enum(
+        report.get("bare_speed", "auto"), SPEED_LEVELS, "bare speed"
+    )
+    profile_overhead["mythify_speed"] = _allowed_enum(
+        report.get("mythify_speed", "auto"), SPEED_LEVELS, "Mythify speed"
+    )
+    requested_pairs = repeat * scenario_count
+    completed_pairs = _completed_paired_trials(runs)
+    if repeat < 2:
+        evidence_status = "insufficient_single_trial"
+    elif completed_pairs < requested_pairs:
+        evidence_status = "incomplete_repeated_trials"
+    else:
+        evidence_status = "available_repeated_trials"
+    caveats = [
+        "This is a small local paired comparison, not a statistically powered benchmark.",
+        "This artifact contains {0} completed pairs; timing is descriptive only and supports no speed winner.".format(completed_pairs),
+        "Pair order is fixed bare then Mythify, so order effects are not controlled.",
+        "Model service load, CLI versions, model aliases, and account settings can affect results.",
+        "Task success is decided by the external verifier exit code, not model prose.",
+        "Full local reports can contain temporary paths and output tails and must not be committed.",
+    ]
+    if repeat < 2:
+        caveats.append("A single trial is insufficient efficacy evidence; rerun with --repeat 2 or greater.")
+    if completed_pairs < requested_pairs:
+        caveats.append("Not every requested bare and Mythify trial pair completed.")
+    return {
+        "schema_version": 1,
+        "kind": "mythify_efficacy_summary",
+        "evidence_status": evidence_status,
+        "engine": engine,
+        "scenario": scenario,
+        "scenario_count": scenario_count,
+        "mythify_profile": profile,
+        "trial_design": {
+            "paired": True,
+            "pair_order": ["bare", "mythify"],
+            "repeat_per_scenario": repeat,
+            "paired_trials": requested_pairs,
+            "completed_paired_trials": completed_pairs,
+        },
+        "conditions": comparison_conditions(),
+        "summary": summary,
+        "verified_task_success": verified_task_success_effect(summary),
+        "false_completion_claims": false_completion_claims_effect(runs),
+        "profile_overhead": profile_overhead,
+        "local_model_benefit": local_model_benefit_effect(runs, scenario_names),
+        "fanout_value": fanout_value_effect(summary, runs, scenario_names),
+        "role_strength": role_strength_effect(summary, runs),
+        "cost_metadata": _sanitized_cost_metadata(
+            report.get("cost_metadata", build_cost_metadata("unknown", "unknown", None, "unknown"))
+        ),
+        "runs": runs,
+        "sanitization": {
+            "raw_model_output_included": False,
+            "verifier_output_included": False,
+            "temporary_paths_included": False,
+            "prompts_included": False,
+        },
+        "caveats": caveats,
+    }
+
+
+def _fsync_dir_best_effort(path):
+    """Best-effort directory durability after an atomic publication rename.
+
+    Once os.replace succeeds, the output is published. A directory fsync
+    failure must not report that committed publication as failed.
+    """
+    flags = getattr(os, "O_RDONLY", 0)
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    try:
+        descriptor = os.open(str(path), flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+
+
+def sanitize_existing_report(input_path, output_path, cost_metadata):
+    """Annotate a retained raw report in memory and publish only its summary."""
+    input_candidate = Path(input_path).expanduser()
+    output_candidate = Path(output_path).expanduser()
+    try:
+        resolved_input = input_candidate.resolve(strict=True)
+        resolved_output_parent = output_candidate.parent.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("sanitized output parent must exist and resolve safely") from exc
+    if not resolved_output_parent.is_dir():
+        raise ValueError("sanitized output parent must be a directory")
+    if output_candidate.name in ("", ".", ".."):
+        raise ValueError("sanitized output must name a file")
+
+    resolved_output = resolved_output_parent / output_candidate.name
+    try:
+        same_target = resolved_input == resolved_output.resolve(strict=False)
+        if not same_target and resolved_output.exists():
+            same_target = resolved_input.samefile(resolved_output)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("input and output identity could not be checked safely") from exc
+    if same_target:
+        raise ValueError("input and output must refer to different files")
+    if resolved_output.is_dir():
+        raise ValueError("sanitized output must be a file")
+
+    raw = json.loads(resolved_input.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("existing report must contain a JSON object")
+    annotated = dict(raw)
+    annotated["cost_metadata"] = cost_metadata
+    summary = build_sanitized_summary(annotated)
+    text = json.dumps(summary, indent=2) + "\n"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".mythify-sanitized-",
+        suffix=".tmp",
+        dir=str(resolved_output_parent),
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, 0o644)
+        os.replace(temporary_path, resolved_output)
+        _fsync_dir_best_effort(resolved_output_parent)
+    finally:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return summary
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Run a local bare-vs-Mythify model comparison using installed CLI subscriptions."
@@ -1128,7 +1404,42 @@ def main(argv=None):
     parser.add_argument("--list-scenarios", action="store_true", help="List built-in scenarios and exit.")
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--keep-workspaces", action="store_true")
+    parser.add_argument(
+        "--billing-posture",
+        choices=BILLING_POSTURES,
+        default="unknown",
+        help="Billing posture for this run. Defaults to unknown.",
+    )
+    parser.add_argument(
+        "--monetary-cost-status",
+        choices=MEASUREMENT_STATUSES,
+        default="unknown",
+        help="Whether monetary cost was measured. Defaults to unknown.",
+    )
+    parser.add_argument(
+        "--monetary-cost-dollars",
+        type=float,
+        default=None,
+        help="Measured USD cost. Requires --monetary-cost-status measured.",
+    )
+    parser.add_argument(
+        "--subscription-quota-status",
+        choices=MEASUREMENT_STATUSES,
+        default="unknown",
+        help="Whether subscription quota consumption was measured. Defaults to unknown.",
+    )
     parser.add_argument("--json-output", default="", help="Optional path for the JSON report.")
+    parser.add_argument(
+        "--summary-output",
+        default="",
+        help="Optional path for a stable sanitized summary safe for publication.",
+    )
+    parser.add_argument(
+        "--sanitize-existing-report",
+        default="",
+        metavar="PATH",
+        help="Sanitize an existing raw report without running model trials.",
+    )
     parser.add_argument("--require-pass", action="store_true", help="Exit 1 unless both external verifications pass and Mythify records evidence.")
     parser.add_argument(
         "--mythify-profile",
@@ -1145,6 +1456,32 @@ def main(argv=None):
     if args.repeat < 1:
         print("[FAIL] --repeat must be at least 1", file=sys.stderr)
         return 1
+    try:
+        cost_metadata = build_cost_metadata(
+            args.billing_posture,
+            args.monetary_cost_status,
+            args.monetary_cost_dollars,
+            args.subscription_quota_status,
+        )
+    except ValueError as exc:
+        print("[FAIL] {0}".format(exc), file=sys.stderr)
+        return 1
+
+    if args.sanitize_existing_report:
+        if not args.summary_output:
+            print("[FAIL] --sanitize-existing-report requires --summary-output", file=sys.stderr)
+            return 1
+        try:
+            sanitized = sanitize_existing_report(
+                args.sanitize_existing_report,
+                args.summary_output,
+                cost_metadata,
+            )
+        except (OSError, ValueError) as exc:
+            print("[FAIL] Could not sanitize existing report: {0}".format(exc), file=sys.stderr)
+            return 1
+        print(json.dumps(sanitized, indent=2))
+        return 0
 
     parent = Path(tempfile.mkdtemp(prefix="mythify-local-eval-"))
     try:
@@ -1191,11 +1528,18 @@ def main(argv=None):
             "local_model_benefit": local_model_benefit_effect(runs, scenario_names),
             "fanout_value": fanout_value_effect(summary, runs, scenario_names),
             "role_strength": role_strength_effect(summary, runs),
+            "cost_metadata": cost_metadata,
             "runs": runs,
         }
+        sanitized_summary = build_sanitized_summary(report)
         text = json.dumps(report, indent=2)
         if args.json_output:
             Path(args.json_output).write_text(text + "\n", encoding="utf-8")
+        if args.summary_output:
+            Path(args.summary_output).write_text(
+                json.dumps(sanitized_summary, indent=2) + "\n",
+                encoding="utf-8",
+            )
         print(text)
         failed = any(run["verify_exit_code"] != 0 for run in report["runs"])
         mythify_runs = [run for run in report["runs"] if run["mode"] == "mythify"]

@@ -75,6 +75,7 @@ def configure_views(
     now_iso_func=None,
     slugify_func=None,
     fail_func=None,
+    mythify_version=None,
 ):
     global get_active_slug, load_plan, plan_progress, next_pending_step
     global load_memory, load_lessons, global_lessons_dir, list_plan_slugs
@@ -115,6 +116,7 @@ def configure_views(
         compact_label=compact_label,
         list_fanout_summaries=list_fanout_summaries,
         _contains_any=_contains_any,
+        mythify_version=mythify_version,
     )
 
 

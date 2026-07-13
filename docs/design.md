@@ -1,4 +1,4 @@
-# Mythify v2 Design Specification
+# Mythify Design Specification
 
 This document is the single source of truth for Mythify's contracts: the CLI command
 surface, the MCP tool surface, the on-disk state formats, and the output conventions.
@@ -27,7 +27,10 @@ same state directory.
 - Exception: `docs/research-report.md` is preserved legacy content, copied verbatim,
   and is exempt from these character rules.
 
-## Repository layout (final)
+## Repository layout (contract-bearing files)
+
+This tree names the public contract files and load-bearing runtime boundaries.
+It is not an exhaustive inventory of every helper or test file.
 
 ```
 mythify/
@@ -41,6 +44,7 @@ mythify/
 |   |-- PROTOCOL.md              canonical protocol source
 |   |-- classification-rules.json deterministic classifier keywords
 |   |-- operation-registry.json  shared operation metadata
+|   |-- release-gates.json       exact-command release readiness gates
 |   |-- workflow-router.json     shared workflow route metadata
 |   `-- surface-manifest.json    shared public surface metadata
 |-- scripts/
@@ -49,18 +53,25 @@ mythify/
 |   |-- mythify_godfiles.py      godplans PLAN.mdx and godaudits AUDIT.mdx reader
 |   |-- mythify_host_model.py    host model switch record helper
 |   |-- mythify_io.py            durable IO helper
+|   |-- mythify_log_compaction.py verification-log compaction helper
+|   |-- mythify_loopfit.py       loop-worthiness analysis helper
 |   |-- mythify_memory.py        memory and lesson helper
 |   |-- mythify_model_policy.py  model policy and triage helper
 |   |-- mythify_outcomes.py      outcome loop helper
+|   |-- mythify_provenance.py    verification provenance helper
 |   |-- mythify_router.py        prompt packet and workflow route helper
+|   |-- mythify_runtime_helpers.py shared CLI runtime helpers
 |   |-- mythify_trace.py         trace analysis and playbook helper
 |   |-- mythify_views.py         read-only dashboard and progress helper
+|   |-- mythify_views_status.py  readiness and status view helper
 |   |-- mythify_workflows.py     research and campaign workflow helper
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
 |   |-- build_registry_docs.mjs  generates registry-backed docs
 |   |-- check_surface_manifest.mjs checks public surface metadata drift
+|   |-- check_runtime_source_size.py recursive runtime size guard
 |   |-- install_user.sh          user-local CLI and MCP launcher installer
 |   |-- local_model_eval.py      local bare-vs-Mythify comparison harness
+|   |-- package_cli.py           builds deterministic standalone CLI tarball
 |   `-- package_skill.py         builds dist/mythify.skill from skills/mythify/
 |-- mcp-server/
 |   |-- package.json
@@ -70,6 +81,7 @@ mythify/
 |   |-- src/classification.js
 |   |-- src/execution-adapter.js
 |   |-- src/fanout.js
+|   |-- src/fanout-prompt.js
 |   |-- src/godfiles-core.js     JS mirror of mythify_godfiles.py
 |   |-- src/host-model.js
 |   |-- src/host-cli.js
@@ -80,8 +92,10 @@ mythify/
 |   |-- src/operation-registry.js
 |   |-- src/provider-defaults.js
 |   |-- src/surface-manifest.js
+|   |-- src/verification-provenance.js
 |   |-- protocol/classification-rules.json package copy of classifier keywords
 |   |-- protocol/operation-registry.json package copy of operation metadata
+|   |-- protocol/release-gates.json package copy of readiness gates
 |   |-- protocol/workflow-router.json package copy of route metadata
 |   |-- protocol/surface-manifest.json package copy of public surface metadata
 |   |-- test/capability-registry.test.js
@@ -464,21 +478,38 @@ The release readiness view is a read-only release-review surface:
 
 - CLI command: `readiness [--json]`.
 - MCP tool: `release_readiness`.
-- State sources: `.mythify/verifications.jsonl`, `roadmap.md`, read-only git
+- State sources: `.mythify/verifications.jsonl`, the exact-command gate
+  inventory in `protocol/release-gates.json`, `roadmap.md`, read-only git
   status for the project root, and godplans and godaudits artifacts
   (`.godplans/PLAN.mdx` and `.godaudits/AUDIT.mdx`, with `.md` fallbacks).
 - Output: release-review status, required gate rows, each gate's latest
-  matching executed verifier record, source file references, project git
-  status, active roadmap slice, and `project_state.godplans` and
+  matching executed verifier record, its `freshness` status and reason, source
+  file references, top-level `current_provenance` with the current Git commit
+  and Mythify version, gate counts including `stale`, project git status,
+  active roadmap slice, and `project_state.godplans` and
   `project_state.godaudits` summaries (status `missing` when absent; text
   output prints their lines only when an artifact is present, so projects
   without god artifacts render byte-identically to before).
-- Required gates: Python suite, Node MCP suite, surface manifest check,
-  generated registry docs check, protocol variants check, generated variants
-  idempotence, whitespace check, forbidden dash scan, and emoji scan.
+- Required gates: the shared manifest is authoritative for ids, labels, source
+  paths, and exact normalized commands. The source manifest and packaged MCP
+  mirror must be identical. Current gates cover Python, Node, CLI and MCP
+  interoperability, distribution artifacts, public surface and runtime
+  manifests, generated registry docs, runtime source size, protocol variants,
+  whitespace, dependency audit, release tag binding, and flat release assets.
 - Evidence boundary: the view only summarizes recorded executed verifier
-  records. Missing rows stay missing, failed rows stay failed, and attested
-  claims do not satisfy release gates.
+  records whose normalized `command` exactly matches a manifest command.
+  Claims and output text never select a gate. A passing record satisfies a
+  gate only when `verified` is true, `exit_code` is zero, and its
+  `provenance.git_commit`, `provenance.worktree_clean`, and
+  `provenance.mythify_version` match the clean current checkout. Legacy records
+  without provenance stay readable but report freshness `legacy`, gate status
+  `stale`, and do not satisfy release readiness. Missing rows stay missing,
+  failed rows stay failed, and attested claims do not satisfy release gates.
+  If the current Git commit is unavailable, freshness fails closed with reason
+  `current_git_commit_unavailable`. Current or recorded dirty worktrees are
+  stale with `current_worktree_dirty` or `recorded_worktree_dirty`; unavailable
+  recorded cleanliness is stale with
+  `recorded_worktree_cleanliness_unavailable`.
 - Mutation boundary: the normal path must not append, edit, compact, or
   remove Mythify state, must not rerun release gates, and must not tag,
   publish, push, or declare the release safe.
@@ -576,7 +607,7 @@ shape:
 3. Otherwise:
    - Python CLI: `init` creates `./.mythify` and adds `.mythify/` to the
      project `.gitignore` for the default in-repo state directory. Every other command prints
-     `[FAIL] No .mythify workspace found. Run: python3 scripts/mythify.py init`
+     `[FAIL] No .mythify workspace found. Run: mythify init`
      and exits 1.
    - MCP server: lazily creates `<cwd>/.mythify` on first write. Reads with no state
      respond gracefully (for example "No memory entries yet."), never with a crash.
@@ -598,9 +629,31 @@ variable when it is set (Python `Path.home()`, Node `os.homedir()` both already 
 |       `-- <slug>.json
 |-- lessons/
 |   `-- <slug>.json
+|-- outcomes/
+|   |-- active
+|   `-- <slug>/
+|       |-- goal.json
+|       `-- iterations.jsonl
+|-- research/
+|   |-- active
+|   `-- <slug>.json
+|-- campaigns/
+|   |-- active
+|   `-- <slug>.json
+|-- reports/
+|   `-- <cursor>.json
+|-- fanout/
+|   `-- <job-id>/
+|       |-- job.json
+|       `-- task-<id>-output.md
 |-- logs/
 |   `-- archive/
 |       `-- <log-stem>-<YYYYMMDDHHMMSS>.jsonl
+|-- locks/
+|   `-- jsonl-<digest>.lock/
+|-- tmp/
+|   `-- fanout worker prompt files
+|-- provider-audit.jsonl
 |-- verifications.jsonl
 `-- reflections.jsonl
 ```
@@ -738,22 +791,34 @@ outcomes/&lt;slug&gt;/goal.json:
   "goal": "str",
   "success_criteria": "str",
   "verify_command": "str",
-  "metric_command": "str",
+  "metric_command": "str (empty when absent)",
+  "agent_command": "str (CLI self-driving loop; empty when supervised)",
   "max_iterations": 3,
   "iteration_count": 0,
+  "max_cost": "number or null (CLI self-driving loop)",
+  "cost_spent": 0.0,
+  "escalate_after": "integer or null (CLI self-driving loop)",
   "allowed_paths": ["str"],
+  "scope_baseline": "Git commit or absent (CLI self-driving scoped loop)",
   "visibility": "auto|quiet|summary|verbose|threaded",
   "status": "active|succeeded|failed|stopped",
   "created": "ISO-8601",
   "updated": "ISO-8601",
-  "last_verified": true,
-  "best_metric_score": 42.5,
+  "last_verified": "boolean or null",
+  "best_metric_score": "number or null",
   "stop_reason": "str or null"
 }
 ```
 
-`allowed_paths` are advisory host-edit hints recorded for the supervising host;
-they are not enforced as a sandbox.
+`allowed_paths` are not a sandbox. The supervised CLI and MCP `outcome check`
+paths report available Git scope hints without blocking. CLI `outcome run`
+enforces the same list after each agent attempt. A scoped self-driving run
+requires a clean Git worktree before the first agent executes, records the
+current commit as `scope_baseline`, and compares the baseline commit plus the
+working tree against every allowed path. Rename and copy checks include both
+source and destination paths. A non-Git directory, dirty starting worktree,
+diverged baseline, or failed Git inspection stops the loop before unsafe work
+can continue.
 
 outcomes/&lt;slug&gt;/iterations.jsonl, one JSON object per verifier attempt:
 
@@ -762,9 +827,13 @@ outcomes/&lt;slug&gt;/iterations.jsonl, one JSON object per verifier attempt:
   "iteration": 1,
   "timestamp": "ISO-8601",
   "notes": "str",
+  "agent": "object or null (CLI self-driving attempt)",
+  "cost": 0.0,
+  "cost_spent": 0.0,
   "verify": {"command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true},
-  "metric": {"command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "score": 42.5},
+  "metric": "result object or null",
   "verified": true,
+  "scope_violations": ["str"],
   "status_after": "succeeded|active|failed",
   "next_action": "str"
 }
@@ -772,9 +841,11 @@ outcomes/&lt;slug&gt;/iterations.jsonl, one JSON object per verifier attempt:
 
 `outcomes/active` stores the active outcome slug. Outcome loops are supervised:
 the host chat acts between `outcome check` calls, while Mythify records the
-verifier result, optional metric, iteration budget, and next action. A passing
-check also appends an executed verification record tagged with the outcome slug
-and iteration number.
+verifier result, optional metric, iteration budget, and next action. Every
+check also appends an executed verification record tagged with the outcome
+slug and iteration number. Its top-level verdict is the combined verifier and
+metric result, while `outcome_verify` and `outcome_metric` preserve the
+individual command results.
 
 plans/&lt;slug&gt;.json:
 
@@ -783,15 +854,20 @@ plans/&lt;slug&gt;.json:
   "name": "slug",
   "goal": "str",
   "steps": [
-    {"id": 1, "title": "str", "success_criteria": "str", "status": "pending|in_progress|completed|failed|skipped", "result": null, "updated_at": "ISO-8601 (present once updated)"}
+    {"id": 1, "title": "str", "success_criteria": "str", "verify_command": "str (optional and absent unless supplied)", "verification_cursor": "nonnegative integer (present once started)", "status": "pending|in_progress|completed|failed|skipped", "result": null, "updated_at": "ISO-8601 (present once updated)"}
   ],
   "created": "ISO-8601",
   "last_updated": "ISO-8601"
 }
 ```
 
-Step ids are 1-based integers assigned in order. `success_criteria` defaults to an
-empty string. `result` is a string or null.
+Step ids are 1-based integers assigned in order. `success_criteria` defaults to
+an empty string. `verify_command` is absent unless supplied; `plan create` and
+`plan add-step` both persist a supplied verifier. Every transition to
+`in_progress` stores `verification_cursor`, the count of verification records
+that existed before the step started. Completion considers only records after
+that cursor, which prevents old same-second evidence from being reused.
+`result` is a string or null.
 
 Plans created by `plan import` carry additional optional fields; all views read
 step fields with tolerant lookups, so their absence on legacy plans is safe:
@@ -802,8 +878,8 @@ step fields with tolerant lookups, so their absence on legacy plans is safe:
   `source: {kind: "godplans"|"godaudits", path, version, imported_at}`
   (provenance; re-import of the same artifact path is refused while the plan
   exists).
-- Step level: `source_id` (the GP or GA task id), `verify_command` (the task's
-  exact Verify command, echoed by `plan show` and the next-pending line),
+- Step level: `source_id` (the GP or GA task id), the imported task's exact
+  `verify_command` echoed by `plan show` and the next-pending line,
   `wave`, `phase` (artifact phase title; the phase view prefers it over
   keyword guessing), and optional `depends_on` and `fixes` lists.
 
@@ -819,7 +895,7 @@ then `.json`. This makes same-title lessons collision-free.
 verifications.jsonl, one JSON object per line. Two kinds:
 
 ```json
-{"kind": "executed", "claim": "str or null", "command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "timestamp": "ISO-8601", "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null"}
+{"kind": "executed", "claim": "str or null", "command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "timestamp": "ISO-8601", "provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "mythify_version": "semver string"}, "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null"}
 {"kind": "attested", "claim": "str", "evidence": "str", "verified": null, "timestamp": "ISO-8601", "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null"}
 ```
 
@@ -829,11 +905,22 @@ On timeout, record `exit_code: -1`, `verified: false`, and append
 `"(timed out after N seconds)"` to `stderr_tail`. Output tails keep the last 4000
 characters of each stream.
 
-Every new verification record also captures active step context. If an active
-plan exists and exactly the first currently `in_progress` step can be found,
-record `plan`, `step_id`, `step_title`, and `step_status`. If no active plan or
-in-progress step exists, write those fields with `null`. Readers must tolerate
-older verification records that do not contain these fields.
+Outcome-generated executed records add `outcome`, `iteration`,
+`outcome_verify`, and `outcome_metric`. Their top-level `verified` and
+`exit_code` describe the combined verifier and metric gate. The nested objects
+retain each command's independent exit code, duration, and redacted tails.
+
+Every new executed verification record also captures best-effort source
+provenance and active step context. `provenance.mythify_version` is always the
+runtime version; `provenance.git_commit` is the project `HEAD` or `null` when
+Git provenance is unavailable; `provenance.worktree_clean` reports whether
+Git found no tracked or untracked changes, or is `null` when Git inspection is
+unavailable. If an active plan exists and exactly the first
+currently `in_progress` step can be found, record `plan`, `step_id`,
+`step_title`, and `step_status`. If no active plan or in-progress step exists,
+write those fields with `null`. Readers must tolerate older verification
+records that do not contain provenance or step context, but readiness must not
+silently upgrade a legacy record to fresh evidence.
 
 reflections.jsonl, one JSON object per line:
 
@@ -886,8 +973,9 @@ collision with an existing plan file append `-2`, `-3`, and so on.
 
 ## CLI: scripts/mythify.py
 
-Single file, Python 3.9+, standard library only (argparse, json, os, sys, subprocess,
-datetime, pathlib, tempfile). Subcommand grammar:
+Modular Python 3.9+ CLI using only the standard library. `scripts/mythify.py`
+owns the public entry point and delegates cohesive command families to sibling
+`scripts/mythify_*.py` modules. Subcommand grammar:
 
 | Command | Behavior | Exit code |
 | :--- | :--- | :--- |
@@ -905,12 +993,13 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
 | `timeline [--recent N] [--json]` | Read-only fanout worker timeline: recent fanout jobs, task start and finish events, duration, status, errors, and output metadata from durable state. It does not mutate state or report worker output as verification evidence. | 0; 1 if no workspace |
 | `phase [--recent N] [--json]` | Read-only phase view: active plan steps grouped into Understand, Design, Build, Judge, and Verify, with supporting evidence counts from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
-| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--max-iterations N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start a supervised outcome loop, set it active, and record the verifier, optional metric, allowed path hints, visibility policy, and iteration budget. | 0; 1 if no workspace or invalid budget |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop, set it active, and record the verifier, optional metric, optional self-driving `agent_command?: string`, iteration and cost budgets, escalation threshold, Git-enforced allowed paths, and visibility policy. | 0; 1 if no workspace or invalid budget |
 | `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric for the active or named outcome, append an iteration record, append executed verification evidence, and return the next action. | 0 if verified, 2 if still unmet or failed, 1 if not found |
+| `outcome run [NAME] [--notes TEXT] [--timeout N]` | Drive a self-driving loop started with `--agent`: run the bounded agent command, execute the verifier and optional metric, record evidence, enforce iteration, cost, path, and escalation limits, and stop on success or a guard. CLI-only. | 0 if verified; 2 if still unmet, blocked, or budget-exhausted; 1 if not found or not self-driving |
 | `outcome status [NAME] [--json]` | Show outcome status, verifier, metric, iteration budget, and latest next action. | 0; 1 if not found |
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final state. | 0 if succeeded, 2 otherwise, 1 if not found |
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
-| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional), "verify_command": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Convert godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks into a plan and set it active. Discovers the artifact at the project root when PATH is omitted; both present without `--source` is an error. Live tasks import in document order (superseded strikethrough tasks skipped, checked boxes import completed); each step keeps `source_id`, `verify_command`, `wave`, `phase`, plus `depends_on` and `fixes` when present. Sets `strict_context` and a `source` provenance block; re-importing the same artifact path is refused while the imported plan exists. Warns on frontmatter counter drift. Never edits the artifact. | 0; 1 on missing, ambiguous, unrecognized, or already-imported artifacts |
 | `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan, optionally with an executable `verify_command`. | 0; 1 if plan not found |
 | `plan verify ID [--plan NAME] [--timeout N]` | Run the step's `verify_command`, mark the step in progress, and record the executed verification scoped to that step so the strict-evidence gate is satisfied. CLI-only. | 0 verified; 2 command failed; 1 usage error |
@@ -918,7 +1007,7 @@ datetime, pathlib, tempfile). Subcommand grammar:
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
 | `plan switch NAME` | Set the active plan pointer. | 0; 1 if not found |
 | `plan archive [NAME]` | Move plan file to `plans/archive/`; clear the active pointer if it pointed there. On filename conflict in archive, append a timestamp. | 0; 1 if plan not found |
-| `step ID STATUS [RESULT] [--plan NAME]` | Update step status. STATUS must be one of the five enum values, otherwise `[FAIL]`, exit 1. `completed` and `failed` REQUIRE the RESULT argument (evidence or failure description); without it print `[FAIL] Evidence required: pass a RESULT describing what proves this status.` and exit 1. By default, `completed` ALSO requires a recorded passing executed verification (see "Verified-step gate" below), otherwise print `[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing 'verify run' was recorded since this step started. Run 'verify run' with a passing check first, or set MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion.` and exit 1 without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. After updating, print the next pending step. | 0 |
+| `step ID STATUS [RESULT] [--plan NAME]` | Update step status. STATUS must be one of the five enum values, otherwise `[FAIL]`, exit 1. `completed` and `failed` REQUIRE the RESULT argument (evidence or failure description); without it print `[FAIL] Evidence required: pass a RESULT describing what proves this status.` and exit 1. By default, `completed` ALSO requires an executed verification with `verified: true`, `exit_code: 0`, and a timestamp after the step began. When the step stores `verify_command`, the record's normalized command must match. Otherwise print the verified-evidence refusal and exit 1 without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. After updating, print the next pending step. | 0 |
 | `memory set KEY VALUE [--category C]` | Category one of fact, decision, discovery, state; default fact. | 0 |
 | `memory get [QUERY] [--category C]` | Case-insensitive substring match over keys and values; optional category filter. | 0 |
 | `memory clear [KEY] [--all]` | KEY removes one entry. `--all` clears everything. Neither: `[FAIL]` explaining the guard, exit 1. | 0 |
@@ -937,17 +1026,19 @@ Implementation notes:
 - `verify run` executes the command through the shell, streams stdout and stderr
   to temporary files, enforces timeout and output-size caps, and redacts common
   secret patterns before persisting or printing output tails.
-- All commands other than `init` and `classify` require a resolvable state
-  directory (or `MYTHIFY_DIR`, which is created on demand).
+- `init`, `protocol check`, `trace` analysis commands, `classify`, and
+  `loop-fit` do not require a workspace. `route` treats the workspace as optional
+  and uses durable state when it is present. Other commands require a resolvable
+  state directory, or `MYTHIFY_DIR`, which is created on demand.
 - `--help` output for the top level and each subcommand must be accurate.
 
 ## MCP server: mcp-server/
 
-Node 18+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `4.0.0`,
+Node 20+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `4.3.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
-a literal file and fails), engines node >= 18. Use the registration API that the
+a literal file and fails), engines node >= 20. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
@@ -959,8 +1050,8 @@ does AND when to use it, since descriptions drive tool selection.
 | :--- | :--- | :--- |
 | `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. With `triage: auto`, run one fast local model only when the deterministic gate recommends it. |
 | `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance, registry-backed `host_capability`, `switch_result`, `host_confirmation`, and `adapter_proof_scan`, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate or confirm the current host chat unless a future host integration exposes that capability and confirms the result. |
-| `provider_probe` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe an OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `provider: "ollama"` defaults to `MYTHIFY_OLLAMA_BASE_URL` or `http://localhost:11434/v1`; `provider: "lm-studio"` defaults to `MYTHIFY_LM_STUDIO_BASE_URL` or `http://localhost:1234/v1`; `provider: "llama-cpp"` defaults to `MYTHIFY_LLAMA_CPP_BASE_URL` or `http://localhost:8080/v1`; `provider: "vllm"` defaults to `MYTHIFY_VLLM_BASE_URL` or `http://localhost:8000/v1`. Local profiles use provider-specific model env vars and no auth header by default. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
-| `local_model_run` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `provider: "ollama"`, `provider: "lm-studio"`, `provider: "llama-cpp"`, and `provider: "vllm"` default to local profiles. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
+| `provider_probe` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe an OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `api_key_env` is restricted to the fixed allowlist containing `MYTHIFY_OPENAI_COMPAT_API_KEY`; arbitrary process variables are rejected before any request. `provider: "ollama"` defaults to `MYTHIFY_OLLAMA_BASE_URL` or `http://localhost:11434/v1`; `provider: "lm-studio"` defaults to `MYTHIFY_LM_STUDIO_BASE_URL` or `http://localhost:1234/v1`; `provider: "llama-cpp"` defaults to `MYTHIFY_LLAMA_CPP_BASE_URL` or `http://localhost:8080/v1`; `provider: "vllm"` defaults to `MYTHIFY_VLLM_BASE_URL` or `http://localhost:8000/v1`. Local profiles use provider-specific model env vars and no auth header by default. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
+| `local_model_run` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `api_key_env` uses the same fixed allowlist as `provider_probe`. `provider: "ollama"`, `provider: "lm-studio"`, `provider: "llama-cpp"`, and `provider: "vllm"` default to local profiles. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
 | `host_cli_probe` | `{host?: enum(kimi-code, opencode, antigravity), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Kimi Code, OpenCode, or Antigravity CLI availability by running only version and help commands. Explicit `bin` basenames must match the selected host family. Defaults to `MYTHIFY_KIMI_BIN`, `MYTHIFY_OPENCODE_BIN`, or `MYTHIFY_ANTIGRAVITY_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, proof statuses for current-chat apply, current-chat confirm, worker model override, and thinking override, plus `material_not_evidence: true`. It does not execute a prompt, write state, spawn workers, or count as verification evidence. Antigravity MCP setup guidance lives in `docs/antigravity-mcp-setup.md`; the probe does not install or mutate MCP config. |
 | `host_cli_run` | `{host?: enum(kimi-code, opencode, antigravity), bin?: string, prompt: string, cwd?: string, timeout_seconds?: number, model?: string, agent?: string, format?: enum(text, json)}` | Run a bounded non-interactive prompt through Kimi Code, OpenCode, or Antigravity. Kimi uses `kimi --print -p PROMPT --final-message-only`. OpenCode uses `opencode run --format json [--model MODEL] [--agent AGENT] PROMPT`. Antigravity uses `agy [--model MODEL] -p PROMPT`, requires explicit `cwd`, and never passes permission-bypass flags. Explicit `bin` basenames must match the selected host family. Defaults to `MYTHIFY_KIMI_BIN`, `MYTHIFY_OPENCODE_BIN`, or `MYTHIFY_ANTIGRAVITY_BIN`, then PATH and common install paths. Returns stdout and stderr tails, timeout and exit metadata, `trust_policy`, `permission_policy`, `material_not_evidence: true`, `evidence_status: "worker_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files directly, write Mythify state, or count worker output as verification evidence; merged work must still be verified with `verify_run`. |
 | `execution_probe` | `{adapter?: enum(google-colab-cli), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Google Colab CLI availability by running only version and help commands. Defaults to `MYTHIFY_COLAB_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, `non_billable: true`, `job_execution_enabled: false`, and `material_not_evidence: true`. It does not provision a runtime, request an accelerator, execute notebooks, upload data, write state, or count as verification evidence. |
@@ -978,7 +1069,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Render a chat-ready next prompt for the active or named campaign's current task and phase. It must not mutate state, run checks, advance a phase, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and advances the campaign with evidence. |
 | `prompt_packet` | `{kind?: enum(research, analysis, failure, handoff, review, campaign, next), name?: string, goal?: string, verify_command?: string, format?: enum(text, json)}` | Render a chat-ready prompt packet for research to implementation, analysis to plan, failure recovery, handoff, review, campaign, or the next useful workflow move. It must not mutate state, run checks, advance work, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and records evidence. |
 | `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text and durable state. It returns `route`, `reason`, `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
-| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` is a scope the CLI `outcome run` loop enforces post-hoc via git; `outcome_check` (both runtimes) surfaces but does not block on it. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
+| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` supplies advisory Git scope reporting to supervised checks. CLI `outcome run` enforces it against a clean Git baseline and stops on violations or inspection failures. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
 | `outcome_results` | `{name?: string, format?: enum(text, json)}` | Show all recorded verifier iterations and final state. |
@@ -988,9 +1079,9 @@ does AND when to use it, since descriptions drive tool selection.
 | `memory_clear` | `{key?: string, confirm_clear_all?: boolean}` | With key: remove one. Without key and without `confirm_clear_all: true`: refuse with an explanation, do not clear. |
 | `lesson_record` | `{title: string, detail: string, tags?: string[], scope: enum(project, global) = "project"}` | Write a lesson file per the format. |
 | `lesson_recall` | `{tag?: string, scope: enum(project, global, all) = "all"}` | List lessons, labeled by scope. |
-| `plan_create` | `{goal: string, name?: string, steps?: [{title: string, success_criteria?: string}], horizon?: number}` | Ids auto-assigned 1-based. Sets active plan. `horizon` creates default lookahead steps when `steps` is omitted. |
-| `plan_add_step` | `{title: string, success_criteria?: string, plan?: string}` | Append to named or active plan. |
-| `plan_update_step` | `{step_id: number, status: enum(pending, in_progress, completed, failed, skipped), result?: string, plan?: string}` | Enforce the evidence rule: `completed` or `failed` without `result` returns `[FAIL] Evidence required ...` and does NOT modify the plan. By default, `completed` also requires a recorded passing executed verification (see "Verified-step gate") and otherwise returns the same `[FAIL] Verified evidence required ...` text the CLI uses, without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. On success, include the next pending step in the response. |
+| `plan_create` | `{goal: string, name?: string, steps?: [{title: string, success_criteria?: string, verify_command?: string}], horizon?: number}` | Ids auto-assigned 1-based. Sets active plan. `horizon` creates default lookahead steps when `steps` is omitted. |
+| `plan_add_step` | `{title: string, success_criteria?: string, verify_command?: string, plan?: string}` | Append to named or active plan. |
+| `plan_update_step` | `{step_id: number, status: enum(pending, in_progress, completed, failed, skipped), result?: string, plan?: string}` | Enforce the evidence rule: `completed` or `failed` without `result` returns `[FAIL] Evidence required ...` and does NOT modify the plan. Every `in_progress` transition records a verification cursor. By default, `completed` also requires a later recorded executed verification with `verified: true`, `exit_code: 0`, and any stored `verify_command` matched exactly after normalization (see "Verified-step gate"). Otherwise it returns the same `[FAIL] Verified evidence required ...` text the CLI uses, without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. On success, include the next pending step in the response. |
 | `plan_status` | `{plan?: string}` | Goal, progress count, step list with icons. |
 | `verify_run` | `{command: string, claim?: string, timeout_seconds?: number = 300}` | Execute through the shell, record an executed verification, return the verdict with output tails. If env `MYTHIFY_DISABLE_RUN=1`, refuse with an explanation and record nothing. |
 | `verify_claim` | `{claim: string, evidence: string}` | Record an attested entry, return the `[WARN] ATTESTED` line. |
@@ -1389,15 +1480,15 @@ research, analysis, failure recovery, handoff, review, campaign, and next.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the manifest tool names (set equality), the 36
-   core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
+1. `tools/list` returns exactly the manifest tool names (set equality), the 38 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
    execution profile `direct`, and a command-backed fast triage result when
    requested.
 3. `memory_store` then `memory_recall` round-trips a value.
-4. `plan_create` with one step, then `plan_update_step` to completed WITHOUT result
-   returns the evidence refusal and leaves the step pending; with result it succeeds.
+4. `plan_create` with one step, then `plan_update_step` to completed without a
+   result returns the evidence refusal and leaves the step pending. A result alone does not satisfy strict completion; a passing step-scoped
+   `verify_run` recorded after the step starts is also required by default.
 5. `verify_run` with `node -e "process.exit(0)"` reports VERIFIED; with
    `node -e "process.exit(3)"` reports UNVERIFIED.
 6. `memory_clear` with no arguments refuses.
@@ -1409,8 +1500,11 @@ server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertio
 
 ## Protocol: protocol/PROTOCOL.md
 
-The canonical behavioral protocol, under 160 lines, written to steer a model, not to
-document the project. Required structure:
+The canonical behavioral protocol is generated and hash-checked across host
+copies. Its size follows the behavior required by the current public surface;
+compactness is preferred, but no stale fixed line ceiling overrides contract
+completeness. It is written to steer a model, not to document the project.
+Required structure:
 
 1. Title and one-paragraph identity: "You are operating under the Mythify Protocol",
    an operational discipline layer; it changes how reliably the model works, not what
@@ -1527,55 +1621,61 @@ list and `[OK]` on success.
 
 ### scripts/install_user.sh
 
-Installs user-local launchers and, by default, copies `skills/mythify*`
-directories into both the Codex skills root (`$CODEX_HOME/skills` or
-`$HOME/.codex/skills`) and the Claude Code skills root (`$CLAUDE_HOME/skills`
-or `$HOME/.claude/skills`), so each skill is invocable as `$name` in Codex and
-`/name` in Claude Code. `--skip-skills` disables both copies, `--skills-root
-PATH` overrides the Codex destination, `--skip-claude-skills` skips only the
-Claude copy, `--claude-skills-root PATH` overrides the Claude destination, and
-`--install-chat-hook` installs `scripts/mythify_chat_report_hook.sh` as
-`mythify-chat-report-hook.sh` under `$CODEX_HOME/hooks` or `$HOME/.codex/hooks`.
-The hook helper only prints `report --since last --cursor chat --format chat`
-output. It does not mutate host config.
+Installs a versioned, self-contained CLI under
+`$XDG_DATA_HOME/mythify/VERSION/cli` or
+`$HOME/.local/share/mythify/VERSION/cli`. The `mythify` and
+`mythify-uninstall` launchers do not point back to the source checkout, so the
+checkout can be moved or deleted after installation. The optional MCP server
+is staged under the same version root and exposed through `mythify-mcp`.
+
+The installer is one transaction across the CLI, MCP server, launchers, chat
+hook, skills, and ownership metadata. It preflights and stages components
+before publication. Any later failure restores the byte-for-byte prior
+installation on update, or removes the partial version on first install.
+Rerunning the installer is the supported update path.
+
+The self-hosted uninstaller removes only components named by the installation
+ownership manifest. File ownership is bound by content hashes and directory
+ownership by private markers. Missing or changed evidence makes uninstall fail
+closed before deletion. Project `.mythify/` state, skipped components,
+unrelated files, and other installed versions are preserved.
+
+By default, installation copies `skills/mythify*` directories into both the
+Codex skills root (`$CODEX_HOME/skills` or `$HOME/.codex/skills`) and Claude
+Code skills root (`$CLAUDE_HOME/skills` or `$HOME/.claude/skills`).
+`--skip-skills` disables both copies, `--skills-root PATH` overrides the Codex
+destination, `--skip-claude-skills` skips only the Claude copy,
+`--claude-skills-root PATH` overrides the Claude destination, and
+`--install-chat-hook` installs the optional report helper. The helper only
+prints `report --since last --cursor chat --format chat` output and never
+mutates host config.
+
+### scripts/package_cli.py
+
+Builds `dist/mythify-cli-VERSION.tar.gz`, a deterministic standalone archive
+containing the Python runtime, protocol manifests, chat skills, and installer.
+Installing from the archive uses `--skip-mcp` because the Node package is a
+separate release asset. Stable entry ordering, metadata, and gzip headers make
+identical source trees produce identical bytes.
 
 ## README.md
 
-Sections, in order:
+The README is the beginner product guide, not an exhaustive duplicate of this
+specification. It must keep these contracts visible:
 
-1. Title and tagline: give any model Mythos-class operational discipline.
-2. Honest framing paragraph: this improves the harness, not the underlying model;
-   a weaker model with disciplined planning, executed verification, and persistent
-   memory completes more long-horizon work than the same model without them; link
-   `docs/research-report.md` and state its own caveat (training beats prompting;
-   this closes the discipline gap, not the capability gap).
-3. Components table: protocol variants, CLI, user installer, MCP server, skill.
-4. Start Here section: position Mythify as an evidence protocol for AI coding
-   agents, link `docs/start-here.md`, show `scripts/install_user.sh --project`,
-   then show the minimal plan, verify, step, summary loop.
-5. Quick start A: drop-in (copy `CLAUDE.md` or `AGENTS.md`, `scripts/mythify.py`,
-   the adjacent `scripts/mythify_*.py` helper modules,
-   `protocol/operation-registry.json`, and
-   `protocol/classification-rules.json`, and `protocol/workflow-router.json`
-   into a project, run
-   `python3 scripts/mythify.py protocol check FILE`, then `init`).
-6. Quick start B: MCP server (npm install inside `mcp-server/`, then the example
-   client config; note `MYTHIFY_DIR` and `MYTHIFY_DISABLE_RUN`).
-7. Quick start C: build the skill (`python3 scripts/package_skill.py`).
-8. How it works: proportional ceremony including the fast profile, the autonomy
-   loop, then "Verification: evidence over attestation" with a short example
-   transcript showing `verify run` on a failing then passing test command.
-9. State layout tree.
-10. CLI command reference table and MCP tool table (matching this spec exactly).
-11. Compatibility table: Claude Code, Cursor, Windsurf, VS Code Copilot,
-    Claude Desktop, Manus, any CLI agent, custom MCP clients.
-12. Development: `python3 -m unittest discover -s tests -v` and
-    `cd mcp-server && npm ci && npm test`.
-13. Limitations, honest: no npm registry package yet (`scripts/install_user.sh`
-    from a checkout is the supported user-local path), evals not yet run
-    (claims are design rationale, not measured results), protocol adherence
-    varies by model strength.
-14. License: MIT.
+- Explain that Mythify improves the agent harness, not the underlying model.
+- Lead with the self-contained user installer and standalone CLI artifact.
+- Teach the minimal plan, execute, verify, and complete loop before advanced
+  routing, outcome, campaign, and fanout surfaces.
+- State that CLI and MCP share one state directory and are kept aligned through
+  checked manifests and interop tests. Never promise that independent runtimes
+  cannot drift.
+- Link the committed efficacy smoke evidence with its small-sample, fixed-order,
+  unpinned-model, no-speed-claim, and no-monetary-cost caveats.
+- Keep the complete command and tool reference here in `docs/design.md`.
+- State the actual distribution contract: checkout or standalone local install,
+  GitHub release assets, and no npm registry publication.
+- Keep development gates and the MIT license discoverable.
 
 The README also links `docs/cli-to-model-runtime-migration.md`, which explains
 the opt-in path from CLI-only usage to host, local model, API provider,
@@ -1590,6 +1690,10 @@ Document only what exists. No npx instructions, no badges for services not set u
 It creates paired task workspaces, runs the selected local CLI or command
 engine, then verifies each workspace with `python3 -m unittest`. The model
 output is material; the evaluation metric comes from verifier exit codes.
+Mythify evidence success is stricter than line presence: the harness parses
+`verifications.jsonl` and requires an executed record with `verified: true`,
+`exit_code: 0`, and the exact expected verifier command. Attested, failed,
+malformed, and different-command records do not satisfy `--require-pass`.
 
 The JSON report must include:
 
@@ -1637,11 +1741,18 @@ The JSON report must include:
   smoke-test caveat. The harness must not claim bigger models are generally
   better; stronger-model benefit requires a paired run with the role isolated.
 - `runs`: per-workspace model exit details, verifier exit details, output
-  tails, and Mythify evidence counts.
+  tails, and Mythify evidence counts including the secret-safe
+  `passing_expected_verifications` count.
 
 The built-in scenarios are a rerunnable smoke signal, not a large benchmark.
 Do not upgrade `verified_task_success.conclusion` into a release claim without
 recording the exact harness command and its JSON output as evidence.
+
+The committed July 13, 2026 Codex smoke result is linked from
+`docs/evidence/efficacy-reproduction.md`. It contains two paired trials of one
+small scenario. It is evidence of that run only, not a general efficacy or
+speed claim. The model was not pinned, pair order was fixed, monetary cost and
+subscription quota were not measured, and the raw report is not committed.
 
 ## Housekeeping
 
@@ -1746,8 +1857,9 @@ Representative refusal paths:
 
 Fanout gives the orchestrating model parallel sub-workers through one-shot
 declarative jobs: the model emits a task list once, and the server does the
-spawning, sequencing, and collecting. This deliberately avoids turn-by-turn
-orchestration, which weaker models cannot sustain. Fanout is MCP-only; the CLI
+spawning, sequencing, and collecting. This avoids requiring turn-by-turn
+worker orchestration from the initiating host, without making a model-tier
+capability claim. Fanout is MCP-only; the CLI
 does not implement it (a CLI host has shell access and usually its own
 parallelism), and `docs/design.md` is explicit about that divergence.
 
@@ -1873,11 +1985,11 @@ Platform mapping:
   `gpt-5.3-codex-high-fast` when that id is available. If no matching encoded
   id is found, Mythify leaves the requested model unchanged.
 
-### Tools (3, total 29)
+### Tools (3, total 41)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
-| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], role?: enum(worker, reviewer), model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_allow_stronger?: boolean, hosted_provider_billing_ack?: boolean, hosted_provider_data_ack?: boolean, hosted_provider_material_ack?: boolean, timeout_seconds?: number}` | Validate (1 to `MYTHIFY_FANOUT_MAX_TASKS` tasks, non-empty prompts, engine resolvable, kill switch and depth guard, context files readable and contained to the project root, spawned model does not exceed the ceiling unless a reviewer-specific opt-in applies, hosted provider API engines require billing, data, and material-only acknowledgements). Create `.mythify/fanout/<job_id>/job.json`, return the job id IMMEDIATELY, run workers in the background with a concurrency pool. Tasks must be fully independent; the description says so and says each task is a fresh model call that costs real money, subscription quota, or local compute. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
+| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], role?: enum(worker, reviewer), isolation?: enum(none, worktree), model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_allow_stronger?: boolean, hosted_provider_billing_ack?: boolean, hosted_provider_data_ack?: boolean, hosted_provider_material_ack?: boolean, timeout_seconds?: number}` | Validate 1 to `MYTHIFY_FANOUT_MAX_TASKS` independent tasks, resolvable engines, context containment, model ceilings, kill switch, depth guard, and hosted-provider acknowledgements. Each task's `prompt` is the full self-contained instruction for this worker; the worker sees only that prompt plus readable `context_paths` content. `isolation: worktree` gives a writing task a fresh Git worktree and branch; changed work is committed for host merge, while an unchanged branch is removed. Non-Git setup falls back to the shared root with recorded metadata. Create `.mythify/fanout/<job_id>/job.json`, return the job id immediately, and run workers with a concurrency pool. Each task is a fresh model call that costs real money, subscription quota, or local compute. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
 | `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, model tier, effort, speed, visibility, and elapsed. Quiet jobs show aggregate progress and failures only. If the job is marked running on disk but unknown to the in-memory registry (server restarted), mark its running tasks `interrupted` and say so. |
 | `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). Per-task text in the tool result is capped at 20000 characters with a note pointing at the task output file. Warns when tasks are still running. |
 
@@ -1935,7 +2047,9 @@ job.json (atomic writes on every transition):
   "last_updated": "ISO-8601",
   "tasks": [
     {"id": 1, "title": "str", "status": "pending|running|completed|failed|interrupted",
-     "role": "worker|reviewer", "engine": "str", "model": "str", "model_source": "str",
+     "role": "worker|reviewer", "isolation": "none|worktree",
+     "worktree": "absent or object with isolated, branch, path, changed, committed, cleanup_failed, and note fields",
+     "engine": "str", "model": "str", "model_source": "str",
      "billing": "str", "cost_tracking": "metadata_only_no_estimate",
      "cost_estimate_status": "not_estimated", "cost_estimate_cents": null,
      "pricing_url": "str",
@@ -1951,6 +2065,16 @@ job.json (atomic writes on every transition):
   ]
 }
 ```
+
+Worktree metadata is written when an isolated task starts. A completed writing
+task keeps its branch name and records `changed: true`, `committed: true`; the
+temporary path is null after successful cleanup. An unchanged isolated task
+records null branch and path after cleanup. Setup fallback records
+`isolated: false` plus a note. Interrupted-task recovery removes only an exact
+job-owned temporary worktree and branch that Git still registers together. It
+records `cleaned_on_recovery: true` only when both cleanup commands succeed;
+otherwise it retains the surviving identifiers, records the original pair,
+and marks `cleanup_failed: true`.
 
 `provider-audit.jsonl` is append-only and receives one start event and one
 finish event per spawned fanout task. Each row records:
@@ -2053,7 +2177,7 @@ or upgrade provider output into evidence.
 ### Smoke coverage (mcp-server/test/, runs in CI with no network)
 
 Using the `command` engine with a deterministic local template and stub local
-CLI binaries: 16-tool set equality; a 3-task command job runs to completion
+CLI binaries: 41-tool set equality; a 3-task command job runs to completion
 and `fanout_results` returns the outputs; `context_paths` content demonstrably
 reaches the worker prompt; the kill switch refuses; the depth guard refuses; a
 failing command produces a failed task with captured stderr; job.json matches
@@ -2078,19 +2202,21 @@ tool:
 - The RESULT argument is still required first; the verified-step check runs
   after the non-empty-RESULT check.
 - Evidence is satisfied when `verifications.jsonl` contains at least one record
-  with `kind == "executed"` and `verified == true` whose `timestamp` is greater
-  than or equal to the lower bound below. New records with non-null `plan` or
+  after the step's `verification_cursor` with `kind == "executed"`,
+  `verified == true`, and `exit_code == 0`. New records with non-null `plan` or
   `step_id` fields must match the target plan slug and step id. Older records
-  without step-bound fields, and new records with null step context, keep the
-  previous timestamp-only behavior for compatibility. Attested records
-  (`kind == "attested"`) never satisfy the gate.
-- Lower bound: the step's `updated_at` if the step has one (it was previously
-  touched, for example set to `in_progress`); otherwise the parent plan's
-  `created` timestamp. Comparison is string comparison of ISO-8601 timestamps,
-  which is correct because the format is fixed-width and lexicographically
-  ordered.
+  without step-bound fields, and new records with null step context, remain
+  compatible only when they were appended after the cursor. Attested records
+  (`kind == "attested"`) never satisfy the gate. When the step stores a
+  non-empty `verify_command`, the verification record's normalized command
+  must match it exactly.
+- Every transition to `in_progress` stores the current verification record
+  count as `verification_cursor`. `plan verify` sets the cursor before running
+  the command. Legacy steps without a cursor fall back to the step's
+  `updated_at`, or the parent plan's `created` timestamp when the step was never
+  updated.
 - On failure the plan is NOT modified and the command prints
-  `[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing 'verify run' was recorded since this step started. Run 'verify run' with a passing check first, or set MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion.`
+  `[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing executed 'verify run' with exit code 0 was recorded since this step started. When the step stores a verify_command, the recorded command must match it. Run the step's verifier first, or set MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion.`
   The CLI exits 1; the MCP tool returns that text.
 
 This is the honest-evidence upgrade: with the gate on, the autonomy loop's ACT
@@ -2100,7 +2226,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v4.2.0. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v4.3.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2209,5 +2335,7 @@ interrogative-anchored freshness routing to research, a research provenance
 advisory that flags uncited claims as material, verification-drift and
 long-run reminders in the evidence harness, a high-stakes labeled-variants
 prompt for hard-to-reverse fixes, and the tool-use-contract doc.
-The CLI reports 4.2.0 through `--version`; the MCP server reads `package.json`
+4.3.0 hardens evidence provenance, release gates, scoped self-driving loops,
+standalone distribution, and deterministic release assets. The CLI reports
+4.3.0 through `--version`; the MCP server reads `package.json`
 and reports the package version through server info.

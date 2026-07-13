@@ -135,6 +135,43 @@ test("provider_probe probes an OpenAI-compatible server without recording verifi
   }
 });
 
+test("provider_probe cannot transmit a non-allowlisted environment variable", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-provider-probe-env-guard-");
+  const provider = await startProviderServer();
+  try {
+    await withClient(
+      cleanEnv({
+        MYTHIFY_DIR: stateDir,
+        HOME: "private-home-value",
+      }),
+      async (client) => {
+        const refusedText = textOf(
+          await client.callTool({
+            name: "provider_probe",
+            arguments: {
+              base_url: provider.baseUrl,
+              model: "local-test",
+              check: "models",
+              api_key_env: "HOME",
+              format: "json",
+            },
+          })
+        );
+        assert.ok(refusedText.startsWith("[FAIL]"), `provider_probe reports [FAIL]: ${refusedText}`);
+        const refused = JSON.parse(refusedText.replace(/^\[FAIL\] /, ""));
+        assert.equal(refused.status, "blocked");
+        assert.equal(refused.api_key_present, false);
+        assert.match(refused.error, /api_key_env must be one of/);
+        assert.equal(provider.requests.length, 0);
+        assert.equal(fs.existsSync(path.join(stateDir, "verifications.jsonl")), false);
+      }
+    );
+  } finally {
+    await provider.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("provider_probe uses the Ollama local profile without auth by default", async () => {
   const { root, stateDir, homeDir } = makeProject("mythify-provider-ollama-");
   const provider = await startProviderServer();

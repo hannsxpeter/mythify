@@ -5,7 +5,10 @@ import {
   registerOutcomeTools,
 } from "../src/outcome-tools.js";
 
-function makeHarness() {
+function makeHarness({
+  failingCommands = new Map(),
+  scopeViolations = (allowedPaths) => allowedPaths.length > 0 ? ["docs/release.md"] : [],
+} = {}) {
   const registered = [];
   const outcomes = new Map();
   const iterations = new Map();
@@ -44,13 +47,14 @@ function makeHarness() {
       `[OK] Outcome ${slug}: ${goal.goal}\nstatus: ${goal.status}\niterations: ${rows.length}`,
     runShellCapture: (command, timeoutSeconds) => {
       runs.push({ command, timeoutSeconds });
+      const exitCode = failingCommands.get(command) || 0;
       return {
         command,
-        exit_code: 0,
+        exit_code: exitCode,
         duration_seconds: 0.01,
         stdout_tail: command.includes("metric") ? "42" : "verified",
         stderr_tail: "",
-        verified: true,
+        verified: exitCode === 0,
       };
     },
     parseMetricScore: (output) => Number.parseFloat(String(output)),
@@ -72,6 +76,7 @@ function makeHarness() {
         active = null;
       }
     },
+    scopeViolations,
     mcpFrontDoorNote: " Route first.",
   });
 
@@ -98,6 +103,10 @@ test("outcome tool registrar wires outcome loop handlers", async () => {
   assert.match(startResult, /^\[OK\] Outcome started: ship-outcome/);
   assert.equal(harness.active, "ship-outcome");
   assert.equal(outcomes.get("ship-outcome").allowed_paths[0], "src");
+  assert.equal(outcomes.get("ship-outcome").agent_command, "");
+  assert.equal(outcomes.get("ship-outcome").max_cost, null);
+  assert.equal(outcomes.get("ship-outcome").cost_spent, 0.0);
+  assert.equal(outcomes.get("ship-outcome").escalate_after, null);
 
   const outcomeCheck = registered.find((entry) => entry.name === "outcome_check");
   const checkResult = await outcomeCheck.handler({
@@ -107,8 +116,26 @@ test("outcome tool registrar wires outcome loop handlers", async () => {
   assert.match(checkResult, /succeeded/);
   assert.deepEqual(runs.map((run) => run.command), ["verify command", "metric command"]);
   assert.equal(iterations.get("ship-outcome")[0].metric.score, 42);
+  assert.equal(iterations.get("ship-outcome")[0].agent, null);
+  assert.equal(iterations.get("ship-outcome")[0].cost, 0.0);
+  assert.equal(iterations.get("ship-outcome")[0].cost_spent, 0.0);
+  assert.deepEqual(
+    iterations.get("ship-outcome")[0].scope_violations,
+    ["docs/release.md"]
+  );
+  assert.match(iterations.get("ship-outcome")[0].next_action, /Scope note:/);
   assert.equal(verifications[0].claim, "Outcome ship-outcome: Verifier passes");
   assert.equal(verifications[0].step_id, 36);
+  assert.deepEqual(Object.keys(verifications[0].provenance).sort(), [
+    "git_commit",
+    "mythify_version",
+    "worktree_clean",
+  ]);
+  assert.match(verifications[0].provenance.mythify_version, /^\d+\.\d+\.\d+$/);
+  assert.ok(
+    verifications[0].provenance.git_commit === null ||
+      typeof verifications[0].provenance.git_commit === "string"
+  );
 
   const outcomeStatus = registered.find((entry) => entry.name === "outcome_status");
   const statusResult = await outcomeStatus.handler({ name: "ship-outcome" });
@@ -150,6 +177,33 @@ test("outcome_check kill switch refuses execution", async () => {
       process.env.MYTHIFY_DISABLE_RUN = previous;
     }
   }
+});
+
+test("outcome metric failure records combined unverified evidence", async () => {
+  const harness = makeHarness({
+    failingCommands: new Map([["metric command", 9]]),
+  });
+  const outcomeStart = harness.registered.find((entry) => entry.name === "outcome_start");
+  const outcomeCheck = harness.registered.find((entry) => entry.name === "outcome_check");
+
+  await outcomeStart.handler({
+    goal: "Metric contract",
+    success: "verifier and metric pass",
+    verify_command: "verify command",
+    metric_command: "metric command",
+    max_iterations: 1,
+  });
+  const result = await outcomeCheck.handler({ format: "json" });
+
+  assert.match(result, /^\[FAIL\]/);
+  assert.equal(harness.iterations.get("metric-contract")[0].verify.verified, true);
+  assert.equal(harness.iterations.get("metric-contract")[0].metric.verified, false);
+  assert.equal(harness.iterations.get("metric-contract")[0].verified, false);
+  assert.equal(harness.verifications[0].verified, false);
+  assert.equal(harness.verifications[0].exit_code, 9);
+  assert.equal(harness.verifications[0].outcome_verify.verified, true);
+  assert.equal(harness.verifications[0].outcome_metric.verified, false);
+  assert.equal(harness.verifications[0].outcome_metric.exit_code, 9);
 });
 
 test("outcome tool registrar rejects missing required deps", () => {

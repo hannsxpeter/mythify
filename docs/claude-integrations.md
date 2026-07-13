@@ -1,10 +1,11 @@
 # Using Mythify with Claude Desktop and Claude Code
 
-Mythify's value scales inversely with model strength: the protocol and tools
-compensate for exactly the things smaller models lack (sustained multi-step
-discipline, grounded progress claims, memory beyond the context window). This
-guide covers wiring Mythify into Anthropic's two main clients and running it
-deliberately on smaller, cheaper models.
+Mythify externalizes multi-step state, completion evidence, and memory outside
+the model context. Whether those mechanisms produce a larger benefit on a
+smaller Claude model is an unverified hypothesis, not a published product
+claim. The committed smoke evidence used an unpinned Codex default model and
+does not compare Claude tiers. This guide covers wiring Mythify into
+Anthropic's two main clients and cautiously evaluating smaller models.
 
 All paths below must be absolute. Neither `.mcp.json` nor
 `claude_desktop_config.json` supports relative paths or variable substitution.
@@ -219,14 +220,12 @@ Cursor workers default to `MYTHIFY_FANOUT_CURSOR_MODE=ask`, matching fanout's
 `MYTHIFY_FANOUT_CURSOR_FORCE=1` only when you deliberately want force-approved
 commands.
 
-## Running Mythify on smaller models
+## Evaluating Mythify on smaller models
 
-This is the configuration where Mythify earns its keep. A frontier model has
-much of the protocol's discipline trained in; a smaller model does not, and
-the protocol plus executed verification recovers a useful share of it at a
-fraction of the price. As of mid-2026, `claude-haiku-4-5` costs $1 per million
-input tokens and $5 per million output tokens, versus $10 and $50 for the
-frontier tier: a 10x difference that buys a lot of verification loops.
+Treat lower-cost model use as an experiment for bounded tasks with executable
+verifiers. Mythify has no paired Claude-tier evidence showing recovered
+capability, higher task success, or lower total cost. Check Anthropic's current
+model availability and pricing before making a cost decision.
 
 Switching models in Claude Code (aliases `haiku`, `sonnet`, `opus`, `fable`,
 or full model IDs like `claude-haiku-4-5` and `claude-sonnet-4-6`):
@@ -258,23 +257,19 @@ Or persistently, in `.claude/settings.json`:
 
 In Claude Desktop, pick the model from the dropdown next to the send button.
 
-Guidance that matters more as the model gets smaller:
+Conservative evaluation guidance:
 
 1. Run both layers. Drop in the protocol (`CLAUDE.md`) and keep the tools
-   available (CLI or MCP). Small models drop multi-step habits fastest, so the
-   externalized plan and the evidence-or-it-did-not-happen rule do more work.
-2. Insist on `verify run` for every completion claim. Hallucinated progress is
-   the dominant small-model failure mode, and an exit code is the cheapest
-   antidote.
-3. Re-orient constantly. `status` at session start and after any confusion;
-   small context windows (Haiku 4.5 carries 200K tokens) plus small models
-   mean state on disk beats state in context even sooner.
-4. Expect protocol drift and treat it as normal. When the model stops updating
-   steps, a one-line reminder ("follow the Mythify loop") restores it; the
-   protocol text is deliberately short so re-reading it is cheap.
-5. Keep the honest framing. Mythify closes the discipline gap, not the
-   capability gap. A small model with Mythify completes more multi-step work
-   than the same model without it; it does not become a frontier model.
+   available (CLI or MCP), then compare results with and without Mythify on the
+   same verifier-backed task.
+2. Insist on `verify run` for every completion claim. This guards every model
+   against prose that is not backed by an executed command.
+3. Re-orient with `status` at session start and after confusion. Durable state
+   reduces reliance on any model's context window.
+4. Record protocol drift as an observed failure instead of assuming it is a
+   small-model trait.
+5. Keep the honest framing. Mythify changes the workflow around a model; it
+   does not establish that a smaller model becomes more capable.
 
 Fanout makes the cheap-model strategy concrete. Run the orchestrating session
 on a strong model and fan the mechanical subtasks (drafting boilerplate,

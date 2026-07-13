@@ -13,6 +13,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { redactSensitiveOutput } from "./redact.js";
+import { assembleWorkerPrompt } from "./fanout-prompt.js";
+import { isFanoutJobId, taskOutputPath } from "./fanout-paths.js";
+import { recoverInterruptedWorktree } from "./fanout-worktree-recovery.js";
 import {
   EFFORT_LEVELS,
   ENGINES,
@@ -92,13 +95,6 @@ const CODEX_LOGIN_REMEDIATION =
 const CURSOR_LOGIN_REMEDIATION =
   'Authentication remediation: run "cursor-agent login" once in a terminal (or "cursor agent login" if you use the cursor binary), then retry the fanout job.';
 
-const WORKER_PREAMBLE = [
-  "You are a delegated worker executing one self-contained task for an orchestrating agent.",
-  "The task below is complete on its own: you have no access to the orchestrator's conversation and no other task's output.",
-  "Do not ask questions and do not request clarification; if something is ambiguous, make the most reasonable assumption and proceed.",
-  "Return only the deliverable the task asks for.",
-].join("\n");
-
 // Helpers injected by index.js through registerFanoutTools, so fanout reuses
 // the server's state-directory resolution and durable IO helpers (atomic
 // writes, corrupt-file recovery, ISO timestamps).
@@ -113,85 +109,6 @@ let lastJobId = null;
 // ---------------------------------------------------------------------------
 // Environment and configuration
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Worker prompt assembly
-// ---------------------------------------------------------------------------
-
-function isPathInside(parent, child) {
-  const relative = path.relative(parent, child);
-  return (
-    relative === "" ||
-    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
-  );
-}
-
-function resolveContextPath(rawPath, projectRoot) {
-  const root = path.resolve(projectRoot);
-  const resolved = path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(root, rawPath);
-  if (!isPathInside(root, resolved)) {
-    return {
-      error: `context path "${rawPath}" resolves outside the project root (${root}). Use a path within the project root.`,
-    };
-  }
-  if (fs.existsSync(resolved)) {
-    const realRoot = fs.realpathSync(root);
-    const realTarget = fs.realpathSync(resolved);
-    if (!isPathInside(realRoot, realTarget)) {
-      return {
-        error: `context path "${rawPath}" resolves outside the project root (${realRoot}). Use a path within the project root.`,
-      };
-    }
-  }
-  return { resolved };
-}
-
-// Fixed preamble, then each context file as a labeled fenced block, then the
-// task prompt. context_paths resolve inside the project root; total inlined
-// context is capped at MYTHIFY_FANOUT_CONTEXT_BYTES with an explicit truncation
-// marker. An unreadable path is a validation error.
-function assembleWorkerPrompt(task, projectRoot, contextBytesCap) {
-  const parts = [WORKER_PREAMBLE];
-  if (typeof task.effort === "string" && task.effort !== "") {
-    parts.push(
-      `Requested effort: ${task.effort}. Match the depth and rigor to this level while keeping the requested deliverable format.`
-    );
-  }
-  if (typeof task.speed === "string" && task.speed !== "" && task.speed !== "auto") {
-    parts.push(
-      `Requested speed: ${task.speed}. Prefer this latency setting for any platform-specific model controls when available.`
-    );
-  }
-  let remaining = contextBytesCap;
-  for (const rawPath of task.context_paths || []) {
-    const checkedPath = resolveContextPath(rawPath, projectRoot);
-    if (checkedPath.error) {
-      return { error: checkedPath.error };
-    }
-    const resolved = checkedPath.resolved;
-    let buffer;
-    try {
-      buffer = fs.readFileSync(resolved);
-    } catch (err) {
-      return {
-        error: `context path "${rawPath}" is not readable (resolved to ${resolved}): ${err.message}`,
-      };
-    }
-    let body;
-    if (buffer.length <= remaining) {
-      body = buffer.toString("utf8");
-      remaining -= buffer.length;
-    } else {
-      body =
-        buffer.subarray(0, Math.max(remaining, 0)).toString("utf8") +
-        `\n[WARN] Context truncated: the per-task inlined context cap of ${contextBytesCap} bytes (MYTHIFY_FANOUT_CONTEXT_BYTES) was reached.`;
-      remaining = 0;
-    }
-    parts.push(`Context file: ${rawPath}\n\`\`\`\n${body}\n\`\`\``);
-  }
-  parts.push(`Task:\n${task.prompt}`);
-  return { prompt: parts.join("\n\n") };
-}
 
 // ---------------------------------------------------------------------------
 // Subprocess plumbing (local CLI and command engines)
@@ -1093,7 +1010,7 @@ function listJobIdsOnDisk() {
   } catch {
     return [];
   }
-  return names.filter((name) => /^fo-\d{14}-[0-9a-f]{4}$/.test(name)).sort();
+  return names.filter(isFanoutJobId).sort();
 }
 
 // Loads a job by id, defaulting to the most recent one. If the job has
@@ -1113,9 +1030,12 @@ function loadJob(jobId) {
       id = ids[ids.length - 1];
     }
   }
+  if (!isFanoutJobId(id)) {
+    return { error: `[FAIL] Invalid fanout job id "${id}".` };
+  }
   const jobDir = path.join(fanoutRootDir(), id);
   const job = io.readJsonRecover(path.join(jobDir, "job.json"), () => null);
-  if (job === null || typeof job !== "object" || !Array.isArray(job.tasks)) {
+  if (job === null || typeof job !== "object" || job.id !== id || !Array.isArray(job.tasks)) {
     return {
       error:
         `[FAIL] No fanout job "${id}" found (or its job.json is missing or corrupt). ` +
@@ -1133,15 +1053,9 @@ function loadJob(jobId) {
       if (task.started_at !== null && task.finished_at === null) {
         task.finished_at = io.isoNow();
       }
-      // An interrupted isolated task left a worktree the crashed process never
-      // tore down. Discard it best-effort: the work was incomplete anyway.
       const wt = task.worktree;
       if (wt && wt.isolated && wt.path) {
-        spawnSync("git", ["-C", root, "worktree", "remove", "--force", wt.path], { encoding: "utf8" });
-        if (wt.branch) {
-          spawnSync("git", ["-C", root, "branch", "-D", wt.branch], { encoding: "utf8" });
-        }
-        task.worktree = { ...wt, path: null, branch: null, cleaned_on_recovery: true };
+        task.worktree = recoverInterruptedWorktree(root, id, task, wt);
       }
     }
     spawnSync("git", ["-C", root, "worktree", "prune"], { encoding: "utf8" });
@@ -1582,7 +1496,11 @@ function handleFanoutResults({ job_id, task_id }) {
     if (task.status === "failed" && task.error) {
       lines.push(`[FAIL] ${task.error}`);
     }
-    const outputPath = path.join(jobDir, task.output_file);
+    const outputPath = taskOutputPath(jobDir, task);
+    if (outputPath === null) {
+      lines.push("[FAIL] Invalid persisted task output path; output was not read.");
+      continue;
+    }
     let output = "";
     try {
       output = fs.readFileSync(outputPath, "utf8");

@@ -27,6 +27,8 @@ class LoopCase(unittest.TestCase):
         self._git("config", "user.email", "t@t")
         self._git("config", "user.name", "t")
         self.assertEqual(self.run_cli("init").returncode, 0)
+        self._git("add", "-A")
+        self._git("commit", "-qm", "initialize Mythify workspace")
 
     def _git(self, *args):
         subprocess.run(["git", *args], cwd=str(self.project), capture_output=True, text=True, check=False)
@@ -136,11 +138,12 @@ class TestDispatchLoop(LoopCase):
         (self.project / "AAA_escape.txt").write_text("out of scope\n", encoding="utf-8")
         self._git("add", "-A")
         self._git("commit", "-qm", "seed")
-        for i in range(250):
-            (self.project / "src" / "f{0}.txt".format(i)).write_text("y\n", encoding="utf-8")
-        (self.project / "AAA_escape.txt").write_text("changed out of scope\n", encoding="utf-8")
+        agent = (
+            "for i in $(seq 0 249); do echo y > src/f$i.txt; done; "
+            "echo changed-out-of-scope > AAA_escape.txt"
+        )
         self.start("--max-iterations", "1", "--allowed-paths", "src", name="big",
-                   verify="false", agent="true")
+                   verify="false", agent=agent)
         result = self.run_cli("outcome", "run", "big")
         self.assertEqual(result.returncode, 2)
         self.assertIn("scope violation", result.stdout)

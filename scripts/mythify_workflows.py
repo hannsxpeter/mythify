@@ -606,7 +606,7 @@ def build_campaign_prompt_payload(slug, record):
             phase = task.get("phase") if task.get("phase") in CAMPAIGN_PHASES else CAMPAIGN_PHASES[0]
             phase_guidance = CAMPAIGN_PHASE_GUIDANCE.get(phase, "Continue the workflow.")
         next_command = (
-            'python3 scripts/mythify.py campaign advance {0} --result "<phase evidence>"'.format(slug)
+            'mythify campaign advance {0} --result "<phase evidence>"'.format(slug)
         )
         lines.extend([
             "",
@@ -1022,6 +1022,5 @@ def cmd_campaign_stop(args, state):
     clear_active_campaign_slug(state, slug)
     print("[OK] Stopped campaign {0}: {1}".format(slug, args.reason))
     return 0
-
 
 
