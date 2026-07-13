@@ -325,7 +325,7 @@ function buildCampaignPromptPayload(slug, record) {
       phase = CAMPAIGN_PHASES.includes(task.phase) ? task.phase : CAMPAIGN_PHASES[0];
       phaseGuidance = CAMPAIGN_PHASE_GUIDANCE[phase] || "Continue the workflow.";
     }
-    nextCommand = `python3 scripts/mythify.py campaign advance ${slug} --result "<phase evidence>"`;
+    nextCommand = `mythify campaign advance ${slug} --result "<phase evidence>"`;
     lines.push("");
     lines.push(`Current task ${task.id}: ${task.title || ""}`);
     lines.push(`Task status: ${task.status || ""}`);
@@ -964,46 +964,46 @@ function routeCommandFor(route, task, stateView) {
   const quotedTask = shellQuote(task);
   const packet = WORKFLOW_ROUTE_PROMPTS[route] || "next";
   if (route === "failure") {
-    return "python3 scripts/mythify.py prompt failure";
+    return "mythify prompt failure";
   }
   if (route === "campaign") {
     if (stateView.active_campaign) {
-      return "python3 scripts/mythify.py campaign prompt";
+      return "mythify campaign prompt";
     }
-    return `python3 scripts/mythify.py campaign start ${quotedTask} --success ${shellQuote("done criteria are verified")}`;
+    return `mythify campaign start ${quotedTask} --success ${shellQuote("done criteria are verified")}`;
   }
   if (route === "outcome") {
     if (stateView.active_outcome) {
-      return "python3 scripts/mythify.py outcome status";
+      return "mythify outcome status";
     }
     return (
-      `python3 scripts/mythify.py outcome start ${quotedTask} ` +
+      `mythify outcome start ${quotedTask} ` +
       `--success ${shellQuote("DEFINE SUCCESS")} --verify ${shellQuote("DEFINE VERIFIER")}`
     );
   }
   if (route === "research") {
     if (stateView.active_research) {
-      return "python3 scripts/mythify.py prompt research";
+      return "mythify prompt research";
     }
-    return `python3 scripts/mythify.py research start ${quotedTask}`;
+    return `mythify research start ${quotedTask}`;
   }
   if (route === "review") {
     if (godArtifactHasOpenTasks(stateView.godaudits_audit)) {
-      return "python3 scripts/mythify.py plan import --source godaudits";
+      return "mythify plan import --source godaudits";
     }
-    return `python3 scripts/mythify.py prompt review --goal ${quotedTask}`;
+    return `mythify prompt review --goal ${quotedTask}`;
   }
   if (route === "handoff") {
-    return `python3 scripts/mythify.py prompt handoff --goal ${quotedTask}`;
+    return `mythify prompt handoff --goal ${quotedTask}`;
   }
   if (route === "plan") {
     if (godArtifactHasOpenTasks(stateView.godplans_plan)) {
-      return "python3 scripts/mythify.py plan import --source godplans";
+      return "mythify plan import --source godplans";
     }
-    return `python3 scripts/mythify.py plan create ${quotedTask} --horizon ${routePlanHorizon()}`;
+    return `mythify plan create ${quotedTask} --horizon ${routePlanHorizon()}`;
   }
   if (route === "prompt") {
-    return `python3 scripts/mythify.py prompt ${packet}`;
+    return `mythify prompt ${packet}`;
   }
   return "Answer directly in the initiating chat; run verify run if an executable completion check exists.";
 }
@@ -1176,14 +1176,14 @@ function buildWorkflowRoute(task, classification) {
     next_command: routeCommandFor(route, task, stateView),
     prompt_packet: {
       kind: packetKind,
-      command: `python3 scripts/mythify.py prompt ${packetKind}`,
+      command: `mythify prompt ${packetKind}`,
     },
     verification_strategy: classification.verification || "",
     chat_policy: {
       executor: "initiating_host",
       surface: "chat",
       report_issues: true,
-      progress_command: "python3 scripts/mythify.py report --since last --cursor chat --format chat",
+      progress_command: "mythify report --since last --cursor chat --format chat",
       host_boundary: "Run the next step in the chat or host that initiated Mythify unless the user explicitly hands it elsewhere.",
     },
     pause_rules: [

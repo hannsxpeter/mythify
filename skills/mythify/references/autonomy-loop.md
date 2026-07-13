@@ -1,8 +1,9 @@
 # The Autonomy Loop
 
 The loop turns a goal into verified progress: PLAN, ACT, VERIFY, REFLECT,
-then CORRECT or ADVANCE. Every stage maps to a CLI command; run them through
-`python3 scripts/mythify.py`.
+then CORRECT or ADVANCE. Every stage maps to a CLI command. Use the installed
+`mythify` launcher, or fall back to `python3 scripts/mythify.py` only when
+working from a Mythify source checkout without the launcher.
 
 ## Proportional ceremony
 
@@ -92,7 +93,9 @@ The evidence rule: `completed` and `failed` REQUIRE the RESULT argument.
 Without it the CLI prints
 `[FAIL] Evidence required: pass a RESULT describing what proves this status.`
 and exits 1, leaving the plan unmodified. By default, `completed` also
-requires a passing `verify run` since the step started. RESULT should cite
+requires a passing executed `verify run` with exit code 0 since the step
+started. If the step stores `verify_command`, the record must contain that
+command. RESULT should cite
 proof: the verify command that passed, the file created, the observed output.
 Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only for explicit legacy prose-only
 completion.

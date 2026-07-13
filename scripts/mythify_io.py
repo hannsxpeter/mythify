@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 JSONL_LOCK_TIMEOUT_SECONDS = 10.0
+JSONL_LOCK_OWNER_GRACE_SECONDS = 1.0
 JSONL_TAIL_CHUNK_BYTES = 64 * 1024
 
 _resolve_state_dir_func = None
@@ -89,7 +90,7 @@ def _write_text_atomic(path, text):
 def write_json_atomic(path, data):
     """Write JSON to a temp file in the same directory, then rename over the
     target so readers never observe a partial file."""
-    _write_text_atomic(path, json.dumps(data, indent=2) + "\n")
+    _write_text_atomic(path, json.dumps(data, indent=2, allow_nan=False) + "\n")
 
 
 def read_json(path, default):
@@ -122,11 +123,11 @@ def append_jsonl(path, record):
     path.parent.mkdir(parents=True, exist_ok=True)
     with jsonl_file_lock(path):
         with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
+            handle.write(json.dumps(record, allow_nan=False) + "\n")
 
 
 def write_jsonl_atomic(path, records):
-    text = "".join(json.dumps(record) + "\n" for record in records)
+    text = "".join(json.dumps(record, allow_nan=False) + "\n" for record in records)
     _write_text_atomic(path, text)
 
 
@@ -135,6 +136,42 @@ def jsonl_lock_dir(path):
     state = _resolve_state_dir()
     digest = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
     return state / "locks" / ("jsonl-" + digest + ".lock")
+
+
+def _process_is_alive(pid):
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _remove_stale_jsonl_lock(lock_dir):
+    owner_path = lock_dir / "owner.json"
+    try:
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        owner = None
+    if isinstance(owner, dict) and isinstance(owner.get("pid"), int):
+        if _process_is_alive(owner["pid"]):
+            return False
+    else:
+        try:
+            if time.time() - lock_dir.stat().st_mtime < JSONL_LOCK_OWNER_GRACE_SECONDS:
+                return False
+        except OSError:
+            return True
+    try:
+        if owner_path.exists():
+            owner_path.unlink()
+        lock_dir.rmdir()
+        return True
+    except OSError:
+        return False
 
 
 @contextmanager
@@ -148,12 +185,23 @@ def jsonl_file_lock(path, timeout=JSONL_LOCK_TIMEOUT_SECONDS):
             lock_dir.mkdir()
             acquired = True
         except FileExistsError:
+            if _remove_stale_jsonl_lock(lock_dir):
+                continue
             if time.monotonic() >= deadline:
                 raise TimeoutError("Timed out waiting for JSONL lock: {0}".format(lock_dir))
             time.sleep(0.05)
+    owner_path = lock_dir / "owner.json"
+    owner_path.write_text(
+        json.dumps({"pid": os.getpid(), "created_unix": time.time()}, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     try:
         yield
     finally:
+        try:
+            owner_path.unlink()
+        except OSError:
+            pass
         try:
             lock_dir.rmdir()
         except OSError:

@@ -36,3 +36,26 @@ test("model provider module exposes stable ids and guarded failures", async () =
   assert.match(refusedLocalRun.error, /requires a localhost/);
   assert.match(formatLocalModelRun(refusedLocalRun), /Local model run blocked/);
 });
+
+test("provider probe refuses arbitrary process environment variables as API keys", async () => {
+  const previousHome = process.env.HOME;
+  process.env.HOME = "private-home-value";
+  try {
+    const result = await probeOpenAICompatibleProvider({
+      provider: DEFAULT_MODEL_PROVIDER,
+      base_url: "https://example.com/v1",
+      model: "remote-test",
+      check: "models",
+      api_key_env: "HOME",
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.api_key_present, false);
+    assert.match(result.error, /api_key_env must be one of/);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+  }
+});

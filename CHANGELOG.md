@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-07-13
+
+### Added
+
+- Added provenance freshness, exact-command release gates, deterministic flat
+  release checksums, standalone CLI packaging, efficacy evidence, and runtime
+  modularity guards.
+- Added fail-closed scoped self-driving baselines and verifier-command binding
+  for plan completion evidence.
+
+### Changed
+
+- Aligned CLI and MCP shared state contracts, launcher-first guidance,
+  distribution documentation, and release assets for the 4.3.0 release.
+
 ## [4.2.0] - 2026-07-04
 
 ### Added

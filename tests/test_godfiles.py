@@ -345,6 +345,12 @@ class TestPlanImportCli(unittest.TestCase):
         context_free = self.run_cli("step", "3", "completed", "verify run exit 0")
         self.assertEqual(context_free.returncode, 1)
         self.assertEqual(self.run_cli("step", "3", "in_progress").returncode, 0)
+        plan = self.load_plan_json("taskboard-godplans")
+        plan["steps"][2]["verify_command"] = "true"
+        (self.project / ".mythify" / "plans" / "taskboard-godplans.json").write_text(
+            json.dumps(plan, indent=2) + "\n",
+            encoding="utf-8",
+        )
         scoped = self.run_cli("verify", "run", "true", "--claim", "GP-201 verify")
         self.assertEqual(scoped.returncode, 0, scoped.stderr)
         completed = self.run_cli("step", "3", "completed", "verify run exit 0: GP-201")

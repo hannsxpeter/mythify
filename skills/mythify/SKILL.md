@@ -45,7 +45,8 @@ user explicitly asks for a primitive such as `plan`, `outcome`, `campaign`,
 `research`, `prompt`, `memory`, `lesson`, or fanout.
 
 Strict step evidence is the default. A `completed` step needs a non-empty
-RESULT and a passing executed `verify run` since the step started. Use
+RESULT and a passing executed `verify run` with exit code 0 since the step
+started. When a step stores `verify_command`, the recorded command must match. Use
 `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only when the user explicitly wants legacy
 prose-only completion.
 
@@ -158,8 +159,9 @@ a curl, a file check). Use `verify claim CLAIM EVIDENCE` only when nothing
 executable exists; it is recorded as `[WARN] ATTESTED` and never counts as
 verified.
 
-For plan steps, `completed` requires a passing executed `verify run` by default
-as well as a RESULT string. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only for
+For plan steps, `completed` requires a passing executed `verify run` with exit
+code 0 by default as well as a RESULT string. A stored `verify_command` must
+match the recorded command. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only for
 explicit legacy prose-only completion.
 
 Read `references/self-verification.md` before claiming any task or step
@@ -207,7 +209,7 @@ Most turns should start with `route`, not the full table below.
 | `plan show [NAME]` | Full detail of a plan. |
 | `plan switch NAME` | Set the active plan. |
 | `plan archive [NAME]` | Move a plan to the archive. |
-| `step ID STATUS [RESULT] [--plan NAME]` | Update a step. completed and failed require RESULT; completed requires a passing verify run by default. |
+| `step ID STATUS [RESULT] [--plan NAME]` | Update a step. completed and failed require RESULT; completed requires a passing exit-0 verify run matching any stored verifier by default. |
 | `memory set KEY VALUE [--category C]` | Store an entry (fact, decision, discovery, state). |
 | `memory get [QUERY] [--category C]` | Substring search over keys and values. |
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |

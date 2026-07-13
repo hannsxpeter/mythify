@@ -1,6 +1,7 @@
 """Outcome loop store and command handlers for the Mythify CLI."""
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -24,6 +25,7 @@ now_iso = _missing_dependency
 slugify = _missing_dependency
 run_shell_capture = _missing_dependency
 verification_step_context = _missing_dependency
+verification_provenance = _missing_dependency
 
 
 def fail(message):
@@ -37,10 +39,11 @@ def configure_outcome_loops(
     slugify_func=None,
     run_shell_capture_func=None,
     verification_step_context_func=None,
+    verification_provenance_func=None,
     fail_func=None,
 ):
     global find_existing_slug_by_name, now_iso, slugify, run_shell_capture
-    global verification_step_context, fail
+    global verification_step_context, verification_provenance, fail
     if find_existing_slug_by_name_func is not None:
         find_existing_slug_by_name = find_existing_slug_by_name_func
     if now_iso_func is not None:
@@ -51,6 +54,8 @@ def configure_outcome_loops(
         run_shell_capture = run_shell_capture_func
     if verification_step_context_func is not None:
         verification_step_context = verification_step_context_func
+    if verification_provenance_func is not None:
+        verification_provenance = verification_provenance_func
     if fail_func is not None:
         fail = fail_func
 
@@ -206,6 +211,75 @@ def scope_violations(state, allowed_paths):
     return paths_outside_scope(changed, allowed_paths)
 
 
+class ScopeInspectionError(RuntimeError):
+    pass
+
+
+def _run_git_scope(root, args):
+    try:
+        run = subprocess.run(
+            ["git", "-C", str(root)] + list(args),
+            capture_output=True,
+            timeout=30,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ScopeInspectionError(str(exc))
+    if run.returncode != 0:
+        detail = run.stderr.decode("utf-8", "replace").strip() or "git inspection failed"
+        raise ScopeInspectionError(detail)
+    return run.stdout
+
+
+def start_scope_baseline(state):
+    root = outcome_project_root(state)
+    commit = _run_git_scope(root, ["rev-parse", "HEAD"]).decode("ascii", "replace").strip()
+    if not commit:
+        raise ScopeInspectionError("Git HEAD is unavailable")
+    dirty = _run_git_scope(
+        root, ["status", "--porcelain", "-z", "--untracked-files=all"]
+    )
+    if dirty:
+        raise ScopeInspectionError("scoped self-driving runs require a clean Git worktree")
+    return {"git_commit": commit}
+
+
+def _diff_name_status_paths(raw):
+    fields = raw.decode("utf-8", "surrogateescape").split("\0")
+    paths = []
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index]
+        index += 1
+        if index >= len(fields) or not fields[index]:
+            raise ScopeInspectionError("malformed Git name-status output")
+        paths.append(fields[index])
+        index += 1
+        if status.startswith(("R", "C")):
+            if index >= len(fields) or not fields[index]:
+                raise ScopeInspectionError("malformed Git rename or copy output")
+            paths.append(fields[index])
+            index += 1
+    return paths
+
+
+def self_driving_scope_violations(state, allowed_paths, baseline):
+    root = outcome_project_root(state)
+    commit = str((baseline or {}).get("git_commit") or "")
+    if not commit:
+        raise ScopeInspectionError("scope baseline commit is unavailable")
+    _run_git_scope(root, ["merge-base", "--is-ancestor", commit, "HEAD"])
+    tracked = _diff_name_status_paths(
+        _run_git_scope(root, ["diff", "--name-status", "-z", "--find-renames", commit])
+    )
+    untracked_raw = _run_git_scope(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+    untracked = [
+        item for item in untracked_raw.decode("utf-8", "surrogateescape").split("\0") if item
+    ]
+    changed = list(dict.fromkeys(tracked + untracked))
+    return paths_outside_scope(changed, allowed_paths)
+
+
 def parse_metric_score(output):
     match = re.search(r"-?\d+(?:\.\d+)?", str(output or ""))
     return float(match.group(0)) if match else None
@@ -253,6 +327,14 @@ def cmd_outcome_start(args, state):
     if args.max_iterations < 1:
         print("[FAIL] outcome start requires --max-iterations >= 1.")
         return 1
+    max_cost = getattr(args, "max_cost", None)
+    if max_cost is not None and (not math.isfinite(max_cost) or max_cost <= 0):
+        print("[FAIL] outcome start requires --max-cost to be finite and greater than 0.")
+        return 1
+    escalate_after = getattr(args, "escalate_after", None)
+    if escalate_after is not None and escalate_after < 1:
+        print("[FAIL] outcome start requires --escalate-after >= 1.")
+        return 1
     base = args.name or args.goal
     slug = slugify(base) or "outcome"
     original = slug
@@ -270,9 +352,9 @@ def cmd_outcome_start(args, state):
         "agent_command": getattr(args, "agent", None) or "",
         "max_iterations": args.max_iterations,
         "iteration_count": 0,
-        "max_cost": getattr(args, "max_cost", None),
+        "max_cost": max_cost,
         "cost_spent": 0.0,
-        "escalate_after": getattr(args, "escalate_after", None),
+        "escalate_after": escalate_after,
         "allowed_paths": parse_allowed_paths(args.allowed_paths),
         "visibility": args.visibility,
         "status": "active",
@@ -317,7 +399,9 @@ def parse_reported_cost(output):
     return float(match.group(1)) if match else None
 
 
-def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record=None):
+def perform_outcome_iteration(
+    state, slug, goal, timeout, notes="", agent_record=None, scope_violations_override=None
+):
     """Run one verifier (and optional metric) iteration, enforce scope and the
     cost budget, append the iteration and executed-verification records, update
     the goal, and return the iteration record. Shared by outcome check (the host
@@ -339,8 +423,13 @@ def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record
             "verified": metric["verified"],
             "score": metric_score,
         }
-    violations = scope_violations(state, goal.get("allowed_paths") or [])
-    verified = bool(verify["verified"] and metric_ok)
+    violations = (
+        list(scope_violations_override)
+        if scope_violations_override is not None
+        else scope_violations(state, goal.get("allowed_paths") or [])
+    )
+    scope_enforced = scope_violations_override is not None
+    verified = bool(verify["verified"] and metric_ok and not (scope_enforced and violations))
     iteration_count = int(goal.get("iteration_count", 0))
     max_iterations = int(goal.get("max_iterations", 1))
     next_iteration = iteration_count + 1
@@ -359,10 +448,10 @@ def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record
         agent_record is not None and max_cost is not None and cost_spent >= float(max_cost)
     )
 
-    # Scope violations are recorded here but only the self-driving loop
-    # (cmd_outcome_run) halts on them; the check path (CLI and MCP) surfaces them
-    # without blocking, so both runtimes reach the same terminal state.
-    if verified:
+    if scope_enforced and violations:
+        status_after = "stopped"
+        next_action = "Scope violation detected. Stop and report the out-of-scope changes."
+    elif verified:
         status_after = "succeeded"
         next_action = "Outcome met. Report the evidence and stop."
     elif budget_exhausted:
@@ -380,8 +469,8 @@ def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record
             "then run outcome check again."
         )
     if violations:
-        next_action = "Scope note: {0} file(s) changed outside scope ({1}). {2}".format(
-            len(violations), ", ".join(violations[:5]), next_action
+        next_action = "{0} Changed outside scope: {1}.".format(
+            next_action, ", ".join(violations[:5])
         )
     record = {
         "iteration": next_iteration,
@@ -416,21 +505,41 @@ def perform_outcome_iteration(state, slug, goal, timeout, notes="", agent_record
             goal["best_metric_score"] = metric_score
     if status_after == "failed":
         goal["stop_reason"] = "cost budget exhausted" if budget_exhausted else "iteration budget exhausted"
+    if status_after == "stopped" and scope_enforced:
+        goal["stop_reason"] = "scope violation: {0}".format(
+            ", ".join(violations[:5])
+        )
     if status_after == "succeeded":
         goal["stop_reason"] = "success criteria verified"
     save_outcome(state, slug, goal)
+    combined_exit_code = verify["exit_code"]
+    if verify["verified"] and metric_record is not None and not metric_ok:
+        combined_exit_code = metric_record["exit_code"]
+    combined_duration = verify["duration_seconds"]
+    if metric_record is not None:
+        combined_duration += metric_record["duration_seconds"]
+    verification_stderr = verify["stderr_tail"]
+    if scope_enforced and violations:
+        combined_exit_code = -1
+        verification_stderr = (
+            verification_stderr + ("\n" if verification_stderr else "") +
+            "(scope violation: {0})".format(", ".join(violations[:5]))
+        )
     verification_record = {
         "kind": "executed",
         "claim": "Outcome {0}: {1}".format(slug, goal.get("success_criteria", "")),
         "command": goal["verify_command"],
-        "exit_code": verify["exit_code"],
-        "duration_seconds": verify["duration_seconds"],
+        "exit_code": combined_exit_code,
+        "duration_seconds": combined_duration,
         "stdout_tail": verify["stdout_tail"],
-        "stderr_tail": verify["stderr_tail"],
-        "verified": verify["verified"],
+        "stderr_tail": verification_stderr,
+        "verified": verified,
+        "outcome_verify": record["verify"],
+        "outcome_metric": metric_record,
         "timestamp": record["timestamp"],
         "outcome": slug,
         "iteration": next_iteration,
+        "provenance": verification_provenance(state),
     }
     verification_record.update(verification_step_context(state))
     append_jsonl(state / "verifications.jsonl", verification_record)
@@ -518,6 +627,20 @@ def cmd_outcome_run(args, state):
         print("[OK] Outcome {0} is already {1}.".format(slug, goal.get("status")))
         return 0 if goal.get("status") == "succeeded" else 2
     escalate_after = goal.get("escalate_after")
+    allowed_paths = goal.get("allowed_paths") or []
+    scope_baseline = goal.get("scope_baseline")
+    if allowed_paths and not scope_baseline:
+        try:
+            scope_baseline = start_scope_baseline(state)
+        except ScopeInspectionError as exc:
+            goal["status"] = "stopped"
+            goal["stop_reason"] = "scope inspection unavailable: {0}".format(exc)
+            goal["updated"] = now_iso()
+            save_outcome(state, slug, goal)
+            fail("[FAIL] Outcome {0} stopped before agent execution: {1}".format(slug, goal["stop_reason"]))
+            return 2
+        goal["scope_baseline"] = scope_baseline
+        save_outcome(state, slug, goal)
     consecutive_red = 0
     final = goal.get("status", "active")
     while True:
@@ -539,8 +662,27 @@ def cmd_outcome_run(args, state):
                 (attempt.get("stdout_tail") or "") + "\n" + (attempt.get("stderr_tail") or "")
             ),
         }
+        try:
+            strict_violations = (
+                self_driving_scope_violations(state, allowed_paths, scope_baseline)
+                if allowed_paths
+                else []
+            )
+        except ScopeInspectionError as exc:
+            goal["status"] = "stopped"
+            goal["stop_reason"] = "scope inspection unavailable: {0}".format(exc)
+            goal["updated"] = now_iso()
+            save_outcome(state, slug, goal)
+            final = "stopped"
+            break
         record = perform_outcome_iteration(
-            state, slug, goal, args.timeout, args.notes or "", agent_record
+            state,
+            slug,
+            goal,
+            args.timeout,
+            args.notes or "",
+            agent_record,
+            strict_violations,
         )
         print(
             "iteration {0}/{1}: agent exit {2}, verify {3}, status {4}".format(
@@ -627,6 +769,3 @@ def cmd_outcome_stop(args, state):
     else:
         print("[OK] Outcome {0} stopped: {1}".format(slug, args.reason))
     return 0
-
-
-

@@ -73,6 +73,12 @@ test("verification tool registrar wires verify and reflection handlers", async (
   assert.deepEqual(runs[0], { command: "npm test", timeoutSeconds: 7 });
   assert.equal(verifications[0].kind, "executed");
   assert.equal(verifications[0].step_id, 38);
+  assert.deepEqual(Object.keys(verifications[0].provenance).sort(), [
+    "git_commit",
+    "mythify_version",
+    "worktree_clean",
+  ]);
+  assert.equal(verifications[0].provenance.mythify_version, "4.3.0");
 
   const verifyClaim = registered.find((entry) => entry.name === "verify_claim");
   const claimResult = await verifyClaim.handler({

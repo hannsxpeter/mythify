@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { redactSensitiveOutput } from "./redact.js";
@@ -54,6 +55,7 @@ const TAIL_CHARS = 4000;
 const DEFAULT_VERIFY_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const JSONL_LOCK_TIMEOUT_MS = 10000;
 const JSONL_LOCK_POLL_MS = 50;
+const JSONL_LOCK_OWNER_GRACE_MS = 1000;
 const JSONL_TAIL_CHUNK_BYTES = 64 * 1024;
 const FALSE_ENV_VALUES = new Set(["0", "false", "no", "off"]);
 const STEP_ICONS = {
@@ -223,6 +225,48 @@ function jsonlLockDir(filePath) {
   return path.join(resolveStateDir(), "locks", `jsonl-${digest}.lock`);
 }
 
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return Boolean(err && err.code === "EPERM");
+  }
+}
+
+function removeStaleJsonlLock(lockDir) {
+  const ownerPath = path.join(lockDir, "owner.json");
+  let owner = null;
+  try {
+    owner = JSON.parse(fs.readFileSync(ownerPath, "utf8"));
+  } catch {
+    owner = null;
+  }
+  if (owner && Number.isInteger(owner.pid)) {
+    if (processIsAlive(owner.pid)) {
+      return false;
+    }
+  } else {
+    try {
+      if (Date.now() - fs.statSync(lockDir).mtimeMs < JSONL_LOCK_OWNER_GRACE_MS) {
+        return false;
+      }
+    } catch {
+      return true;
+    }
+  }
+  try {
+    fs.rmSync(ownerPath, { force: true });
+    fs.rmdirSync(lockDir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function withJsonlFileLock(filePath, fn, timeoutMs = JSONL_LOCK_TIMEOUT_MS) {
   const lockDir = jsonlLockDir(filePath);
   ensureDir(path.dirname(lockDir));
@@ -236,15 +280,29 @@ function withJsonlFileLock(filePath, fn, timeoutMs = JSONL_LOCK_TIMEOUT_MS) {
       if (!err || err.code !== "EEXIST") {
         throw err;
       }
+      if (removeStaleJsonlLock(lockDir)) {
+        continue;
+      }
       if (Date.now() >= deadline) {
         throw new Error(`Timed out waiting for JSONL lock: ${lockDir}`);
       }
       sleepSync(JSONL_LOCK_POLL_MS);
     }
   }
+  const ownerPath = path.join(lockDir, "owner.json");
+  fs.writeFileSync(
+    ownerPath,
+    JSON.stringify({ pid: process.pid, created_unix: Date.now() / 1000 }) + "\n",
+    "utf8"
+  );
   try {
     return fn();
   } finally {
+    try {
+      fs.rmSync(ownerPath, { force: true });
+    } catch {
+      // Best effort cleanup.
+    }
     try {
       fs.rmdirSync(lockDir);
     } catch {
@@ -756,17 +814,36 @@ function uniqueOutcomeSlug(base) {
 function runShellCapture(command, timeoutSeconds) {
   const maxOutputBytes = verifyMaxOutputBytes();
   const startedAt = process.hrtime.bigint();
-  const run = spawnSync(command, {
-    shell: true,
+  const runnerPath = fileURLToPath(new URL("./process-tree-runner.js", import.meta.url));
+  const wrapper = spawnSync(process.execPath, [runnerPath], {
+    input: JSON.stringify({
+      command,
+      timeout_seconds: timeoutSeconds,
+      max_output_bytes: maxOutputBytes,
+    }),
     encoding: "utf8",
-    timeout: Math.round(timeoutSeconds * 1000),
-    maxBuffer: maxOutputBytes,
+    timeout: Math.round(timeoutSeconds * 1000) + 5000,
+    maxBuffer: 1024 * 1024,
   });
   const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+  let run;
+  try {
+    run = JSON.parse(String(wrapper.stdout || ""));
+  } catch {
+    run = {
+      stdout: "",
+      stderr: wrapper.stderr || "",
+      status: null,
+      signal: wrapper.signal || null,
+      timed_out: Boolean(wrapper.error && wrapper.error.code === "ETIMEDOUT"),
+      output_limit_exceeded: false,
+      error: wrapper.error ? wrapper.error.message : "process-tree runner returned invalid output",
+    };
+  }
   let stdoutTail = redactSensitiveOutput(tail(run.stdout));
   let stderrTail = redactSensitiveOutput(tail(run.stderr));
-  const timedOut = Boolean(run.error && run.error.code === "ETIMEDOUT");
-  const outputLimitExceeded = Boolean(run.error && run.error.code === "ENOBUFS");
+  const timedOut = run.timed_out === true;
+  const outputLimitExceeded = run.output_limit_exceeded === true;
   let exitCode;
   let verified;
   if (timedOut) {
@@ -784,11 +861,17 @@ function runShellCapture(command, timeoutSeconds) {
     exitCode = -1;
     verified = false;
     const reason = run.error
-      ? run.error.message
+      ? run.error
       : run.signal
         ? `terminated by signal ${run.signal}`
         : "command did not produce an exit code";
     stderrTail = stderrTail + (stderrTail ? "\n" : "") + `(${reason})`;
+  }
+  if (run.containment_failed === true) {
+    stderrTail =
+      stderrTail +
+      (stderrTail ? "\n" : "") +
+      "(process-tree containment could not be confirmed; the parent was killed)";
   }
   return {
     command,
@@ -811,6 +894,48 @@ function readOutcomeIterations(slug) {
   return readJsonl(outcomeIterationsPath(slug));
 }
 
+function outcomeProjectRoot() {
+  const stateDir = resolveStateDir();
+  return path.basename(stateDir) === ".mythify" ? path.dirname(stateDir) : process.cwd();
+}
+
+function outcomeScopeViolations(allowedPaths) {
+  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) {
+    return [];
+  }
+  const run = spawnSync(
+    "git",
+    ["-C", outcomeProjectRoot(), "status", "--porcelain"],
+    {
+      encoding: "utf8",
+      timeout: 30000,
+      maxBuffer: 16 * 1024 * 1024,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    }
+  );
+  if (run.error || run.status !== 0) {
+    return [];
+  }
+  const prefixes = allowedPaths
+    .map((item) => String(item).replace(/\/+$/, ""))
+    .filter((item) => item !== "");
+  const changed = String(run.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.length > 3 ? line.slice(3).trim() : "")
+    .filter((entry) => entry !== "")
+    .map((entry) => entry.includes(" -> ") ? entry.split(" -> ", 2)[1] : entry)
+    .map((entry) => entry.replace(/^"|"$/g, ""));
+  return changed.filter((entry) => {
+    const normalized = entry.replace(/\/+$/, "");
+    if (normalized === ".mythify" || normalized.startsWith(".mythify/")) {
+      return false;
+    }
+    return !prefixes.some(
+      (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`)
+    );
+  });
+}
+
 function formatOutcomeStatus(slug, goal, iterations = []) {
   const lines = [
     `[OK] Outcome ${slug}: ${goal.goal || ""}`,
@@ -823,7 +948,10 @@ function formatOutcomeStatus(slug, goal, iterations = []) {
     lines.push(`metric: ${goal.metric_command}`);
   }
   if (Array.isArray(goal.allowed_paths) && goal.allowed_paths.length > 0) {
-    lines.push(`scope (enforced by the CLI outcome loop via git): ${goal.allowed_paths.join(", ")}`);
+    lines.push(
+      `scope (supervised checks report; CLI outcome run enforces post-hoc via git): ` +
+      goal.allowed_paths.join(", ")
+    );
   }
   if (iterations.length > 0) {
     const last = iterations[iterations.length - 1];
@@ -1047,6 +1175,7 @@ registerPlanTools(server, {
   savePlan,
   strictStepEvidenceEnabled,
   readJsonlSince,
+  readJsonl,
   verificationsPath,
   verificationRecordMatchesStep,
   timestampAtOrAfter,
@@ -1077,6 +1206,7 @@ registerOutcomeTools(server, {
   verificationsPath,
   verificationStepContext,
   clearActiveOutcomeSlug,
+  scopeViolations: outcomeScopeViolations,
   mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
 });
 

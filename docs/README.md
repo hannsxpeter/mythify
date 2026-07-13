@@ -10,6 +10,8 @@ decision records.
 - `start-here.md`: shortest happy path, three concrete workflows, and what to
   ignore at first.
 - `release.md`: current release process, package artifacts, and publish checks.
+- `evidence/efficacy-reproduction.md`: reproducible bare-versus-Mythify smoke
+  comparison, sanitized result, and explicit limits on the claim.
 - `adapter-candidates.md`: generated adapter capability registry output.
 - `tool-use-contract.md`: deferred-tool discovery discipline: adapters must load
   a tool's real schema before calling it and never invoke from a guessed schema.

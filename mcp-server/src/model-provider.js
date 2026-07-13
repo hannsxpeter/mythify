@@ -14,6 +14,8 @@ function envValue(name) {
 
 export const MODEL_PROVIDER_IDS = ["generic-openai-compatible", "ollama", "lm-studio", "llama-cpp", "vllm"];
 export const DEFAULT_MODEL_PROVIDER = "generic-openai-compatible";
+export const MODEL_PROVIDER_API_KEY_ENVS = ["MYTHIFY_OPENAI_COMPAT_API_KEY"];
+const MODEL_PROVIDER_API_KEY_ENV_SET = new Set(MODEL_PROVIDER_API_KEY_ENVS);
 
 function normalizeModelProvider(provider) {
   return MODEL_PROVIDER_IDS.includes(provider) ? provider : DEFAULT_MODEL_PROVIDER;
@@ -109,8 +111,12 @@ function providerEndpoint(baseUrl, pathSuffix) {
 function providerHeaders(apiKeyEnv) {
   const headers = { accept: "application/json" };
   if (apiKeyEnv !== "") {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
-      return { ok: false, headers, error: "api_key_env must be a valid environment variable name." };
+    if (!MODEL_PROVIDER_API_KEY_ENV_SET.has(apiKeyEnv)) {
+      return {
+        ok: false,
+        headers,
+        error: `api_key_env must be one of: ${MODEL_PROVIDER_API_KEY_ENVS.join(", ")}.`,
+      };
     }
     const apiKey = envValue(apiKeyEnv);
     if (apiKey !== "") {
@@ -191,7 +197,7 @@ export async function probeOpenAICompatibleProvider({ provider, base_url, model,
     model: selectedModel,
     check: selectedCheck,
     api_key_env: keyEnv,
-    api_key_present: keyEnv !== "" && envValue(keyEnv) !== "",
+    api_key_present: MODEL_PROVIDER_API_KEY_ENV_SET.has(keyEnv) && envValue(keyEnv) !== "",
     material_not_evidence: true,
     evidence_status: "probe_only_not_verification",
     can_answer_prompt: false,

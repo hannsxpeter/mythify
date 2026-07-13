@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { FANOUT_VISIBILITY_MODES } from "./capability-registry.js";
+import path from "node:path";
+
+import { currentVerificationProvenanceForStateDir } from "./verification-provenance.js";
 
 export const OUTCOME_TOOL_NAMES = [
   "outcome_start",
@@ -34,6 +37,7 @@ export function registerOutcomeTools(server, deps) {
   const verificationsPath = requireDep(deps, "verificationsPath");
   const verificationStepContext = requireDep(deps, "verificationStepContext");
   const clearActiveOutcomeSlug = requireDep(deps, "clearActiveOutcomeSlug");
+  const scopeViolations = requireDep(deps, "scopeViolations");
   const frontDoorNote = typeof deps.mcpFrontDoorNote === "string" ? deps.mcpFrontDoorNote : "";
 
   server.registerTool(
@@ -77,8 +81,12 @@ export function registerOutcomeTools(server, deps) {
         success_criteria: success,
         verify_command,
         metric_command: metric_command || "",
+        agent_command: "",
         max_iterations: max_iterations || 3,
         iteration_count: 0,
+        max_cost: null,
+        cost_spent: 0.0,
+        escalate_after: null,
         allowed_paths: Array.isArray(allowed_paths) ? allowed_paths : [],
         visibility: visibility || "summary",
         status: "active",
@@ -171,6 +179,7 @@ export function registerOutcomeTools(server, deps) {
         };
       }
       const verified = Boolean(verify.verified && metricOk);
+      const violations = scopeViolations(goal.allowed_paths || []);
       const nextIteration = iterationCount + 1;
       let statusAfter;
       let nextAction;
@@ -184,10 +193,18 @@ export function registerOutcomeTools(server, deps) {
         statusAfter = "active";
         nextAction = "Outcome not met. Inspect verifier output, make another bounded attempt, then call outcome_check again.";
       }
+      if (violations.length > 0) {
+        nextAction =
+          `Scope note: ${violations.length} file(s) changed outside scope ` +
+          `(${violations.slice(0, 5).join(", ")}). ${nextAction}`;
+      }
       const record = {
         iteration: nextIteration,
         timestamp: isoNow(),
         notes: notes || "",
+        agent: null,
+        cost: 0.0,
+        cost_spent: Number(goal.cost_spent || 0),
         verify: {
           command: verify.command,
           exit_code: verify.exit_code,
@@ -198,6 +215,7 @@ export function registerOutcomeTools(server, deps) {
         },
         metric: metricRecord,
         verified,
+        scope_violations: violations,
         status_after: statusAfter,
         next_action: nextAction,
       };
@@ -218,18 +236,28 @@ export function registerOutcomeTools(server, deps) {
         goal.stop_reason = "success criteria verified";
       }
       saveOutcome(slug, goal);
+      const combinedExitCode = verify.verified && metricRecord && !metricOk
+        ? metricRecord.exit_code
+        : verify.exit_code;
+      const combinedDuration = verify.duration_seconds +
+        (metricRecord ? metricRecord.duration_seconds : 0);
       appendJsonl(verificationsPath(), {
         kind: "executed",
         claim: `Outcome ${slug}: ${goal.success_criteria || ""}`,
         command: goal.verify_command,
-        exit_code: verify.exit_code,
-        duration_seconds: verify.duration_seconds,
+        exit_code: combinedExitCode,
+        duration_seconds: combinedDuration,
         stdout_tail: verify.stdout_tail,
         stderr_tail: verify.stderr_tail,
-        verified: verify.verified,
+        verified,
+        outcome_verify: record.verify,
+        outcome_metric: metricRecord,
         timestamp: record.timestamp,
         outcome: slug,
         iteration: nextIteration,
+        provenance: currentVerificationProvenanceForStateDir(
+          path.dirname(verificationsPath())
+        ),
         ...verificationStepContext(),
       });
       if (format === "json") {

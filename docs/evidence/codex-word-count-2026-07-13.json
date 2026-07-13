@@ -1,0 +1,433 @@
+{
+  "schema_version": 1,
+  "kind": "mythify_efficacy_summary",
+  "evidence_status": "available_repeated_trials",
+  "engine": "codex-cli",
+  "scenario": "word_count_bugfix",
+  "scenario_count": 1,
+  "mythify_profile": "auto",
+  "trial_design": {
+    "paired": true,
+    "pair_order": [
+      "bare",
+      "mythify"
+    ],
+    "repeat_per_scenario": 2,
+    "paired_trials": 2,
+    "completed_paired_trials": 2
+  },
+  "conditions": {
+    "bare": {
+      "steering": "task_prompt_only",
+      "mythify_installed": false,
+      "protocol_files": [],
+      "required_external_verifier": "python3 -m unittest"
+    },
+    "mythify": {
+      "steering": "mythify_protocol",
+      "mythify_installed": true,
+      "protocol_files": [
+        "AGENTS.md",
+        "scripts/mythify.py",
+        "protocol/*.json"
+      ],
+      "required_external_verifier": "python3 -m unittest"
+    }
+  },
+  "summary": {
+    "bare": {
+      "attempted": 2,
+      "model_success": 2,
+      "verified_success": 2,
+      "evidence_success": 0,
+      "verified_success_rate": 1.0,
+      "evidence_success_rate": 0.0,
+      "avg_model_duration_seconds": 99.743
+    },
+    "mythify": {
+      "attempted": 2,
+      "model_success": 2,
+      "verified_success": 2,
+      "evidence_success": 2,
+      "verified_success_rate": 1.0,
+      "evidence_success_rate": 1.0,
+      "avg_model_duration_seconds": 37.078
+    },
+    "winner_by_verified_success_rate": "tie"
+  },
+  "verified_task_success": {
+    "metric": "verified_success_rate",
+    "comparison": "mythify_vs_bare",
+    "evidence_source": "per-workspace python3 -m unittest exit code",
+    "bare_attempted": 2,
+    "mythify_attempted": 2,
+    "paired_task_count": 2,
+    "bare_verified_success_rate": 1.0,
+    "mythify_verified_success_rate": 1.0,
+    "verified_success_rate_delta": 0.0,
+    "winner": "tie",
+    "conclusion": "no_change",
+    "mythify_evidence_success_rate": 1.0,
+    "avg_model_duration_delta_seconds": -62.665,
+    "statistical_strength": "local_smoke",
+    "caveat": "Built-in scenarios are a rerunnable smoke signal, not a large benchmark."
+  },
+  "false_completion_claims": {
+    "metric": "false_completion_rate",
+    "comparison": "mythify_vs_bare",
+    "completion_signal": "model_exit_code_0",
+    "evidence_source": "model process exit code 0 compared with per-workspace python3 -m unittest exit code",
+    "bare_false_completion_rate": 0.0,
+    "mythify_false_completion_rate": 0.0,
+    "false_completion_rate_delta": 0.0,
+    "winner_by_lower_false_completion_rate": "tie",
+    "conclusion": "no_change",
+    "modes": {
+      "bare": {
+        "attempted": 2,
+        "completion_claims": 2,
+        "verifier_backed_claims": 2,
+        "false_completion_claims": 0,
+        "no_completion_signal": 0,
+        "false_completion_rate": 0.0
+      },
+      "mythify": {
+        "attempted": 2,
+        "completion_claims": 2,
+        "verifier_backed_claims": 2,
+        "false_completion_claims": 0,
+        "no_completion_signal": 0,
+        "false_completion_rate": 0.0
+      }
+    },
+    "statistical_strength": "local_smoke",
+    "caveat": "Completion claims are bounded to model process exit code 0; output text is retained for audit but not tone-scored."
+  },
+  "profile_overhead": {
+    "metric": "avg_model_duration_seconds",
+    "comparison": "mythify_profile_vs_bare",
+    "evidence_source": "measured model process duration_seconds from local harness subprocess runs",
+    "bare_avg_model_duration_seconds": 99.743,
+    "mythify_avg_model_duration_seconds": 37.078,
+    "avg_model_duration_delta_seconds": -62.665,
+    "avg_model_duration_ratio": 0.372,
+    "observed_lower_duration_mode": "mythify",
+    "inference": "inconclusive",
+    "conclusion": "no_claim",
+    "profiles": {
+      "fast": {
+        "attempted": 2,
+        "avg_model_duration_seconds": 37.078,
+        "delta_vs_bare_avg_seconds": -62.665,
+        "ratio_vs_bare_avg": 0.372
+      }
+    },
+    "bare_speed": "auto",
+    "mythify_speed": "auto",
+    "statistical_strength": "local_smoke",
+    "caveat": "Durations are descriptive local subprocess measurements only; this smoke sample supports no categorical speed winner."
+  },
+  "local_model_benefit": {
+    "metric": "local_model_candidate_task_categories",
+    "comparison": "scenario_metadata_plus_harness_outcomes",
+    "evidence_source": "scenario local-model role metadata plus per-workspace python3 -m unittest exit code",
+    "supported_roles": [
+      "reader",
+      "triage"
+    ],
+    "candidate_categories": [
+      "string_processing_bugfix"
+    ],
+    "scenario_count": 1,
+    "scenarios": [
+      {
+        "scenario": "word_count_bugfix",
+        "title": "Whitespace word counter bug fix",
+        "task_category": "string_processing_bugfix",
+        "local_model_candidate_roles": [
+          "reader",
+          "triage"
+        ],
+        "local_model_fit_reason": "small deterministic Python function with local tests and limited context",
+        "candidate_fit": "candidate",
+        "bare_attempted": 2,
+        "mythify_attempted": 2,
+        "bare_verified_success_rate": 1.0,
+        "mythify_verified_success_rate": 1.0,
+        "verified_success_rate_delta": 0.0,
+        "mythify_evidence_success_rate": 1.0,
+        "observed_benefit": "neutral"
+      }
+    ],
+    "categories": [
+      {
+        "task_category": "string_processing_bugfix",
+        "scenario_count": 1,
+        "candidate_roles": [
+          "reader",
+          "triage"
+        ],
+        "mythify_attempted": 2,
+        "mythify_verified_success": 2,
+        "mythify_evidence_success": 2,
+        "mythify_verified_success_rate": 1.0,
+        "mythify_evidence_success_rate": 1.0
+      }
+    ],
+    "statistical_strength": "local_smoke",
+    "caveat": "This identifies local-model candidate task categories and observed harness outcomes; provider-specific benefit requires rerunning with a local-model-backed command or provider check."
+  },
+  "fanout_value": {
+    "metric": "fanout_value_fit",
+    "comparison": "fanout_policy_plus_harness_outcomes",
+    "evidence_source": "scenario fanout-fit metadata plus per-workspace python3 -m unittest exit code",
+    "requires_independent_tasks": true,
+    "helps_when": [
+      "independent_surface_mapping",
+      "parallel_research_or_comparison"
+    ],
+    "wastes_when": [
+      "single_focused_bugfix",
+      "dependent_sequence"
+    ],
+    "policy": [
+      {
+        "task_shape": "independent_surface_mapping",
+        "fanout_fit": "helps",
+        "decision_rule": "Use fanout when two or more self-contained code, docs, or adapter surfaces can be inspected without waiting on each other.",
+        "value_signal": "distinct worker material can be merged, then checked by one orchestrator-run verifier",
+        "cost_signal": "each task is a fresh worker call, so keep context narrow and task prompts independent",
+        "verification_boundary": "worker output is material until the orchestrator merges it and runs verify_run or outcome_check"
+      },
+      {
+        "task_shape": "parallel_research_or_comparison",
+        "fanout_fit": "helps",
+        "decision_rule": "Use fanout when independent sources, host adapters, or benchmark variants can be compared side by side.",
+        "value_signal": "parallel reads reduce wall-clock time and make disagreement visible before implementation",
+        "cost_signal": "each source or variant spends separate quota or local compute",
+        "verification_boundary": "claims still need source links, command evidence, or a merged executable check"
+      },
+      {
+        "task_shape": "single_focused_bugfix",
+        "fanout_fit": "wastes",
+        "decision_rule": "Avoid fanout for one small implementation surface with one direct verifier.",
+        "value_signal": "a single worker can make the edit and run the verifier",
+        "cost_signal": "extra workers duplicate prompt context and consume quota without independent outputs",
+        "verification_boundary": "run the local verifier once after the focused edit"
+      },
+      {
+        "task_shape": "dependent_sequence",
+        "fanout_fit": "wastes",
+        "decision_rule": "Avoid fanout when each step depends on the previous step's concrete output.",
+        "value_signal": "sequential host work preserves ordering and reduces merge confusion",
+        "cost_signal": "parallel workers would speculate, then require reconciliation work",
+        "verification_boundary": "advance one step at a time and verify each completion claim"
+      }
+    ],
+    "scenario_count": 1,
+    "observed_help_candidate_count": 0,
+    "observed_waste_candidate_count": 1,
+    "single_worker_sufficient_count": 1,
+    "observed_harness": {
+      "bare_attempted": 2,
+      "mythify_attempted": 2,
+      "mythify_verified_success_rate": 1.0,
+      "mythify_evidence_success_rate": 1.0
+    },
+    "scenarios": [
+      {
+        "scenario": "word_count_bugfix",
+        "title": "Whitespace word counter bug fix",
+        "task_category": "string_processing_bugfix",
+        "fanout_fit": "waste_candidate",
+        "fanout_fit_reason": "single focused bug fix with one tiny implementation surface and one local verifier",
+        "fanout_merge_verifier": "python3 -m unittest",
+        "fresh_worker_call_cost": "fanout would run one fresh worker per task; this harness records fit but does not estimate tokens, dollars, or local compute",
+        "bare_attempted": 2,
+        "mythify_attempted": 2,
+        "bare_verified_success_rate": 1.0,
+        "mythify_verified_success_rate": 1.0,
+        "mythify_evidence_success_rate": 1.0,
+        "single_worker_sufficient": true,
+        "observed_value_signal": "single_worker_sufficient"
+      }
+    ],
+    "conclusion": "built_in_scenarios_do_not_justify_fanout",
+    "statistical_strength": "local_smoke",
+    "caveat": "This reports fanout fit and single-worker sufficiency for built-in smoke scenarios; proving fanout value requires independent worker outputs, a merged artifact, and a verifier run after the merge."
+  },
+  "role_strength": {
+    "metric": "stronger_model_role_requirement",
+    "comparison": "role_policy_plus_harness_outcomes",
+    "evidence_source": "Mythify model_policy role contracts plus local eval verifier outcomes",
+    "default_spawn_ceiling": "same_or_lower",
+    "required_stronger_roles": [],
+    "scoped_stronger_opt_in_roles": [
+      "reviewer"
+    ],
+    "broad_stronger_opt_in_roles": [
+      "fanout_worker"
+    ],
+    "roles": [
+      {
+        "role": "session",
+        "purpose": "current conversation",
+        "default_strength": "host_selected",
+        "stronger_model_requirement": "not_applicable",
+        "stronger_model_allowed": "host_controls_current_chat",
+        "evidence_boundary": "Mythify may recommend a host model but the host applies or confirms the current chat model.",
+        "harness_evidence": "host session model not controlled by local eval"
+      },
+      {
+        "role": "triage",
+        "purpose": "problem framing",
+        "default_strength": "cheap_or_fast",
+        "stronger_model_requirement": "not_required",
+        "stronger_model_allowed": "no_default_stronger_path",
+        "evidence_boundary": "Triage is advisory material and stays cheap unless explicitly configured outside this harness.",
+        "harness_evidence": "local_model_benefit marks candidate task categories for this role"
+      },
+      {
+        "role": "reader",
+        "purpose": "read-only material inspection",
+        "default_strength": "local_or_privacy_preferred",
+        "stronger_model_requirement": "not_required",
+        "stronger_model_allowed": "no_default_stronger_path",
+        "evidence_boundary": "Reader output is material, not verification evidence.",
+        "harness_evidence": "local_model_benefit marks candidate task categories for this role"
+      },
+      {
+        "role": "fanout_worker",
+        "purpose": "independent subtask",
+        "default_strength": "same_or_lower",
+        "stronger_model_requirement": "not_required",
+        "stronger_model_allowed": "only_with_spawn_ceiling_allow_stronger",
+        "evidence_boundary": "Worker output is material and must be merged, then verified by commands.",
+        "harness_evidence": "local eval runs one worker path, not fanout isolation"
+      },
+      {
+        "role": "reviewer",
+        "purpose": "independent review",
+        "default_strength": "same_or_lower",
+        "stronger_model_requirement": "conditional_not_default",
+        "stronger_model_allowed": "reviewer_strength_allow_stronger_and_reviewer_allow_stronger",
+        "evidence_boundary": "Only reviewer tasks get the scoped stronger-model opt-in without broad worker escalation.",
+        "harness_evidence": "policy_only_no_reviewer_worker_in_local_eval"
+      },
+      {
+        "role": "verifier",
+        "purpose": "evidence",
+        "default_strength": "local_command",
+        "stronger_model_requirement": "not_model_based",
+        "stronger_model_allowed": "no",
+        "evidence_boundary": "Verifier evidence comes from executable commands and exit codes, not model strength.",
+        "harness_evidence": "python3 -m unittest verifies every run"
+      }
+    ],
+    "observed_harness": {
+      "mythify_attempted": 2,
+      "mythify_verified_success_rate": 1.0,
+      "mythify_evidence_success_rate": 1.0,
+      "observed_profiles": [
+        "fast"
+      ],
+      "observed_scenarios": [
+        "word_count_bugfix"
+      ]
+    },
+    "conclusion": "no_role_requires_stronger_by_default",
+    "statistical_strength": "local_smoke",
+    "caveat": "This reports role policy and local harness outcomes; proving that a stronger model improves a role requires a paired run with that role isolated."
+  },
+  "cost_metadata": {
+    "billing_posture": "subscription_included_authentication",
+    "monetary_cost": {
+      "measurement_status": "not_measured",
+      "currency": "USD",
+      "value_dollars": null
+    },
+    "subscription_quota": {
+      "measurement_status": "not_measured"
+    }
+  },
+  "runs": [
+    {
+      "scenario": "word_count_bugfix",
+      "task_category": "string_processing_bugfix",
+      "iteration": 1,
+      "mode": "bare",
+      "mythify_profile": "",
+      "speed": "auto",
+      "model_exit_code": 0,
+      "model_duration_seconds": 103.91,
+      "verify_exit_code": 0,
+      "mythify_records": {
+        "verifications": 0,
+        "passing_expected_verifications": 0,
+        "plans": 0
+      }
+    },
+    {
+      "scenario": "word_count_bugfix",
+      "task_category": "string_processing_bugfix",
+      "iteration": 1,
+      "mode": "mythify",
+      "mythify_profile": "fast",
+      "speed": "auto",
+      "model_exit_code": 0,
+      "model_duration_seconds": 44.773,
+      "verify_exit_code": 0,
+      "mythify_records": {
+        "verifications": 1,
+        "passing_expected_verifications": 1,
+        "plans": 0
+      }
+    },
+    {
+      "scenario": "word_count_bugfix",
+      "task_category": "string_processing_bugfix",
+      "iteration": 2,
+      "mode": "bare",
+      "mythify_profile": "",
+      "speed": "auto",
+      "model_exit_code": 0,
+      "model_duration_seconds": 95.577,
+      "verify_exit_code": 0,
+      "mythify_records": {
+        "verifications": 0,
+        "passing_expected_verifications": 0,
+        "plans": 0
+      }
+    },
+    {
+      "scenario": "word_count_bugfix",
+      "task_category": "string_processing_bugfix",
+      "iteration": 2,
+      "mode": "mythify",
+      "mythify_profile": "fast",
+      "speed": "auto",
+      "model_exit_code": 0,
+      "model_duration_seconds": 29.383,
+      "verify_exit_code": 0,
+      "mythify_records": {
+        "verifications": 1,
+        "passing_expected_verifications": 1,
+        "plans": 0
+      }
+    }
+  ],
+  "sanitization": {
+    "raw_model_output_included": false,
+    "verifier_output_included": false,
+    "temporary_paths_included": false,
+    "prompts_included": false
+  },
+  "caveats": [
+    "This is a small local paired comparison, not a statistically powered benchmark.",
+    "This artifact contains 2 completed pairs; timing is descriptive only and supports no speed winner.",
+    "Pair order is fixed bare then Mythify, so order effects are not controlled.",
+    "Model service load, CLI versions, model aliases, and account settings can affect results.",
+    "Task success is decided by the external verifier exit code, not model prose.",
+    "Full local reports can contain temporary paths and output tails and must not be committed."
+  ]
+}

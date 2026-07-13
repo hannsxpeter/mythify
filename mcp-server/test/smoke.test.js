@@ -924,7 +924,7 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.ok(text.startsWith("[OK] Campaign prompt: project-shot"), `campaign_next_prompt reports [OK]: ${text}`);
       assert.match(text, /Current task 1: Build the first slice/);
-      assert.match(text, /python3 scripts\/mythify\.py campaign advance project-shot/);
+      assert.match(text, /mythify campaign advance project-shot/);
       assert.match(text, /Guardrail: Prompt output is steering material/);
 
       const jsonText = textOf(
@@ -1087,8 +1087,8 @@ test("mythify MCP server smoke test", async (t) => {
       assert.match(statusText, /status: succeeded/, "status reports success");
       assert.match(
         statusText,
-        /scope \(enforced by the CLI outcome loop via git\): mcp-server\/src, mcp-server\/test/,
-        "status labels allowed_paths as a CLI-enforced scope"
+        /scope \(supervised checks report; CLI outcome run enforces post-hoc via git\): mcp-server\/src, mcp-server\/test/,
+        "status labels supervised reporting and CLI enforcement distinctly"
       );
 
       const failCommand = `${JSON.stringify(process.execPath)} -e "process.stdout.write('nope'); process.exit(4)"`;
@@ -1172,7 +1172,12 @@ test("mythify MCP server smoke test", async (t) => {
         })
       );
       assert.ok(text.startsWith("[OK] Release readiness"), `release_readiness reports [OK]: ${text}`);
-      assert.match(text, /Python test suite: passed/);
+      assert.match(
+        text,
+        /Current provenance: commit=(?:[0-9a-f]+|unavailable); version=\d+\.\d+\.\d+/
+      );
+      assert.match(text, /Recorded gates: 13 total; 0 passed, 0 failed, 13 missing, 0 stale/);
+      assert.match(text, /Python test suite: missing/);
       assert.match(text, /Node MCP suite: missing/);
       assert.match(text, /Project git: \[(?:x|!|~)\] (?:clean|dirty|unknown)/);
       assert.match(text, /Guardrail: readiness summarizes recorded evidence/);
@@ -1185,8 +1190,10 @@ test("mythify MCP server smoke test", async (t) => {
         })
       );
       const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
-      assert.equal(parsed.counts.passed, 1);
-      assert.equal(parsed.counts.missing, 9);
+      assert.equal(parsed.counts.passed, 0);
+      assert.equal(parsed.counts.missing, 13);
+      assert.equal(parsed.counts.stale, 0);
+      assert.match(parsed.current_provenance.mythify_version, /^\d+\.\d+\.\d+$/);
       assert.ok(["clean", "dirty", "unknown"].includes(parsed.project_state.git.status));
       assert.deepEqual(snapshotStateDir(stateDir), before, "release_readiness json leaves state unchanged");
     });
@@ -1378,8 +1385,8 @@ test("mythify MCP server smoke test", async (t) => {
       const step = plan.steps[0];
       assert.deepEqual(
         Object.keys(step).sort(),
-        ["id", "result", "status", "success_criteria", "title", "updated_at"],
-        "updated step has the exact contract fields including updated_at"
+        ["id", "result", "status", "success_criteria", "title", "updated_at", "verification_cursor"],
+        "updated step has the exact contract fields including the verification cursor"
       );
       assert.equal(step.id, 1);
       assert.equal(step.title, "First step");
@@ -1625,7 +1632,7 @@ test("strict evidence gate on plan_update_step", async (t) => {
       assert.match(refused, /Verified evidence required/, "refusal explains the verified-step gate");
       assert.match(
         refused,
-        /strict evidence mode is enabled by default, but no passing 'verify run' was recorded/,
+        /strict evidence mode is enabled by default, but no passing executed 'verify run' with exit code 0 was recorded/,
         "refusal uses the exact spec text"
       );
 
@@ -1933,6 +1940,59 @@ test("MCP verify_run records signal termination as shared verifier failure", asy
   }
 });
 
+test("MCP verify_run timeout kills the descendant process tree", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-timeout-tree-state-"));
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-timeout-tree-home-"));
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-timeout-tree-work-"));
+  const markerPath = path.join(workDir, "late-descendant-output.txt");
+  const childPath = path.join(workDir, "late-descendant.mjs");
+  const parentPath = path.join(workDir, "verifier-parent.mjs");
+  fs.writeFileSync(
+    childPath,
+    `import fs from "node:fs";\nawait new Promise((resolve) => setTimeout(resolve, 700));\nfs.writeFileSync(${JSON.stringify(markerPath)}, "leaked");\n`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    parentPath,
+    `import { spawn } from "node:child_process";\nspawn(process.execPath, [${JSON.stringify(childPath)}], { stdio: "ignore" });\nawait new Promise((resolve) => setTimeout(resolve, 5000));\n`,
+    "utf8"
+  );
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER_PATH],
+    env: {
+      ...process.env,
+      MYTHIFY_DIR: stateDir,
+      HOME: homeDir,
+    },
+  });
+  const client = new Client({ name: "mythify-timeout-tree-test", version: "4.3.0" });
+  await client.connect(transport);
+
+  try {
+    const timedOut = textOf(
+      await client.callTool({
+        name: "verify_run",
+        arguments: {
+          command: `${JSON.stringify(process.execPath)} ${JSON.stringify(parentPath)}`,
+          claim: "descendant tree timeout",
+          timeout_seconds: 0.1,
+        },
+      })
+    );
+    assert.ok(timedOut.startsWith("[FAIL]"), `timeout reports [FAIL]: ${timedOut}`);
+    assert.match(timedOut, /timed out after 0.1 seconds/);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    assert.equal(fs.existsSync(markerPath), false, "timed-out verifier descendant still ran");
+  } finally {
+    await client.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("MCP verify_run records output cap as shared verifier failure", async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-output-cap-state-"));
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-output-cap-home-"));
@@ -2124,6 +2184,80 @@ test("MCP JSONL append waits for the shared lock directory", async () => {
     if (fs.existsSync(lockDir)) {
       fs.rmdirSync(lockDir);
     }
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("MCP JSONL append recovers a lock owned by a dead process", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-stale-lock-state-"));
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-stale-lock-home-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER_PATH],
+    env: { ...process.env, MYTHIFY_DIR: stateDir, HOME: homeDir },
+  });
+  const client = new Client({ name: "mythify-stale-lock-test", version: "4.3.0" });
+  await client.connect(transport);
+  const logPath = path.join(stateDir, "verifications.jsonl");
+  const lockDir = jsonlLockDir(stateDir, logPath);
+  fs.mkdirSync(lockDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(lockDir, "owner.json"),
+    JSON.stringify({ pid: 99999999, created_unix: 0 }) + "\n"
+  );
+  try {
+    const attested = textOf(
+      await client.callTool({
+        name: "verify_claim",
+        arguments: { claim: "recovered", evidence: "dead owner lock removed" },
+      })
+    );
+    assert.ok(attested.startsWith("[WARN] ATTESTED"));
+    assert.equal(fs.existsSync(lockDir), false);
+    const record = JSON.parse(fs.readFileSync(logPath, "utf8").trim().split(/\n/).at(-1));
+    assert.equal(record.claim, "recovered");
+  } finally {
+    await client.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("MCP JSONL append recovers ownerless and malformed locks after grace", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-ownerless-lock-state-"));
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-ownerless-lock-home-"));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER_PATH],
+    env: { ...process.env, MYTHIFY_DIR: stateDir, HOME: homeDir },
+  });
+  const client = new Client({ name: "mythify-ownerless-lock-test", version: "4.3.0" });
+  await client.connect(transport);
+  const logPath = path.join(stateDir, "verifications.jsonl");
+  const lockDir = jsonlLockDir(stateDir, logPath);
+  try {
+    for (const [index, ownerText] of [null, "{truncated"].entries()) {
+      fs.mkdirSync(lockDir, { recursive: true });
+      if (ownerText !== null) {
+        fs.writeFileSync(path.join(lockDir, "owner.json"), ownerText);
+      }
+      const started = Date.now();
+      const attested = textOf(
+        await client.callTool({
+          name: "verify_claim",
+          arguments: {
+            claim: `recovered-${index}`,
+            evidence: "ownerless or malformed lock removed",
+          },
+        })
+      );
+      assert.ok(attested.startsWith("[WARN] ATTESTED"));
+      assert.ok(Date.now() - started < 5000, "lock recovered before acquisition timeout");
+      assert.equal(fs.existsSync(lockDir), false);
+    }
+  } finally {
+    await client.close();
     fs.rmSync(stateDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
   }

@@ -7,7 +7,7 @@ merged.
 ## Prerequisites
 
 - Python 3.9 or newer (the CLI and its tests use only the standard library).
-- Node.js 18 or newer, only if you are touching the MCP server in `mcp-server/`.
+- Node.js 20 or newer, only if you are touching the MCP server in `mcp-server/`.
 - No other tooling is required. There is nothing to `pip install`.
 
 ## Getting started

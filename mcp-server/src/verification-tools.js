@@ -1,4 +1,7 @@
 import { z } from "zod";
+import path from "node:path";
+
+import { currentVerificationProvenanceForStateDir } from "./verification-provenance.js";
 
 export const VERIFICATION_TOOL_NAMES = [
   "verify_run",
@@ -65,6 +68,9 @@ export function registerVerificationTools(server, deps) {
         stderr_tail: stderrTail,
         verified,
         timestamp: isoNow(),
+        provenance: currentVerificationProvenanceForStateDir(
+          path.dirname(verificationsPath())
+        ),
         ...verificationStepContext(),
       };
       appendJsonl(verificationsPath(), record);

@@ -29,7 +29,9 @@ per project to create the `.mythify/` state directory.
    summarize new durable events instead of making the user infer progress from
    the final receipt.
 8. Strict evidence is the default. Marking a step `completed` requires a
-   non-empty RESULT and a passing executed `verify run` since the step started.
+   non-empty RESULT and a passing executed `verify run` with exit code 0 since
+   the step started. If the step stores `verify_command`, the recorded command
+   must match it.
    Use `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only as an explicit legacy opt-out.
 
 ## Proportional ceremony
@@ -87,8 +89,8 @@ Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met
    - Verification failed: fix the cause, then VERIFY again. Never advance on red.
    - Verification passed: record the evidence and move to the next pending step.
    `python3 scripts/mythify.py step 1 completed "verify run exit 0: 14/14 tests pass"`
-   By default, this `completed` update is refused unless the passing `verify run`
-   is present. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only for legacy workflows
+   By default, this `completed` update is refused unless the matching passing
+   `verify run` is present. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only for legacy workflows
    that intentionally accept prose-only completion.
 
 Reorient any time with `status`. Report the whole session with `summary`.
@@ -101,7 +103,8 @@ Reorient any time with `status`. Report the whole session with `summary`.
 - Use `verify claim` only when nothing executable exists. It is recorded as
   second-class evidence and never counts as verified.
 - `step` with status `completed` or `failed` requires the RESULT argument.
-  `completed` also requires a passing executed `verify run` by default. Cite
+  `completed` also requires a passing executed `verify run` with exit code 0 by
+  default. A stored `verify_command` must match the recorded command. Cite
   the executed verification in RESULT, not your intent.
 
 ## Memory and lessons
@@ -164,7 +167,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `plan show [NAME]` | Full detail of the named or active plan. |
 | `plan switch NAME` | Set the active plan pointer. |
 | `plan archive [NAME]` | Move a finished plan to the archive. |
-| `step ID STATUS [RESULT] [--plan NAME]` | Update a step; `completed` and `failed` require RESULT evidence, and `completed` requires a passing `verify run` by default. |
+| `step ID STATUS [RESULT] [--plan NAME]` | Update a step; `completed` and `failed` require RESULT evidence, and `completed` requires a passing exit-0 `verify run` matching any stored `verify_command` by default. |
 | `memory set KEY VALUE [--category C]` | Store or overwrite a memory entry. |
 | `memory get [QUERY] [--category C]` | Substring search over keys and values. |
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |

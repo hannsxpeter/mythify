@@ -8,6 +8,10 @@ import re
 import subprocess
 from pathlib import Path
 
+from mythify_provenance import current_verification_provenance, verification_freshness
+
+mythify_version = ""
+
 from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_io import read_jsonl
 
@@ -30,120 +34,23 @@ def configure_status_views(**deps):
     globals().update(deps)
 
 
-RELEASE_READINESS_GATES = (
-    {
-        "id": "python_tests",
-        "label": "Python test suite",
-        "required": True,
-        "sources": ["tests/"],
-        "match_any": [
-            "python3 -m unittest discover -s tests",
-            "Python suite passes",
-        ],
-    },
-    {
-        "id": "node_mcp_tests",
-        "label": "Node MCP suite",
-        "required": True,
-        "sources": ["mcp-server/test/"],
-        "match_any": [
-            "npm test --prefix mcp-server",
-            "Node MCP suite passes",
-        ],
-    },
-    {
-        "id": "surface_manifest",
-        "label": "Surface manifest check",
-        "required": True,
-        "sources": [
-            "protocol/surface-manifest.json",
-            "mcp-server/protocol/surface-manifest.json",
-            "scripts/check_surface_manifest.mjs",
-        ],
-        "match_any": [
-            "node scripts/check_surface_manifest.mjs",
-            "surface manifest",
-        ],
-    },
-    {
-        "id": "classification_rules_manifest",
-        "label": "Runtime manifest mirror check",
-        "required": True,
-        "sources": [
-            "protocol/classification-rules.json",
-            "mcp-server/protocol/classification-rules.json",
-            "protocol/operation-registry.json",
-            "mcp-server/protocol/operation-registry.json",
-            "scripts/check_classification_rules_manifest.mjs",
-        ],
-        "match_any": [
-            "node scripts/check_classification_rules_manifest.mjs",
-            "classification rules manifest",
-        ],
-    },
-    {
-        "id": "registry_docs",
-        "label": "Generated registry docs check",
-        "required": True,
-        "sources": ["scripts/build_registry_docs.mjs", "docs/adapter-candidates.md"],
-        "match_any": [
-            "node scripts/build_registry_docs.mjs --check",
-            "registry docs",
-            "generated docs",
-        ],
-    },
-    {
-        "id": "protocol_check",
-        "label": "Protocol variants check",
-        "required": True,
-        "sources": ["protocol/PROTOCOL.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"],
-        "match_any": [
-            "python3 scripts/mythify.py protocol check",
-            "protocol check",
-        ],
-    },
-    {
-        "id": "variant_idempotence",
-        "label": "Generated variants idempotence",
-        "required": True,
-        "sources": ["scripts/build_variants.py", "AGENTS.md", "CLAUDE.md", ".cursorrules"],
-        "match_any": [
-            "scripts/build_variants.py",
-            "generated variants",
-            "variant idempotence",
-        ],
-    },
-    {
-        "id": "whitespace",
-        "label": "Whitespace check",
-        "required": True,
-        "sources": ["git diff --check"],
-        "match_any": [
-            "git diff --check",
-            "whitespace",
-        ],
-    },
-    {
-        "id": "forbidden_dash_scan",
-        "label": "Forbidden dash scan",
-        "required": True,
-        "sources": ["AGENTS.md", "docs/design.md"],
-        "match_any": [
-            "forbidden dash",
-            "dash scan",
-        ],
-    },
-    {
-        "id": "emoji_scan",
-        "label": "Emoji scan",
-        "required": True,
-        "sources": ["AGENTS.md", "docs/design.md"],
-        "match_any": [
-            "emoji scan",
-            "emoji-like",
-        ],
-    },
-)
+_RELEASE_GATES_PATH = Path(__file__).resolve().parent.parent / "protocol" / "release-gates.json"
+
+
+def release_readiness_gates():
+    if not _RELEASE_GATES_PATH.is_file():
+        return (
+            {
+                "id": "release_gate_manifest",
+                "label": "Release gate manifest",
+                "required": True,
+                "sources": ["protocol/release-gates.json"],
+                "commands": [],
+            },
+        )
+    return tuple(
+        json.loads(_RELEASE_GATES_PATH.read_text(encoding="utf-8"))["gates"]
+    )
 
 
 RELEASE_READINESS_ICONS = {
@@ -151,6 +58,7 @@ RELEASE_READINESS_ICONS = {
     "failed": "[!]",
     "missing": "[ ]",
     "unknown": "[~]",
+    "stale": "[~]",
     "clean": "[x]",
     "dirty": "[!]",
     "present": "[x]",
@@ -168,28 +76,42 @@ def verification_search_text(record):
     ).lower()
 
 
+def normalize_verification_command(value):
+    return " ".join(str(value or "").split())
+
+
 def latest_matching_verification(records, gate):
-    needles = [item.lower() for item in gate["match_any"]]
+    commands = {
+        normalize_verification_command(item) for item in gate.get("commands", [])
+    }
     matches = [
         record
         for record in records
         if record.get("kind") == "executed"
-        and any(needle in verification_search_text(record) for needle in needles)
+        and normalize_verification_command(record.get("command")) in commands
     ]
     return matches[-1] if matches else None
 
 
-def summarize_release_gate(gate, records):
+def summarize_release_gate(gate, records, current_provenance=None):
     record = latest_matching_verification(records, gate)
     status = "missing"
+    freshness = None
     if record is not None:
-        status = "passed" if record.get("verified") is True else "failed"
+        freshness = verification_freshness(record, current_provenance or {})
+        if record.get("verified") is not True or record.get("exit_code") != 0:
+            status = "failed"
+        elif current_provenance is not None and freshness["status"] != "fresh":
+            status = "stale"
+        else:
+            status = "passed"
     return {
         "id": gate["id"],
         "label": gate["label"],
         "required": gate["required"],
         "sources": list(gate["sources"]),
         "status": status,
+        "freshness": freshness,
         "latest_record": None
         if record is None
         else {
@@ -200,6 +122,7 @@ def summarize_release_gate(gate, records):
             "verified": record.get("verified"),
             "plan": record.get("plan"),
             "step_id": record.get("step_id"),
+            "provenance": record.get("provenance"),
         },
     }
 
@@ -273,9 +196,10 @@ def roadmap_summary(root):
 def release_readiness_status(gates, git_state):
     failed = sum(1 for gate in gates if gate["status"] == "failed")
     missing = sum(1 for gate in gates if gate["status"] == "missing")
+    stale = sum(1 for gate in gates if gate["status"] == "stale")
     if failed or git_state.get("status") == "dirty":
         return "blocked"
-    if missing:
+    if missing or stale:
         return "needs_evidence"
     if git_state.get("status") == "unknown":
         return "needs_review"
@@ -284,17 +208,21 @@ def release_readiness_status(gates, git_state):
 
 def build_release_readiness_view(state):
     records = read_jsonl(state / "verifications.jsonl")
-    gates = [
-        summarize_release_gate(gate, records)
-        for gate in RELEASE_READINESS_GATES
-    ]
     root = project_root_for_state(state)
+    current_provenance = current_verification_provenance(
+        mythify_version, state=state, root=root
+    )
+    gates = [
+        summarize_release_gate(gate, records, current_provenance)
+        for gate in release_readiness_gates()
+    ]
     git_state = git_status_summary(root)
     roadmap = roadmap_summary(root)
-    counts = count_statuses(gates, ("passed", "failed", "missing", "unknown"))
+    counts = count_statuses(gates, ("passed", "failed", "missing", "stale", "unknown"))
     return {
         "state_dir": str(state),
         "project_root": str(root),
+        "current_provenance": current_provenance,
         "status": release_readiness_status(gates, git_state),
         "gates": gates,
         "counts": {"total": len(gates), **counts},
@@ -320,6 +248,9 @@ def format_release_gate(row):
             record.get("exit_code"),
             record.get("timestamp") or "unknown-time",
         )
+        freshness = row.get("freshness") or {}
+        if freshness.get("status") != "fresh":
+            line += ", freshness={0}".format(freshness.get("reason", "unknown"))
     else:
         line += " (no recorded executed verifier)"
     line += "; sources: {0}".format(", ".join(row["sources"]))
@@ -330,12 +261,20 @@ def format_release_readiness_view(view):
     lines = ["[OK] Release readiness: {0}".format(view["state_dir"])]
     counts = view["counts"]
     lines.append("Readiness: {0}".format(view["status"]))
+    provenance = view.get("current_provenance") or {}
     lines.append(
-        "Recorded gates: {0} total; {1} passed, {2} failed, {3} missing".format(
+        "Current provenance: commit={0}; version={1}".format(
+            provenance.get("git_commit") or "unavailable",
+            provenance.get("mythify_version") or "unknown",
+        )
+    )
+    lines.append(
+        "Recorded gates: {0} total; {1} passed, {2} failed, {3} missing, {4} stale".format(
             counts["total"],
             counts.get("passed", 0),
             counts.get("failed", 0),
             counts.get("missing", 0),
+            counts.get("stale", 0),
         )
     )
     lines.append("Gates:")
@@ -619,7 +558,7 @@ def evidence_next_action(view):
             summary = god.get(key)
             if summary and summary.get("next_task_id"):
                 return (
-                    "import the open {0} tasks: python3 scripts/mythify.py "
+                    "import the open {0} tasks: mythify "
                     "plan import --source {0}".format(source)
                 )
     tasks = view["background"]["fanout_tasks"]

@@ -24,8 +24,9 @@ rules embedded in each artifact. Mythify holds the executed evidence trail.
   (struck-through) tasks are skipped. Frontmatter counter drift against the
   checkboxes is reported; the checkboxes are trusted.
 - Strict step context: imported plans set `strict_context`, so a step completes
-  only when a passing `verify run` was recorded while that step was
-  `in_progress`. Context-free verifications do not count.
+  only when a passing exit-0 `verify run` for its exact stored `verify_command`
+  was recorded while that step was `in_progress`. Context-free or unrelated
+  verifications do not count.
 - `readiness` and `harness`: surface artifact status, task progress, open
   Critical findings, and counter drift beside git and roadmap state.
 - `phase`: imported steps keep the artifact's phase and wave, so the phase view
@@ -33,10 +34,10 @@ rules embedded in each artifact. Mythify holds the executed evidence trail.
 
 ## The execution loop for an imported plan
 
-1. `python3 scripts/mythify.py plan import --source godplans`
-2. `python3 scripts/mythify.py step N in_progress`
-3. `python3 scripts/mythify.py verify run "<the step's verify command>" --claim "GP-201 ..."`
-4. `python3 scripts/mythify.py step N completed "verify run exit 0: ..."`
+1. `mythify plan import --source godplans`
+2. `mythify step N in_progress`
+3. `mythify verify run "<the step's verify command>" --claim "GP-201 ..."`
+4. `mythify step N completed "verify run exit 0: ..."`
 5. Flip the checkbox in the artifact yourself, per its embedded rules, in the
    same working session; Mythify does not do this for you.
 

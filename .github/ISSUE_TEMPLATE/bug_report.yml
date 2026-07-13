@@ -87,5 +87,5 @@ body:
     id: node-version
     attributes:
       label: Node version
-      description: Output of node --version (the MCP server requires 18+). Leave blank if the MCP server is not involved.
+      description: Output of node --version (the MCP server requires 20+). Leave blank if the MCP server is not involved.
       placeholder: v20.14.0

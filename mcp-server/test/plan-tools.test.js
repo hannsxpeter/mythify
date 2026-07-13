@@ -54,9 +54,13 @@ function makeHarness() {
     },
     strictStepEvidenceEnabled: () => true,
     readJsonlSince: () => verifications,
+    readJsonl: () => verifications,
     verificationsPath: () => "verifications",
-    verificationRecordMatchesStep: (record, slug, stepId) =>
-      record.plan === slug && record.step_id === stepId,
+    verificationRecordMatchesStep: (record, slug, stepId) => {
+      const hasPlan = Object.prototype.hasOwnProperty.call(record, "plan");
+      const hasStep = Object.prototype.hasOwnProperty.call(record, "step_id");
+      return !hasPlan && !hasStep ? true : record.plan === slug && record.step_id === stepId;
+    },
     timestampAtOrAfter: () => true,
     verificationRecordHasExplicitStepContext: (record, slug, stepId) =>
       record.plan === slug && record.step_id === stepId,
@@ -114,6 +118,8 @@ test("plan tool registrar wires plan handlers and strict evidence", async () => 
   verifications.push({
     kind: "executed",
     verified: true,
+    exit_code: 0,
+    command: "manual check",
     timestamp: "2026-06-16T00:00:01.000Z",
     plan: "release-plan",
     step_id: 2,
@@ -130,6 +136,111 @@ test("plan tool registrar wires plan handlers and strict evidence", async () => 
   const status = await planStatus.handler({});
   assert.match(status, /Progress: 1\/2 steps completed/);
   assert.match(status, /tests pass/);
+});
+
+test("stored step verifier rejects unrelated and inconsistent evidence", async () => {
+  const harness = makeHarness();
+  const planCreate = harness.registered.find((entry) => entry.name === "plan_create");
+  const planUpdateStep = harness.registered.find((entry) => entry.name === "plan_update_step");
+  await planCreate.handler({
+    goal: "Bound verifier",
+    steps: [{ title: "Bound", verify_command: "expected command" }],
+  });
+  await planUpdateStep.handler({ step_id: 1, status: "in_progress" });
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 0, command: "wrong command",
+    timestamp: "2026-06-16T00:00:01.000Z", plan: "bound-verifier", step_id: 1,
+  });
+  const wrong = await planUpdateStep.handler({ step_id: 1, status: "completed", result: "done" });
+  assert.match(wrong, /^\[FAIL\] Verified evidence required/);
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 9, command: "expected command",
+    timestamp: "2026-06-16T00:00:02.000Z", plan: "bound-verifier", step_id: 1,
+  });
+  const inconsistent = await planUpdateStep.handler({ step_id: 1, status: "completed", result: "done" });
+  assert.match(inconsistent, /^\[FAIL\] Verified evidence required/);
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 0, command: "expected command",
+    timestamp: "2026-06-16T00:00:03.000Z", plan: "bound-verifier", step_id: 1,
+  });
+  const completed = await planUpdateStep.handler({ step_id: 1, status: "completed", result: "done" });
+  assert.match(completed, /^\[OK\]/);
+});
+
+test("restarting a step invalidates earlier same-second evidence", async () => {
+  const harness = makeHarness();
+  const planCreate = harness.registered.find((entry) => entry.name === "plan_create");
+  const update = harness.registered.find((entry) => entry.name === "plan_update_step");
+  await planCreate.handler({
+    goal: "Restart cursor",
+    steps: [{ title: "Restarted", verify_command: "true" }],
+  });
+  await update.handler({ step_id: 1, status: "in_progress" });
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 0, command: "true",
+    timestamp: "2026-06-16T00:00:00.000Z", plan: "restart-cursor", step_id: 1,
+  });
+  await update.handler({ step_id: 1, status: "pending" });
+  await update.handler({ step_id: 1, status: "in_progress" });
+  const refused = await update.handler({ step_id: 1, status: "completed", result: "old" });
+  assert.match(refused, /^\[FAIL\] Verified evidence required/);
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 0, command: "true",
+    timestamp: "2026-06-16T00:00:00.000Z", plan: "restart-cursor", step_id: 1,
+  });
+  const completed = await update.handler({ step_id: 1, status: "completed", result: "fresh" });
+  assert.match(completed, /^\[OK\]/);
+});
+
+test("imported strict-context plan rejects legacy context-free evidence", async () => {
+  const harness = makeHarness();
+  harness.plans.set("imported-plan", {
+    name: "imported-plan",
+    goal: "Imported",
+    strict_context: true,
+    created: "2026-06-16T00:00:00.000Z",
+    last_updated: "2026-06-16T00:00:00.000Z",
+    steps: [{
+      id: 1,
+      title: "Imported step",
+      success_criteria: "passes",
+      status: "in_progress",
+      result: null,
+      verification_cursor: 0,
+      updated_at: "2026-06-16T00:00:00.000Z",
+    }],
+  });
+  harness.verifications.push({
+    kind: "executed",
+    verified: true,
+    exit_code: 0,
+    command: "true",
+    timestamp: "2026-06-16T00:00:01.000Z",
+  });
+  const update = harness.registered.find((entry) => entry.name === "plan_update_step");
+  const legacy = await update.handler({
+    plan: "imported-plan",
+    step_id: 1,
+    status: "completed",
+    result: "legacy context-free evidence",
+  });
+  assert.match(legacy, /^\[FAIL\] Verified evidence required/);
+  harness.verifications.push({
+    kind: "executed",
+    verified: true,
+    exit_code: 0,
+    command: "true",
+    timestamp: "2026-06-16T00:00:02.000Z",
+    plan: "imported-plan",
+    step_id: 1,
+  });
+  const scoped = await update.handler({
+    plan: "imported-plan",
+    step_id: 1,
+    status: "completed",
+    result: "scoped evidence",
+  });
+  assert.match(scoped, /^\[OK\]/);
 });
 
 test("plan_create can generate default horizon steps", async () => {
