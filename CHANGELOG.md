@@ -1230,7 +1230,14 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v3.6.54...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v4.3.0...HEAD
+[4.3.0]: https://github.com/hannsxpeter/mythify/compare/v4.2.0...v4.3.0
+[4.2.0]: https://github.com/hannsxpeter/mythify/compare/v4.1.0...v4.2.0
+[4.1.0]: https://github.com/hannsxpeter/mythify/compare/v4.0.0...v4.1.0
+[4.0.0]: https://github.com/hannsxpeter/mythify/compare/v3.6.57...v4.0.0
+[3.6.57]: https://github.com/hannsxpeter/mythify/compare/v3.6.56...v3.6.57
+[3.6.56]: https://github.com/hannsxpeter/mythify/compare/v3.6.55...v3.6.56
+[3.6.55]: https://github.com/hannsxpeter/mythify/compare/v3.6.54...v3.6.55
 [3.6.54]: https://github.com/hannsxpeter/mythify/compare/v3.6.53...v3.6.54
 [3.6.53]: https://github.com/hannsxpeter/mythify/compare/v3.6.52...v3.6.53
 [3.6.52]: https://github.com/hannsxpeter/mythify/compare/v3.6.51...v3.6.52
