@@ -8,6 +8,35 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseVersionTest(unittest.TestCase):
+    def test_changelog_comparison_links_cover_every_release(self):
+        changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        headings = re.findall(
+            r"^## \[([^]]+)\](?:\s+-\s+.*)?$", changelog, re.MULTILINE
+        )
+        references = dict(
+            re.findall(r"^\[([^]]+)\]:\s+(\S+)$", changelog, re.MULTILINE)
+        )
+
+        self.assertGreater(len(headings), 1)
+        self.assertEqual(headings[0], "Unreleased")
+        self.assertEqual(set(references), set(headings))
+
+        releases = headings[1:]
+        base = "https://github.com/hannsxpeter/mythify"
+        self.assertEqual(
+            references["Unreleased"],
+            "{}/compare/v{}...HEAD".format(base, releases[0]),
+        )
+        for current, previous in zip(releases, releases[1:]):
+            self.assertEqual(
+                references[current],
+                "{}/compare/v{}...v{}".format(base, previous, current),
+            )
+        self.assertEqual(
+            references[releases[-1]],
+            "{}/releases/tag/v{}".format(base, releases[-1]),
+        )
+
     def test_release_identity_is_consistent(self):
         cli = (REPO_ROOT / "scripts" / "mythify.py").read_text(encoding="utf-8")
         version = re.search(r'^VERSION = "([^"]+)"$', cli, re.MULTILINE).group(1)
