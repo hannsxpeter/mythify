@@ -22,6 +22,7 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
         "Start a one-shot parallel delegation job: declare a list of tasks once and the server spawns, sequences, and collects background workers for you, returning a job id immediately. " +
         "Every task MUST be fully independent and self-contained: each one is a fresh model invocation with no memory of this conversation and no access to other tasks' outputs, and each one costs real money or subscription quota. " +
         "Visibility defaults to summary, can be quiet, verbose, or threaded, and can be inferred from the purpose or task prompts when set to auto. Threaded means request visible host threads only when the host supports them. " +
+        "When workflow_route recommends its native UltraCode adapter, pass engine claude-ultracode with exactly one task. Mythify then launches one Claude dynamic workflow, monitors it through fanout_status, and ingests its final material through fanout_results. " +
         "Use this to parallelize independent subtasks (drafting sections, analyzing separate files, generating variants) during long work; afterwards merge the results yourself and verify the merged work with verify_run, because fanout results are material, not verification." +
         FRONT_DOOR_NOTE,
       inputSchema: {
@@ -60,13 +61,13 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
                 .string()
                 .optional()
                 .describe(
-                  "Per-task engine override (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); beats the job engine and MYTHIFY_FANOUT_ENGINE. Selecting claude-cli invokes Claude Code through claude -p and can use paid usage credits or API-priced billing after plan limits."
+                  "Per-task engine override (claude-cli, claude-ultracode, codex-cli, cursor-agent, anthropic, openai, or command); beats the job engine and MYTHIFY_FANOUT_ENGINE. claude-ultracode requires exactly one task in the job and invokes native Claude workflow orchestration."
                 ),
               effort: z
                 .enum(EFFORT_LEVELS)
                 .optional()
                 .describe(
-                  "Per-task effort override: auto, low, medium, or high. Beats the job effort and MYTHIFY_FANOUT_EFFORT."
+                  "Per-task effort override: auto, low, medium, or high. Beats the job effort and MYTHIFY_FANOUT_EFFORT. claude-ultracode ignores this field and forces native ultracode effort."
                 ),
               speed: z
                 .enum(SPEED_LEVELS)
@@ -77,7 +78,7 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
             })
           )
           .describe(
-            "1 to MYTHIFY_FANOUT_MAX_TASKS fully independent tasks. Each task is a fresh model call that costs real money or subscription quota."
+            "1 to MYTHIFY_FANOUT_MAX_TASKS fully independent tasks. claude-ultracode requires exactly one task because that task becomes the objective for one native dynamic workflow. Each task is a fresh model call that costs real money or subscription quota."
           ),
         purpose: z
           .string()
@@ -93,13 +94,13 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
           .string()
           .optional()
           .describe(
-            "Default engine for every task (claude-cli, codex-cli, cursor-agent, anthropic, openai, or command); per-task engine overrides it. Omit to use codex-cli when available, then other detected engines. Selecting claude-cli invokes Claude Code through claude -p and can use paid usage credits or API-priced billing after plan limits."
+            "Default engine for every task (claude-cli, claude-ultracode, codex-cli, cursor-agent, anthropic, openai, or command); per-task engine overrides it. Omit to use codex-cli when available, then other detected engines. claude-ultracode requires Claude Code 2.1.203 or newer and exactly one task."
           ),
         effort: z
           .enum(EFFORT_LEVELS)
           .optional()
           .describe(
-            "Default effort for every task: auto, low, medium, or high. Per-task effort overrides it. Defaults to MYTHIFY_FANOUT_EFFORT or a model-derived default."
+            "Default effort for every task: auto, low, medium, or high. Per-task effort overrides it. Defaults to MYTHIFY_FANOUT_EFFORT or a model-derived default. claude-ultracode forces native ultracode effort."
           ),
         speed: z
           .enum(SPEED_LEVELS)
@@ -168,6 +169,7 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
       description:
         "Show a fanout job's progress: per-task status icons with engine, model, model tier, effort, speed, and elapsed time, plus overall counts. Defaults to the most recent job. " +
         "Use this after fanout_start to monitor the background workers and to decide when fanout_results is worth calling. " +
+        "For claude-ultracode jobs, this is the native adapter monitoring surface and reports workflow mode plus elapsed runtime. " +
         "If the server restarted since the job was started, its unfinished tasks are reported as interrupted, because background workers die with the server process.",
       inputSchema: {
         job_id: z.string().optional().describe("The job id from fanout_start; omit for the most recent job."),
@@ -183,6 +185,7 @@ export function registerFanoutToolHandlers(server, deps, handlers) {
       description:
         "Return the outputs of a fanout job's completed and failed tasks (failures include the error and any remediation), optionally limited to one task by id. Defaults to the most recent job. " +
         "Per-task text is capped at 20000 characters with a pointer to the task output file on disk; tasks still running are flagged with a warning. " +
+        "For claude-ultracode jobs, this ingests the native workflow's final response while keeping it explicitly outside Mythify's executable verification evidence. " +
         "Use this once fanout_status shows tasks finished, then merge the material and verify the merged work with verify_run.",
       inputSchema: {
         job_id: z.string().optional().describe("The job id from fanout_start; omit for the most recent job."),

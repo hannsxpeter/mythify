@@ -4,6 +4,7 @@
 
 | Version | Supported |
 | :--- | :--- |
+| 5.x | Yes |
 | 4.x | Yes |
 | 3.x | Yes |
 | 2.x | Yes |
@@ -34,9 +35,9 @@ Some behavior is by design and is not a vulnerability:
   recording real exit codes. The commands run with the privileges of whoever
   runs the CLI or the MCP server.
 - `fanout_start` (MCP tool) spawns local worker processes (the `claude-cli`,
-  `codex-cli`, `cursor-agent`, and `command` engines) or makes outbound API
+  `claude-ultracode`, `codex-cli`, `cursor-agent`, and `command` engines) or makes outbound API
   calls (the `anthropic` and `openai` engines). That is the
-  parallel-delegation feature. `claude-cli` workers get a curated environment
+  parallel-delegation feature. Claude CLI and UltraCode workers get a curated environment
   (`HOME`, `TERM`, an augmented `PATH`, and `CLAUDE_CODE_OAUTH_TOKEN` when
   set), never the rest of the server's environment. `codex-cli` and
   `cursor-agent` workers get a local-login environment (`HOME`, `TERM`, an

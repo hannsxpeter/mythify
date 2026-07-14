@@ -1,6 +1,6 @@
 {
   "name": "mythify-mcp",
-  "version": "4.3.0",
+  "version": "5.0.0",
   "description": "Mythify MCP server: planning, executed verification, persistent memory, lessons, and structured reflection tools for AI agents.",
   "type": "module",
   "main": "src/index.js",

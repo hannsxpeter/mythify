@@ -51,6 +51,7 @@ from mythify_host_model import (  # noqa: E402
 from mythify_model_policy import (  # noqa: E402
     EFFORT_LEVELS,
     FANOUT_VISIBILITY_MODES,
+    MODEL_PROFILE_INPUTS,
     REVIEWER_STRENGTH_MODES,
     SPAWN_CEILINGS,
     TRIAGE_ENGINES,
@@ -180,9 +181,9 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "4.3.0"
+VERSION = "5.0.0"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "f4d6e09acc32ab86d2ab976762d79ff4c2c721f0ddb7eb1869ea4f2958a48c8d"
+PROTOCOL_SOURCE_SHA256 = "e68709b1df3d17a6f0153981abee34d4f842cacca1eca1f43913b3889b2d4cfc"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (

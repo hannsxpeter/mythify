@@ -10,7 +10,7 @@ npm registry:
 mkdir mythify-mcp-runtime
 cd mythify-mcp-runtime
 npm init -y
-npm install /path/to/mythify-mcp-4.3.0.tgz
+npm install /path/to/mythify-mcp-5.0.0.tgz
 ```
 
 Configure an MCP client to run:
@@ -21,3 +21,17 @@ node /absolute/path/to/mythify-mcp-runtime/node_modules/mythify-mcp/src/index.js
 
 Set `MYTHIFY_DIR` to the target project's `.mythify` directory. Node 20 or
 newer is required. The package is MIT licensed.
+
+`classify_task` and `workflow_route` accept `model_profile` and
+`failure_count`. They return the shared `utility`, `balanced`, `strong`, or
+explicit-only `max` capability policy from
+`protocol/model-capabilities.json`. OpenAI and Claude resolve through the
+manifest. Cursor workers discover matching ids from the live Cursor Agent
+catalog. Automatic escalation stops at `strong`, no provider fallback is
+implicit, and model output never replaces executable verification.
+
+When routing identifies independently parallel work, the returned native
+adapter can launch `engine: "claude-ultracode"` through `fanout_start` with
+exactly one task. The existing `fanout_status` and `fanout_results` tools
+monitor and ingest the workflow. Claude Code 2.1.203 or newer is required, and
+the final response remains material rather than verification evidence.

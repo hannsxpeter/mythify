@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "status": "advisory_routing",
+  "fallback_policy": "no_implicit_cross_provider_fallback",
+  "automatic_max_enabled": false,
+  "axes": [
+    "autonomy_policy",
+    "execution_topology",
+    "model_profile",
+    "reasoning_effort",
+    "review_policy",
+    "verification_gate"
+  ],
+  "profile_order": [
+    "utility",
+    "balanced",
+    "strong",
+    "max"
+  ],
+  "profile_inputs": [
+    "auto",
+    "utility",
+    "balanced",
+    "strong",
+    "max",
+    "fast",
+    "standard",
+    "frontier"
+  ],
+  "legacy_aliases": {
+    "fast": "utility",
+    "standard": "balanced",
+    "frontier": "strong"
+  },
+  "profiles": {
+    "utility": {
+      "rank": 1,
+      "legacy_profile": "fast",
+      "cost_class": "low",
+      "default_speed": "fast",
+      "description": "Fast, economical work for triage, extraction, monitoring, and high-volume simple tasks."
+    },
+    "balanced": {
+      "rank": 2,
+      "legacy_profile": "standard",
+      "cost_class": "medium",
+      "default_speed": "auto",
+      "description": "Daily implementation work that balances intelligence, latency, and cost."
+    },
+    "strong": {
+      "rank": 3,
+      "legacy_profile": "strong",
+      "cost_class": "high",
+      "default_speed": "standard",
+      "description": "Complex reasoning, difficult coding, consequential synthesis, and independent review."
+    },
+    "max": {
+      "rank": 4,
+      "legacy_profile": "strong",
+      "cost_class": "very_high",
+      "default_speed": "standard",
+      "description": "Exceptional, long-running, quality-first work where the marginal gain justifies the cost."
+    }
+  },
+  "platform_providers": {
+    "codex-desktop": "openai",
+    "codex-cli": "openai",
+    "claude-desktop": "anthropic",
+    "claude-code": "anthropic",
+    "cursor-desktop": "cursor",
+    "cursor-agent": "cursor"
+  },
+  "provider_profiles": {
+    "openai": {
+      "utility": {
+        "model": "gpt-5.6-luna",
+        "api_model": "gpt-5.6-luna",
+        "effort": "low",
+        "resolution": "manifest"
+      },
+      "balanced": {
+        "model": "gpt-5.6-terra",
+        "api_model": "gpt-5.6-terra",
+        "effort": "medium",
+        "resolution": "manifest"
+      },
+      "strong": {
+        "model": "gpt-5.6-sol",
+        "api_model": "gpt-5.6-sol",
+        "effort": "high",
+        "resolution": "manifest"
+      },
+      "max": {
+        "model": "gpt-5.6-sol",
+        "api_model": "gpt-5.6-sol",
+        "effort": "max",
+        "mode": "pro_or_max_when_supported",
+        "resolution": "manifest"
+      }
+    },
+    "anthropic": {
+      "utility": {
+        "model": "haiku",
+        "api_model": "claude-haiku-4-5",
+        "effort": "low",
+        "resolution": "provider_alias"
+      },
+      "balanced": {
+        "model": "sonnet",
+        "api_model": "claude-sonnet-5",
+        "effort": "high",
+        "resolution": "provider_alias"
+      },
+      "strong": {
+        "model": "opus",
+        "api_model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "resolution": "provider_alias"
+      },
+      "max": {
+        "model": "fable",
+        "api_model": "claude-fable-5",
+        "effort": "max",
+        "resolution": "provider_alias",
+        "domain_fallback": "Security and biology requests can fall back to Opus under provider safeguards."
+      }
+    },
+    "cursor": {
+      "utility": {
+        "model": "",
+        "effort": "low",
+        "resolution": "runtime_catalog",
+        "preferred_terms": [
+          "luna",
+          "haiku",
+          "mini",
+          "flash",
+          "composer"
+        ]
+      },
+      "balanced": {
+        "model": "",
+        "effort": "medium",
+        "resolution": "runtime_catalog",
+        "preferred_terms": [
+          "terra",
+          "sonnet",
+          "composer",
+          "auto"
+        ]
+      },
+      "strong": {
+        "model": "",
+        "effort": "high",
+        "resolution": "runtime_catalog",
+        "preferred_terms": [
+          "opus",
+          "sol",
+          "gemini-3.1-pro"
+        ]
+      },
+      "max": {
+        "model": "",
+        "effort": "max",
+        "resolution": "runtime_catalog",
+        "preferred_terms": [
+          "fable",
+          "opus",
+          "sol"
+        ]
+      },
+      "discovery_command": "agent models",
+      "fallback_model": "auto",
+      "runtime_owner": "cursor_agent_worker"
+    }
+  },
+  "task_profiles": {
+    "trivial": "utility",
+    "question": "utility",
+    "docs": "balanced",
+    "bugfix": "balanced",
+    "test_generation": "balanced",
+    "refactor": "balanced",
+    "feature": "balanced",
+    "frontend_ui": "balanced",
+    "debugging": "balanced",
+    "performance": "balanced",
+    "review": "balanced",
+    "research": "strong",
+    "benchmark": "strong",
+    "design": "strong",
+    "security": "strong",
+    "release": "strong",
+    "migration": "strong"
+  },
+  "strong_overrides": {
+    "risks": [
+      "high"
+    ],
+    "ceremonies": [
+      "full"
+    ]
+  },
+  "topology": {
+    "dynamic_workflow_candidate_task_types": [
+      "research",
+      "benchmark",
+      "design",
+      "security",
+      "migration",
+      "release"
+    ],
+    "automatic_dynamic_workflow": true,
+    "parallelism_requires": "independent_subtasks",
+    "native_adapter": {
+      "engine": "claude-ultracode",
+      "runtime": "mcp_fanout",
+      "minimum_claude_code_version": "2.1.203",
+      "tasks_per_job": 1,
+      "start_tool": "fanout_start",
+      "status_tool": "fanout_status",
+      "results_tool": "fanout_results",
+      "launch_policy": "host_orchestrated_when_candidate",
+      "permission_boundary": "host_owned",
+      "result_evidence_status": "material_not_verification"
+    }
+  },
+  "escalation": {
+    "enabled": true,
+    "one_tier_after_failures": 1,
+    "automatic_cap": "strong",
+    "max_requires": "explicit_profile_or_future_eval_gate",
+    "evidence_source": "executed_verification_failure_count"
+  },
+  "model_match_order": [
+    "max",
+    "utility",
+    "balanced",
+    "strong"
+  ],
+  "model_match_terms": {
+    "max": [
+      "claude-fable-5",
+      "fable-5",
+      "fable"
+    ],
+    "utility": [
+      "gpt-5.6-luna",
+      "haiku",
+      "mini",
+      "nano",
+      "small",
+      "lite",
+      "flash",
+      "instant",
+      "low-fast"
+    ],
+    "balanced": [
+      "gpt-5.6-terra",
+      "claude-sonnet-5",
+      "sonnet",
+      "composer",
+      "gpt-5.4"
+    ],
+    "strong": [
+      "gpt-5.6-sol",
+      "gpt-5.6",
+      "gpt-5.5",
+      "claude-opus-4-8",
+      "opus",
+      "deep-research",
+      "reasoning-pro"
+    ]
+  }
+}

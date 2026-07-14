@@ -49,14 +49,16 @@ test("host capabilities are explicit and conservative", () => {
   assert.equal(getHostCapability("codex-cli").can_set_thinking, true);
   assert.equal(getHostCapability("claude-code").can_set_worker_model, true);
   assert.equal(getHostCapability("claude-code").can_set_thinking, false);
+  assert.equal(getHostCapability("cursor-agent").can_list_models, true);
   assert.equal(getHostCapability("missing-host"), HOST_CAPABILITIES.unknown);
 });
 
-test("current host model defaults stay stable", () => {
-  assert.equal(HOST_MODEL_DEFAULTS["codex-desktop"].fast, "gpt-5.4-mini");
-  assert.equal(HOST_MODEL_DEFAULTS["codex-cli"].strong, "gpt-5.5");
+test("current host model defaults follow the capability manifest", () => {
+  assert.equal(HOST_MODEL_DEFAULTS["codex-desktop"].fast, "gpt-5.6-luna");
+  assert.equal(HOST_MODEL_DEFAULTS["codex-cli"].strong, "gpt-5.6-sol");
   assert.equal(HOST_MODEL_DEFAULTS["claude-desktop"].standard, "sonnet");
-  assert.equal(HOST_MODEL_DEFAULTS["cursor-agent"].fast, "gpt-5.3-codex-low-fast");
+  assert.equal(HOST_MODEL_DEFAULTS["claude-code"].max, "fable");
+  assert.equal(HOST_MODEL_DEFAULTS["cursor-agent"].fast, "");
 });
 
 test("role provider defaults stay explicit", () => {

@@ -1,5 +1,46 @@
+import fs from "node:fs";
+
 // Capability and policy registry for MCP host and provider integrations.
 // Public schemas stay stable until docs/design.md explicitly expands them.
+
+const MODEL_CAPABILITIES_PATH = new URL("../protocol/model-capabilities.json", import.meta.url);
+
+function loadModelCapabilityManifest() {
+  const manifest = JSON.parse(fs.readFileSync(MODEL_CAPABILITIES_PATH, "utf8"));
+  const order = manifest.profile_order;
+  const profiles = manifest.profiles;
+  if (manifest.version !== 1 || !profiles || typeof profiles !== "object" || Array.isArray(profiles)) {
+    throw new Error("Invalid model capability manifest");
+  }
+  if (JSON.stringify(order) !== JSON.stringify(["utility", "balanced", "strong", "max"])) {
+    throw new Error("Invalid model capability profile order");
+  }
+  if (!manifest.provider_profiles || typeof manifest.provider_profiles !== "object") {
+    throw new Error("Model capability providers are missing");
+  }
+  for (const profile of order) {
+    if (!profiles[profile] || !Number.isInteger(profiles[profile].rank)) {
+      throw new Error(`Invalid model capability profile: ${profile}`);
+    }
+  }
+  return manifest;
+}
+
+export const MODEL_CAPABILITY_MANIFEST = loadModelCapabilityManifest();
+export const CAPABILITY_PROFILES = [...MODEL_CAPABILITY_MANIFEST.profile_order];
+export const MODEL_PROFILE_INPUTS = [...MODEL_CAPABILITY_MANIFEST.profile_inputs];
+export const MODEL_PROFILE_ALIASES = { ...MODEL_CAPABILITY_MANIFEST.legacy_aliases };
+export const CAPABILITY_PROFILE_RANK = Object.fromEntries(
+  CAPABILITY_PROFILES.map((profile) => [profile, MODEL_CAPABILITY_MANIFEST.profiles[profile].rank])
+);
+export const PLATFORM_MODEL_PROVIDERS = { ...MODEL_CAPABILITY_MANIFEST.platform_providers };
+export const PROVIDER_MODEL_PROFILES = { ...MODEL_CAPABILITY_MANIFEST.provider_profiles };
+export const TASK_MODEL_PROFILES = { ...MODEL_CAPABILITY_MANIFEST.task_profiles };
+export const MODEL_ROUTING_AXES = [...MODEL_CAPABILITY_MANIFEST.axes];
+export const MODEL_ESCALATION_POLICY = { ...MODEL_CAPABILITY_MANIFEST.escalation };
+export const MODEL_TOPOLOGY_POLICY = { ...MODEL_CAPABILITY_MANIFEST.topology };
+export const MODEL_MATCH_ORDER = [...MODEL_CAPABILITY_MANIFEST.model_match_order];
+export const MODEL_MATCH_TERMS = { ...MODEL_CAPABILITY_MANIFEST.model_match_terms };
 
 export const TRIAGE_ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "command"];
 export const TRIAGE_MODES = ["never", "auto", "always"];
@@ -35,38 +76,18 @@ export const HOST_PROFILE_RANK = {
   strong: MODEL_TIER_RANK.frontier,
 };
 
-export const HOST_MODEL_DEFAULTS = {
-  "codex-desktop": {
-    fast: "gpt-5.4-mini",
-    standard: "gpt-5.4",
-    strong: "gpt-5.5",
-  },
-  "codex-cli": {
-    fast: "gpt-5.4-mini",
-    standard: "gpt-5.4",
-    strong: "gpt-5.5",
-  },
-  "claude-desktop": {
-    fast: "haiku",
-    standard: "sonnet",
-    strong: "opus",
-  },
-  "claude-code": {
-    fast: "haiku",
-    standard: "sonnet",
-    strong: "opus",
-  },
-  "cursor-desktop": {
-    fast: "gpt-5.3-codex-low-fast",
-    standard: "gpt-5.3-codex",
-    strong: "gpt-5.3-codex-high",
-  },
-  "cursor-agent": {
-    fast: "gpt-5.3-codex-low-fast",
-    standard: "gpt-5.3-codex",
-    strong: "gpt-5.3-codex-high",
-  },
-};
+export const HOST_MODEL_DEFAULTS = Object.fromEntries(
+  Object.entries(PLATFORM_MODEL_PROVIDERS).map(([platform, provider]) => {
+    const providerProfiles = PROVIDER_MODEL_PROFILES[provider] || {};
+    const rows = Object.fromEntries(
+      CAPABILITY_PROFILES.map((profile) => [profile, providerProfiles[profile]?.model || ""])
+    );
+    rows.fast = rows.utility;
+    rows.standard = rows.balanced;
+    rows.frontier = rows.strong;
+    return [platform, rows];
+  })
+);
 
 export const ROLE_PROVIDER_DEFAULTS = {
   session: "host",
@@ -261,14 +282,9 @@ export const ROLE_PROVIDER_PROFILES = {
   },
 };
 
-export const STRONG_HOST_TASK_TYPES = [
-  "research",
-  "benchmark",
-  "design",
-  "security",
-  "release",
-  "migration",
-];
+export const STRONG_HOST_TASK_TYPES = Object.entries(TASK_MODEL_PROFILES)
+  .filter(([, profile]) => profile === "strong")
+  .map(([taskType]) => taskType);
 
 const NO_HOST_CAPABILITY = {
   kind: "host",
@@ -318,6 +334,7 @@ export const HOST_CAPABILITIES = {
     can_set_new_thread_model: true,
     can_set_worker_model: true,
     can_set_thinking: true,
+    can_list_models: true,
   },
   "cursor-agent": {
     ...NO_HOST_CAPABILITY,
@@ -325,6 +342,7 @@ export const HOST_CAPABILITIES = {
     can_set_new_thread_model: true,
     can_set_worker_model: true,
     can_set_thinking: true,
+    can_list_models: true,
   },
 };
 

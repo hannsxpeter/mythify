@@ -15,12 +15,14 @@ import { spawn, spawnSync } from "node:child_process";
 import { redactSensitiveOutput } from "./redact.js";
 import { assembleWorkerPrompt } from "./fanout-prompt.js";
 import { isFanoutJobId, taskOutputPath } from "./fanout-paths.js";
+import { formatFanoutStatus } from "./fanout-presenter.js";
 import { recoverInterruptedWorktree } from "./fanout-worktree-recovery.js";
 import {
   EFFORT_LEVELS,
   ENGINES,
   FANOUT_VISIBILITY_MODES,
   CLAUDE_CLI_COST_WARNING,
+  CLAUDE_ULTRACODE_COST_WARNING,
   HOSTED_PROVIDER_ENGINES,
   HOSTED_PROVIDER_REQUIRED_ACKS,
   SPAWN_CEILINGS,
@@ -59,14 +61,6 @@ import {
 } from "./fanout-policy.js";
 import { registerFanoutToolHandlers } from "./fanout-registration.js";
 
-const TASK_STATUS_ICONS = {
-  pending: "[ ]",
-  running: "[>]",
-  completed: "[x]",
-  failed: "[!]",
-  interrupted: "[~]",
-};
-
 // Per-task text cap in fanout_results; task output stays on disk.
 const RESULT_CAP_CHARS = 20000;
 const DEFAULT_FANOUT_OUTPUT_BYTES = 1024 * 1024;
@@ -74,7 +68,7 @@ const DEFAULT_FANOUT_OUTPUT_BYTES = 1024 * 1024;
 // Alias-to-ID map for the anthropic engine (docs/design.md engine table).
 export const ANTHROPIC_MODEL_ALIASES = {
   haiku: "claude-haiku-4-5",
-  sonnet: "claude-sonnet-4-6",
+  sonnet: "claude-sonnet-5",
   opus: "claude-opus-4-8",
   fable: "claude-fable-5",
 };
@@ -348,10 +342,17 @@ function outputLimitFailure(stdout, stderr, outputBytesCap, outputBytes) {
 // Engines
 // ---------------------------------------------------------------------------
 
-async function runClaudeCliWorker(prompt, model, effort, timeoutSeconds, projectRoot) {
+async function runClaudeCliWorker(
+  prompt,
+  model,
+  effort,
+  timeoutSeconds,
+  projectRoot,
+  engineLabel = "claude-cli"
+) {
   const bin = resolveClaudeBin();
   if (bin === null) {
-    return { ok: false, output: "", error: `engine claude-cli: ${claudeBinFailureText()}` };
+    return { ok: false, output: "", error: `engine ${engineLabel}: ${claudeBinFailureText()}` };
   }
   const args = [
     "-p",
@@ -404,7 +405,7 @@ async function runClaudeCliWorker(prompt, model, effort, timeoutSeconds, project
   if (parsed && parsed.is_error === true) {
     reasons.push("claude reported is_error: true");
   }
-  let error = `claude-cli worker failed (${reasons.join("; ")}).`;
+  let error = `${engineLabel} worker failed (${reasons.join("; ")}).`;
   if (resultText !== "") {
     error += ` Result: ${resultText.slice(0, 2000)}`;
   } else if (res.stderr.trim() !== "") {
@@ -738,8 +739,8 @@ async function runOpenAiWorker(prompt, model, timeoutSeconds) {
 }
 
 function runWorker(engine, prompt, model, effort, speed, timeoutSeconds, projectRoot) {
-  if (engine === "claude-cli") {
-    return runClaudeCliWorker(prompt, model, effort, timeoutSeconds, projectRoot);
+  if (engine === "claude-cli" || engine === "claude-ultracode") {
+    return runClaudeCliWorker(prompt, model, effort, timeoutSeconds, projectRoot, engine);
   }
   if (engine === "codex-cli") {
     return runCodexCliWorker(prompt, model, speed, timeoutSeconds, projectRoot);
@@ -1209,8 +1210,20 @@ function handleFanoutStart({
         .map((resolved) => resolved.engine)
     ),
   ].sort();
+  const ultracodeTaskCount = resolvedTasks.filter(
+    (resolved) => resolved.engine === "claude-ultracode"
+  ).length;
+  if (ultracodeTaskCount > 0 && (resolvedTasks.length !== 1 || ultracodeTaskCount !== 1)) {
+    return (
+      "[FAIL] claude-ultracode runs one native dynamic workflow per fanout job. " +
+      "Pass exactly one task and put the full independently parallelizable objective in that task prompt. " +
+      "No job was started."
+    );
+  }
   const hostedProviderRequired = hostedProviderEngines.length > 0;
-  const claudeCliWorkerSelected = resolvedTasks.some((resolved) => resolved.engine === "claude-cli");
+  const claudeCliWorkerSelected = resolvedTasks.some((resolved) =>
+    ["claude-cli", "claude-ultracode"].includes(resolved.engine)
+  );
   const hostedProviderAcks = {
     hosted_provider_billing_ack: hosted_provider_billing_ack === true,
     hosted_provider_data_ack: hosted_provider_data_ack === true,
@@ -1281,6 +1294,7 @@ function handleFanoutStart({
     visibility_requested: visibilitySelection.requested,
     visibility_reason: visibilitySelection.reason,
     purpose: typeof purpose === "string" ? purpose : "",
+    execution_mode: jobEngineRecord === "claude-ultracode" ? "ultracode" : "standard",
     timeout_seconds: jobTimeout,
     timeout_source: timeoutSelection.source,
     last_updated: now,
@@ -1303,6 +1317,7 @@ function handleFanoutStart({
         effort_source: resolved.effortSource,
         speed: resolved.speed,
         speed_source: resolved.speedSource,
+        execution_mode: resolved.engine === "claude-ultracode" ? "ultracode" : "standard",
         timeout_seconds: jobTimeout,
         timeout_source: timeoutSelection.source,
         started_at: null,
@@ -1349,7 +1364,15 @@ function handleFanoutStart({
     );
   }
   if (claudeCliWorkerSelected) {
-    lines.push(`[WARN] ${CLAUDE_CLI_COST_WARNING}`);
+    lines.push(
+      `[WARN] ${job.execution_mode === "ultracode" ? CLAUDE_ULTRACODE_COST_WARNING : CLAUDE_CLI_COST_WARNING}`
+    );
+  }
+  if (job.execution_mode === "ultracode") {
+    lines.push(
+      "UltraCode adapter: one native Claude dynamic workflow is running in the existing " +
+      "fanout lifecycle. Monitor it with fanout_status and ingest its final material with fanout_results."
+    );
   }
   lines.push(visibilityGuidance(job.visibility));
   if (job.visibility === "quiet") {
@@ -1382,63 +1405,7 @@ function handleFanoutStatus({ job_id }) {
     return loaded.error;
   }
   const { job, interruptedNote } = loaded;
-  const counts = { pending: 0, running: 0, completed: 0, failed: 0, interrupted: 0 };
-  for (const task of job.tasks) {
-    counts[task.status] = (counts[task.status] || 0) + 1;
-  }
-  const lines = [
-    `[OK] Fanout job ${job.id} (engine: ${job.engine}${job.model ? `, model: ${job.model}` : ""}, effort: ${job.effort || "medium"}, speed: ${job.speed || "auto"}, visibility: ${job.visibility || "summary"}, ceiling ${job.spawn_ceiling || "same_or_lower"}, timeout ${job.timeout_seconds}s per worker, created ${job.created}).`,
-  ];
-  if (interruptedNote) {
-    lines.push(interruptedNote);
-  }
-  lines.push(
-    `Reviewer stronger opt-in: ${job.reviewer_allow_stronger ? "enabled" : "disabled"}.`
-  );
-  lines.push(visibilityGuidance(job.visibility || "summary"));
-  lines.push(
-    `Tasks: ${job.tasks.length} total; ${counts.completed} completed, ${counts.failed} failed, ${counts.running} running, ${counts.pending} pending, ${counts.interrupted} interrupted.`
-  );
-  if ((job.visibility || "summary") === "quiet") {
-    const failedTasks = job.tasks.filter((task) => task.status === "failed" && task.error);
-    for (const task of failedTasks) {
-      lines.push(`[!] ${task.id}. ${task.title} failed: ${String(task.error).slice(0, 500)}`);
-    }
-  } else {
-    for (const task of job.tasks) {
-      const icon = TASK_STATUS_ICONS[task.status] || "[ ]";
-      let line = `${icon} ${task.id}. ${task.title} (${task.status}; role: ${task.role || "worker"}; engine: ${task.engine}`;
-      if (task.model) {
-        line += `, model: ${task.model}`;
-      }
-      if (task.model_tier) {
-        line += `, tier: ${task.model_tier}`;
-      }
-      if (task.effort) {
-        line += `, effort: ${task.effort}`;
-      }
-      if (task.speed) {
-        line += `, speed: ${task.speed}`;
-      }
-      if (task.status === "running" && task.started_at) {
-        const elapsed = Math.max(0, (Date.now() - Date.parse(task.started_at)) / 1000);
-        line += `, elapsed ${elapsed.toFixed(1)}s`;
-      } else if (typeof task.duration_seconds === "number" && task.duration_seconds > 0) {
-        line += `, ${task.duration_seconds.toFixed(1)}s`;
-      }
-      line += ")";
-      if (task.status === "failed" && task.error) {
-        line += `\n    error: ${String(task.error).slice(0, 500)}`;
-      }
-      lines.push(line);
-    }
-  }
-  if (counts.pending + counts.running === 0) {
-    lines.push("All tasks finished. Collect outputs with fanout_results.");
-  } else {
-    lines.push("Workers are still running; call fanout_status again to refresh.");
-  }
-  return lines.join("\n");
+  return formatFanoutStatus(job, interruptedNote);
 }
 
 function handleFanoutResults({ job_id, task_id }) {
@@ -1472,6 +1439,11 @@ function handleFanoutResults({ job_id, task_id }) {
   } else {
     lines.push(
       `[OK] Fanout job ${job.id}: results for ${finished.length} of ${selected.length} ${selected.length === 1 ? "task" : "tasks"}.`
+    );
+  }
+  if ((job.execution_mode || "standard") === "ultracode") {
+    lines.push(
+      "UltraCode result boundary: Claude workflow output is ingested as material, not executable verification evidence."
     );
   }
   if (interruptedNote) {

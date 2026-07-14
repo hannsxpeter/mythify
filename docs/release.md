@@ -1,14 +1,14 @@
 # Release Process
 
-Current release target: `v4.3.0`.
+Current release target: `v5.0.0`.
 
 Current package metadata:
 
 - MCP package: `mythify-mcp`
-- Version: `4.3.0`
+- Version: `5.0.0`
 - Node runtime: `>=20`
-- Package artifact: `mcp-server/mythify-mcp-4.3.0.tgz`
-- Standalone CLI artifact: `dist/mythify-cli-4.3.0.tar.gz`
+- Package artifact: `mcp-server/mythify-mcp-5.0.0.tgz`
+- Standalone CLI artifact: `dist/mythify-cli-5.0.0.tar.gz`
 - Skill artifact: `dist/mythify.skill`
 - Checksum manifest: `SHA256SUMS`
 
@@ -18,7 +18,7 @@ Run these checks on the final commit before publishing:
 
 ```bash
 npm ci --prefix mcp-server
-python3 scripts/package_cli.py --check-release-tag v4.3.0
+python3 scripts/package_cli.py --check-release-tag v5.0.0
 python3 -m unittest discover -s tests -v
 npm test --prefix mcp-server
 python3 -m unittest tests.test_interop -v
@@ -47,13 +47,13 @@ python3 scripts/package_skill.py
 python3 scripts/package_cli.py
 (cd mcp-server && npm pack)
 mkdir -p dist/release-assets
-cp dist/mythify.skill dist/mythify-cli-4.3.0.tar.gz \
-  mcp-server/mythify-mcp-4.3.0.tgz dist/release-assets/
+cp dist/mythify.skill dist/mythify-cli-5.0.0.tar.gz \
+  mcp-server/mythify-mcp-5.0.0.tgz dist/release-assets/
 python3 scripts/build_release_checksums.py \
   --output dist/release-assets/SHA256SUMS \
   dist/release-assets/mythify.skill \
-  dist/release-assets/mythify-cli-4.3.0.tar.gz \
-  dist/release-assets/mythify-mcp-4.3.0.tgz
+  dist/release-assets/mythify-cli-5.0.0.tar.gz \
+  dist/release-assets/mythify-mcp-5.0.0.tgz
 python3 scripts/build_release_checksums.py \
   --check dist/release-assets/SHA256SUMS \
   --directory dist/release-assets
@@ -67,12 +67,13 @@ missing assets, and digest mismatches.
 Expected artifacts:
 
 - `dist/release-assets/mythify.skill`
-- `dist/release-assets/mythify-cli-4.3.0.tar.gz`
-- `dist/release-assets/mythify-mcp-4.3.0.tgz`
+- `dist/release-assets/mythify-cli-5.0.0.tar.gz`
+- `dist/release-assets/mythify-mcp-5.0.0.tgz`
 - `dist/release-assets/SHA256SUMS`
 
 The npm tarball must include package-local copies of
 `mcp-server/protocol/classification-rules.json`,
+`mcp-server/protocol/model-capabilities.json`,
 `mcp-server/protocol/operation-registry.json`,
 `mcp-server/protocol/workflow-router.json`, and
 `mcp-server/protocol/surface-manifest.json` because the packaged MCP server
@@ -80,7 +81,7 @@ loads these manifests at runtime.
 
 It must also include `README.md` and `LICENSE`, and must exclude the package's
 development-only `test/` tree. Users install the release asset locally with
-`npm install /path/to/mythify-mcp-4.3.0.tgz`; there is no registry publish.
+`npm install /path/to/mythify-mcp-5.0.0.tgz`; there is no registry publish.
 
 ## Install Path
 
@@ -111,8 +112,8 @@ Push the final version tag only after the final commit is pushed and branch CI
 is green:
 
 ```bash
-git tag v4.3.0
-git push origin v4.3.0
+git tag v5.0.0
+git push origin v5.0.0
 ```
 
 The tag-triggered release workflow checks out that exact commit, runs every
@@ -124,7 +125,7 @@ the assets attached. Any failed gate prevents release creation.
 
 The current npm package name is unscoped: `mythify-mcp`. This repository
 currently produces a GitHub release package artifact
-(`mythify-mcp-4.3.0.tgz`) rather than publishing an npm package to the GitHub
+(`mythify-mcp-5.0.0.tgz`) rather than publishing an npm package to the GitHub
 Packages registry. The current product promise is therefore:
 
 - Source checkout plus `scripts/install_user.sh` for user-local installation.

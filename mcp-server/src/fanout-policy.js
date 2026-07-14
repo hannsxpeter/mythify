@@ -3,9 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { MODEL_CAPABILITY_MANIFEST } from "./capability-registry.js";
 
-export const ENGINES = ["claude-cli", "codex-cli", "cursor-agent", "anthropic", "openai", "command"];
+export const ENGINES = [
+  "claude-cli",
+  "claude-ultracode",
+  "codex-cli",
+  "cursor-agent",
+  "anthropic",
+  "openai",
+  "command",
+];
 export const DEFAULT_WORKER_ENGINE = "codex-cli";
+export const CLAUDE_ULTRACODE_MIN_VERSION = "2.1.203";
 export const CLAUDE_CLI_COST_WARNING =
   "Selecting claude-cli runs Claude Code non-interactively through claude -p. " +
   "Claude Code usage is token-cost-sensitive; included usage applies only within plan limits. " +
@@ -14,6 +24,14 @@ export const CLAUDE_CLI_COST_WARNING_URLS = [
   "https://code.claude.com/docs/en/headless",
   "https://code.claude.com/docs/en/costs",
   "https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans",
+];
+export const CLAUDE_ULTRACODE_COST_WARNING =
+  "Selecting claude-ultracode launches one native Claude dynamic workflow through " +
+  "claude -p --effort ultracode. UltraCode uses xhigh reasoning plus workflow subagents, " +
+  "so it can consume substantially more subscription quota or paid usage credits than a normal worker.";
+export const CLAUDE_ULTRACODE_COST_WARNING_URLS = [
+  "https://code.claude.com/docs/en/workflows",
+  ...CLAUDE_CLI_COST_WARNING_URLS,
 ];
 export const HOST_PLATFORMS = [
   "auto",
@@ -371,6 +389,78 @@ export function claudeBinFailureText() {
   );
 }
 
+function compareVersionParts(left, right) {
+  const leftParts = String(left).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = String(right).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const count = Math.max(leftParts.length, rightParts.length);
+  for (let i = 0; i < count; i += 1) {
+    const difference = (leftParts[i] || 0) - (rightParts[i] || 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return 0;
+}
+
+export function probeClaudeUltracodeSupport(bin = resolveClaudeBin()) {
+  if (bin === null) {
+    return {
+      ok: false,
+      version: "",
+      minimum_version: CLAUDE_ULTRACODE_MIN_VERSION,
+      error: claudeBinFailureText(),
+    };
+  }
+  const options = {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    timeout: 10000,
+    maxBuffer: 1024 * 1024,
+  };
+  const versionResult = spawnSync(bin, ["--version"], options);
+  const versionText = `${versionResult.stdout || ""}\n${versionResult.stderr || ""}`.trim();
+  const match = versionText.match(/\b(\d+)\.(\d+)\.(\d+)\b/);
+  if (versionResult.status !== 0 || match === null) {
+    return {
+      ok: false,
+      version: "",
+      minimum_version: CLAUDE_ULTRACODE_MIN_VERSION,
+      error:
+        `could not confirm Claude Code ${CLAUDE_ULTRACODE_MIN_VERSION} or newer from ` +
+        `"${bin} --version". Run "claude update" and retry.`,
+    };
+  }
+  const version = match[0];
+  if (compareVersionParts(version, CLAUDE_ULTRACODE_MIN_VERSION) < 0) {
+    return {
+      ok: false,
+      version,
+      minimum_version: CLAUDE_ULTRACODE_MIN_VERSION,
+      error:
+        `Claude Code ${version} is installed, but native UltraCode requires ` +
+        `${CLAUDE_ULTRACODE_MIN_VERSION} or newer. Run "claude update" and retry.`,
+    };
+  }
+  const helpResult = spawnSync(bin, ["--help"], options);
+  const helpText = `${helpResult.stdout || ""}\n${helpResult.stderr || ""}`;
+  if (helpResult.status !== 0 || !/\bultracode\b/i.test(helpText)) {
+    return {
+      ok: false,
+      version,
+      minimum_version: CLAUDE_ULTRACODE_MIN_VERSION,
+      error:
+        `Claude Code ${version} does not advertise native UltraCode support. ` +
+        'Run "claude update" and confirm "claude --help" lists ultracode.',
+    };
+  }
+  return {
+    ok: true,
+    version,
+    minimum_version: CLAUDE_ULTRACODE_MIN_VERSION,
+    error: null,
+  };
+}
+
 export function codexBinFailureText() {
   return (
     "no codex binary was found (checked MYTHIFY_FANOUT_CODEX_BIN, codex on PATH, " +
@@ -459,9 +549,10 @@ export function autoDetectEngine() {
   }
   return {
     error:
-      "[FAIL] No fanout engine is available. Configure one of the six engines: " +
+      "[FAIL] No fanout engine is available. Configure one of the seven engines: " +
       "codex-cli (install the codex CLI or set MYTHIFY_FANOUT_CODEX_BIN), " +
       "claude-cli (install the claude CLI or set MYTHIFY_FANOUT_CLAUDE_BIN), " +
+      `claude-ultracode (Claude Code ${CLAUDE_ULTRACODE_MIN_VERSION} or newer), ` +
       "cursor-agent (install Cursor Agent or set MYTHIFY_FANOUT_CURSOR_BIN), " +
       "anthropic (set ANTHROPIC_API_KEY), " +
       "openai (set MYTHIFY_FANOUT_ENGINE=openai plus MYTHIFY_FANOUT_BASE_URL and MYTHIFY_FANOUT_API_KEY), " +
@@ -472,18 +563,48 @@ export function autoDetectEngine() {
 
 export function engineDefaultModel(engine) {
   if (engine === "claude-cli") {
-    return "haiku";
+    return MODEL_CAPABILITY_MANIFEST.provider_profiles.anthropic.utility.model;
+  }
+  if (engine === "claude-ultracode") {
+    return MODEL_CAPABILITY_MANIFEST.provider_profiles.anthropic.strong.model;
   }
   if (engine === "anthropic") {
-    return "claude-haiku-4-5";
+    return MODEL_CAPABILITY_MANIFEST.provider_profiles.anthropic.utility.api_model;
+  }
+  if (["codex-cli", "openai"].includes(engine)) {
+    return MODEL_CAPABILITY_MANIFEST.provider_profiles.openai.utility.model;
   }
   return "";
+}
+
+export function classifyModelCapabilityProfile(model) {
+  const compact = String(model || "").toLowerCase().replace(/[_ ]+/g, "-");
+  if (compact === "") {
+    return "unknown";
+  }
+  for (const profile of MODEL_CAPABILITY_MANIFEST.model_match_order) {
+    const terms = MODEL_CAPABILITY_MANIFEST.model_match_terms[profile] || [];
+    if (terms.some((term) => compact.includes(String(term).toLowerCase()))) {
+      return profile;
+    }
+  }
+  return "unknown";
 }
 
 export function classifyModelTier(model) {
   const compact = String(model || "").toLowerCase().replace(/[_ ]+/g, "-");
   if (compact === "") {
     return "unknown";
+  }
+  const capabilityProfile = classifyModelCapabilityProfile(model);
+  if (capabilityProfile === "utility") {
+    return "fast";
+  }
+  if (capabilityProfile === "balanced") {
+    return "standard";
+  }
+  if (["strong", "max"].includes(capabilityProfile)) {
+    return "frontier";
   }
   const frontierTerms = [
     "gpt-5",
@@ -513,11 +634,11 @@ export function classifyModelTier(model) {
     "fast",
     "instant",
   ];
-  if (frontierTerms.some((term) => compact.includes(term))) {
-    return "frontier";
-  }
   if (fastTerms.some((term) => compact.includes(term))) {
     return "fast";
+  }
+  if (frontierTerms.some((term) => compact.includes(term))) {
+    return "frontier";
   }
   if (strongTerms.some((term) => compact.includes(term))) {
     return "strong";
@@ -632,6 +753,9 @@ export function normalizeEffort(value) {
 }
 
 export function resolveEffortSelection(taskEffort, jobEffort, engine, model) {
+  if (engine === "claude-ultracode") {
+    return { effort: "ultracode", effortSource: "engine_required" };
+  }
   const candidates = [
     [taskEffort, "task"],
     [jobEffort, "job"],
@@ -713,6 +837,30 @@ export function listCursorModels(invocation) {
   return cursorModelsCache;
 }
 
+export function cursorProfileForEffort(effort) {
+  if (effort === "low") {
+    return "utility";
+  }
+  if (effort === "high") {
+    return "strong";
+  }
+  return "balanced";
+}
+
+export function selectCursorCatalogModel(available, capabilityProfile) {
+  const models = Array.isArray(available) ? available : [];
+  const row = MODEL_CAPABILITY_MANIFEST.provider_profiles.cursor[capabilityProfile] || {};
+  for (const term of row.preferred_terms || []) {
+    const normalizedTerm = String(term).toLowerCase();
+    const match = models.find((model) => String(model).toLowerCase().includes(normalizedTerm));
+    if (match) {
+      return match;
+    }
+  }
+  const fallback = MODEL_CAPABILITY_MANIFEST.provider_profiles.cursor.fallback_model || "";
+  return models.find((model) => String(model).toLowerCase() === fallback.toLowerCase()) || "";
+}
+
 export function stripCursorModelSuffixes(model) {
   let base = String(model || "").trim();
   if (base.endsWith("-fast")) {
@@ -788,7 +936,18 @@ export function resolveEngineSpecificModel(engine, model, effort, speed) {
   if (invocation === null) {
     return model;
   }
-  return resolveCursorEncodedModel(model, effort, speed, invocation);
+  const requested = String(model || "").trim();
+  if (requested !== "") {
+    return resolveCursorEncodedModel(requested, effort, speed, invocation);
+  }
+  const discovered = selectCursorCatalogModel(
+    listCursorModels(invocation),
+    cursorProfileForEffort(effort)
+  );
+  if (discovered === "") {
+    return "";
+  }
+  return resolveCursorEncodedModel(discovered, effort, speed, invocation);
 }
 
 // Validation-time availability check for a task's resolved engine. Returns an
@@ -796,6 +955,10 @@ export function resolveEngineSpecificModel(engine, model, effort, speed) {
 export function engineAvailabilityError(engine, model) {
   if (engine === "claude-cli") {
     return resolveClaudeBin() === null ? `engine claude-cli: ${claudeBinFailureText()}` : null;
+  }
+  if (engine === "claude-ultracode") {
+    const support = probeClaudeUltracodeSupport();
+    return support.ok ? null : `engine claude-ultracode: ${support.error}`;
   }
   if (engine === "codex-cli") {
     return resolveCodexBin() === null ? `engine codex-cli: ${codexBinFailureText()}` : null;
@@ -822,7 +985,7 @@ export function engineAvailabilityError(engine, model) {
 }
 
 export function engineBilling(engine) {
-  if (["claude-cli", "codex-cli", "cursor-agent"].includes(engine)) {
+  if (["claude-cli", "claude-ultracode", "codex-cli", "cursor-agent"].includes(engine)) {
     return "host_cli_subscription_or_local_quota";
   }
   if (["anthropic", "openai"].includes(engine)) {
@@ -856,11 +1019,15 @@ export function engineCostMetadata(engine) {
     metadata.cost_warnings = [CLAUDE_CLI_COST_WARNING];
     metadata.cost_warning_urls = CLAUDE_CLI_COST_WARNING_URLS;
   }
+  if (engine === "claude-ultracode") {
+    metadata.cost_warnings = [CLAUDE_ULTRACODE_COST_WARNING];
+    metadata.cost_warning_urls = CLAUDE_ULTRACODE_COST_WARNING_URLS;
+  }
   return metadata;
 }
 
 export function engineProvider(engine) {
-  if (["claude-cli", "codex-cli", "cursor-agent"].includes(engine)) {
+  if (["claude-cli", "claude-ultracode", "codex-cli", "cursor-agent"].includes(engine)) {
     return "host_cli";
   }
   if (["anthropic", "openai"].includes(engine)) {

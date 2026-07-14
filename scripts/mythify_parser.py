@@ -5,6 +5,13 @@ from __future__ import annotations
 import argparse
 
 
+def nonnegative_int(value):
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a nonnegative integer")
+    return parsed
+
+
 def build_parser(symbols):
     globals().update(symbols)
     parser = argparse.ArgumentParser(
@@ -244,6 +251,24 @@ def build_parser(symbols):
         "--session-model",
         default="",
         help="Current host session model for spawn ceiling policy.",
+    )
+    p.add_argument(
+        "--model-profile",
+        choices=MODEL_PROFILE_INPUTS,
+        default="auto",
+        help=(
+            "Capability profile override. Use utility, balanced, strong, or max; "
+            "fast, standard, and frontier remain compatibility aliases."
+        ),
+    )
+    p.add_argument(
+        "--failure-count",
+        type=nonnegative_int,
+        default=None,
+        help=(
+            "Executed verifier failures in the current bounded loop. Each failure "
+            "can escalate one profile, capped at strong unless max is explicit."
+        ),
     )
     p.add_argument(
         "--spawn-ceiling",
@@ -873,6 +898,24 @@ def build_parser(symbols):
         help=(
             "Current host session model for spawn ceiling policy. Defaults to "
             "MYTHIFY_SESSION_MODEL when set."
+        ),
+    )
+    p.add_argument(
+        "--model-profile",
+        choices=MODEL_PROFILE_INPUTS,
+        default="auto",
+        help=(
+            "Capability profile override. Use utility, balanced, strong, or max; "
+            "fast, standard, and frontier remain compatibility aliases."
+        ),
+    )
+    p.add_argument(
+        "--failure-count",
+        type=nonnegative_int,
+        default=None,
+        help=(
+            "Executed verifier failures in the current bounded loop. Each failure "
+            "can escalate one profile, capped at strong unless max is explicit."
         ),
     )
     p.add_argument(

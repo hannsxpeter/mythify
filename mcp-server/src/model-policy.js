@@ -13,14 +13,23 @@ import {
   roleProviderFields,
 } from "./provider-defaults.js";
 import {
+  CAPABILITY_PROFILE_RANK,
+  CAPABILITY_PROFILES,
   FANOUT_VISIBILITY_MODES,
-  HOST_MODEL_DEFAULTS,
   HOST_PLATFORMS as PLATFORMS,
-  HOST_PROFILE_RANK,
+  MODEL_CAPABILITY_MANIFEST,
+  MODEL_ESCALATION_POLICY,
+  MODEL_MATCH_ORDER,
+  MODEL_MATCH_TERMS,
+  MODEL_PROFILE_ALIASES,
+  MODEL_ROUTING_AXES,
   MODEL_TIER_RANK,
+  MODEL_TOPOLOGY_POLICY,
+  PLATFORM_MODEL_PROVIDERS,
+  PROVIDER_MODEL_PROFILES,
   REVIEWER_STRENGTH_MODES,
   SPAWN_CEILINGS,
-  STRONG_HOST_TASK_TYPES,
+  TASK_MODEL_PROFILES,
   TRIAGE_ENGINES,
 } from "./capability-registry.js";
 
@@ -77,7 +86,13 @@ function splitShellArgs(raw) {
 }
 
 function triageDefaultModel(engine) {
-  return engine === "claude-cli" ? "haiku" : "";
+  const provider = {
+    "codex-cli": "openai",
+    "claude-cli": "anthropic",
+    "claude-ultracode": "anthropic",
+    "cursor-agent": "cursor",
+  }[engine] || "";
+  return PROVIDER_MODEL_PROFILES[provider]?.utility?.model || "";
 }
 
 function isExecutableFile(filePath) {
@@ -321,10 +336,34 @@ export function resolveTriageModelSelection(engine, requestedModel) {
   return { model: "", modelPolicy: "auto_after_engine_detection" };
 }
 
+function manifestModelProfile(model) {
+  const value = String(model || "").toLowerCase().replaceAll("_", "-").replaceAll(" ", "-");
+  if (value === "") {
+    return "unknown";
+  }
+  for (const profile of MODEL_MATCH_ORDER) {
+    const terms = MODEL_MATCH_TERMS[profile] || [];
+    if (terms.some((term) => value.includes(String(term).toLowerCase()))) {
+      return profile;
+    }
+  }
+  return "unknown";
+}
+
 export function classifyModelTier(model) {
   const compact = String(model || "").toLowerCase().replace(/[_ ]+/g, "-");
   if (compact === "") {
     return "unknown";
+  }
+  const capabilityProfile = manifestModelProfile(model);
+  if (capabilityProfile === "utility") {
+    return "fast";
+  }
+  if (capabilityProfile === "balanced") {
+    return "standard";
+  }
+  if (["strong", "max"].includes(capabilityProfile)) {
+    return "frontier";
   }
   const frontierTerms = [
     "gpt-5",
@@ -367,6 +406,260 @@ export function classifyModelTier(model) {
     return "small";
   }
   return "standard";
+}
+
+export function normalizeModelProfile(profile) {
+  const value = String(profile || "auto").trim().toLowerCase();
+  if (CAPABILITY_PROFILES.includes(value)) {
+    return value;
+  }
+  return MODEL_PROFILE_ALIASES[value] || "auto";
+}
+
+export function classifyModelProfile(model) {
+  const matched = manifestModelProfile(model);
+  if (matched !== "unknown") {
+    return matched;
+  }
+  const tier = classifyModelTier(model);
+  if (["small", "fast"].includes(tier)) {
+    return "utility";
+  }
+  if (tier === "standard") {
+    return "balanced";
+  }
+  if (["strong", "frontier"].includes(tier)) {
+    return "strong";
+  }
+  return "unknown";
+}
+
+function requestedModelProfile(options) {
+  const raw = String(options.model_profile || "auto").trim();
+  const normalized = normalizeModelProfile(raw);
+  if (normalized !== "auto") {
+    return {
+      profile: normalized,
+      source: raw === normalized ? "explicit" : "explicit_legacy_alias",
+      raw,
+    };
+  }
+  const envRaw = String(process.env.MYTHIFY_MODEL_PROFILE || "").trim();
+  const envNormalized = normalizeModelProfile(envRaw);
+  if (envNormalized !== "auto") {
+    return {
+      profile: envNormalized,
+      source: envRaw === envNormalized
+        ? "env:MYTHIFY_MODEL_PROFILE"
+        : "env:MYTHIFY_MODEL_PROFILE:legacy_alias",
+      raw: envRaw,
+    };
+  }
+  return { profile: "auto", source: "task_classification", raw: "auto" };
+}
+
+function requestedFailureCount(options) {
+  if (options.failure_count !== undefined && options.failure_count !== null) {
+    const value = Number(options.failure_count);
+    if (Number.isInteger(value) && value >= 0) {
+      return { count: value, source: "explicit" };
+    }
+    return { count: 0, source: "invalid_explicit_ignored" };
+  }
+  const envRaw = String(process.env.MYTHIFY_FAILURE_COUNT || "").trim();
+  if (envRaw !== "") {
+    const value = Number(envRaw);
+    if (Number.isInteger(value) && value >= 0) {
+      return { count: value, source: "env:MYTHIFY_FAILURE_COUNT" };
+    }
+    return { count: 0, source: "invalid_env_ignored" };
+  }
+  return { count: 0, source: "default" };
+}
+
+function baseModelProfile(classification) {
+  const taskType = classification.task_type || "feature";
+  const profile = TASK_MODEL_PROFILES[taskType] || "balanced";
+  const overrides = MODEL_CAPABILITY_MANIFEST.strong_overrides;
+  if ((overrides.risks || []).includes(classification.risk)) {
+    return { profile: "strong", reason: "high_risk" };
+  }
+  if ((overrides.ceremonies || []).includes(classification.ceremony)) {
+    return { profile: "strong", reason: "full_ceremony" };
+  }
+  return { profile, reason: `task_type:${taskType}` };
+}
+
+function escalateModelProfile(profile, failureCount) {
+  if (!MODEL_ESCALATION_POLICY.enabled || failureCount <= 0) {
+    return { profile, steps: 0 };
+  }
+  const threshold = Math.max(1, Number(MODEL_ESCALATION_POLICY.one_tier_after_failures || 1));
+  const requestedSteps = Math.floor(failureCount / threshold);
+  const cap = MODEL_ESCALATION_POLICY.automatic_cap || "strong";
+  const capRank = CAPABILITY_PROFILE_RANK[cap] || CAPABILITY_PROFILE_RANK.strong;
+  const startRank = CAPABILITY_PROFILE_RANK[profile];
+  const targetRank = Math.min(startRank + requestedSteps, capRank);
+  const selected = CAPABILITY_PROFILES.find(
+    (candidate) => CAPABILITY_PROFILE_RANK[candidate] === targetRank
+  ) || profile;
+  return { profile: selected, steps: Math.max(0, targetRank - startRank) };
+}
+
+function selectModelProfile(classification, options) {
+  const requested = requestedModelProfile(options);
+  const failures = requestedFailureCount(options);
+  const base = baseModelProfile(classification);
+  let selected;
+  let escalationSteps = 0;
+  let reason;
+  if (requested.profile !== "auto") {
+    selected = requested.profile;
+    reason = "Explicit model profile request.";
+  } else {
+    const escalated = escalateModelProfile(base.profile, failures.count);
+    selected = escalated.profile;
+    escalationSteps = escalated.steps;
+    reason = `Selected from ${base.reason}.`;
+    if (escalationSteps > 0) {
+      reason += ` Escalated ${escalationSteps} tier(s) after recorded verifier failures.`;
+    }
+  }
+  const row = MODEL_CAPABILITY_MANIFEST.profiles[selected];
+  return {
+    requested_profile: requested.profile,
+    requested_profile_raw: requested.raw,
+    requested_profile_source: requested.source,
+    base_profile: base.profile,
+    selected_profile: selected,
+    legacy_profile: row.legacy_profile,
+    cost_class: row.cost_class,
+    failure_count: failures.count,
+    failure_count_source: failures.source,
+    escalated: escalationSteps > 0,
+    escalation_steps: escalationSteps,
+    automatic_max_enabled: Boolean(MODEL_CAPABILITY_MANIFEST.automatic_max_enabled),
+    automatic_cap: MODEL_ESCALATION_POLICY.automatic_cap,
+    max_requires: MODEL_ESCALATION_POLICY.max_requires,
+    reason,
+  };
+}
+
+function modelExecutionTopology(classification, taskText = "") {
+  const taskType = classification.task_type || "feature";
+  const executionProfile = classification.execution_profile || "standard";
+  const fanout = classification.fanout || "not_recommended";
+  const dynamicTypes = MODEL_TOPOLOGY_POLICY.dynamic_workflow_candidate_task_types || [];
+  const explicitDynamicRequest =
+    /\bultracode\b|\b(?:use|run|launch|start)\s+(?:a\s+)?(?:dynamic\s+)?workflow\b/i.test(
+      String(taskText || "")
+    );
+  const dynamicCandidate =
+    explicitDynamicRequest || (dynamicTypes.includes(taskType) && fanout === "recommended");
+  const automaticDynamicWorkflow =
+    dynamicCandidate && Boolean(MODEL_TOPOLOGY_POLICY.automatic_dynamic_workflow);
+  const adapter = MODEL_TOPOLOGY_POLICY.native_adapter || {};
+  let recommended;
+  let reason;
+  if (executionProfile === "direct") {
+    recommended = "direct";
+    reason = "The task is a direct answer or one reversible action.";
+  } else if (fanout === "recommended") {
+    recommended = "bounded_parallel";
+    reason = "Independent analysis can be split, then synthesized and verified.";
+  } else if (classification.ceremony === "full") {
+    recommended = "verifier_gated_plan";
+    reason = "High-risk or heavy work needs durable steps and verification gates.";
+  } else if (executionProfile === "fast") {
+    recommended = "direct_with_verification";
+    reason = "Focused work can run directly with an executable completion gate.";
+  } else {
+    recommended = "verifier_gated_plan";
+    reason = "Multi-step work should use a plan with executable gates.";
+  }
+  return {
+    recommended,
+    dynamic_workflow_candidate: dynamicCandidate,
+    dynamic_workflow_candidate_source: explicitDynamicRequest
+      ? "explicit_request"
+      : dynamicCandidate
+        ? "task_classification"
+        : "not_recommended",
+    automatic_dynamic_workflow: automaticDynamicWorkflow,
+    native_adapter: {
+      ...adapter,
+      recommended: automaticDynamicWorkflow,
+      activation: automaticDynamicWorkflow
+        ? explicitDynamicRequest
+          ? "explicit_request"
+          : "automatic_candidate"
+        : "not_recommended",
+    },
+    parallelism_requires: MODEL_TOPOLOGY_POLICY.parallelism_requires,
+    reason,
+  };
+}
+
+function modelReviewPolicy(classification, selectedProfile) {
+  let level;
+  let reviewerProfile;
+  if (classification.risk === "high" || classification.ceremony === "full") {
+    level = "required";
+    reviewerProfile = "strong";
+  } else if (classification.risk === "medium" || classification.ceremony === "standard") {
+    level = "recommended";
+    reviewerProfile = selectedProfile === "strong" ? "strong" : "balanced";
+  } else {
+    level = "optional";
+    reviewerProfile = selectedProfile === "utility" ? "balanced" : selectedProfile;
+  }
+  return {
+    level,
+    independent: true,
+    recommended_profile: reviewerProfile,
+    stronger_model_requires_explicit_opt_in: true,
+    material_not_verification: true,
+  };
+}
+
+function buildModelRouter(classification, options) {
+  const selection = selectModelProfile(classification, options);
+  const genericEffort = {
+    utility: "low",
+    balanced: "medium",
+    strong: "high",
+    max: "max",
+  }[selection.selected_profile];
+  return {
+    contract_version: MODEL_CAPABILITY_MANIFEST.version,
+    status: MODEL_CAPABILITY_MANIFEST.status,
+    axes: [...MODEL_ROUTING_AXES],
+    selection,
+    autonomy_policy: {
+      mode: "bounded_proactive",
+      mutation_authority: "inherits_user_request",
+      permission_boundary: "host_owned",
+      confirmation_required_for: [
+        "destructive_actions",
+        "external_writes",
+        "purchases",
+        "material_scope_expansion",
+      ],
+    },
+    execution_topology: modelExecutionTopology(classification, options.task_text || ""),
+    reasoning_effort: {
+      profile_default: genericEffort,
+      provider_resolved: false,
+    },
+    review_policy: modelReviewPolicy(classification, selection.selected_profile),
+    verification_gate: {
+      policy: "deterministic_command_first",
+      model_is_verifier: false,
+      executed_evidence_required_when_available: true,
+      model_review_is_material_only: true,
+    },
+    fallback_policy: MODEL_CAPABILITY_MANIFEST.fallback_policy,
+  };
 }
 
 function resolveSessionModel(sessionModel, hostModelRecord = null) {
@@ -482,81 +775,77 @@ function reviewerSpawnPolicy(classification) {
   return "skip";
 }
 
-function hostRecommendationProfile(classification) {
-  const taskType = classification.task_type || "feature";
-  const risk = classification.risk || "low";
-  const ambiguity = classification.ambiguity || "low";
-  const ceremony = classification.ceremony || "none";
-  const executionProfile = classification.execution_profile || "standard";
-  if (
-    ["trivial", "question"].includes(taskType) &&
-    risk === "low" &&
-    executionProfile === "direct"
-  ) {
-    return {
-      target_profile: "fast",
-      thinking: "low",
-      speed: "fast",
-      reason: "Direct low-risk prompts should use the cheapest responsive host settings.",
-    };
-  }
-  if (
-    STRONG_HOST_TASK_TYPES.includes(taskType) ||
-    risk === "high" ||
-    ceremony === "full"
-  ) {
-    return {
-      target_profile: "strong",
-      thinking: "high",
-      speed: "standard",
-      reason:
-        "Research, benchmark, release, security, migration, and design work benefit from stronger reasoning.",
-    };
-  }
-  if (executionProfile === "fast" || ceremony === "light") {
-    return {
-      target_profile: "fast",
-      thinking: "low",
-      speed: "fast",
-      reason: "Focused low-risk work is a good fit for fast host settings.",
-    };
-  }
-  if (ambiguity === "high") {
-    return {
-      target_profile: "standard",
-      thinking: "medium",
-      speed: "auto",
-      reason:
-        "Ambiguous work needs enough reasoning to frame the problem, but more model size will not replace missing context.",
-    };
-  }
-  return {
-    target_profile: "standard",
-    thinking: "medium",
-    speed: "auto",
-    reason: "Normal implementation, debugging, review, and docs work should use balanced host settings.",
+function providerProfileResolution(provider, capabilityProfile) {
+  const providerRows = PROVIDER_MODEL_PROFILES[provider] || {};
+  const row = { ...(providerRows[capabilityProfile] || {}) };
+  const resolution = row.resolution || "unavailable";
+  const result = {
+    provider: provider || "unknown",
+    capability_profile: capabilityProfile,
+    model: row.model || "",
+    api_model: row.api_model || "",
+    effort: row.effort || "auto",
+    mode: row.mode || "",
+    resolution,
+    status: row.model ? "resolved" : "unavailable",
+    fallback_policy: MODEL_CAPABILITY_MANIFEST.fallback_policy,
   };
+  if (resolution === "runtime_catalog") {
+    Object.assign(result, {
+      status: "discovery_required",
+      discovery_command: providerRows.discovery_command || "",
+      fallback_model: providerRows.fallback_model || "",
+      runtime_owner: providerRows.runtime_owner || "",
+      preferred_terms: [...(row.preferred_terms || [])],
+    });
+  }
+  if (row.domain_fallback) {
+    result.domain_fallback = row.domain_fallback;
+  }
+  return result;
 }
 
-function hostRecommendationModel(platform, targetProfile) {
-  const envName = `MYTHIFY_HOST_${targetProfile.toUpperCase()}_MODEL`;
-  const envModel = (process.env[envName] || "").trim();
-  if (envModel !== "") {
-    return { model: envModel, source: `env:${envName}` };
+function hostRecommendationModel(platform, capabilityProfile) {
+  const provider = PLATFORM_MODEL_PROVIDERS[platform] || "";
+  const result = providerProfileResolution(provider, capabilityProfile);
+  const legacyProfile = MODEL_CAPABILITY_MANIFEST.profiles[capabilityProfile].legacy_profile;
+  const envNames = [`MYTHIFY_HOST_${capabilityProfile.toUpperCase()}_MODEL`];
+  const legacyEnv = `MYTHIFY_HOST_${legacyProfile.toUpperCase()}_MODEL`;
+  if (!envNames.includes(legacyEnv)) {
+    envNames.push(legacyEnv);
   }
-  const defaultModel = HOST_MODEL_DEFAULTS[platform]?.[targetProfile] || "";
-  if (defaultModel !== "") {
-    return { model: defaultModel, source: "platform_default" };
+  for (const envName of envNames) {
+    const envModel = (process.env[envName] || "").trim();
+    if (envModel !== "") {
+      return {
+        ...result,
+        model: envModel,
+        api_model: "",
+        resolution: "environment_override",
+        status: "resolved",
+        source: `env:${envName}`,
+      };
+    }
   }
-  return { model: "", source: "none" };
+  if (result.status === "resolved") {
+    result.source = "platform_default";
+  } else if (result.status === "discovery_required") {
+    result.source = "runtime_catalog";
+  } else {
+    result.source = "none";
+  }
+  return result;
 }
 
-function hostRecommendationAction(sessionModel, sessionTier, targetProfile) {
+function hostRecommendationAction(sessionModel, sessionProfile, targetProfile, resolutionStatus) {
+  if (resolutionStatus === "discovery_required") {
+    return "recommend_discover";
+  }
   if (!sessionModel) {
     return "recommend_set";
   }
-  const sessionRank = MODEL_TIER_RANK[sessionTier] || 0;
-  const targetRank = HOST_PROFILE_RANK[targetProfile] || MODEL_TIER_RANK.standard;
+  const sessionRank = CAPABILITY_PROFILE_RANK[sessionProfile] || 0;
+  const targetRank = CAPABILITY_PROFILE_RANK[targetProfile] || CAPABILITY_PROFILE_RANK.balanced;
   if (sessionRank === 0) {
     return "recommend_set";
   }
@@ -569,25 +858,57 @@ function hostRecommendationAction(sessionModel, sessionTier, targetProfile) {
   return "keep";
 }
 
-function hostPromptRecommendation(classification, platform, sessionModel, sessionTier) {
-  const profile = hostRecommendationProfile(classification);
-  const targetProfile = profile.target_profile;
-  const targetModel = hostRecommendationModel(platform, targetProfile);
+function hostPromptRecommendation(platform, sessionModel, modelRouter) {
+  const selection = modelRouter.selection;
+  const capabilityProfile = selection.selected_profile;
+  const profile = MODEL_CAPABILITY_MANIFEST.profiles[capabilityProfile];
+  const resolution = hostRecommendationModel(platform, capabilityProfile);
+  const sessionProfile = classifyModelProfile(sessionModel);
+  modelRouter.provider_resolution = { ...resolution };
+  modelRouter.reasoning_effort = {
+    profile_default: modelRouter.reasoning_effort.profile_default,
+    provider_resolved: resolution.status === "resolved",
+    provider: resolution.provider,
+    selected: resolution.effort,
+    mode: resolution.mode,
+  };
   return {
     policy: "task_classification",
-    action: hostRecommendationAction(sessionModel, sessionTier, targetProfile),
-    target_profile: targetProfile,
-    target_model: targetModel.model,
-    target_model_source: targetModel.source,
-    target_model_tier: classifyModelTier(targetModel.model),
-    thinking: profile.thinking,
-    speed: profile.speed,
-    reason: profile.reason,
+    action: hostRecommendationAction(
+      sessionModel,
+      sessionProfile,
+      capabilityProfile,
+      resolution.status
+    ),
+    target_profile: profile.legacy_profile,
+    capability_profile: capabilityProfile,
+    cost_class: profile.cost_class,
+    target_provider: resolution.provider,
+    target_model: resolution.model,
+    target_api_model: resolution.api_model,
+    target_model_source: resolution.source,
+    target_model_status: resolution.status,
+    target_model_tier: classifyModelTier(resolution.model),
+    target_model_profile: classifyModelProfile(resolution.model),
+    thinking: resolution.effort,
+    speed: profile.default_speed,
+    resolution,
+    reason: selection.reason,
   };
+}
+
+function engineProfileResolution(engine, capabilityProfile) {
+  const provider = {
+    "codex-cli": "openai",
+    "claude-cli": "anthropic",
+    "cursor-agent": "cursor",
+  }[engine] || "";
+  return providerProfileResolution(provider, capabilityProfile);
 }
 
 export function buildModelPolicy(classification, options = {}) {
   const platform = normalizePlatform(options.platform || "auto");
+  const modelRouter = buildModelRouter(classification, options);
   const requestedEffort = options.effort || "auto";
   const requestedSpeed = options.speed || "auto";
   const sessionModel = resolveSessionModel(options.session_model || "", options.host_model_record || null);
@@ -614,13 +935,21 @@ export function buildModelPolicy(classification, options = {}) {
       ? options.triage_timeout_seconds
       : 120;
   const hostRecommendation = hostPromptRecommendation(
-    classification,
     platform,
     sessionModel.model,
-    sessionTier
+    modelRouter
   );
+  const workerProfile = ["utility", "balanced"].includes(
+    modelRouter.selection.selected_profile
+  )
+    ? modelRouter.selection.selected_profile
+    : "balanced";
+  const reviewerProfile = modelRouter.review_policy.recommended_profile;
+  const workerResolution = engineProfileResolution(workerEngine, workerProfile);
+  const reviewerResolution = engineProfileResolution(workerEngine, reviewerProfile);
   const providerDefaults = buildProviderDefaults();
   return {
+    model_router: modelRouter,
     provider_defaults: providerDefaults,
     session: {
       role: "current_conversation",
@@ -631,6 +960,7 @@ export function buildModelPolicy(classification, options = {}) {
       model: sessionModel.model,
       model_source: sessionModel.source,
       model_tier: sessionTier,
+      capability_profile: classifyModelProfile(sessionModel.model),
       model_policy: "host_default",
       effort_policy: requestedEffort === "auto" ? "host_default" : `requested_${requestedEffort}`,
       speed_policy: requestedSpeed === "auto" ? "host_default" : `requested_${requestedSpeed}`,
@@ -664,6 +994,7 @@ export function buildModelPolicy(classification, options = {}) {
       engine_policy: triageEnginePolicy,
       model: triageModel,
       model_tier: classifyModelTier(triageModel),
+      capability_profile: "utility",
       model_relation_to_session: roleModelRelation("triage", sessionTier, spawnCeiling.ceiling),
       model_policy: triageModelPolicy,
       effort: triageEffort.effort,
@@ -681,6 +1012,7 @@ export function buildModelPolicy(classification, options = {}) {
       ...roleProviderFields(providerDefaults, "reader"),
       ...roleBudgetFields(providerDefaults, "reader"),
       model_policy: "local_openai_compatible_when_configured",
+      capability_profile: "utility",
       model_relation_to_session: "lower_preferred",
       effort: "low",
       effort_policy: "role_default",
@@ -699,6 +1031,11 @@ export function buildModelPolicy(classification, options = {}) {
       engine: workerEngine,
       engine_policy: workerEnginePolicy,
       model_policy: "per_task_over_job_over_env_over_engine_default",
+      capability_profile: workerProfile,
+      recommended_model: workerResolution.model,
+      recommended_model_status: workerResolution.status,
+      recommended_model_resolution: workerResolution,
+      recommended_effort: workerResolution.effort,
       model_relation_to_session: roleModelRelation(
         "fanout_worker",
         sessionTier,
@@ -726,6 +1063,11 @@ export function buildModelPolicy(classification, options = {}) {
       engine: workerEngine,
       engine_policy: workerEnginePolicy,
       model_policy: "prefer_stronger_than_worker_when_available",
+      capability_profile: reviewerProfile,
+      recommended_model: reviewerResolution.model,
+      recommended_model_status: reviewerResolution.status,
+      recommended_model_resolution: reviewerResolution,
+      recommended_effort: reviewerResolution.effort,
       stronger_model_policy: reviewerStrength.policy,
       stronger_model_policy_source: reviewerStrength.source,
       stronger_models_allowed: reviewerStrength.policy === "allow_stronger",
@@ -747,6 +1089,7 @@ export function buildModelPolicy(classification, options = {}) {
       ...roleBudgetFields(providerDefaults, "verifier"),
       engine: "local_command",
       model_policy: "none_when_executable_check_exists",
+      capability_profile: "none",
       model_relation_to_session: roleModelRelation("verifier", sessionTier, spawnCeiling.ceiling),
       effort: "none",
       effort_policy: "command_first",

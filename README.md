@@ -271,6 +271,30 @@ analysis, and the full MCP tool set). The complete, exhaustive reference lives
 in [docs/design.md](docs/design.md); a quick tour is in
 [docs/start-here.md](docs/start-here.md).
 
+## Capability-based model routing
+
+`classify` and `route` now return `model_policy.model_router`. It selects a
+provider-neutral `utility`, `balanced`, `strong`, or explicit-only `max`
+profile while keeping autonomy, topology, reasoning effort, independent review,
+and executable verification as separate decisions. OpenAI resolves these to
+Luna, Terra, Sol, and Sol with max or pro mode. Claude resolves them to Haiku,
+Sonnet, Opus, and Fable. Cursor workers inspect their live model catalog and
+choose a matching available model without crossing providers.
+
+Pass `--model-profile` to override the task default. Pass `--failure-count`
+only from executed verifier failures; automatic escalation moves one profile
+per failure and stops at `strong`. The old `fast`, `standard`, and `frontier`
+inputs remain compatibility aliases. Model output and independent review are
+material, not verification. Executable checks still decide completion.
+
+For independently parallel research, design, migration, security, release, or
+benchmark work, the router can recommend the native `claude-ultracode` adapter.
+The MCP host launches exactly one Claude dynamic workflow through
+`fanout_start`, monitors it with `fanout_status`, and ingests its final material
+with `fanout_results`. The adapter requires Claude Code 2.1.203 or newer, keeps
+permissions host-owned, and never promotes workflow output into verification
+evidence.
+
 ## Evidence, honestly
 
 A [reproducible Codex smoke comparison](docs/evidence/efficacy-reproduction.md)

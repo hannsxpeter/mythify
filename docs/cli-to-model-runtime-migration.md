@@ -14,6 +14,7 @@ Start here and keep this path working forever:
 1. Copy a generated protocol file into a project.
 2. Copy `scripts/mythify.py`, adjacent `scripts/mythify_*.py` helpers,
    `protocol/operation-registry.json`, `protocol/classification-rules.json`,
+   `protocol/model-capabilities.json`,
    and `protocol/workflow-router.json`.
 3. Run `python3 scripts/mythify.py protocol check CLAUDE.md`.
 4. Run `python3 scripts/mythify.py init`.

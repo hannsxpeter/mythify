@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-07-14
+
+Major release: provider-neutral model routing and native Claude UltraCode
+workflows, while preserving host-owned permissions and deterministic evidence.
+
+### Added
+
+- Added provider-neutral `utility`, `balanced`, `strong`, and explicit-only
+  `max` model routing with bounded verifier-failure escalation and runtime
+  Cursor model discovery.
+- Added a native `claude-ultracode` MCP fanout engine. Router-selected dynamic
+  workflow candidates can launch one Claude workflow, monitor it through
+  `fanout_status`, and ingest its final material through `fanout_results`.
+  The adapter requires Claude Code 2.1.203 or newer and fails closed before job
+  creation when UltraCode is unavailable.
+
+### Changed
+
+- Separated autonomy, execution topology, capability profile, reasoning effort,
+  independent review, and verification into explicit model-router axes shared
+  by the CLI and MCP runtime.
+- Replaced fixed Cursor model assumptions with live catalog discovery and
+  provider-local matching. OpenAI and Claude mappings now come from the shared
+  model capability manifest.
+- Extended workflow routing to return a native UltraCode lifecycle contract
+  without adding public tools or recreating Claude's workflow runtime.
+
+### Compatibility
+
+- The MCP surface remains 41 tools. Existing commands, state formats, and
+  deterministic verification rules remain available.
+- Legacy `fast`, `standard`, and `frontier` profile inputs remain aliases for
+  `utility`, `balanced`, and `strong`.
+
 ## [4.3.0] - 2026-07-13
 
 ### Added
@@ -1230,7 +1264,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v4.3.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.0.0...HEAD
+[5.0.0]: https://github.com/hannsxpeter/mythify/compare/v4.3.0...v5.0.0
 [4.3.0]: https://github.com/hannsxpeter/mythify/compare/v4.2.0...v4.3.0
 [4.2.0]: https://github.com/hannsxpeter/mythify/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/hannsxpeter/mythify/compare/v4.0.0...v4.1.0

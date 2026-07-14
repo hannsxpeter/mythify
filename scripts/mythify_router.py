@@ -955,6 +955,13 @@ def build_workflow_route(task, state, classification):
             god_audit.get("path"), god_audit.get("detail")
         )
     packet_kind = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
+    execution_adapter = (
+        classification.get("model_policy", {})
+        .get("model_router", {})
+        .get("execution_topology", {})
+        .get("native_adapter", {})
+    )
+    state_writes = route_state_writes(route, state_view)
     return {
         "kind": "workflow_route",
         "route": route,
@@ -967,6 +974,7 @@ def build_workflow_route(task, state, classification):
             "kind": packet_kind,
             "command": "mythify prompt {0}".format(packet_kind),
         },
+        "execution_adapter": execution_adapter,
         "verification_strategy": classification.get("verification", ""),
         "chat_policy": {
             "executor": "initiating_host",
@@ -981,7 +989,7 @@ def build_workflow_route(task, state, classification):
             "missing credentials, secrets, or billing acknowledgements",
             "decisions only the user can make",
         ],
-        "state_writes": route_state_writes(route, state_view),
+        "state_writes": state_writes,
         "evidence": workflow_route_evidence(route, state_view, classification),
         "guardrail": WORKFLOW_ROUTE_GUARDRAIL,
     }
@@ -998,6 +1006,17 @@ def format_workflow_route(payload):
         ),
         "Verification strategy: {0}".format(payload.get("verification_strategy", "")),
     ]
+    adapter = payload.get("execution_adapter") or {}
+    if adapter.get("recommended") is True:
+        lines.append(
+            "Execution adapter: {0}; start={1}; status={2}; results={3}; evidence={4}".format(
+                adapter.get("engine", "claude-ultracode"),
+                adapter.get("start_tool", "fanout_start"),
+                adapter.get("status_tool", "fanout_status"),
+                adapter.get("results_tool", "fanout_results"),
+                adapter.get("result_evidence_status", "material_not_verification"),
+            )
+        )
     policy = payload.get("chat_policy") or {}
     lines.append("Chat policy: executor={0}; surface={1}; report_issues={2}".format(
         policy.get("executor", "initiating_host"),
@@ -1031,4 +1050,3 @@ def cmd_route(args, state):
     else:
         print(format_workflow_route(payload))
     return 0
-

@@ -68,6 +68,8 @@
       "sources": [
         "protocol/classification-rules.json",
         "mcp-server/protocol/classification-rules.json",
+        "protocol/model-capabilities.json",
+        "mcp-server/protocol/model-capabilities.json",
         "scripts/check_classification_rules_manifest.mjs"
       ],
       "commands": [
@@ -143,7 +145,7 @@
         "mcp-server/package.json"
       ],
       "commands": [
-        "python3 scripts/package_cli.py --check-release-tag v4.3.0"
+        "python3 scripts/package_cli.py --check-release-tag v5.0.0"
       ]
     },
     {

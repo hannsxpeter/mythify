@@ -78,7 +78,7 @@ test("verification tool registrar wires verify and reflection handlers", async (
     "mythify_version",
     "worktree_clean",
   ]);
-  assert.equal(verifications[0].provenance.mythify_version, "4.3.0");
+  assert.equal(verifications[0].provenance.mythify_version, "5.0.0");
 
   const verifyClaim = registered.find((entry) => entry.name === "verify_claim");
   const claimResult = await verifyClaim.handler({

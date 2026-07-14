@@ -31,8 +31,8 @@ class ReleaseChecksumTest(unittest.TestCase):
         flat.mkdir()
         assets = [
             source / "dist" / "mythify.skill",
-            source / "dist" / "mythify-cli-4.3.0.tar.gz",
-            source / "mcp-server" / "mythify-mcp-4.3.0.tgz",
+            source / "dist" / "mythify-cli-5.0.0.tar.gz",
+            source / "mcp-server" / "mythify-mcp-5.0.0.tgz",
         ]
         for index, asset in enumerate(assets, 1):
             asset.write_bytes(("asset-{}\n".format(index)).encode("ascii"))

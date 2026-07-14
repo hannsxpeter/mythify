@@ -24,6 +24,7 @@ cp scripts/mythify.py /path/to/your/project/scripts/
 cp scripts/mythify_*.py /path/to/your/project/scripts/
 cp protocol/operation-registry.json /path/to/your/project/protocol/
 cp protocol/classification-rules.json /path/to/your/project/protocol/
+cp protocol/model-capabilities.json /path/to/your/project/protocol/
 cp protocol/workflow-router.json /path/to/your/project/protocol/
 cd /path/to/your/project
 python3 scripts/mythify.py protocol check AGENTS.md
@@ -83,13 +84,15 @@ thread turn; Mythify itself records policy state rather than invoking that host
 tool.
 
 `model_policy.session.recommendation` is the task-based host hint. A direct
-question recommends the fast Codex profile (`gpt-5.4-mini`, low thinking,
-fast speed). Research, benchmark, design, release, migration, and security
-work recommends the strong Codex profile (`gpt-5.5`, high thinking, standard
-speed). Normal implementation work recommends the standard profile
-(`gpt-5.4`, medium thinking, auto speed). Override those model ids with
-`MYTHIFY_HOST_FAST_MODEL`, `MYTHIFY_HOST_STANDARD_MODEL`, and
-`MYTHIFY_HOST_STRONG_MODEL` when your Codex install exposes different names.
+question recommends `utility` (`gpt-5.6-luna`, low thinking, fast speed).
+Normal implementation recommends `balanced` (`gpt-5.6-terra`, medium
+thinking, auto speed). Research, benchmark, design, release, migration, and
+security recommend `strong` (`gpt-5.6-sol`, high thinking, standard speed).
+An explicit `max` profile keeps Sol and requests max or pro mode when the host
+supports it. Override those model ids with `MYTHIFY_HOST_UTILITY_MODEL`,
+`MYTHIFY_HOST_BALANCED_MODEL`, `MYTHIFY_HOST_STRONG_MODEL`, and
+`MYTHIFY_HOST_MAX_MODEL`. Legacy fast and standard override names remain
+accepted.
 
 Remove it with:
 
