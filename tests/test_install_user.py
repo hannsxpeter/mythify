@@ -110,6 +110,7 @@ class TestUserInstaller(unittest.TestCase):
             root + "/scripts/mythify_classification.py",
             root + "/protocol/PROTOCOL.md",
             root + "/protocol/classification-rules.json",
+            root + "/protocol/model-capabilities.json",
             root + "/protocol/operation-registry.json",
             root + "/protocol/workflow-router.json",
             root + "/skills/mythify/SKILL.md",

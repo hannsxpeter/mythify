@@ -77,7 +77,7 @@ class McpPackageTest(unittest.TestCase):
             self.assertEqual(installed.returncode, 0, installed.stderr)
             package_root = consumer / "node_modules" / "mythify-mcp"
             metadata = json.loads((package_root / "package.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["version"], "4.3.0")
+            self.assertEqual(metadata["version"], "5.0.0")
             self.assertTrue((package_root / "README.md").is_file())
             self.assertTrue((package_root / "LICENSE").is_file())
             self.assertTrue((package_root / "protocol" / "release-gates.json").is_file())

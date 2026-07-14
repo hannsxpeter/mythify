@@ -61,6 +61,22 @@ Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met
    `--session-model MODEL` when known, use `host-model switch MODEL` to persist
    intended host changes, keep spawned workers `same_or_lower` by default, and
    keep fanout visibility at `summary` unless the prompt asks otherwise.
+   Its `model_router` selects the provider-neutral profiles `utility`,
+   `balanced`, `strong`, or `max`. Use `--model-profile PROFILE` for an explicit
+   selection and `--failure-count N` only from executed verifier failures.
+   Automatic escalation moves one profile per failure and stops at `strong`;
+   `max` requires an explicit profile request. The provider mapping is OpenAI
+   Luna, Terra, Sol, and Sol with max or pro mode; Claude Haiku, Sonnet, Opus,
+   and Fable; Cursor workers discover the closest available model from
+   `agent models`. Legacy `fast`, `standard`, and `frontier` profile inputs
+   remain aliases for `utility`, `balanced`, and `strong`. Model review is
+   material only; executable verification remains command-first.
+   When `execution_topology.native_adapter.recommended` is true and the MCP
+   fanout tools are available, start exactly one task with
+   `fanout_start engine=claude-ultracode`, monitor it with `fanout_status`, and
+   ingest its material with `fanout_results` before running the deterministic
+   verifier. The adapter fails closed unless Claude Code 2.1.203 or newer
+   advertises UltraCode support.
    If `execution_profile` is `fast`, skip plan state, act, then `verify run`.
    If the user gives an explicit outcome and verifier, start a bounded outcome
    loop instead of relying on self-report:
@@ -130,7 +146,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and next control action. |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, exit codes, duration, and plan or step context. |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events; advances a cursor unless `--peek` is set; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. |
-| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router: classify the task, inspect durable state, and choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt-packet routing without mutating state. |
+| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router: classify the task, inspect durable state, choose a bounded capability profile and topology, then choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt-packet routing without mutating state. |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. |
@@ -148,7 +164,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `campaign advance [NAME] --result TEXT` | Advance the current task through understand, design, build, judge, verify, and reflect. |
 | `campaign learn LESSON` | Record a learning that should improve later tasks. |
 | `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet for research, analysis, failure recovery, handoff, review, campaign, or next. |
-| `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, and model policy. |
+| `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, provider-neutral capability profile, bounded escalation, and host-aware model policy. |
 | `loop-fit TASK [--json]` | Read-only advisory: assess a task against the loop-worthiness gates (machine-checkable done-condition, recurrence, reproduction environment, human judgment) and recommend a bounded self-driving loop, a supervised loop or verifier-gated plan, or doing it directly. Runs nothing. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
@@ -207,8 +223,14 @@ next-prompt routing without mutating state or recording evidence.
 classify the prompt, inspect active durable state and the latest executed
 verification, choose the next workflow route, return the suggested next command
 and prompt packet, and keep the initiating host chat as the executor unless the
-user explicitly hands work elsewhere. Both runtimes also read godplans and
-godaudits artifacts (`.godplans/PLAN.mdx`, `.godaudits/AUDIT.mdx`, with `.md`
+user explicitly hands work elsewhere. For independently parallel candidates,
+they also return a native `claude-ultracode` adapter contract. An MCP host can
+launch exactly one Claude dynamic workflow with `fanout_start`, monitor it with
+`fanout_status`, and ingest its final material with `fanout_results`. The
+adapter requires Claude Code 2.1.203 or newer, preserves host-owned permissions,
+and never treats workflow output as verification evidence. Both runtimes also
+read godplans and godaudits artifacts (`.godplans/PLAN.mdx`,
+`.godaudits/AUDIT.mdx`, with `.md`
 fallbacks) as project state: routing, `release_readiness`, and
 `evidence_harness` surface their status, task progress, open Critical
 findings, and counter drift, and the CLI `plan import` command converts their
@@ -255,7 +277,10 @@ action without mutating state or treating worker output as verification
 evidence. `phase_status` groups active plan steps into
 Understand, Design, Build, Judge, and Verify using durable state only; it does
 not mutate state or treat model confidence as progress. `classify_task` mirrors CLI triage and model
-policy. Fanout workers accept `engine`, `model`, `effort`, `speed`, and
+policy, including `model_profile` and nonnegative `failure_count`. The returned
+`model_router` uses the shared capability profiles and bounded escalation rules;
+provider resolution never implies cross-provider fallback, and model review
+never becomes verification evidence. Fanout workers accept `engine`, `model`, `effort`, `speed`, and
 `role`; stronger non-review workers require `spawn_ceiling: "allow_stronger"`
 when tier is known. A stronger reviewer requires a task with
 `role: "reviewer"` plus `reviewer_allow_stronger: true`, or the broader

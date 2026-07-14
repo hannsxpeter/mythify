@@ -260,9 +260,16 @@ available when explicitly useful, but they are not the default Mythify path.
 
 `classify_task` returns `model_policy.session.recommendation` so hosts can map
 the prompt to chat settings before work begins. Direct low-risk prompts use a
-fast profile with low thinking and fast speed, ordinary implementation uses a
-standard profile with medium thinking, and research or high-risk work uses a
-strong profile with high thinking and standard speed.
+`utility` profile, ordinary implementation uses `balanced`, and research or
+high-risk work uses `strong`; `max` remains explicit-only.
+
+When `model_policy.model_router.execution_topology.native_adapter.recommended`
+is true, use the MCP fanout lifecycle as the native UltraCode adapter: call
+`fanout_start` with `engine: "claude-ultracode"` and exactly one task, monitor
+with `fanout_status`, and ingest the result with `fanout_results`. The adapter
+requires Claude Code 2.1.203 or newer, preserves host permissions, and returns
+material rather than verification evidence. Run a deterministic verifier after
+integrating the workflow result.
 
 Fanout visibility defaults to `summary`: show worker titles, status counts,
 and notable findings in the main chat. Use quiet, verbose, or threaded only

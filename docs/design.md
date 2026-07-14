@@ -43,6 +43,7 @@ mythify/
 |-- protocol/
 |   |-- PROTOCOL.md              canonical protocol source
 |   |-- classification-rules.json deterministic classifier keywords
+|   |-- model-capabilities.json  shared model profile and provider mappings
 |   |-- operation-registry.json  shared operation metadata
 |   |-- release-gates.json       exact-command release readiness gates
 |   |-- workflow-router.json     shared workflow route metadata
@@ -57,6 +58,7 @@ mythify/
 |   |-- mythify_loopfit.py       loop-worthiness analysis helper
 |   |-- mythify_memory.py        memory and lesson helper
 |   |-- mythify_model_policy.py  model policy and triage helper
+|   |-- mythify_model_routing.py provider-neutral topology and review helper
 |   |-- mythify_outcomes.py      outcome loop helper
 |   |-- mythify_provenance.py    verification provenance helper
 |   |-- mythify_router.py        prompt packet and workflow route helper
@@ -94,6 +96,7 @@ mythify/
 |   |-- src/surface-manifest.js
 |   |-- src/verification-provenance.js
 |   |-- protocol/classification-rules.json package copy of classifier keywords
+|   |-- protocol/model-capabilities.json package copy of model profile policy
 |   |-- protocol/operation-registry.json package copy of operation metadata
 |   |-- protocol/release-gates.json package copy of readiness gates
 |   |-- protocol/workflow-router.json package copy of route metadata
@@ -350,12 +353,43 @@ Rules:
 - Python and Node tests must cover any newly added terms that affect public
   classification behavior.
 - `mcp-server/protocol/classification-rules.json`,
+  `mcp-server/protocol/model-capabilities.json`,
   `mcp-server/protocol/operation-registry.json`,
   `mcp-server/protocol/workflow-router.json`, and
   `mcp-server/protocol/surface-manifest.json` are package-local mirrors so the
   npm tarball can run without access to repository-root files. Run
   `node scripts/check_classification_rules_manifest.mjs`, the MCP smoke suite,
   and `node scripts/check_surface_manifest.mjs` to verify the mirrors.
+
+## Model capability manifest
+
+Shared model routing policy lives in `protocol/model-capabilities.json`. The
+Python CLI and Node MCP server load it at startup. Its package-local mirror is
+`mcp-server/protocol/model-capabilities.json`.
+
+The manifest owns:
+
+- The provider-neutral profiles `utility`, `balanced`, `strong`, and `max`.
+- Legacy input aliases: `fast` to `utility`, `standard` to `balanced`, and
+  `frontier` to `strong`.
+- Task-type defaults, high-risk overrides, and bounded failure escalation.
+- OpenAI and Anthropic model mappings plus Cursor runtime catalog preferences.
+- The native `claude-ultracode` adapter contract for dynamic-workflow
+  candidates.
+- The no-implicit-cross-provider-fallback rule and the command-first verifier
+  boundary.
+
+It does not change user authority, host permissions, or verification rules.
+Automatic escalation moves one profile for each supplied executed-verifier
+failure and stops at `strong`. `max` is never selected automatically and
+requires an explicit profile request. Cursor mappings intentionally contain no
+fixed model id; the worker reads `cursor-agent models` or `cursor agent models`,
+selects the first matching preferred term for the requested capability profile,
+and falls back to Cursor `auto` only when that id is present. The host still
+owns the current chat model.
+
+Run `node scripts/check_classification_rules_manifest.mjs` to verify both the
+classification and model capability mirrors.
 
 ## Workflow router manifest
 
@@ -986,7 +1020,7 @@ owns the public entry point and delegates cohesive command families to sibling
 | `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and the next control action from durable state. It does not mutate state or treat worker output as verification. | 0; 1 if no workspace |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. It does not mutate state, rerun checks, or upgrade attested claims. | 0; 1 if no workspace |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events, with an `Attention` section for failed checks, failed steps, failure reflections, and attested warnings. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. | 0; 1 if no workspace, invalid recent value, or incompatible flags |
-| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router. It classifies the task, inspects durable state and the latest executed verification, then returns a route, reason, next command, prompt packet, verification strategy, chat policy, pause rules, expected state writes, and evidence. It must not mutate state or move execution out of the initiating host unless the user explicitly asks. | 0; 1 if no workspace |
+| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router. It classifies the task, selects the capability profile and topology, inspects durable state and the latest executed verification, then returns a route, reason, next command, prompt packet, verification strategy, chat policy, pause rules, expected state writes, and evidence. It must not mutate state or move execution out of the initiating host unless the user explicitly asks. | 0; 1 if no workspace |
 | `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet. Kinds are `research`, `analysis`, `failure`, `handoff`, `review`, `campaign`, and `next`; packet output is steering material for the host, not verification evidence. `next` selects failure recovery only when the latest executed check is red, then campaign, research, handoff, or analysis based on active state. | 0; 1 if no workspace or named state is missing |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. It does not mutate state, run checks, stop loops, or treat notes as verification. | 0; 1 if no workspace |
@@ -1017,7 +1051,7 @@ owns the public entry point and delegates cohesive command families to sibling
 | `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and redacted output tails, append an executed record, print the verdict. Default timeout 300 seconds. If `MYTHIFY_DISABLE_RUN=1`, refuse: execute nothing, record nothing, print `[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed and nothing was recorded. Unset it to enable execution, or use verify claim to record a self-reported attestation.` and exit 2 (the unverified code, so callers branching on verify run treat a disabled run as not verified). | 0 if verified, 2 if unverified or disabled |
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |
-| `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|codex-desktop\|claude-desktop\|cursor-desktop] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. `--triage auto` runs one fast local model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
+| `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|unknown\|codex-desktop\|codex-cli\|claude-desktop\|claude-code\|cursor-desktop\|cursor-agent] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--model-profile auto\|utility\|balanced\|strong\|max\|fast\|standard\|frontier] [--failure-count N] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, capability-profile router, host-aware model policy, signals, and next action. `--failure-count` accepts a nonnegative executed-verifier failure count and cannot escalate beyond `strong`; `max` must be explicit. `--triage auto` runs one utility model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
 | `loop-fit TASK [--json]` | Read-only loop-fit advisory. Assess a task against ordered gates: is there a machine-checkable done-condition, does the work recur, is there a reproduction environment (git repo), does it need human judgment. Recommend `loop` (bounded `outcome run`), `supervised` (verifier-gated plan or `outcome check`), or `direct`, with the criteria, matched signals, and a suggested next command. Runs nothing, records no evidence, and needs no `.mythify` workspace. | 0 |
 | `summary` | Full session report: plans and progress, memory count, project and global lesson counts, verification stats (executed passed, executed failed, attested count), reflection count. | 0 |
 
@@ -1035,7 +1069,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 20+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `4.3.0`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `5.0.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
@@ -1048,7 +1082,7 @@ does AND when to use it, since descriptions drive tool selection.
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
-| `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, model policy, task-based host recommendation, signals, and next action. With `triage: auto`, run one fast local model only when the deterministic gate recommends it. |
+| `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, utility model triage fit, capability-profile router, host-aware model policy, signals, and next action. `failure_count` supports bounded escalation through `strong`; `max` must be explicit. With `triage: auto`, run one utility local model only when the deterministic gate recommends it. |
 | `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance, registry-backed `host_capability`, `switch_result`, `host_confirmation`, and `adapter_proof_scan`, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate or confirm the current host chat unless a future host integration exposes that capability and confirms the result. |
 | `provider_probe` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe an OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `api_key_env` is restricted to the fixed allowlist containing `MYTHIFY_OPENAI_COMPAT_API_KEY`; arbitrary process variables are rejected before any request. `provider: "ollama"` defaults to `MYTHIFY_OLLAMA_BASE_URL` or `http://localhost:11434/v1`; `provider: "lm-studio"` defaults to `MYTHIFY_LM_STUDIO_BASE_URL` or `http://localhost:1234/v1`; `provider: "llama-cpp"` defaults to `MYTHIFY_LLAMA_CPP_BASE_URL` or `http://localhost:8080/v1`; `provider: "vllm"` defaults to `MYTHIFY_VLLM_BASE_URL` or `http://localhost:8000/v1`. Local profiles use provider-specific model env vars and no auth header by default. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
 | `local_model_run` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `api_key_env` uses the same fixed allowlist as `provider_probe`. `provider: "ollama"`, `provider: "lm-studio"`, `provider: "llama-cpp"`, and `provider: "vllm"` default to local profiles. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
@@ -1068,7 +1102,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `phase_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only Understand, Design, Build, Judge, Verify phase view of active plan steps and durable evidence counts. It must not mutate state and must not report model confidence as progress. |
 | `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Render a chat-ready next prompt for the active or named campaign's current task and phase. It must not mutate state, run checks, advance a phase, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and advances the campaign with evidence. |
 | `prompt_packet` | `{kind?: enum(research, analysis, failure, handoff, review, campaign, next), name?: string, goal?: string, verify_command?: string, format?: enum(text, json)}` | Render a chat-ready prompt packet for research to implementation, analysis to plan, failure recovery, handoff, review, campaign, or the next useful workflow move. It must not mutate state, run checks, advance work, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and records evidence. |
-| `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text and durable state. It returns `route`, `reason`, `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
+| `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text, capability-profile policy, and durable state. It returns `route`, `reason`, `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
 | `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` supplies advisory Git scope reporting to supervised checks. CLI `outcome run` enforces it against a clean Git baseline and stops on violations or inspection failures. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
 | `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
@@ -1118,6 +1152,17 @@ Classification is two-stage:
 
 Classification always returns `model_policy`. It separates:
 
+- `model_router`: provider-neutral routing across six independent axes:
+  autonomy policy, execution topology, model profile, reasoning effort, review
+  policy, and verification gate. Task classification selects `utility`,
+  `balanced`, or `strong`. An explicit `model_profile` may also select `max`.
+  `failure_count` moves one tier per supplied executed-verifier failure and is
+  capped at `strong`. For independently parallel work, the router may recommend
+  the MCP-only `claude-ultracode` adapter. The initiating host launches one
+  native Claude workflow through `fanout_start`, monitors it with
+  `fanout_status`, and ingests its material with `fanout_results`. Its autonomy
+  policy inherits the user's request, its permissions remain host-owned, and
+  its verifier is always deterministic-command-first.
 - `provider_defaults`: advisory provider defaults for each role. These are
   policy metadata only and do not route work by themselves. Precedence is
   future explicit role input, `MYTHIFY_ROLE_<ROLE>_PROVIDER`, then built-in
@@ -1176,10 +1221,12 @@ Classification always returns `model_policy`. It separates:
   user-reported current model input from host-confirmed current model evidence.
   The `adapter_proof_scan` record reports supported, unsupported, or unknown
   apply and confirm paths without mutating host state.
-- `session.recommendation`: task-based host settings with `action`,
-  `target_profile`, `target_model`, `target_model_source`,
-  `target_model_tier`, `thinking`, `speed`, and `reason`. The action is one
-  of `keep`, `downgrade`, `upgrade`, or `recommend_set`.
+- `session.recommendation`: task-based host settings with `action`, legacy
+  `target_profile`, canonical `capability_profile`, `target_provider`,
+  `target_model`, `target_api_model`, `target_model_source`,
+  `target_model_status`, `target_model_tier`, `thinking`, `speed`, resolution
+  metadata, and `reason`. The action is one of `keep`, `downgrade`, `upgrade`,
+  `recommend_set`, or `recommend_discover`.
 - `spawn_ceiling`: policy object with `policy`, `source`, `session_model`,
   `session_model_source`, `session_model_tier`, default, and opt-in rule.
 - `reader`: optional read-only model role for inspecting supplied material.
@@ -1189,9 +1236,11 @@ Classification always returns `model_policy`. It separates:
   model tier, relation to the session model, provider default, effort,
   timeout, max turns, and sandbox.
 - `fanout_worker`: default policy for independent fanout tasks, including
-  chat visibility (`quiet`, `summary`, `verbose`, or `threaded`).
+  canonical capability profile, provider-specific recommended model and
+  effort, plus chat visibility (`quiet`, `summary`, `verbose`, or `threaded`).
 - `reviewer`: whether a separate reviewer worker is useful, its effort, and
-  the explicit stronger-model policy. Reviewers default to same-or-lower than
+  its independently selected capability profile and explicit stronger-model
+  policy. Reviewers default to same-or-lower than
   the initiating session; `reviewer_strength: "allow_stronger"` records
   classifier policy. Actual fanout still requires `role: "reviewer"` plus
   `reviewer_allow_stronger: true` before reviewer fanout may exceed the
@@ -1225,6 +1274,12 @@ Built-in role provider catalog:
 `codex-cli`, `claude-desktop`, `claude-code`, `cursor-desktop`, or
 `cursor-agent`. `--effort` and MCP `effort` may be `auto`, `low`, `medium`,
 or `high`. `--speed` and MCP `speed` may be `auto`, `standard`, or `fast`.
+`--model-profile`, MCP `model_profile`, and `MYTHIFY_MODEL_PROFILE` may be
+`auto`, `utility`, `balanced`, `strong`, `max`, or the compatibility aliases
+`fast`, `standard`, and `frontier`. `--failure-count`, MCP `failure_count`, and
+`MYTHIFY_FAILURE_COUNT` accept a nonnegative count derived from executed
+verifier failures. Automatic escalation is capped at `strong`; `max` requires
+an explicit request.
 Auto speed preserves the host or CLI default; fast maps to Codex fast mode
 where supported; standard explicitly disables Codex fast mode for that spawned
 worker. `--session-model`, MCP `session_model`, and
@@ -1237,16 +1292,26 @@ if neither is set, Mythify uses `.mythify/host-model.json` when present.
 `allow_stronger`; auto defaults to `same_or_lower`. Auto effort keeps triage
 cheap and scales fanout or reviewer effort by risk and ceremony.
 
-Host recommendations are profile-based, then mapped to platform model names.
-Direct low-risk prompts use profile `fast`, thinking `low`, and speed `fast`.
-Research, benchmark, design, security, release, and migration prompts use
-profile `strong`, thinking `high`, and speed `standard`. Ambiguous or normal
-implementation work uses profile `standard`, thinking `medium`, and speed
-`auto`. Defaults are Codex `gpt-5.4-mini`, `gpt-5.4`, `gpt-5.5`; Claude
-`haiku`, `sonnet`, `opus`; and Cursor `gpt-5.3-codex-low-fast`,
-`gpt-5.3-codex`, `gpt-5.3-codex-high`. The defaults can be replaced with
-`MYTHIFY_HOST_FAST_MODEL`, `MYTHIFY_HOST_STANDARD_MODEL`, and
-`MYTHIFY_HOST_STRONG_MODEL`.
+Host recommendations are capability-profile based, then resolved within the
+selected host provider. Direct low-risk prompts use `utility`; normal
+implementation, debugging, review, and docs use `balanced`; research,
+benchmark, design, security, release, and migration use `strong`; and `max`
+is explicit only.
+
+| Profile | OpenAI | Claude | Cursor |
+| :--- | :--- | :--- | :--- |
+| `utility` | `gpt-5.6-luna`, low | `haiku` (`claude-haiku-4-5`), low | Discover Luna, Haiku, Mini, Flash, or Composer |
+| `balanced` | `gpt-5.6-terra`, medium | `sonnet` (`claude-sonnet-5`), high | Discover Terra, Sonnet, Composer, or `auto` |
+| `strong` | `gpt-5.6-sol`, high | `opus` (`claude-opus-4-8`), xhigh | Discover Opus, Sol, or Gemini 3.1 Pro |
+| `max` | `gpt-5.6-sol`, max or pro mode | `fable` (`claude-fable-5`), max | Discover Fable, Opus, or Sol |
+
+Cursor discovery reads the installed runtime catalog. If no preferred match is
+available, it uses `auto` only when the catalog lists it; otherwise it leaves
+the model unset for the Cursor default. It never crosses to another provider.
+Canonical model overrides use `MYTHIFY_HOST_UTILITY_MODEL`,
+`MYTHIFY_HOST_BALANCED_MODEL`, `MYTHIFY_HOST_STRONG_MODEL`, and
+`MYTHIFY_HOST_MAX_MODEL`. Legacy `MYTHIFY_HOST_FAST_MODEL` and
+`MYTHIFY_HOST_STANDARD_MODEL` remain accepted after their canonical forms.
 
 The fast model pass is not verification. It returns a problem frame that the
 main agent may use before planning. The required JSON shape is:
@@ -1869,20 +1934,22 @@ Implementation lives in `mcp-server/src/fanout.js`, wired into the server in
 ### Engines
 
 A worker is one fresh model invocation with no memory of the conversation.
-Six engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
+Seven engines, selected by `MYTHIFY_FANOUT_ENGINE` or auto-detected in this
 order: explicit env value, else `codex-cli` if a codex binary resolves,
 regardless of the initiating host, else `claude-cli` if a claude binary
 resolves, else `cursor-agent` if Cursor Agent resolves, else `anthropic` if
 `ANTHROPIC_API_KEY` is set, else `command` if `MYTHIFY_FANOUT_COMMAND` is set,
-else `fanout_start` refuses with a message listing all six options. `openai`
-is explicit-only because it needs both an endpoint and a model.
+else `fanout_start` refuses with a message listing all seven options. `openai`
+and `claude-ultracode` are explicit-only. OpenAI needs an endpoint and model;
+UltraCode needs a supported Claude CLI and an independently parallel objective.
 
 | Engine | Mechanism | Billing | Models |
 | :--- | :--- | :--- | :--- |
 | `claude-cli` | Spawn `<bin> -p --output-format json --model <model> --max-turns <N>` with the assembled prompt on stdin, cwd = project root (parent of `.mythify/`). Parse the JSON output: `result` is the text, `is_error` true or a non-zero exit means failure. | Claude subscription (or whatever auth the claude CLI resolves) | Aliases `haiku`, `sonnet`, `opus`, `fable`, or any full model ID |
+| `claude-ultracode` | Probe `claude --version` and `claude --help`, require Claude Code 2.1.203 or newer with UltraCode support, then spawn one `<bin> -p --output-format json --model <model> --effort ultracode --max-turns <N>` workflow. Reuses the fanout job, status, result, timeout, redaction, audit, and worktree lifecycle. | Claude subscription or enabled usage credits | Defaults to `opus`; explicit models remain subject to the spawn ceiling |
 | `codex-cli` | Spawn `<bin> --ask-for-approval never exec --cd <project> --sandbox <mode> --skip-git-repo-check --ephemeral --color never --output-last-message <tmp> [-m <model>] -` with the assembled prompt on stdin. Exit 0 means success; the worker output is the output-last-message file, falling back to stdout. | Codex CLI local login, usually ChatGPT/Codex subscription auth | Any model the local Codex CLI supports; empty model means the CLI default |
 | `cursor-agent` | Spawn `cursor-agent --print --output-format text --trust --workspace <project> [--mode <mode>] [--model <model>] <prompt-file-instruction>`, or `cursor agent ...` when the configured binary is `cursor`. The assembled prompt is written to a temporary file under `.mythify/tmp/`; stdout is the worker output. | Cursor Agent local login, usually Cursor subscription auth | Any model Cursor Agent exposes; empty model means the agent default |
-| `anthropic` | POST `https://api.anthropic.com/v1/messages` (anthropic-version 2023-06-01) with `max_tokens` from env. Aliases map: haiku to claude-haiku-4-5, sonnet to claude-sonnet-4-6, opus to claude-opus-4-8, fable to claude-fable-5. Join text blocks. | API key (`ANTHROPIC_API_KEY`) | Any Claude model ID |
+| `anthropic` | POST `https://api.anthropic.com/v1/messages` (anthropic-version 2023-06-01) with `max_tokens` from env. Aliases map: haiku to claude-haiku-4-5, sonnet to claude-sonnet-5, opus to claude-opus-4-8, fable to claude-fable-5. Join text blocks. | API key (`ANTHROPIC_API_KEY`) | Any Claude model ID |
 | `openai` | POST `<MYTHIFY_FANOUT_BASE_URL>/chat/completions` with `MYTHIFY_FANOUT_API_KEY`. | Provider API key | Any model the endpoint serves |
 | `command` | Run the `MYTHIFY_FANOUT_COMMAND` shell template; prompt on stdin; stdout is the output; exit 0 is success. | Whatever the command does | Anything (generic CLI agents; also used by CI to test the job machinery with no network) |
 
@@ -1896,6 +1963,11 @@ token-cost-sensitive usage: included usage applies only within plan limits, and
 if usage credits are enabled and included limits are reached, continued usage
 can be billed at standard API pricing. Fanout start output, job metadata, task
 metadata, and provider audit cost metadata include a warning for `claude-cli`.
+`claude-ultracode` adds a stronger warning because xhigh reasoning and dynamic
+workflow subagents can consume substantially more quota. It accepts exactly one
+task per job, forces `effort: ultracode`, records `execution_mode: ultracode`,
+and refuses before job creation when the installed Claude CLI is too old or
+does not advertise UltraCode support.
 
 The hosted provider engines, `anthropic` and `openai`, require
 `hosted_provider_billing_ack: true`, `hosted_provider_data_ack: true`, and
@@ -1941,6 +2013,7 @@ is documented as: run `claude /login` once in a terminal, or run
 
 Most specific wins: per-task `model` overrides per-job `model` overrides
 `MYTHIFY_FANOUT_MODEL` overrides the engine default (`haiku` for `claude-cli`,
+`opus` for `claude-ultracode`,
 `claude-haiku-4-5` for `anthropic`, empty string for `codex-cli` and
 `cursor-agent`, which means each local CLI uses its configured default). The
 same precedence applies to `engine`, so one job may mix engines and models
@@ -1979,19 +2052,22 @@ Platform mapping:
 - `claude-cli`: resolved `effort` is passed as `--effort`; `speed` is recorded
   and included in the worker prompt because Claude Code exposes no separate
   speed flag.
+- `claude-ultracode`: effort is fixed to `ultracode`; the engine requires one
+  task, launches one native dynamic workflow, and uses the same status and
+  result lifecycle as other fanout jobs.
 - `cursor-agent`: `model`, `effort`, and `speed` are resolved against the local
-  `cursor-agent models` list. For example, `model: "gpt-5.3-codex"`,
+  `cursor-agent models` list. For example, `model: "gpt-5.6-sol"`,
   `effort: "high"`, and `speed: "fast"` resolves to
-  `gpt-5.3-codex-high-fast` when that id is available. If no matching encoded
+  `gpt-5.6-sol-high-fast` when that id is available. If no matching encoded
   id is found, Mythify leaves the requested model unchanged.
 
 ### Tools (3, total 41)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
-| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], role?: enum(worker, reviewer), isolation?: enum(none, worktree), model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_allow_stronger?: boolean, hosted_provider_billing_ack?: boolean, hosted_provider_data_ack?: boolean, hosted_provider_material_ack?: boolean, timeout_seconds?: number}` | Validate 1 to `MYTHIFY_FANOUT_MAX_TASKS` independent tasks, resolvable engines, context containment, model ceilings, kill switch, depth guard, and hosted-provider acknowledgements. Each task's `prompt` is the full self-contained instruction for this worker; the worker sees only that prompt plus readable `context_paths` content. `isolation: worktree` gives a writing task a fresh Git worktree and branch; changed work is committed for host merge, while an unchanged branch is removed. Non-Git setup falls back to the shared root with recorded metadata. Create `.mythify/fanout/<job_id>/job.json`, return the job id immediately, and run workers with a concurrency pool. Each task is a fresh model call that costs real money, subscription quota, or local compute. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
-| `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, model, model tier, effort, speed, visibility, and elapsed. Quiet jobs show aggregate progress and failures only. If the job is marked running on disk but unknown to the in-memory registry (server restarted), mark its running tasks `interrupted` and say so. |
-| `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). Per-task text in the tool result is capped at 20000 characters with a note pointing at the task output file. Warns when tasks are still running. |
+| `fanout_start` | `{tasks: [{title: string, prompt: string, context_paths?: string[], role?: enum(worker, reviewer), isolation?: enum(none, worktree), model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast)}], purpose?: string, model?: string, engine?: string, effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), visibility?: enum(auto, quiet, summary, verbose, threaded), session_model?: string, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_allow_stronger?: boolean, hosted_provider_billing_ack?: boolean, hosted_provider_data_ack?: boolean, hosted_provider_material_ack?: boolean, timeout_seconds?: number}` | Validate 1 to `MYTHIFY_FANOUT_MAX_TASKS` independent tasks, resolvable engines, context containment, model ceilings, kill switch, depth guard, and hosted-provider acknowledgements. `engine: claude-ultracode` requires exactly one task and a supported Claude CLI. Each task receives the full self-contained instruction for this worker; the worker sees only that prompt plus readable `context_paths` content. `isolation: worktree` gives a writing task a fresh Git worktree and branch; changed work is committed for host merge, while an unchanged branch is removed. Non-Git setup falls back to the shared root with recorded metadata. Create `.mythify/fanout/<job_id>/job.json`, return the job id immediately, and run workers with a concurrency pool. Each task is a fresh model call that costs real money, subscription quota, or local compute. Visibility defaults to summary unless `visibility`, `purpose`, or task prompts request quiet, verbose, or threaded reporting. |
+| `fanout_status` | `{job_id?: string}` | Default: most recent job. Per-task lines with the step icon convention plus counts, engine, execution mode, model, model tier, effort, speed, visibility, and elapsed. This is also the monitoring surface for native UltraCode jobs. Quiet jobs show aggregate progress and failures only. If the job is marked running on disk but unknown to the in-memory registry (server restarted), mark its running tasks `interrupted` and say so. |
+| `fanout_results` | `{job_id?: string, task_id?: number}` | Return outputs of completed and failed tasks (failures include the error and remediation). For UltraCode, this ingests the native workflow's final response as material, not verification evidence. Per-task text in the tool result is capped at 20000 characters with a note pointing at the task output file. Warns when tasks are still running. |
 
 Job ids: `fo-<YYYYMMDDHHMMSS>-<4 random hex>`. Worker prompt assembly:
 fixed preamble (you are a delegated worker; the task is self-contained; do not
@@ -2106,9 +2182,11 @@ or upgrade provider output into evidence.
 | :--- | :--- | :--- |
 | `MYTHIFY_DISABLE_FANOUT` | unset | `1` disables all three tools (they refuse with an explanation). |
 | `MYTHIFY_HOST_PLATFORM` | auto | Declares the initiating host for session policy. Worker engine selection still defaults to `codex-cli` when available unless explicitly overridden. |
-| `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
+| `MYTHIFY_FANOUT_ENGINE` | auto | `claude-cli`, `claude-ultracode`, `codex-cli`, `cursor-agent`, `anthropic`, `openai`, `command`. |
 | `MYTHIFY_FANOUT_MODEL` | engine default | Default worker model. |
 | `MYTHIFY_SESSION_MODEL` | recorded host model or unknown | Current host session model used for spawn ceiling checks. Beats `.mythify/host-model.json` when set. |
+| `MYTHIFY_MODEL_PROFILE` | `auto` | Capability profile for classification and routing: `auto`, `utility`, `balanced`, `strong`, `max`, or a legacy alias. |
+| `MYTHIFY_FAILURE_COUNT` | `0` | Nonnegative executed-verifier failure count used for bounded one-tier escalation capped at `strong`. |
 | `MYTHIFY_SPAWN_CEILING` | `same_or_lower` | Spawn ceiling: `auto`, `lower_only`, `same_or_lower`, or `allow_stronger`. |
 | `MYTHIFY_REVIEWER_STRENGTH` | `same_or_lower` | Reviewer strength policy: `auto`, `same_or_lower`, or `allow_stronger`. |
 | `MYTHIFY_OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Local Ollama OpenAI-compatible `/v1` endpoint for `provider: "ollama"`. |
@@ -2128,9 +2206,12 @@ or upgrade provider output into evidence.
 | `MYTHIFY_HOSTED_OPENAI_COMPAT_MODEL` | unset | Hosted OpenAI-compatible model id env name recorded in provider metadata. |
 | `MYTHIFY_HOSTED_OPENAI_COMPAT_PROVIDER` | unset | Optional hosted OpenAI-compatible provider label env name recorded in provider metadata. |
 | `MYTHIFY_HOSTED_OPENAI_COMPAT_PRICING_URL` | unset | Optional hosted OpenAI-compatible pricing URL env name recorded in provider metadata. |
-| `MYTHIFY_HOST_FAST_MODEL` | platform default | Host recommendation model for direct, trivial, or focused low-risk prompts. |
-| `MYTHIFY_HOST_STANDARD_MODEL` | platform default | Host recommendation model for balanced implementation, debugging, review, and docs prompts. |
-| `MYTHIFY_HOST_STRONG_MODEL` | platform default | Host recommendation model for research, benchmarks, design, release, migration, and security prompts. |
+| `MYTHIFY_HOST_UTILITY_MODEL` | provider mapping | Canonical host recommendation override for utility work. |
+| `MYTHIFY_HOST_BALANCED_MODEL` | provider mapping | Canonical host recommendation override for balanced work. |
+| `MYTHIFY_HOST_STRONG_MODEL` | provider mapping | Canonical host recommendation override for strong work. |
+| `MYTHIFY_HOST_MAX_MODEL` | provider mapping | Canonical host recommendation override for explicitly selected max work. |
+| `MYTHIFY_HOST_FAST_MODEL` | canonical utility mapping | Compatibility override used after `MYTHIFY_HOST_UTILITY_MODEL`. |
+| `MYTHIFY_HOST_STANDARD_MODEL` | canonical balanced mapping | Compatibility override used after `MYTHIFY_HOST_BALANCED_MODEL`. |
 | `MYTHIFY_ROLE_SESSION_PROVIDER` | `host` | Advisory provider default for the session role. Invalid values are ignored. |
 | `MYTHIFY_ROLE_TRIAGE_PROVIDER` | `host_cli` | Advisory provider default for the triage role. Invalid values are ignored. |
 | `MYTHIFY_ROLE_READER_PROVIDER` | `local_openai_compatible` | Advisory provider default for the reader role. Invalid values are ignored. |
@@ -2226,7 +2307,7 @@ step (`step ID in_progress`) sets the lower bound, the VERIFY step
 
 ## Versioning
 
-This is Mythify v4.3.0. Fanout was added in 2.1.0; 2.2.0 added local
+This is Mythify v5.0.0. Fanout was added in 2.1.0; 2.2.0 added local
 subscription-backed `codex-cli` and `cursor-agent` engines; 2.3.0 added
 task classification; 2.4.0 added optional fast model triage after
 classification, execution profiles, platform-aware model policy,
@@ -2336,6 +2417,8 @@ advisory that flags uncited claims as material, verification-drift and
 long-run reminders in the evidence harness, a high-stakes labeled-variants
 prompt for hard-to-reverse fixes, and the tool-use-contract doc.
 4.3.0 hardens evidence provenance, release gates, scoped self-driving loops,
-standalone distribution, and deterministic release assets. The CLI reports
-4.3.0 through `--version`; the MCP server reads `package.json`
-and reports the package version through server info.
+standalone distribution, and deterministic release assets. 5.0.0 adds shared
+provider-neutral capability profiles, bounded verifier-failure escalation,
+live Cursor catalog discovery, and a native Claude UltraCode adapter over the
+existing fanout lifecycle. The CLI reports 5.0.0 through `--version`; the MCP
+server reads `package.json` and reports the package version through server info.

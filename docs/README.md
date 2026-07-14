@@ -39,7 +39,8 @@ decision records.
 - Keep current setup instructions in sync with the required drop-in files:
   protocol variant, `scripts/mythify.py`, adjacent `scripts/mythify_*.py`
   helpers, `protocol/operation-registry.json`,
-  `protocol/classification-rules.json`, and `protocol/workflow-router.json`.
+  `protocol/classification-rules.json`, `protocol/model-capabilities.json`, and
+  `protocol/workflow-router.json`.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
 - Keep MCP public surface claims at 41 tools: 38 core tools plus 3 fanout tools.

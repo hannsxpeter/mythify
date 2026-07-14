@@ -27,6 +27,7 @@ cp scripts/mythify.py /path/to/your/project/scripts/
 cp scripts/mythify_*.py /path/to/your/project/scripts/
 cp protocol/operation-registry.json /path/to/your/project/protocol/
 cp protocol/classification-rules.json /path/to/your/project/protocol/
+cp protocol/model-capabilities.json /path/to/your/project/protocol/
 cp protocol/workflow-router.json /path/to/your/project/protocol/
 cd /path/to/your/project
 python3 scripts/mythify.py protocol check CLAUDE.md
@@ -138,6 +139,8 @@ engines, those workers use subscriptions you already authenticated in a
 terminal instead of API keys:
 
 - `claude-cli`: run `claude /login`, or use `claude setup-token` for Desktop.
+- `claude-ultracode`: update to Claude Code 2.1.203 or newer, then use the same
+  Claude authentication as `claude-cli`.
 - `codex-cli`: run `codex login`.
 - `cursor-agent`: run `cursor-agent login`, or `cursor agent login`.
 
@@ -172,6 +175,14 @@ Why Desktop needs them:
   usually inherit that stored credential through `HOME`; otherwise run
   `claude setup-token` and put the printed token in the `env` block. A worker
 failure containing `Not logged in` or `401` means exactly this is missing.
+
+When `workflow_route` returns a recommended `execution_adapter` with engine
+`claude-ultracode`, call `fanout_start` with that engine and exactly one
+self-contained task. Mythify probes the CLI before creating the job, launches
+one native dynamic workflow with `--effort ultracode`, monitors it through
+`fanout_status`, and ingests the final response through `fanout_results`.
+Workflow output remains material; run `verify_run` on the merged result before
+claiming completion. The adapter never passes a permission-bypass flag.
 
 For Codex workers in any MCP client, set the engine and, if needed, the binary
 path:
@@ -228,7 +239,7 @@ capability, higher task success, or lower total cost. Check Anthropic's current
 model availability and pricing before making a cost decision.
 
 Switching models in Claude Code (aliases `haiku`, `sonnet`, `opus`, `fable`,
-or full model IDs like `claude-haiku-4-5` and `claude-sonnet-4-6`):
+or full model IDs like `claude-haiku-4-5` and `claude-sonnet-5`):
 
 ```bash
 claude --model haiku                 # one session
@@ -241,11 +252,13 @@ In Mythify MCP, call `host_model_switch` with `platform: "claude-code"` or
 model policy and spawn ceiling checks. Claude Code can apply the returned
 `/model <target>` action; Claude Desktop still requires its model picker.
 `classify_task` also returns `model_policy.session.recommendation`: direct
-low-risk prompts map to `haiku`, low thinking, and fast speed; ordinary
-implementation maps to `sonnet`, medium thinking, and auto speed; research or
-high-risk prompts map to `opus`, high thinking, and standard speed. Override
-these model names with `MYTHIFY_HOST_FAST_MODEL`,
-`MYTHIFY_HOST_STANDARD_MODEL`, and `MYTHIFY_HOST_STRONG_MODEL` when needed.
+low-risk prompts map to `utility` with `haiku` and low effort; ordinary
+implementation maps to `balanced` with `sonnet` and high effort; research or
+high-risk prompts map to `strong` with `opus` and xhigh effort. Explicit
+`max` maps to `fable` and max effort. Override these names with
+`MYTHIFY_HOST_UTILITY_MODEL`, `MYTHIFY_HOST_BALANCED_MODEL`,
+`MYTHIFY_HOST_STRONG_MODEL`, and `MYTHIFY_HOST_MAX_MODEL` when needed. Legacy
+fast and standard override names remain accepted.
 
 Or persistently, in `.claude/settings.json`:
 

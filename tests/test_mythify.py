@@ -30,6 +30,7 @@ PY_GODFILES = REPO_ROOT / "scripts" / "mythify_godfiles.py"
 PY_IO = REPO_ROOT / "scripts" / "mythify_io.py"
 PY_MEMORY = REPO_ROOT / "scripts" / "mythify_memory.py"
 PY_MODEL_POLICY = REPO_ROOT / "scripts" / "mythify_model_policy.py"
+PY_MODEL_ROUTING = REPO_ROOT / "scripts" / "mythify_model_routing.py"
 PY_MODEL_TRIAGE = REPO_ROOT / "scripts" / "mythify_model_triage.py"
 PY_OUTCOMES = REPO_ROOT / "scripts" / "mythify_outcomes.py"
 PY_PARSER = REPO_ROOT / "scripts" / "mythify_parser.py"
@@ -42,6 +43,7 @@ PY_WORKFLOWS = REPO_ROOT / "scripts" / "mythify_workflows.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
 SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
+MODEL_CAPABILITIES = REPO_ROOT / "protocol" / "model-capabilities.json"
 WORKFLOW_ROUTER = REPO_ROOT / "protocol" / "workflow-router.json"
 
 NO_WORKSPACE_MESSAGE = (
@@ -643,6 +645,10 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_model_policy.py",
         )
         shutil.copy2(
+            PY_MODEL_ROUTING,
+            self.project / "scripts" / "mythify_model_routing.py",
+        )
+        shutil.copy2(
             PY_MODEL_TRIAGE,
             self.project / "scripts" / "mythify_model_triage.py",
         )
@@ -695,6 +701,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             CLASSIFICATION_RULES,
             self.project / "protocol" / "classification-rules.json",
+        )
+        shutil.copy2(
+            MODEL_CAPABILITIES,
+            self.project / "protocol" / "model-capabilities.json",
         )
         shutil.copy2(
             WORKFLOW_ROUTER,
@@ -983,6 +993,113 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["model_policy"]["session"]["control"], "host_selected")
         self.assertEqual(payload["model_policy"]["verifier"]["engine"], "local_command")
 
+    def test_classify_capability_profiles_and_bounded_escalation(self):
+        direct = self.run_cli(
+            "classify",
+            "what does this project do?",
+            "--json",
+            "--platform",
+            "codex-cli",
+        )
+        self.assertEqual(direct.returncode, 0, direct.stderr)
+        direct_payload = json.loads(direct.stdout)
+        direct_router = direct_payload["model_policy"]["model_router"]
+        self.assertEqual(direct_router["selection"]["selected_profile"], "utility")
+        self.assertEqual(direct_router["execution_topology"]["recommended"], "direct")
+        self.assertFalse(direct_router["verification_gate"]["model_is_verifier"])
+
+        escalated = self.run_cli(
+            "classify",
+            "what does this project do?",
+            "--json",
+            "--platform",
+            "codex-cli",
+            "--failure-count",
+            "2",
+        )
+        self.assertEqual(escalated.returncode, 0, escalated.stderr)
+        escalated_router = json.loads(escalated.stdout)["model_policy"]["model_router"]
+        self.assertEqual(escalated_router["selection"]["selected_profile"], "strong")
+        self.assertEqual(escalated_router["selection"]["escalation_steps"], 2)
+        self.assertFalse(escalated_router["selection"]["automatic_max_enabled"])
+
+        explicit_max = self.run_cli(
+            "classify",
+            "implement a focused fix",
+            "--json",
+            "--model-profile",
+            "max",
+        )
+        self.assertEqual(explicit_max.returncode, 0, explicit_max.stderr)
+        max_router = json.loads(explicit_max.stdout)["model_policy"]["model_router"]
+        self.assertEqual(max_router["selection"]["selected_profile"], "max")
+        self.assertEqual(max_router["selection"]["requested_profile_source"], "explicit")
+
+        legacy = self.run_cli(
+            "classify",
+            "implement a focused fix",
+            "--json",
+            "--model-profile",
+            "frontier",
+        )
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        legacy_selection = json.loads(legacy.stdout)["model_policy"]["model_router"]["selection"]
+        self.assertEqual(legacy_selection["selected_profile"], "strong")
+        self.assertEqual(legacy_selection["requested_profile_source"], "explicit_legacy_alias")
+
+        research = self.run_cli(
+            "classify",
+            "research current model routing options",
+            "--json",
+        )
+        self.assertEqual(research.returncode, 0, research.stderr)
+        research_router = json.loads(research.stdout)["model_policy"]["model_router"]
+        self.assertEqual(research_router["selection"]["selected_profile"], "strong")
+        self.assertTrue(research_router["execution_topology"]["dynamic_workflow_candidate"])
+        self.assertTrue(research_router["execution_topology"]["automatic_dynamic_workflow"])
+        adapter = research_router["execution_topology"]["native_adapter"]
+        self.assertEqual(adapter["engine"], "claude-ultracode")
+        self.assertEqual(adapter["start_tool"], "fanout_start")
+        self.assertEqual(adapter["status_tool"], "fanout_status")
+        self.assertEqual(adapter["results_tool"], "fanout_results")
+        self.assertEqual(adapter["result_evidence_status"], "material_not_verification")
+
+        explicit_ultracode = self.run_cli(
+            "classify",
+            "ultracode: implement this migration",
+            "--json",
+        )
+        self.assertEqual(explicit_ultracode.returncode, 0, explicit_ultracode.stderr)
+        explicit_topology = json.loads(explicit_ultracode.stdout)["model_policy"]["model_router"]["execution_topology"]
+        self.assertEqual(explicit_topology["dynamic_workflow_candidate_source"], "explicit_request")
+        self.assertTrue(explicit_topology["native_adapter"]["recommended"])
+        self.assertEqual(explicit_topology["native_adapter"]["activation"], "explicit_request")
+
+        invalid = self.run_cli(
+            "classify",
+            "fix a bug",
+            "--failure-count",
+            "-1",
+        )
+        self.assertEqual(invalid.returncode, 2)
+        self.assertIn("must be a nonnegative integer", invalid.stderr)
+
+        invalid_env = self.run_cli(
+            "classify",
+            "what is 1 + 1?",
+            "--json",
+            env_extra={"MYTHIFY_FAILURE_COUNT": "-1"},
+        )
+        self.assertEqual(invalid_env.returncode, 0, invalid_env.stderr)
+        invalid_selection = json.loads(invalid_env.stdout)["model_policy"][
+            "model_router"
+        ]["selection"]
+        self.assertEqual(invalid_selection["failure_count"], 0)
+        self.assertEqual(
+            invalid_selection["failure_count_source"],
+            "invalid_env_ignored",
+        )
+
     def test_classify_evaluate_and_assess_codebase_as_review(self):
         manifest = self.read_json(CLASSIFICATION_RULES)
         review_rules = next(
@@ -1022,8 +1139,11 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["execution_profile"], "direct")
         self.assertEqual(recommendation["action"], "downgrade")
         self.assertEqual(recommendation["target_profile"], "fast")
-        self.assertEqual(recommendation["target_model"], "gpt-5.4-mini")
+        self.assertEqual(recommendation["capability_profile"], "utility")
+        self.assertEqual(recommendation["target_model"], "gpt-5.6-luna")
+        self.assertEqual(recommendation["target_api_model"], "gpt-5.6-luna")
         self.assertEqual(recommendation["target_model_tier"], "fast")
+        self.assertEqual(recommendation["target_model_status"], "resolved")
         self.assertEqual(recommendation["thinking"], "low")
         self.assertEqual(recommendation["speed"], "fast")
 
@@ -1043,7 +1163,8 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["task_type"], "research")
         self.assertEqual(recommendation["action"], "upgrade")
         self.assertEqual(recommendation["target_profile"], "strong")
-        self.assertEqual(recommendation["target_model"], "gpt-5.5")
+        self.assertEqual(recommendation["capability_profile"], "strong")
+        self.assertEqual(recommendation["target_model"], "gpt-5.6-sol")
         self.assertEqual(recommendation["thinking"], "high")
         self.assertEqual(recommendation["speed"], "standard")
 
@@ -1065,6 +1186,71 @@ class TestClassification(CliTestCase):
             recommendation["target_model_source"],
             "env:MYTHIFY_HOST_FAST_MODEL",
         )
+
+    def test_classify_host_recommendation_prefers_canonical_model_override(self):
+        result = self.run_cli(
+            "classify",
+            "what is 1 + 1?",
+            "--json",
+            "--platform",
+            "codex-desktop",
+            env_extra={
+                "MYTHIFY_HOST_UTILITY_MODEL": "gpt-utility-local",
+                "MYTHIFY_HOST_FAST_MODEL": "gpt-fast-legacy",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        recommendation = json.loads(result.stdout)["model_policy"]["session"][
+            "recommendation"
+        ]
+        self.assertEqual(recommendation["target_model"], "gpt-utility-local")
+        self.assertEqual(
+            recommendation["target_model_source"],
+            "env:MYTHIFY_HOST_UTILITY_MODEL",
+        )
+
+    def test_classify_cursor_uses_runtime_catalog_resolution(self):
+        result = self.run_cli(
+            "classify",
+            "implement a feature",
+            "--json",
+            "--platform",
+            "cursor-agent",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        policy = json.loads(result.stdout)["model_policy"]
+        recommendation = policy["session"]["recommendation"]
+        self.assertEqual(recommendation["action"], "recommend_discover")
+        self.assertEqual(recommendation["capability_profile"], "balanced")
+        self.assertEqual(recommendation["target_provider"], "cursor")
+        self.assertEqual(recommendation["target_model"], "")
+        self.assertEqual(recommendation["target_model_status"], "discovery_required")
+        self.assertEqual(recommendation["resolution"]["discovery_command"], "agent models")
+        self.assertEqual(recommendation["resolution"]["fallback_model"], "auto")
+        self.assertEqual(
+            recommendation["resolution"]["fallback_policy"],
+            "no_implicit_cross_provider_fallback",
+        )
+
+    def test_classify_explicit_max_resolves_claude_fable(self):
+        result = self.run_cli(
+            "classify",
+            "design a complex migration",
+            "--json",
+            "--platform",
+            "claude-code",
+            "--model-profile",
+            "max",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        policy = json.loads(result.stdout)["model_policy"]
+        selection = policy["model_router"]["selection"]
+        recommendation = policy["session"]["recommendation"]
+        self.assertEqual(selection["selected_profile"], "max")
+        self.assertFalse(selection["automatic_max_enabled"])
+        self.assertEqual(recommendation["target_model"], "fable")
+        self.assertEqual(recommendation["target_api_model"], "claude-fable-5")
+        self.assertEqual(recommendation["thinking"], "max")
 
     def test_classify_model_policy_tracks_platform_model_and_effort(self):
         result = self.run_cli(
@@ -1097,7 +1283,8 @@ class TestClassification(CliTestCase):
         self.assertEqual(policy["spawn_ceiling"]["policy"], "same_or_lower")
         self.assertEqual(policy["spawn_ceiling"]["session_model_tier"], "frontier")
         self.assertEqual(policy["triage"]["engine"], "codex-cli")
-        self.assertEqual(policy["triage"]["model_policy"], "platform_default")
+        self.assertEqual(policy["triage"]["model"], "gpt-5.6-luna")
+        self.assertEqual(policy["triage"]["model_policy"], "engine_default")
         self.assertEqual(policy["triage"]["model_relation_to_session"], "lower_preferred")
         self.assertEqual(policy["fanout_worker"]["model_policy"], "per_task_over_job_over_env_over_engine_default")
         self.assertEqual(policy["fanout_worker"]["model_relation_to_session"], "same_or_lower")
@@ -1548,7 +1735,7 @@ class TestClassification(CliTestCase):
         policy = payload["model_policy"]
         self.assertEqual(policy["session"]["model"], "gpt-5.4")
         self.assertEqual(policy["session"]["model_source"], "host_model_switch")
-        self.assertEqual(policy["session"]["model_tier"], "frontier")
+        self.assertEqual(policy["session"]["model_tier"], "standard")
 
         cleared = self.run_cli("host-model", "clear")
         self.assertEqual(cleared.returncode, 0, cleared.stderr)
@@ -2539,6 +2726,18 @@ class TestWorkflowRouter(CliTestCase):
             self.assertIn("not verification evidence", payload["guardrail"])
             if route == "plan":
                 self.assertIn("--horizon 20", payload["next_command"])
+
+        ultracode = self.run_cli(
+            "route",
+            "ultracode: implement the router feature",
+            "--json",
+        )
+        self.assertEqual(ultracode.returncode, 0, ultracode.stderr)
+        adapter = json.loads(ultracode.stdout)["execution_adapter"]
+        self.assertTrue(adapter["recommended"])
+        self.assertEqual(adapter["engine"], "claude-ultracode")
+        self.assertEqual(adapter["start_tool"], "fanout_start")
+        self.assertEqual(adapter["result_evidence_status"], "material_not_verification")
         self.assertEqual(before, self.state_snapshot(state))
 
     def test_route_resumes_active_plan_and_prioritizes_failed_verification(self):

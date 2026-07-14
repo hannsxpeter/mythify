@@ -76,23 +76,26 @@ worker effort, reviewer effort, and the command-first verifier policy. Pass
 `platform: "codex-desktop"`, `platform: "claude-desktop"`, or
 `platform: "cursor-desktop"` when the caller knows where it is running.
 It also returns `model_policy.session.recommendation`, a prompt-specific host
-settings recommendation. Direct prompts such as `what is 1 + 1?` map to the
-fast profile, low thinking, and fast speed. Research, benchmark, release,
-migration, security, and design prompts map to the strong profile, high
-thinking, and standard speed. Normal implementation and debugging prompts map
-to the standard profile with medium thinking.
+settings recommendation. `model_policy.model_router` keeps autonomy policy,
+execution topology, model profile, reasoning effort, review policy, and the
+verification gate separate. Direct prompts such as `what is 1 + 1?` map to
+`utility`. Normal implementation and debugging map to `balanced`. Research,
+benchmark, release, migration, security, and design map to `strong`. `max`
+must be explicit. A supplied executed-verifier failure count can escalate one
+profile per failure, but automatic escalation stops at `strong`.
 
 Default profile-to-model mappings are platform-aware:
 
-| Platform | Fast | Standard | Strong |
-| :--- | :--- | :--- | :--- |
-| Codex Desktop or CLI | `gpt-5.4-mini` | `gpt-5.4` | `gpt-5.5` |
-| Claude Desktop or Claude Code | `haiku` | `sonnet` | `opus` |
-| Cursor Desktop or cursor-agent | `gpt-5.3-codex-low-fast` | `gpt-5.3-codex` | `gpt-5.3-codex-high` |
+| Platform | Utility | Balanced | Strong | Max |
+| :--- | :--- | :--- | :--- | :--- |
+| Codex Desktop or CLI | `gpt-5.6-luna`, low | `gpt-5.6-terra`, medium | `gpt-5.6-sol`, high | `gpt-5.6-sol`, max or pro mode |
+| Claude Desktop or Claude Code | `haiku`, low | `sonnet`, high | `opus`, xhigh | `fable`, max |
+| Cursor Desktop or cursor-agent | Discover Luna, Haiku, Mini, Flash, or Composer | Discover Terra, Sonnet, Composer, or `auto` | Discover Opus, Sol, or Gemini 3.1 Pro | Discover Fable, Opus, or Sol |
 
-Override the recommendation model names with `MYTHIFY_HOST_FAST_MODEL`,
-`MYTHIFY_HOST_STANDARD_MODEL`, and `MYTHIFY_HOST_STRONG_MODEL` if your local
-host exposes different model ids.
+Override recommendation model names with `MYTHIFY_HOST_UTILITY_MODEL`,
+`MYTHIFY_HOST_BALANCED_MODEL`, `MYTHIFY_HOST_STRONG_MODEL`, and
+`MYTHIFY_HOST_MAX_MODEL` if your local host exposes different ids. The legacy
+fast and standard override names remain accepted.
 
 Pass `session_model` when the desktop app or user can name the current chat
 model. If the user wants Mythify to remember an intended host model, call
@@ -113,7 +116,16 @@ supported and `speed: "standard"` explicitly disables it for that worker.
 For Claude Code workers, Mythify passes resolved effort with `--effort` and
 keeps speed as prompt-visible policy. For Cursor workers, Mythify resolves the
 requested `model`, `effort`, and `speed` into an encoded model id from
-`cursor-agent models` when a matching id is available.
+`cursor-agent models` when a matching id is available. When no model is
+provided, it selects from the live catalog by capability profile and uses
+Cursor `auto` only when the catalog contains it. It never falls back to a
+different provider.
+
+For a router-recommended native dynamic workflow, use
+`engine: "claude-ultracode"` with exactly one task. Claude Code 2.1.203 or
+newer is required. The adapter fixes effort to `ultracode`, records workflow
+mode in durable fanout state, exposes progress through `fanout_status`, and
+returns the final response through `fanout_results` as material only.
 Platform-specific reasoning or effort flags can still be passed through the
 corresponding extra args env variable for that CLI.
 
@@ -133,8 +145,8 @@ Example host model request:
 {
   "action": "switch",
   "platform": "codex-desktop",
-  "target_model": "gpt-5.4",
-  "current_model": "gpt-5.3-codex",
+  "target_model": "gpt-5.6-terra",
+  "current_model": "gpt-5.6-luna",
   "thinking": "high",
   "speed": "fast"
 }

@@ -70,6 +70,7 @@ HOST_CAPABILITIES = {
         can_set_new_thread_model=True,
         can_set_worker_model=True,
         can_set_thinking=True,
+        can_list_models=True,
     ),
     "cursor-agent": dict(
         NO_HOST_CAPABILITY,
@@ -77,6 +78,7 @@ HOST_CAPABILITIES = {
         can_set_new_thread_model=True,
         can_set_worker_model=True,
         can_set_thinking=True,
+        can_list_models=True,
     ),
 }
 

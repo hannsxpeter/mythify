@@ -10,6 +10,8 @@ const operationRootPath = path.join(repoRoot, "protocol", "operation-registry.js
 const operationPackagePath = path.join(repoRoot, "mcp-server", "protocol", "operation-registry.json");
 const routerRootPath = path.join(repoRoot, "protocol", "workflow-router.json");
 const routerPackagePath = path.join(repoRoot, "mcp-server", "protocol", "workflow-router.json");
+const modelRootPath = path.join(repoRoot, "protocol", "model-capabilities.json");
+const modelPackagePath = path.join(repoRoot, "mcp-server", "protocol", "model-capabilities.json");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -19,6 +21,8 @@ const rootManifest = readJson(rootPath);
 const packageManifest = readJson(packagePath);
 const operationRootManifest = readJson(operationRootPath);
 const operationPackageManifest = readJson(operationPackagePath);
+const modelRootManifest = readJson(modelRootPath);
+const modelPackageManifest = readJson(modelPackagePath);
 
 if (JSON.stringify(rootManifest) !== JSON.stringify(packageManifest)) {
   console.error("[FAIL] Classification rules manifest drift:");
@@ -32,6 +36,36 @@ if (JSON.stringify(operationRootManifest) !== JSON.stringify(operationPackageMan
   console.error("  root: " + operationRootPath);
   console.error("  package: " + operationPackagePath);
   process.exit(1);
+}
+
+if (JSON.stringify(modelRootManifest) !== JSON.stringify(modelPackageManifest)) {
+  console.error("[FAIL] Model capability manifest drift:");
+  console.error("  root: " + modelRootPath);
+  console.error("  package: " + modelPackagePath);
+  process.exit(1);
+}
+
+const requiredProfiles = ["utility", "balanced", "strong", "max"];
+if (
+  modelRootManifest.version !== 1 ||
+  JSON.stringify(modelRootManifest.profile_order) !== JSON.stringify(requiredProfiles) ||
+  modelRootManifest.fallback_policy !== "no_implicit_cross_provider_fallback"
+) {
+  console.error("[FAIL] Invalid model capability manifest header");
+  process.exit(1);
+}
+for (const profile of requiredProfiles) {
+  const row = modelRootManifest.profiles?.[profile];
+  if (!row || !Number.isInteger(row.rank) || !row.cost_class) {
+    console.error("[FAIL] Invalid model capability profile: " + profile);
+    process.exit(1);
+  }
+  for (const provider of ["openai", "anthropic", "cursor"]) {
+    if (!modelRootManifest.provider_profiles?.[provider]?.[profile]) {
+      console.error("[FAIL] Missing model capability provider mapping: " + provider + "." + profile);
+      process.exit(1);
+    }
+  }
 }
 
 const routerRootManifest = readJson(routerRootPath);
@@ -113,4 +147,4 @@ if (!rootManifest.verification_hints.feature || !rootManifest.next_actions.stand
   process.exit(1);
 }
 
-console.log("[OK] Classification policy, operation registry, and workflow router manifests mirror package copies");
+console.log("[OK] Classification, operation, workflow, and model capability manifests mirror package copies");

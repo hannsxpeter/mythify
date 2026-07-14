@@ -22,6 +22,12 @@ const CLASSIFICATION_RULES = JSON.parse(
 const ROOT_CLASSIFICATION_RULES = JSON.parse(
   fs.readFileSync(new URL("../../protocol/classification-rules.json", import.meta.url), "utf8")
 );
+const MODEL_CAPABILITIES = JSON.parse(
+  fs.readFileSync(new URL("../protocol/model-capabilities.json", import.meta.url), "utf8")
+);
+const ROOT_MODEL_CAPABILITIES = JSON.parse(
+  fs.readFileSync(new URL("../../protocol/model-capabilities.json", import.meta.url), "utf8")
+);
 const WORKFLOW_ROUTER = JSON.parse(
   fs.readFileSync(new URL("../protocol/workflow-router.json", import.meta.url), "utf8")
 );
@@ -144,6 +150,7 @@ test("mythify MCP server smoke test", async (t) => {
 
     await t.test("packaged manifests mirror the root manifests", () => {
       assert.deepEqual(CLASSIFICATION_RULES, ROOT_CLASSIFICATION_RULES);
+      assert.deepEqual(MODEL_CAPABILITIES, ROOT_MODEL_CAPABILITIES);
       assert.deepEqual(WORKFLOW_ROUTER, ROOT_WORKFLOW_ROUTER);
       assert.deepEqual(OPERATION_REGISTRY, ROOT_OPERATION_REGISTRY);
       assert.deepEqual(SURFACE_MANIFEST, ROOT_SURFACE_MANIFEST);
@@ -160,6 +167,13 @@ test("mythify MCP server smoke test", async (t) => {
       assert.ok(Object.hasOwn(CLASSIFICATION_RULES.next_actions, "standard"));
       assert.ok(CLASSIFICATION_RULES.model_triage.recommended_task_types.includes("debugging"));
       assert.ok(Object.hasOwn(CLASSIFICATION_RULES.verification_hints, "feature"));
+      assert.deepEqual(MODEL_CAPABILITIES.profile_order, [
+        "utility",
+        "balanced",
+        "strong",
+        "max",
+      ]);
+      assert.equal(MODEL_CAPABILITIES.automatic_max_enabled, false);
     });
 
     await t.test("classify_task recommends ceremony and verification", async () => {
@@ -356,7 +370,8 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(direct.execution_profile, "direct");
       assert.equal(direct.model_policy.session.recommendation.action, "downgrade");
       assert.equal(direct.model_policy.session.recommendation.target_profile, "fast");
-      assert.equal(direct.model_policy.session.recommendation.target_model, "gpt-5.4-mini");
+      assert.equal(direct.model_policy.session.recommendation.capability_profile, "utility");
+      assert.equal(direct.model_policy.session.recommendation.target_model, "gpt-5.6-luna");
       assert.equal(direct.model_policy.session.recommendation.target_model_tier, "fast");
       assert.equal(direct.model_policy.session.recommendation.thinking, "low");
       assert.equal(direct.model_policy.session.recommendation.speed, "fast");
@@ -377,7 +392,11 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(research.model_policy.session.recommendation.action, "upgrade");
       assert.equal(research.model_policy.session.recommendation.target_profile, "strong");
       assert.equal(research.model_policy.session.recommendation.target_model, "opus");
-      assert.equal(research.model_policy.session.recommendation.thinking, "high");
+      assert.equal(
+        research.model_policy.session.recommendation.target_api_model,
+        "claude-opus-4-8"
+      );
+      assert.equal(research.model_policy.session.recommendation.thinking, "xhigh");
       assert.equal(research.model_policy.session.recommendation.speed, "standard");
 
       const strongerReviewerText = textOf(
@@ -434,7 +453,8 @@ test("mythify MCP server smoke test", async (t) => {
       assert.equal(triaged.execution_profile, "full");
       assert.equal(triaged.model_policy.session.model, "sonnet");
       assert.equal(triaged.model_policy.session.model_source, "explicit");
-      assert.equal(triaged.model_policy.session.model_tier, "strong");
+      assert.equal(triaged.model_policy.session.model_tier, "standard");
+      assert.equal(triaged.model_policy.session.capability_profile, "balanced");
       assert.equal(triaged.model_policy.spawn_ceiling.policy, "same_or_lower");
       assert.equal(triaged.model_policy.fanout_worker.model_relation_to_session, "same_or_lower");
       assert.equal(triaged.model_policy.triage.effort, "low");
@@ -537,7 +557,7 @@ test("mythify MCP server smoke test", async (t) => {
       const classified = JSON.parse(classifiedText.replace(/^\[OK\] /, ""));
       assert.equal(classified.model_policy.session.model, "gpt-5.4");
       assert.equal(classified.model_policy.session.model_source, "host_model_switch");
-      assert.equal(classified.model_policy.session.model_tier, "frontier");
+      assert.equal(classified.model_policy.session.model_tier, "standard");
     });
 
     await t.test("workflow_route selects routes without mutating state", async () => {
@@ -568,6 +588,22 @@ test("mythify MCP server smoke test", async (t) => {
           assert.match(payload.next_command, /--horizon 20/);
         }
       }
+      const ultracodeText = textOf(
+        await client.callTool({
+          name: "workflow_route",
+          arguments: { task: "ultracode: implement the router feature", format: "json" },
+        })
+      );
+      const ultracode = JSON.parse(ultracodeText.replace(/^\[OK\] /, ""));
+      assert.equal(ultracode.execution_adapter.recommended, true);
+      assert.equal(ultracode.execution_adapter.engine, "claude-ultracode");
+      assert.equal(ultracode.execution_adapter.start_tool, "fanout_start");
+      assert.equal(ultracode.execution_adapter.status_tool, "fanout_status");
+      assert.equal(ultracode.execution_adapter.results_tool, "fanout_results");
+      assert.equal(
+        ultracode.execution_adapter.result_evidence_status,
+        "material_not_verification"
+      );
       assert.deepEqual(snapshotStateDir(stateDir), before, "workflow_route leaves state unchanged");
     });
 

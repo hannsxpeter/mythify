@@ -9,6 +9,7 @@ import { routePlanHorizon } from "./plan-horizon.js";
 import {
   EFFORT_LEVELS,
   HOST_PLATFORMS as PLATFORMS,
+  MODEL_PROFILE_INPUTS,
   REVIEWER_STRENGTH_MODES,
   SPAWN_CEILINGS,
   SPEED_LEVELS,
@@ -1166,6 +1167,7 @@ function buildWorkflowRoute(task, classification) {
     reason += ` A godaudits audit exists at ${godAudit.path} (${godAudit.detail}).`;
   }
   const packetKind = WORKFLOW_ROUTE_PROMPTS[route] || "next";
+  const executionAdapter = classification.model_policy?.model_router?.execution_topology?.native_adapter || {};
   return {
     kind: "workflow_route",
     route,
@@ -1178,6 +1180,7 @@ function buildWorkflowRoute(task, classification) {
       kind: packetKind,
       command: `mythify prompt ${packetKind}`,
     },
+    execution_adapter: executionAdapter,
     verification_strategy: classification.verification || "",
     chat_policy: {
       executor: "initiating_host",
@@ -1206,7 +1209,12 @@ function formatWorkflowRoute(payload) {
     `Prompt packet: ${payload.prompt_packet?.kind || ""} (${payload.prompt_packet?.command || ""})`,
     `Verification strategy: ${payload.verification_strategy || ""}`,
   ];
-  const policy = payload.chat_policy || {};
+  const policy = payload.chat_policy || {}, adapter = payload.execution_adapter || {};
+  if (adapter.recommended === true) {
+    lines.push(
+      `Execution adapter: ${adapter.engine}; start=${adapter.start_tool}; status=${adapter.status_tool}; results=${adapter.results_tool}; evidence=${adapter.result_evidence_status}`
+    );
+  }
   lines.push(
     `Chat policy: executor=${policy.executor || "initiating_host"}; ` +
       `surface=${policy.surface || "chat"}; report_issues=${String(policy.report_issues !== false)}`
@@ -1285,6 +1293,20 @@ export function registerWorkflowTools(server, nextDeps) {
           .string()
           .optional()
           .describe("Current host session model for spawn ceiling policy. Defaults to MYTHIFY_SESSION_MODEL."),
+        model_profile: z
+          .enum(MODEL_PROFILE_INPUTS)
+          .optional()
+          .describe(
+            "Capability profile override: utility, balanced, strong, or max. Fast, standard, and frontier are compatibility aliases."
+          ),
+        failure_count: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Executed verifier failures in the current bounded loop. Automatic escalation is capped at strong."
+          ),
         spawn_ceiling: z
           .enum(SPAWN_CEILINGS)
           .optional()
@@ -1310,6 +1332,8 @@ export function registerWorkflowTools(server, nextDeps) {
       effort,
       speed,
       session_model,
+      model_profile,
+      failure_count,
       spawn_ceiling,
       reviewer_strength,
     }) => {
@@ -1322,6 +1346,9 @@ export function registerWorkflowTools(server, nextDeps) {
         effort: effort || "auto",
         speed: speed || "auto",
         session_model: session_model || "",
+        model_profile: model_profile || "auto",
+        failure_count,
+        task_text: task,
         host_model_record: readHostModelState(),
         spawn_ceiling: spawn_ceiling || "auto",
         reviewer_strength: reviewer_strength || "auto",
@@ -1452,6 +1479,20 @@ export function registerWorkflowTools(server, nextDeps) {
           .string()
           .optional()
           .describe("Current host session model for spawn ceiling policy. Defaults to MYTHIFY_SESSION_MODEL."),
+        model_profile: z
+          .enum(MODEL_PROFILE_INPUTS)
+          .optional()
+          .describe(
+            "Capability profile override: utility, balanced, strong, or max. Fast, standard, and frontier are compatibility aliases."
+          ),
+        failure_count: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Executed verifier failures in the current bounded loop. Automatic escalation is capped at strong."
+          ),
         spawn_ceiling: z
           .enum(SPAWN_CEILINGS)
           .optional()
@@ -1473,6 +1514,8 @@ export function registerWorkflowTools(server, nextDeps) {
       effort,
       speed,
       session_model,
+      model_profile,
+      failure_count,
       spawn_ceiling,
       reviewer_strength,
     }) => {
@@ -1485,6 +1528,9 @@ export function registerWorkflowTools(server, nextDeps) {
         effort: effort || "auto",
         speed: speed || "auto",
         session_model: session_model || "",
+        model_profile: model_profile || "auto",
+        failure_count,
+        task_text: task,
         host_model_record: readHostModelState(),
         spawn_ceiling: spawn_ceiling || "auto",
         reviewer_strength: reviewer_strength || "auto",

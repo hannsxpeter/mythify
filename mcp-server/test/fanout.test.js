@@ -14,10 +14,34 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ANTHROPIC_MODEL_ALIASES, resolveAnthropicModelId } from "../src/fanout.js";
+import {
+  classifyModelTier,
+  cursorProfileForEffort,
+  selectCursorCatalogModel,
+} from "../src/fanout-policy.js";
 
 const SERVER_PATH = fileURLToPath(new URL("../src/index.js", import.meta.url));
 const JOB_ID_PATTERN = /fo-\d{14}-[0-9a-f]{4}/;
 const DELAYED_WORKER_MS = 5000;
+
+test("capability profiles select models from the live Cursor catalog", () => {
+  const models = [
+    "auto",
+    "gpt-5.6-luna-low-fast",
+    "gpt-5.6-terra-medium",
+    "claude-opus-4-8-high",
+  ];
+  assert.equal(cursorProfileForEffort("low"), "utility");
+  assert.equal(cursorProfileForEffort("medium"), "balanced");
+  assert.equal(cursorProfileForEffort("high"), "strong");
+  assert.equal(selectCursorCatalogModel(models, "utility"), "gpt-5.6-luna-low-fast");
+  assert.equal(selectCursorCatalogModel(models, "balanced"), "gpt-5.6-terra-medium");
+  assert.equal(selectCursorCatalogModel(models, "strong"), "claude-opus-4-8-high");
+  assert.equal(selectCursorCatalogModel(["auto"], "strong"), "auto");
+  assert.equal(classifyModelTier("gpt-5.6-luna-low-fast"), "fast");
+  assert.equal(classifyModelTier("gpt-5.6-terra-medium"), "standard");
+  assert.equal(classifyModelTier("gpt-5.6-sol-high"), "frontier");
+});
 
 // Deterministic command-engine worker: reads the whole prompt from stdin and
 // echoes a marker plus a digest of what it received, followed by the prompt
@@ -814,6 +838,7 @@ test("fanout with the command engine", async (t) => {
           "effort",
           "effort_source",
           "engine",
+          "execution_mode",
           "hosted_provider_billing_acknowledged",
           "hosted_provider_data_acknowledged",
           "hosted_provider_engines",
@@ -846,6 +871,7 @@ test("fanout with the command engine", async (t) => {
       );
       assert.equal(job.id, threeTaskJobId);
       assert.equal(job.engine, "command");
+      assert.equal(job.execution_mode, "standard");
       assert.equal(job.billing, "user_defined");
       assert.equal(job.cost_tracking, "metadata_only_no_estimate");
       assert.equal(job.cost_estimate_status, "not_estimated");
@@ -894,6 +920,7 @@ test("fanout with the command engine", async (t) => {
             "effort_source",
             "engine",
             "error",
+            "execution_mode",
             "finished_at",
             "id",
             "isolation",
@@ -921,6 +948,7 @@ test("fanout with the command engine", async (t) => {
         assert.equal(task.role, "worker");
         assert.equal(task.status, "completed");
         assert.equal(task.engine, "command");
+        assert.equal(task.execution_mode, "standard");
         assert.equal(task.billing, "user_defined");
         assert.equal(task.cost_tracking, "metadata_only_no_estimate");
         assert.equal(task.cost_estimate_status, "not_estimated");
@@ -1171,6 +1199,28 @@ printf '{"result":"STUB-CLAUDE args_ok=%s ctx=%s CLAUDECODE=%s ANTHROPIC_BASE_UR
   fs.writeFileSync(filePath, script, { mode: 0o755 });
 }
 
+function writeClaudeUltracodeStub(filePath, version = "2.1.203") {
+  const script = `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '${version} (Claude Code)\\n'
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  printf 'Usage: claude --effort ultracode\\n'
+  exit 0
+fi
+PROMPT=$(cat)
+args_ok=yes
+case " $* " in *" -p "*) ;; *) args_ok=no ;; esac
+case " $* " in *" --output-format json "*) ;; *) args_ok=no ;; esac
+case " $* " in *" --model opus "*) ;; *) args_ok=no ;; esac
+case " $* " in *" --effort ultracode "*) ;; *) args_ok=no ;; esac
+case "$PROMPT" in *"ULTRACODE-OBJECTIVE"*) objective=yes ;; *) objective=no ;; esac
+printf '{"result":"STUB-ULTRACODE args_ok=%s objective=%s","is_error":false}\\n' "$args_ok" "$objective"
+`;
+  fs.writeFileSync(filePath, script, { mode: 0o755 });
+}
+
 function writeCodexStub(filePath, expectedModel, contextMarker, expectedSpeed = "auto") {
   const speedChecks =
     expectedSpeed === "fast"
@@ -1366,6 +1416,115 @@ test("claude-cli engine drives a stub binary with the curated environment", asyn
   }
 });
 
+test("claude-ultracode launches, monitors, and ingests one native workflow", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-ultracode-stub-");
+  const stubPath = path.join(root, "claude-ultracode-stub.sh");
+  writeClaudeUltracodeStub(stubPath);
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "claude-ultracode",
+      MYTHIFY_FANOUT_CLAUDE_BIN: stubPath,
+      USER: "stub-user",
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const refused = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          tasks: [
+            { title: "First workflow", prompt: "ULTRACODE-OBJECTIVE one" },
+            { title: "Second workflow", prompt: "ULTRACODE-OBJECTIVE two" },
+          ],
+        },
+      })
+    );
+    assert.ok(refused.startsWith("[FAIL]"), `multiple workflows are refused: ${refused}`);
+    assert.match(refused, /exactly one task/);
+    assert.equal(fs.existsSync(path.join(stateDir, "fanout")), false);
+
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          tasks: [
+            {
+              title: "Native UltraCode workflow",
+              prompt: "ULTRACODE-OBJECTIVE inspect, build, and verify the requested change.",
+            },
+          ],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[OK]"), `fanout_start reports [OK]: ${started}`);
+    assert.match(started, /UltraCode adapter: one native Claude dynamic workflow/);
+    assert.match(started, /substantially more subscription quota/);
+    const jobId = jobIdOf(started);
+    const status = await waitForAllFinished(client, jobId);
+    assert.match(status, /engine: claude-ultracode/);
+    assert.match(status, /mode: ultracode/);
+
+    const results = textOf(
+      await client.callTool({ name: "fanout_results", arguments: { job_id: jobId } })
+    );
+    assert.match(results, /UltraCode result boundary/);
+    assert.match(results, /STUB-ULTRACODE args_ok=yes objective=yes/);
+
+    const job = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
+    );
+    assert.equal(job.engine, "claude-ultracode");
+    assert.equal(job.execution_mode, "ultracode");
+    assert.equal(job.model, "opus");
+    assert.equal(job.effort, "ultracode");
+    assert.equal(job.tasks[0].execution_mode, "ultracode");
+    assert.equal(job.tasks[0].effort, "ultracode");
+    assert.match(job.cost_warnings[0], /dynamic workflow/);
+    const audit = readJsonl(path.join(stateDir, "provider-audit.jsonl")).filter(
+      (row) => row.job_id === jobId
+    );
+    assert.ok(audit.length >= 2);
+    assert.ok(audit.every((row) => row.output_material_status === "material_not_verification"));
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("claude-ultracode fails closed below the supported Claude Code version", async () => {
+  const { root, stateDir, homeDir } = makeProject("mythify-ultracode-version-");
+  const stubPath = path.join(root, "claude-ultracode-old.sh");
+  writeClaudeUltracodeStub(stubPath, "2.1.197");
+  const client = await startServer(
+    {
+      MYTHIFY_FANOUT_ENGINE: "claude-ultracode",
+      MYTHIFY_FANOUT_CLAUDE_BIN: stubPath,
+    },
+    stateDir,
+    homeDir
+  );
+  try {
+    const started = textOf(
+      await client.callTool({
+        name: "fanout_start",
+        arguments: {
+          tasks: [{ title: "Unsupported workflow", prompt: "ULTRACODE-OBJECTIVE" }],
+        },
+      })
+    );
+    assert.ok(started.startsWith("[FAIL]"), `fanout_start refuses: ${started}`);
+    assert.match(started, /Claude Code 2[.]1[.]197 is installed/);
+    assert.match(started, /2[.]1[.]203 or newer/);
+    assert.match(started, /claude update/);
+    assert.equal(fs.existsSync(path.join(stateDir, "fanout")), false);
+  } finally {
+    await client.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("claude-cli auth failure reports the login remediation", async () => {
   const { root, stateDir, homeDir } = makeProject("mythify-fanout-auth-");
   const stubPath = path.join(root, "claude-stub-auth.sh");
@@ -1480,13 +1639,13 @@ test("cursor-agent engine drives a stub binary with local-login environment", as
   const contextMarker = "CONTEXT-MARKER-cursor-b261";
   fs.writeFileSync(path.join(projectRoot, "ctx.txt"), `cursor context body\n${contextMarker}\n`);
   const stubPath = path.join(root, "cursor-agent-stub.js");
-  writeCursorStub(stubPath, "gpt-5.3-codex-high-fast", contextMarker);
+  writeCursorStub(stubPath, "gpt-5.6-sol-high-fast", contextMarker);
   const client = await startServer(
     {
       MYTHIFY_FANOUT_ENGINE: "cursor-agent",
       MYTHIFY_FANOUT_CURSOR_BIN: stubPath,
       MYTHIFY_FANOUT_CURSOR_MODELS:
-        "gpt-5.3-codex gpt-5.3-codex-high gpt-5.3-codex-high-fast",
+        "auto gpt-5.6-luna-low-fast gpt-5.6-terra-medium gpt-5.6-sol-high-fast",
       CURSOR_API_KEY: "should-not-pass",
     },
     stateDir,
@@ -1502,7 +1661,6 @@ test("cursor-agent engine drives a stub binary with local-login environment", as
               title: "Cursor stub task",
               prompt: "Do the cursor stub thing.",
               context_paths: ["ctx.txt"],
-              model: "gpt-5.3-codex",
               effort: "high",
               speed: "fast",
             },
@@ -1531,7 +1689,7 @@ test("cursor-agent engine drives a stub binary with local-login environment", as
       fs.readFileSync(path.join(stateDir, "fanout", jobId, "job.json"), "utf8")
     );
     assert.equal(job.tasks[0].engine, "cursor-agent");
-    assert.equal(job.tasks[0].model, "gpt-5.3-codex-high-fast");
+    assert.equal(job.tasks[0].model, "gpt-5.6-sol-high-fast");
     assert.equal(job.tasks[0].effort, "high");
     assert.equal(job.tasks[0].speed, "fast");
   } finally {
@@ -1892,12 +2050,12 @@ test("openai fanout runs only after hosted provider acknowledgements and audits 
 test("anthropic engine model alias mapping matches the spec table", () => {
   assert.deepEqual(ANTHROPIC_MODEL_ALIASES, {
     haiku: "claude-haiku-4-5",
-    sonnet: "claude-sonnet-4-6",
+    sonnet: "claude-sonnet-5",
     opus: "claude-opus-4-8",
     fable: "claude-fable-5",
   });
   assert.equal(resolveAnthropicModelId("haiku"), "claude-haiku-4-5");
-  assert.equal(resolveAnthropicModelId("sonnet"), "claude-sonnet-4-6");
+  assert.equal(resolveAnthropicModelId("sonnet"), "claude-sonnet-5");
   assert.equal(resolveAnthropicModelId("opus"), "claude-opus-4-8");
   assert.equal(resolveAnthropicModelId("fable"), "claude-fable-5");
   assert.equal(

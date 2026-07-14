@@ -6,12 +6,14 @@ construction, provider-default metadata, and bounded model triage runners.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
 
 from mythify_classification import build_triage_prompt, should_run_model_triage
 from mythify_host_model import PLATFORMS
+from mythify_model_routing import model_execution_topology, model_review_policy
 from mythify_model_triage import configure_model_triage, run_model_triage
 
 TRIAGE_OUTPUT_TAIL_CHARS = 4000
@@ -37,60 +39,43 @@ EFFORT_LEVELS = ("auto", "low", "medium", "high")
 SPAWN_CEILINGS = ("auto", "lower_only", "same_or_lower", "allow_stronger")
 REVIEWER_STRENGTH_MODES = ("auto", "same_or_lower", "allow_stronger")
 FANOUT_VISIBILITY_MODES = ("auto", "quiet", "summary", "verbose", "threaded")
-MODEL_TIERS = ("unknown", "small", "fast", "standard", "strong", "frontier")
-MODEL_TIER_RANK = {
-    "unknown": 0,
-    "small": 1,
-    "fast": 2,
-    "standard": 3,
-    "strong": 4,
-    "frontier": 5,
-}
-HOST_PROFILE_RANK = {
-    "fast": MODEL_TIER_RANK["fast"],
-    "standard": MODEL_TIER_RANK["standard"],
-    "strong": MODEL_TIER_RANK["frontier"],
-}
-HOST_MODEL_DEFAULTS = {
-    "codex-desktop": {
-        "fast": "gpt-5.4-mini",
-        "standard": "gpt-5.4",
-        "strong": "gpt-5.5",
-    },
-    "codex-cli": {
-        "fast": "gpt-5.4-mini",
-        "standard": "gpt-5.4",
-        "strong": "gpt-5.5",
-    },
-    "claude-desktop": {
-        "fast": "haiku",
-        "standard": "sonnet",
-        "strong": "opus",
-    },
-    "claude-code": {
-        "fast": "haiku",
-        "standard": "sonnet",
-        "strong": "opus",
-    },
-    "cursor-desktop": {
-        "fast": "gpt-5.3-codex-low-fast",
-        "standard": "gpt-5.3-codex",
-        "strong": "gpt-5.3-codex-high",
-    },
-    "cursor-agent": {
-        "fast": "gpt-5.3-codex-low-fast",
-        "standard": "gpt-5.3-codex",
-        "strong": "gpt-5.3-codex-high",
-    },
-}
-ROLE_PROVIDER_ORDER = (
-    "session",
-    "triage",
-    "reader",
-    "fanout_worker",
-    "reviewer",
-    "verifier",
-)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MODEL_CAPABILITY_MANIFEST_PATH = REPO_ROOT / "protocol" / "model-capabilities.json"
+
+
+def load_model_capability_manifest():
+    with MODEL_CAPABILITY_MANIFEST_PATH.open("r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    profiles = manifest.get("profiles")
+    order = manifest.get("profile_order")
+    providers = manifest.get("provider_profiles")
+    if manifest.get("version") != 1 or not isinstance(profiles, dict):
+        raise ValueError("Invalid model capability manifest")
+    if order != ["utility", "balanced", "strong", "max"]:
+        raise ValueError("Invalid model capability profile order")
+    if not isinstance(providers, dict) or not providers:
+        raise ValueError("Model capability providers are missing")
+    for profile in order:
+        row = profiles.get(profile)
+        if not isinstance(row, dict) or not isinstance(row.get("rank"), int):
+            raise ValueError("Invalid model capability profile: " + profile)
+    return manifest
+
+
+MODEL_CAPABILITY_MANIFEST = load_model_capability_manifest()
+CAPABILITY_PROFILES = tuple(MODEL_CAPABILITY_MANIFEST["profile_order"])
+MODEL_PROFILE_INPUTS = tuple(MODEL_CAPABILITY_MANIFEST["profile_inputs"])
+MODEL_PROFILE_ALIASES = dict(MODEL_CAPABILITY_MANIFEST["legacy_aliases"])
+CAPABILITY_PROFILE_RANK = {profile: int(MODEL_CAPABILITY_MANIFEST["profiles"][profile]["rank"]) for profile in CAPABILITY_PROFILES}
+PLATFORM_MODEL_PROVIDERS = dict(MODEL_CAPABILITY_MANIFEST["platform_providers"])
+PROVIDER_MODEL_PROFILES = dict(MODEL_CAPABILITY_MANIFEST["provider_profiles"])
+TASK_MODEL_PROFILES = dict(MODEL_CAPABILITY_MANIFEST["task_profiles"])
+MODEL_ROUTING_AXES = tuple(MODEL_CAPABILITY_MANIFEST["axes"])
+MODEL_ESCALATION_POLICY = dict(MODEL_CAPABILITY_MANIFEST["escalation"])
+MODEL_TOPOLOGY_POLICY = dict(MODEL_CAPABILITY_MANIFEST["topology"])
+MODEL_MATCH_ORDER = tuple(MODEL_CAPABILITY_MANIFEST["model_match_order"])
+MODEL_MATCH_TERMS = {profile: tuple(terms) for profile, terms in MODEL_CAPABILITY_MANIFEST["model_match_terms"].items()}
+ROLE_PROVIDER_ORDER = ("session", "triage", "reader", "fanout_worker", "reviewer", "verifier")
 ROLE_PROVIDER_ENV_NAMES = {
     "session": "MYTHIFY_ROLE_SESSION_PROVIDER",
     "triage": "MYTHIFY_ROLE_TRIAGE_PROVIDER",
@@ -411,24 +396,20 @@ API_PROVIDER_METADATA = {
         "fallback_policy": ROLE_PROVIDER_FALLBACK_POLICY,
     },
 }
-STRONG_HOST_TASK_TYPES = (
-    "research",
-    "benchmark",
-    "design",
-    "security",
-    "release",
-    "migration",
-)
-
-
 def tail_text(text, limit=TRIAGE_OUTPUT_TAIL_CHARS):
     return str(text or "")[-limit:]
 
 
 def triage_default_model(engine):
-    if engine == "claude-cli":
-        return "haiku"
-    return ""
+    provider = {
+        "codex-cli": "openai",
+        "claude-cli": "anthropic",
+        "claude-ultracode": "anthropic",
+        "cursor-agent": "cursor",
+    }.get(engine, "")
+    return str(
+        PROVIDER_MODEL_PROFILES.get(provider, {}).get("utility", {}).get("model", "")
+    )
 
 
 def resolve_triage_binary(names, env_names):
@@ -621,11 +602,30 @@ def resolve_triage_model_selection(engine, requested_model):
     return "", "auto_after_engine_detection"
 
 
+def manifest_model_profile(model):
+    value = str(model or "").lower()
+    compact = value.replace("_", "-").replace(" ", "-")
+    if not compact:
+        return "unknown"
+    for profile in MODEL_MATCH_ORDER:
+        terms = MODEL_MATCH_TERMS.get(profile, ())
+        if any(str(term).lower() in compact for term in terms):
+            return profile
+    return "unknown"
+
+
 def classify_model_tier(model):
     value = str(model or "").lower()
     compact = value.replace("_", "-").replace(" ", "-")
     if not compact:
         return "unknown"
+    capability_profile = manifest_model_profile(model)
+    if capability_profile == "utility":
+        return "fast"
+    if capability_profile == "balanced":
+        return "standard"
+    if capability_profile in ("strong", "max"):
+        return "frontier"
     frontier_terms = (
         "gpt-5",
         "o3",
@@ -663,6 +663,176 @@ def classify_model_tier(model):
     if "3.5" in compact or "cheap" in compact:
         return "small"
     return "standard"
+
+
+def normalize_model_profile(profile):
+    value = str(profile or "auto").strip().lower()
+    if value in CAPABILITY_PROFILES:
+        return value
+    return MODEL_PROFILE_ALIASES.get(value, "auto")
+
+
+def classify_model_profile(model):
+    matched = manifest_model_profile(model)
+    if matched != "unknown":
+        return matched
+    tier = classify_model_tier(model)
+    if tier in ("small", "fast"):
+        return "utility"
+    if tier == "standard":
+        return "balanced"
+    if tier in ("strong", "frontier"):
+        return "strong"
+    return "unknown"
+
+
+def requested_model_profile(args):
+    explicit = str(getattr(args, "model_profile", "auto") or "auto").strip()
+    normalized = normalize_model_profile(explicit)
+    if normalized != "auto":
+        source = "explicit"
+        if explicit != normalized:
+            source = "explicit_legacy_alias"
+        return normalized, source, explicit
+    env_value = os.environ.get("MYTHIFY_MODEL_PROFILE", "").strip()
+    normalized_env = normalize_model_profile(env_value)
+    if normalized_env != "auto":
+        source = "env:MYTHIFY_MODEL_PROFILE"
+        if env_value != normalized_env:
+            source += ":legacy_alias"
+        return normalized_env, source, env_value
+    return "auto", "task_classification", "auto"
+
+
+def requested_failure_count(args):
+    value = getattr(args, "failure_count", None)
+    if value is not None:
+        try:
+            parsed = int(value)
+            return (parsed, "explicit") if parsed >= 0 else (0, "invalid_explicit_ignored")
+        except (TypeError, ValueError):
+            return 0, "invalid_explicit_ignored"
+    env_value = os.environ.get("MYTHIFY_FAILURE_COUNT", "").strip()
+    if env_value:
+        try:
+            parsed = int(env_value)
+            return (parsed, "env:MYTHIFY_FAILURE_COUNT") if parsed >= 0 else (0, "invalid_env_ignored")
+        except ValueError:
+            return 0, "invalid_env_ignored"
+    return 0, "default"
+
+
+def base_model_profile(classification):
+    task_type = classification.get("task_type", "feature")
+    profile = TASK_MODEL_PROFILES.get(task_type, "balanced")
+    strong_overrides = MODEL_CAPABILITY_MANIFEST["strong_overrides"]
+    if classification.get("risk") in strong_overrides.get("risks", ()):
+        return "strong", "high_risk"
+    if classification.get("ceremony") in strong_overrides.get("ceremonies", ()):
+        return "strong", "full_ceremony"
+    return profile, "task_type:" + task_type
+
+
+def escalate_model_profile(profile, failure_count):
+    policy = MODEL_ESCALATION_POLICY
+    if not policy.get("enabled") or failure_count <= 0:
+        return profile, 0
+    threshold = max(1, int(policy.get("one_tier_after_failures", 1)))
+    requested_steps = failure_count // threshold
+    automatic_cap = str(policy.get("automatic_cap", "strong"))
+    cap_rank = CAPABILITY_PROFILE_RANK.get(
+        automatic_cap, CAPABILITY_PROFILE_RANK["strong"]
+    )
+    start_rank = CAPABILITY_PROFILE_RANK[profile]
+    target_rank = min(start_rank + requested_steps, cap_rank)
+    selected = profile
+    for candidate in CAPABILITY_PROFILES:
+        if CAPABILITY_PROFILE_RANK[candidate] == target_rank:
+            selected = candidate
+            break
+    return selected, max(0, target_rank - start_rank)
+
+
+def select_model_profile(classification, args):
+    requested, requested_source, requested_raw = requested_model_profile(args)
+    failure_count, failure_source = requested_failure_count(args)
+    base, base_reason = base_model_profile(classification)
+    if requested != "auto":
+        selected = requested
+        escalation_steps = 0
+        reason = "Explicit model profile request."
+    else:
+        selected, escalation_steps = escalate_model_profile(base, failure_count)
+        reason = "Selected from {0}.".format(base_reason)
+        if escalation_steps:
+            reason += " Escalated {0} tier(s) after recorded verifier failures.".format(
+                escalation_steps
+            )
+    row = MODEL_CAPABILITY_MANIFEST["profiles"][selected]
+    return {
+        "requested_profile": requested,
+        "requested_profile_raw": requested_raw,
+        "requested_profile_source": requested_source,
+        "base_profile": base,
+        "selected_profile": selected,
+        "legacy_profile": row["legacy_profile"],
+        "cost_class": row["cost_class"],
+        "failure_count": failure_count,
+        "failure_count_source": failure_source,
+        "escalated": escalation_steps > 0,
+        "escalation_steps": escalation_steps,
+        "automatic_max_enabled": bool(
+            MODEL_CAPABILITY_MANIFEST.get("automatic_max_enabled")
+        ),
+        "automatic_cap": MODEL_ESCALATION_POLICY["automatic_cap"],
+        "max_requires": MODEL_ESCALATION_POLICY["max_requires"],
+        "reason": reason,
+    }
+
+
+def build_model_router(classification, args):
+    selection = select_model_profile(classification, args)
+    selected = selection["selected_profile"]
+    generic_effort = {
+        "utility": "low",
+        "balanced": "medium",
+        "strong": "high",
+        "max": "max",
+    }[selected]
+    return {
+        "contract_version": MODEL_CAPABILITY_MANIFEST["version"],
+        "status": MODEL_CAPABILITY_MANIFEST["status"],
+        "axes": list(MODEL_ROUTING_AXES),
+        "selection": selection,
+        "autonomy_policy": {
+            "mode": "bounded_proactive",
+            "mutation_authority": "inherits_user_request",
+            "permission_boundary": "host_owned",
+            "confirmation_required_for": [
+                "destructive_actions",
+                "external_writes",
+                "purchases",
+                "material_scope_expansion",
+            ],
+        },
+        "execution_topology": model_execution_topology(
+            classification,
+            MODEL_TOPOLOGY_POLICY,
+            getattr(args, "task", ""),
+        ),
+        "reasoning_effort": {
+            "profile_default": generic_effort,
+            "provider_resolved": False,
+        },
+        "review_policy": model_review_policy(classification, selected),
+        "verification_gate": {
+            "policy": "deterministic_command_first",
+            "model_is_verifier": False,
+            "executed_evidence_required_when_available": True,
+            "model_review_is_material_only": True,
+        },
+        "fallback_policy": MODEL_CAPABILITY_MANIFEST["fallback_policy"],
+    }
 
 
 def resolve_session_model(session_model, host_model_record=None):
@@ -753,73 +923,75 @@ def reviewer_spawn_policy(classification):
     return "skip"
 
 
-def host_recommendation_profile(classification):
-    task_type = classification.get("task_type", "feature")
-    risk = classification.get("risk", "low")
-    ambiguity = classification.get("ambiguity", "low")
-    ceremony = classification.get("ceremony", "none")
-    execution_profile = classification.get("execution_profile", "standard")
-    if (
-        task_type in ("trivial", "question")
-        and risk == "low"
-        and execution_profile == "direct"
-    ):
-        return {
-            "target_profile": "fast",
-            "thinking": "low",
-            "speed": "fast",
-            "reason": "Direct low-risk prompts should use the cheapest responsive host settings.",
-        }
-    if (
-        task_type in STRONG_HOST_TASK_TYPES
-        or risk == "high"
-        or ceremony == "full"
-    ):
-        return {
-            "target_profile": "strong",
-            "thinking": "high",
-            "speed": "standard",
-            "reason": "Research, benchmark, release, security, migration, and design work benefit from stronger reasoning.",
-        }
-    if execution_profile == "fast" or ceremony == "light":
-        return {
-            "target_profile": "fast",
-            "thinking": "low",
-            "speed": "fast",
-            "reason": "Focused low-risk work is a good fit for fast host settings.",
-        }
-    if ambiguity == "high":
-        return {
-            "target_profile": "standard",
-            "thinking": "medium",
-            "speed": "auto",
-            "reason": "Ambiguous work needs enough reasoning to frame the problem, but more model size will not replace missing context.",
-        }
-    return {
-        "target_profile": "standard",
-        "thinking": "medium",
-        "speed": "auto",
-        "reason": "Normal implementation, debugging, review, and docs work should use balanced host settings.",
+def provider_profile_resolution(provider, capability_profile):
+    provider_rows = PROVIDER_MODEL_PROFILES.get(provider, {})
+    row = dict(provider_rows.get(capability_profile, {}))
+    resolution = str(row.get("resolution", "unavailable"))
+    result = {
+        "provider": provider or "unknown",
+        "capability_profile": capability_profile,
+        "model": str(row.get("model", "")),
+        "api_model": str(row.get("api_model", "")),
+        "effort": str(row.get("effort", "auto")),
+        "mode": str(row.get("mode", "")),
+        "resolution": resolution,
+        "status": "resolved" if row.get("model") else "unavailable",
+        "fallback_policy": MODEL_CAPABILITY_MANIFEST["fallback_policy"],
     }
+    if resolution == "runtime_catalog":
+        result.update({
+            "status": "discovery_required",
+            "discovery_command": str(provider_rows.get("discovery_command", "")),
+            "fallback_model": str(provider_rows.get("fallback_model", "")),
+            "runtime_owner": str(provider_rows.get("runtime_owner", "")),
+            "preferred_terms": list(row.get("preferred_terms", [])),
+        })
+    if row.get("domain_fallback"):
+        result["domain_fallback"] = str(row["domain_fallback"])
+    return result
 
 
-def host_recommendation_model(platform, target_profile):
-    env_name = "MYTHIFY_HOST_{0}_MODEL".format(target_profile.upper())
-    env_model = os.environ.get(env_name, "").strip()
-    if env_model:
-        return env_model, "env:" + env_name
-    defaults = HOST_MODEL_DEFAULTS.get(platform, {})
-    default_model = defaults.get(target_profile, "")
-    if default_model:
-        return default_model, "platform_default"
-    return "", "none"
+def host_recommendation_model(platform, capability_profile):
+    provider = PLATFORM_MODEL_PROVIDERS.get(platform, "")
+    resolution = provider_profile_resolution(provider, capability_profile)
+    legacy_profile = MODEL_CAPABILITY_MANIFEST["profiles"][capability_profile][
+        "legacy_profile"
+    ]
+    env_names = ["MYTHIFY_HOST_{0}_MODEL".format(capability_profile.upper())]
+    legacy_env = "MYTHIFY_HOST_{0}_MODEL".format(legacy_profile.upper())
+    if legacy_env not in env_names:
+        env_names.append(legacy_env)
+    for env_name in env_names:
+        env_model = os.environ.get(env_name, "").strip()
+        if env_model:
+            resolution.update({
+                "model": env_model,
+                "api_model": "",
+                "resolution": "environment_override",
+                "status": "resolved",
+                "source": "env:" + env_name,
+            })
+            return resolution
+    if resolution["status"] == "resolved":
+        resolution["source"] = "platform_default"
+    elif resolution["status"] == "discovery_required":
+        resolution["source"] = "runtime_catalog"
+    else:
+        resolution["source"] = "none"
+    return resolution
 
 
-def host_recommendation_action(session_model, session_tier, target_profile):
+def host_recommendation_action(
+    session_model, session_profile, target_profile, resolution_status
+):
+    if resolution_status == "discovery_required":
+        return "recommend_discover"
     if not session_model:
         return "recommend_set"
-    session_rank = MODEL_TIER_RANK.get(session_tier, 0)
-    target_rank = HOST_PROFILE_RANK.get(target_profile, MODEL_TIER_RANK["standard"])
+    session_rank = CAPABILITY_PROFILE_RANK.get(session_profile, 0)
+    target_rank = CAPABILITY_PROFILE_RANK.get(
+        target_profile, CAPABILITY_PROFILE_RANK["balanced"]
+    )
     if session_rank == 0:
         return "recommend_set"
     if target_rank < session_rank:
@@ -829,25 +1001,52 @@ def host_recommendation_action(session_model, session_tier, target_profile):
     return "keep"
 
 
-def host_prompt_recommendation(classification, platform, session_model, session_tier):
-    profile = host_recommendation_profile(classification)
-    target_profile = profile["target_profile"]
-    target_model, target_model_source = host_recommendation_model(
-        platform, target_profile
-    )
+def host_prompt_recommendation(platform, session_model, model_router):
+    selection = model_router["selection"]
+    capability_profile = selection["selected_profile"]
+    profile = MODEL_CAPABILITY_MANIFEST["profiles"][capability_profile]
+    resolution = host_recommendation_model(platform, capability_profile)
+    session_profile = classify_model_profile(session_model)
+    model_router["provider_resolution"] = dict(resolution)
+    model_router["reasoning_effort"] = {
+        "profile_default": model_router["reasoning_effort"]["profile_default"],
+        "provider_resolved": resolution["status"] == "resolved",
+        "provider": resolution["provider"],
+        "selected": resolution["effort"],
+        "mode": resolution["mode"],
+    }
     return {
         "policy": "task_classification",
         "action": host_recommendation_action(
-            session_model, session_tier, target_profile
+            session_model,
+            session_profile,
+            capability_profile,
+            resolution["status"],
         ),
-        "target_profile": target_profile,
-        "target_model": target_model,
-        "target_model_source": target_model_source,
-        "target_model_tier": classify_model_tier(target_model),
-        "thinking": profile["thinking"],
-        "speed": profile["speed"],
-        "reason": profile["reason"],
+        "target_profile": profile["legacy_profile"],
+        "capability_profile": capability_profile,
+        "cost_class": profile["cost_class"],
+        "target_provider": resolution["provider"],
+        "target_model": resolution["model"],
+        "target_api_model": resolution["api_model"],
+        "target_model_source": resolution["source"],
+        "target_model_status": resolution["status"],
+        "target_model_tier": classify_model_tier(resolution["model"]),
+        "target_model_profile": classify_model_profile(resolution["model"]),
+        "thinking": resolution["effort"],
+        "speed": profile["default_speed"],
+        "resolution": resolution,
+        "reason": selection["reason"],
     }
+
+
+def engine_profile_resolution(engine, capability_profile):
+    provider = {
+        "codex-cli": "openai",
+        "claude-cli": "anthropic",
+        "cursor-agent": "cursor",
+    }.get(engine, "")
+    return provider_profile_resolution(provider, capability_profile)
 
 
 def resolve_role_provider(role):
@@ -1125,6 +1324,7 @@ def role_budget_fields(provider_defaults, role, timeout_seconds=None, timeout_so
 
 def build_model_policy(classification, args, host_model_record=None):
     platform = normalize_platform(getattr(args, "platform", "auto"))
+    model_router = build_model_router(classification, args)
     requested_effort = getattr(args, "effort", "auto")
     requested_speed = getattr(args, "speed", "auto")
     session_model, session_model_source = resolve_session_model(
@@ -1168,10 +1368,19 @@ def build_model_policy(classification, args, host_model_record=None):
         "host_default" if requested_speed == "auto" else "requested_" + requested_speed
     )
     host_recommendation = host_prompt_recommendation(
-        classification, platform, session_model, session_tier
+        platform, session_model, model_router
     )
+    worker_profile = (
+        model_router["selection"]["selected_profile"]
+        if model_router["selection"]["selected_profile"] in ("utility", "balanced")
+        else "balanced"
+    )
+    reviewer_profile = model_router["review_policy"]["recommended_profile"]
+    worker_resolution = engine_profile_resolution(worker_engine, worker_profile)
+    reviewer_resolution = engine_profile_resolution(worker_engine, reviewer_profile)
     provider_defaults = build_provider_defaults()
     return {
+        "model_router": model_router,
         "provider_defaults": provider_defaults,
         "session": {
             "role": "current_conversation",
@@ -1182,6 +1391,7 @@ def build_model_policy(classification, args, host_model_record=None):
             "model": session_model,
             "model_source": session_model_source,
             "model_tier": session_tier,
+            "capability_profile": classify_model_profile(session_model),
             "model_policy": "host_default",
             "effort_policy": session_effort_policy,
             "speed_policy": session_speed_policy,
@@ -1219,6 +1429,7 @@ def build_model_policy(classification, args, host_model_record=None):
             "engine_policy": triage_engine_source,
             "model": triage_model,
             "model_tier": classify_model_tier(triage_model),
+            "capability_profile": "utility",
             "model_relation_to_session": role_model_relation(
                 "triage", session_tier, spawn_ceiling
             ),
@@ -1238,6 +1449,7 @@ def build_model_policy(classification, args, host_model_record=None):
             **role_provider_fields(provider_defaults, "reader"),
             **role_budget_fields(provider_defaults, "reader"),
             "model_policy": "local_openai_compatible_when_configured",
+            "capability_profile": "utility",
             "model_relation_to_session": "lower_preferred",
             "effort": "low",
             "effort_policy": "role_default",
@@ -1259,6 +1471,11 @@ def build_model_policy(classification, args, host_model_record=None):
             "engine": worker_engine,
             "engine_policy": worker_engine_source,
             "model_policy": "per_task_over_job_over_env_over_engine_default",
+            "capability_profile": worker_profile,
+            "recommended_model": worker_resolution["model"],
+            "recommended_model_status": worker_resolution["status"],
+            "recommended_model_resolution": worker_resolution,
+            "recommended_effort": worker_resolution["effort"],
             "model_relation_to_session": role_model_relation(
                 "fanout_worker", session_tier, spawn_ceiling
             ),
@@ -1290,6 +1507,11 @@ def build_model_policy(classification, args, host_model_record=None):
             "engine": worker_engine,
             "engine_policy": worker_engine_source,
             "model_policy": "prefer_stronger_than_worker_when_available",
+            "capability_profile": reviewer_profile,
+            "recommended_model": reviewer_resolution["model"],
+            "recommended_model_status": reviewer_resolution["status"],
+            "recommended_model_resolution": reviewer_resolution,
+            "recommended_effort": reviewer_resolution["effort"],
             "stronger_model_policy": reviewer_strength,
             "stronger_model_policy_source": reviewer_strength_source,
             "stronger_models_allowed": reviewer_strength == "allow_stronger",
@@ -1314,6 +1536,7 @@ def build_model_policy(classification, args, host_model_record=None):
             **role_budget_fields(provider_defaults, "verifier"),
             "engine": "local_command",
             "model_policy": "none_when_executable_check_exists",
+            "capability_profile": "none",
             "model_relation_to_session": role_model_relation(
                 "verifier", session_tier, spawn_ceiling
             ),
