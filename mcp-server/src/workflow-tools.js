@@ -612,7 +612,7 @@ function buildAnalysisPromptPacket({ goal = "", verifyCommand = "" } = {}) {
   lines.push("Instructions:");
   lines.push("- Read the smallest useful project context before editing.");
   lines.push("- Identify likely files, constraints, hidden risks, and the first reversible step.");
-  lines.push("- Produce or update a plan with checkable success criteria.");
+  lines.push("- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs, name the one that looks good but is not and why, then recommend one."); lines.push("- Produce or update a plan with checkable success criteria.");
   lines.push("- Do not implement until the first step and verifier are explicit.");
   if (verifyCommand) {
     lines.push(`- Candidate verifier: ${verifyCommand}`);

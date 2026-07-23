@@ -392,6 +392,7 @@ def build_analysis_prompt_packet(state, goal="", verify_command=""):
         "Instructions:",
         "- Read the smallest useful project context before editing.",
         "- Identify likely files, constraints, hidden risks, and the first reversible step.",
+        "- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs, name the one that looks good but is not and why, then recommend one.",
         "- Produce or update a plan with checkable success criteria.",
         "- Do not implement until the first step and verifier are explicit.",
     ])

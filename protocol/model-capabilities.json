@@ -230,7 +230,7 @@
     "one_tier_after_failures": 1,
     "automatic_cap": "strong",
     "max_requires": "explicit_profile_or_future_eval_gate",
-    "evidence_source": "executed_verification_failure_count"
+    "evidence_source": "host_supplied_executed_verification_failure_count"
   },
   "model_match_order": [
     "max",
