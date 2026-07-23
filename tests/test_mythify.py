@@ -2679,6 +2679,16 @@ class TestPromptPackets(CliTestCase):
             json.loads(review.stdout)["next_prompt"],
         )
 
+        # The analysis packet carries the same hard-to-reverse guidance so
+        # planning surfaces name a trap before committing to one approach.
+        analysis = self.run_cli(
+            "prompt", "analysis", "--goal", "Ship packet workflow", "--json"
+        )
+        self.assertEqual(analysis.returncode, 0, analysis.stderr)
+        analysis_prompt = json.loads(analysis.stdout)["next_prompt"]
+        self.assertIn("2-3 labeled approaches with tradeoffs", analysis_prompt)
+        self.assertIn("looks good but is not", analysis_prompt)
+
         result = self.run_cli("prompt", "next", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
