@@ -42,6 +42,7 @@ Match protocol overhead to task size. Trivial work pays zero protocol tax.
 | :--- | :--- |
 | Trivial: a single edit or a question | No protocol commands. Just do it. |
 | Focused low-risk fix or test task | Fast profile: skip plan state, do the focused work, then `verify run` before any completion claim. |
+| Foggy: too big for one session, decisions unsettled | `map create`, one ticket per session, `map promote` when the way is clear. |
 | Multi-step, single session | `plan create` with steps, `step` updates as you go, `verify run` for every completion claim. |
 | Long-horizon or multi-session | Full loop: plan, steps, memory, lessons, reflections. `status` at session start, `summary` at session end. |
 
@@ -78,6 +79,16 @@ Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met
    verifier. The adapter fails closed unless Claude Code 2.1.203 or newer
    advertises UltraCode support.
    If `execution_profile` is `fast`, skip plan state, act, then `verify run`.
+   If the effort is too big for one session and the route to the destination is
+   not visible yet, chart a decision map before planning execution. A map holds
+   the questions to settle, not slices to build:
+   `python3 scripts/mythify.py map create "Ship a billing revamp spec" --fog "how do existing subscriptions migrate"`
+   Add the decisions you can already state, claim exactly one before working it,
+   and resolve it with the answer. A `grilling` or `prototype` ticket is
+   human-in-the-loop: resolving it requires `--human-input`, because an agent
+   that answers its own question has proved nothing. A `task` ticket with a
+   verify command needs a passing `map verify` first. When no ticket and no fog
+   remain, hand the destination to a plan with `map promote`.
    If the user gives an explicit outcome and verifier, start a bounded outcome
    loop instead of relying on self-report:
    `python3 scripts/mythify.py outcome start "Ship feature X" --success "tests pass" --verify "python3 -m unittest discover -s tests" --max-iterations 3`
@@ -146,7 +157,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and next control action. |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, exit codes, duration, and plan or step context. |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events; advances a cursor unless `--peek` is set; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. |
-| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router: classify the task, inspect durable state, choose a bounded capability profile and topology, then choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt-packet routing without mutating state. |
+| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router: classify the task, inspect durable state, choose a bounded capability profile and topology, then choose direct, plan, map, research, review, outcome, campaign, failure recovery, handoff, or prompt-packet routing without mutating state. |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. |
@@ -163,7 +174,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `campaign watch [NAME] [--interval N] [--max-iterations N] [--json]` | Poll a campaign and emit refreshed host prompts; use `--max-iterations 0` only for an explicit host-managed long-running watch. |
 | `campaign advance [NAME] --result TEXT` | Advance the current task through understand, design, build, judge, verify, and reflect. |
 | `campaign learn LESSON` | Record a learning that should improve later tasks. |
-| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet for research, analysis, failure recovery, handoff, review, campaign, or next. |
+| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet for research, analysis, failure recovery, handoff, review, campaign, map, or next. |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, provider-neutral capability profile, bounded escalation, and host-aware model policy. |
 | `loop-fit TASK [--json]` | Read-only advisory: assess a task against the loop-worthiness gates (machine-checkable done-condition, recurrence, reproduction environment, human judgment) and recommend a bounded self-driving loop, a supervised loop or verifier-gated plan, or doing it directly. Runs nothing. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
@@ -175,6 +186,15 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `outcome status [NAME] [--json]` | Show the active or named outcome loop. |
 | `outcome results [NAME] [--json]` | Show all verifier iterations and final outcome state. |
 | `outcome stop [NAME] --reason TEXT [--json]` | Stop an outcome loop and clear the active pointer when it matches. |
+| `map create DESTINATION [--name NAME] [--notes TEXT] [--fog TEXT]` | Chart a decision map for work too big for one session and set it active. |
+| `map ticket TITLE --type research\|prototype\|grilling\|task [--question TEXT] [--mode afk\|hitl] [--blocked-by IDS] [--verify COMMAND] [--from-fog ID]` | Add a decision ticket; the type fixes whether a human is in the loop. |
+| `map claim ID [--by WHO]` | Claim an open, unblocked ticket before any work; one decision ticket at a time, research excepted. |
+| `map verify ID [--timeout N]` | Run a task ticket's own verify command and record the evidence scoped to that ticket. |
+| `map resolve ID --answer TEXT [--gist TEXT] [--human-input TEXT] [--out-of-scope] [--fog TEXT] [--scope-out TEXT]` | Close a claimed ticket with its decision; HITL tickets require human input. |
+| `map fog NOTE` | Record a question that is in scope but not sharp enough to ticket. |
+| `map scope-out NOTE --reason TEXT` | Rule work past the destination out of scope; it never graduates. |
+| `map show [NAME] [--json]` / `map list [--json]` | Show the map at low resolution, or list maps. |
+| `map promote [NAME] [--plan NAME] [--steps JSON] [--horizon N]` | Hand a clear map off to a plan carrying its decisions and scope boundary. |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan and set it active. |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Import godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks as a plan whose steps keep each task's verify command under strict step-scoped evidence. |
 | `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step to the named or active plan, optionally with an executable verify command. |
@@ -199,13 +219,15 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 41 tools: `classify_task`, `host_model_switch`,
+through exactly 47 tools: `classify_task`, `host_model_switch`,
 `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
 `outcome_results`, `outcome_stop`, `memory_store`, `memory_recall`,
 `memory_clear`, `lesson_record`, `lesson_recall`, `plan_create`,
-`plan_add_step`, `plan_update_step`, `plan_status`, `workflow_status`,
+`plan_add_step`, `plan_update_step`, `plan_status`, `map_create`,
+`map_add_ticket`, `map_claim`, `map_resolve`, `map_status`, `map_promote`,
+`workflow_status`,
 `verification_history`, `work_report`, `background_status`, `evidence_harness`, `outcome_progress`,
 `release_readiness`, `fanout_timeline`, `phase_status`, `campaign_next_prompt`,
 `prompt_packet`, `workflow_route`, `verify_run`, `verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
@@ -217,8 +239,14 @@ state directory, same file formats, same evidence rules:
 material for the current campaign task and phase; they do not mutate state, run
 checks, advance tasks, or turn prompt output into verification evidence.
 `prompt_packet` and CLI `prompt` render the same material-only packet contract
-for research, analysis, failure recovery, handoff, review, campaign, and
+for research, analysis, failure recovery, handoff, review, campaign, map, and
 next-prompt routing without mutating state or recording evidence.
+The `map_*` tools carry the same wayfinding rules as the CLI: `map_claim`
+refuses a second decision ticket while one is held, `map_resolve` refuses a
+human-in-the-loop ticket without `human_input`, a task ticket that stores a
+verify command needs a passing executed run recorded since the claim, and
+`map_promote` refuses a map that still has an open ticket or an ungraduated fog
+patch. `map verify` is CLI-only, like `plan verify`.
 `workflow_route` and CLI `route` are read-only quarterback surfaces: they
 classify the prompt, inspect active durable state and the latest executed
 verification, choose the next workflow route, return the suggested next command

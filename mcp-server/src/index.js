@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 38 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 41 tools in total. On-disk formats are
+// reflections) as 44 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 47 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -45,6 +45,8 @@ import {
 } from "./view-core.js";
 import { registerMemoryTools } from "./memory-tools.js";
 import { registerOutcomeTools } from "./outcome-tools.js";
+import { registerMapTools } from "./map-tools.js";
+import { buildDefaultPlanSteps } from "./plan-horizon.js";
 import { registerPlanTools } from "./plan-tools.js";
 import { registerVerificationTools } from "./verification-tools.js";
 import { registerFanoutTools } from "./fanout.js";
@@ -616,6 +618,113 @@ function resolvePlan(name) {
   return { slug: active, plan };
 }
 
+// ---------------------------------------------------------------------------
+// Wayfinding map store (shared on-disk format with the CLI)
+// ---------------------------------------------------------------------------
+
+function mapsDir() {
+  return path.join(resolveStateDir(), "maps");
+}
+
+function mapPath(slug) {
+  return path.join(mapsDir(), `${slug}.json`);
+}
+
+function activeMapPath() {
+  return path.join(mapsDir(), "active");
+}
+
+function readActiveMapSlug() {
+  try {
+    const slug = fs.readFileSync(activeMapPath(), "utf8").trim();
+    if (slug === "" || !fs.existsSync(mapPath(slug))) {
+      return null;
+    }
+    return slug;
+  } catch {
+    return null;
+  }
+}
+
+function setActiveMapSlug(slug) {
+  ensureDir(mapsDir());
+  writeTextAtomic(activeMapPath(), slug + "\n");
+}
+
+function clearActiveMapSlug(slug = null) {
+  if (slug !== null && readActiveMapSlug() !== slug) {
+    return;
+  }
+  try {
+    fs.unlinkSync(activeMapPath());
+  } catch {
+    // Already gone.
+  }
+}
+
+function saveMap(slug, record) {
+  record.updated = isoNow();
+  writeJsonAtomic(mapPath(slug), record);
+}
+
+function resolveMap(name) {
+  if (name !== undefined && name !== null && String(name).trim() !== "") {
+    const slug = findExistingSlugByName(String(name).trim(), mapPath);
+    if (slug) {
+      const record = readJsonRecover(mapPath(slug), () => null);
+      if (record === null) {
+        return { error: `[FAIL] Map file for "${slug}" was corrupt and has been quarantined. Chart it again with map_create.` };
+      }
+      return { slug, record };
+    }
+    return { error: `[FAIL] No map named "${name}" found. Chart one with map_create or inspect the active map with map_status.` };
+  }
+  const active = readActiveMapSlug();
+  if (!active) {
+    return { error: "[FAIL] No active map. Chart one with map_create, or pass a map name." };
+  }
+  const record = readJsonRecover(mapPath(active), () => null);
+  if (record === null) {
+    return { error: `[FAIL] Active map file "${active}" was corrupt and has been quarantined. Chart it again with map_create.` };
+  }
+  return { slug: active, record };
+}
+
+// Shared by plan_create and map_promote so a promoted map produces the same
+// plan shape as a hand-written one, plus a `source` provenance block.
+function createPlanRecord({ goal, name, steps, source }) {
+  const base = slugify(name !== undefined && name !== null && String(name).trim() !== "" ? name : goal) || "plan";
+  const slug = uniquePlanSlug(base);
+  const now = isoNow();
+  const planSteps = (steps || []).map((item, index) => {
+    const step = {
+      id: index + 1,
+      title: item.title,
+      success_criteria: item.success_criteria || "",
+      status: "pending",
+      result: null,
+    };
+    const verifyCommand = String(item.verify_command || "").trim();
+    if (verifyCommand) {
+      step.verify_command = verifyCommand;
+    }
+    return step;
+  });
+  const plan = {
+    name: slug,
+    goal,
+    steps: planSteps,
+    created: now,
+    last_updated: now,
+  };
+  if (source !== undefined && source !== null) {
+    plan.source = source;
+  }
+  writeJsonAtomic(planPath(slug), plan);
+  setActiveSlug(slug);
+  return slug;
+}
+
 function verificationStepContext() {
   const active = readActiveSlug();
   if (!active || !fs.existsSync(planPath(active))) {
@@ -1182,6 +1291,28 @@ registerPlanTools(server, {
   verificationRecordHasExplicitStepContext,
   nextPendingText,
   readActiveSlug,
+  mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
+});
+
+// ---------------------------------------------------------------------------
+// Wayfinding map tools
+// ---------------------------------------------------------------------------
+
+registerMapTools(server, {
+  guarded,
+  slugify,
+  isoNow,
+  writeJsonAtomic,
+  mapPath,
+  resolveMap,
+  saveMap,
+  setActiveMapSlug,
+  clearActiveMapSlug,
+  readActiveMapSlug,
+  readJsonl,
+  verificationsPath,
+  createPlanRecord,
+  buildDefaultPlanSteps,
   mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
 });
 

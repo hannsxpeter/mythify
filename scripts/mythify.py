@@ -91,6 +91,27 @@ from mythify_plan_horizon import (  # noqa: E402
     parse_plan_horizon,
 )
 from mythify_loopfit import cmd_loop_fit  # noqa: E402
+from mythify_maps import (  # noqa: E402
+    MAP_TICKET_MODES,
+    MAP_TICKET_TYPES,
+    cmd_map_claim,
+    cmd_map_create,
+    cmd_map_fog,
+    cmd_map_list,
+    cmd_map_promote,
+    cmd_map_resolve,
+    cmd_map_scope_out,
+    cmd_map_show,
+    cmd_map_ticket,
+    cmd_map_verify,
+    configure_map_store,
+    frontier_tickets,
+    get_active_map_slug,
+    load_map,
+    map_is_clear,
+    map_next_action,
+    open_tickets,
+)
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
 from mythify_provenance import current_verification_provenance  # noqa: E402
 from mythify_runtime_helpers import (  # noqa: E402
@@ -152,12 +173,10 @@ from mythify_workflows import (  # noqa: E402
     cmd_research_summary,
     configure_workflow_stores,
 )
-from mythify_godfiles import (  # noqa: E402
-    GODAUDITS_DIR_NAME,
-    GODPLANS_DIR_NAME,
-    find_godaudits_file,
-    find_godplans_file,
-    load_god_artifact,
+from mythify_plan_import import (  # noqa: E402
+    cmd_plan_import,
+    configure_plan_import,
+    project_root_for_workspace,
 )
 from mythify_views import (  # noqa: E402
     DEFAULT_REPORT_RECENT,
@@ -181,9 +200,9 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.0.0"
+VERSION = "5.1.0"
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "e68709b1df3d17a6f0153981abee34d4f842cacca1eca1f43913b3889b2d4cfc"
+PROTOCOL_SOURCE_SHA256 = "d7b65df5dbd7725a292e1987fc6f46635ab5f4658c656c0b6817a2a344b784a7"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 NO_WORKSPACE_MESSAGE = (
@@ -335,6 +354,7 @@ def ensure_layout(state):
     (state / "outcomes").mkdir(parents=True, exist_ok=True)
     (state / "research").mkdir(parents=True, exist_ok=True)
     (state / "campaigns").mkdir(parents=True, exist_ok=True)
+    (state / "maps").mkdir(parents=True, exist_ok=True)
     (state / "reports").mkdir(parents=True, exist_ok=True)
     (state / "logs" / "archive").mkdir(parents=True, exist_ok=True)
 
@@ -513,6 +533,29 @@ configure_workflow_stores(
     fail_func=fail,
     find_existing_slug_by_name_func=find_existing_slug_by_name,
     execute_verification_func=execute_recorded_verification,
+)
+configure_plan_import(
+    now_iso_func=now_iso,
+    slugify_func=slugify,
+    list_plan_slugs_func=list_plan_slugs,
+    load_plan_func=load_plan,
+    plan_path_func=plan_path,
+    save_plan_func=save_plan,
+    set_active_slug_func=set_active_slug,
+    describe_next_pending_func=lambda plan: describe_next_pending(plan),
+    fail_func=fail,
+)
+configure_map_store(
+    now_iso_func=now_iso,
+    slugify_func=slugify,
+    fail_func=fail,
+    find_existing_slug_by_name_func=find_existing_slug_by_name,
+    execute_verification_func=execute_recorded_verification,
+    build_default_plan_steps_func=build_default_plan_steps,
+    create_plan_record_func=lambda state, goal, name, steps, source: create_plan_record(
+        state, goal, name=name, steps=steps, source=source
+    ),
+    environ_map=os.environ,
 )
 
 
@@ -721,6 +764,21 @@ def cmd_status(args, state):
             print("Active outcome: none")
     else:
         print("Active outcome: none")
+    active_map_slug = get_active_map_slug(state)
+    active_map = load_map(state, active_map_slug)[1] if active_map_slug else None
+    if active_map is not None:
+        print(
+            "Active map: {0} ({1} open, {2} on the frontier, {3} decided)".format(
+                active_map_slug,
+                len(open_tickets(active_map)),
+                len(frontier_tickets(active_map)),
+                len(active_map.get("decisions") or []),
+            )
+        )
+        print("Destination: {0}".format(active_map.get("destination", "")))
+        print("Map next: {0}".format(map_next_action(active_map)))
+    else:
+        print("Active map: none")
     memory = load_memory(state)
     project_lessons = load_lessons(state / "lessons", "project")
     global_lessons = load_lessons(global_lessons_dir(), "global")
@@ -792,15 +850,36 @@ def cmd_plan_create(args, state):
             return 1
         if horizon is not None:
             steps_input = build_default_plan_steps(horizon)
-    base = slugify(args.name if args.name else args.goal) or "plan"
+    slug, error = create_plan_record(state, args.goal, args.name, steps_input)
+    if error:
+        fail(error)
+        return 1
+    plan = load_plan(state, slug)
+    steps = plan.get("steps", []) if plan else []
+    print("[OK] Created plan: {0} ({1} steps). Active plan set to {0}.".format(slug, len(steps)))
+    if not steps:
+        print("Plan has no steps yet. Add steps with: plan add-step TITLE [--criteria TEXT]")
+    return 0
+
+
+def create_plan_record(state, goal, name=None, steps=None, source=None):
+    """Write a new plan, set it active, and return (slug, error_message).
+
+    Shared by `plan create` and `map promote`, so a promoted map produces the
+    same plan shape as a hand-written one, plus a `source` provenance block.
+    """
+    for item in steps or []:
+        if not isinstance(item, dict) or not item.get("title"):
+            return None, "[FAIL] Invalid steps: every step needs a non-empty \"title\"."
+    base = slugify(name if name else goal) or "plan"
     slug = base
     suffix = 2
     while plan_path(state, slug).exists():
         slug = "{0}-{1}".format(base, suffix)
         suffix += 1
     stamp = now_iso()
-    steps = []
-    for index, item in enumerate(steps_input):
+    plan_steps = []
+    for index, item in enumerate(steps or []):
         step = {
             "id": index + 1,
             "title": str(item["title"]),
@@ -811,173 +890,19 @@ def cmd_plan_create(args, state):
         verify_command = str(item.get("verify_command", "")).strip()
         if verify_command:
             step["verify_command"] = verify_command
-        steps.append(step)
+        plan_steps.append(step)
     plan = {
         "name": slug,
-        "goal": args.goal,
-        "steps": steps,
+        "goal": goal,
+        "steps": plan_steps,
         "created": stamp,
         "last_updated": stamp,
     }
+    if source is not None:
+        plan["source"] = source
     save_plan(state, slug, plan)
     set_active_slug(state, slug)
-    print("[OK] Created plan: {0} ({1} steps). Active plan set to {0}.".format(slug, len(steps)))
-    if not steps:
-        print("Plan has no steps yet. Add steps with: plan add-step TITLE [--criteria TEXT]")
-    return 0
-
-
-def project_root_for_workspace(state):
-    return state.parent if state.name == WORKSPACE_DIR_NAME else Path.cwd()
-
-
-def _existing_import_slug(state, source_kind, source_path):
-    for slug in list_plan_slugs(state):
-        plan = load_plan(state, slug)
-        if plan is None:
-            continue
-        source = plan.get("source")
-        if (
-            isinstance(source, dict)
-            and source.get("kind") == source_kind
-            and source.get("path") == source_path
-        ):
-            return slug
-    return None
-
-
-def _resolve_import_artifact(args, root):
-    """Resolve (path, source_kind) for plan import; returns (None, error)."""
-    source = args.source
-    if args.path:
-        path = Path(args.path).expanduser()
-        if not path.is_file():
-            return None, "[FAIL] Artifact not found: {0}".format(path)
-    else:
-        plan_file = find_godplans_file(root)
-        audit_file = find_godaudits_file(root)
-        if source == "godplans":
-            path = plan_file
-        elif source == "godaudits":
-            path = audit_file
-        elif plan_file is not None and audit_file is not None:
-            return None, (
-                "[FAIL] Found both a godplans plan and a godaudits audit. "
-                "Pass a PATH or --source to choose one."
-            )
-        else:
-            path = plan_file or audit_file
-            source = "godplans" if plan_file is not None else source
-            source = "godaudits" if plan_file is None and audit_file is not None else source
-        if path is None:
-            return None, (
-                "[FAIL] No godplans or godaudits artifact found under {0}. Run "
-                "the /godplans or /godaudits skill first, or pass a PATH.".format(root)
-            )
-    if source is None:
-        lowered = str(path).lower()
-        if "plan" in path.name.lower() or GODPLANS_DIR_NAME in lowered:
-            source = "godplans"
-        elif "audit" in path.name.lower() or GODAUDITS_DIR_NAME in lowered:
-            source = "godaudits"
-        else:
-            return None, (
-                "[FAIL] Cannot infer the artifact kind from {0}. Pass --source "
-                "godplans or --source godaudits.".format(path)
-            )
-    return (path, source), None
-
-
-def cmd_plan_import(args, state):
-    root = project_root_for_workspace(state)
-    resolved, error = _resolve_import_artifact(args, root)
-    if error:
-        fail(error)
-        return 1
-    path, source = resolved
-    digest = load_god_artifact(path, source)
-    if digest["status"] in ("unreadable", "unrecognized"):
-        fail(
-            "[FAIL] Cannot import {0}: {1} ({2}).".format(
-                path, digest["status"], digest.get("detail", "")
-            )
-        )
-        return 1
-    live_tasks = [task for task in digest["tasks"] if not task["superseded"]]
-    if not live_tasks:
-        fail("[FAIL] No importable tasks found in {0}.".format(path))
-        return 1
-    existing = _existing_import_slug(state, source, str(path))
-    if existing and not args.name:
-        fail(
-            "[FAIL] {0} was already imported as plan {1}. Archive that plan "
-            "first, or pass --name to import a fresh copy.".format(path.name, existing)
-        )
-        return 1
-    base = slugify(args.name) if args.name else (
-        (slugify(digest.get("name") or "") or "imported") + "-" + source
-    )
-    slug = base or "imported-" + source
-    suffix = 2
-    while plan_path(state, slug).exists():
-        slug = "{0}-{1}".format(base, suffix)
-        suffix += 1
-    stamp = now_iso()
-    steps = []
-    for index, task in enumerate(live_tasks):
-        step = {
-            "id": index + 1,
-            "title": "{0} {1}".format(task["id"], task["title"]).strip(),
-            "success_criteria": task.get("acceptance") or "verify command passes",
-            "status": "completed" if task["checked"] else "pending",
-            "result": (
-                "imported: checkbox already checked in {0}".format(path.name)
-                if task["checked"]
-                else None
-            ),
-            "source_id": task["id"],
-            "verify_command": task.get("verify_command", ""),
-            "wave": task.get("wave", ""),
-            "phase": task.get("phase_title", ""),
-            "updated_at": stamp,
-        }
-        if task.get("depends_on"):
-            step["depends_on"] = task["depends_on"]
-        if task.get("fixes"):
-            step["fixes"] = task["fixes"]
-        steps.append(step)
-    plan = {
-        "name": slug,
-        "goal": "Execute {0} tasks from {1}".format(source, path.name),
-        "steps": steps,
-        "created": stamp,
-        "last_updated": stamp,
-        "strict_context": True,
-        "source": {
-            "kind": source,
-            "path": str(path),
-            "version": digest.get("plan_version") or digest.get("audit_version"),
-            "imported_at": stamp,
-        },
-    }
-    save_plan(state, slug, plan)
-    set_active_slug(state, slug)
-    done = sum(1 for step in steps if step["status"] == "completed")
-    print(
-        "[OK] Imported {0} tasks from {1} into plan {2} ({3} already completed). "
-        "Active plan set to {2}.".format(len(steps), path.name, slug, done)
-    )
-    if digest.get("counter_drift"):
-        print(
-            "[WARN] Frontmatter counters disagree with the checkboxes in {0}; "
-            "the checkboxes were trusted.".format(path.name)
-        )
-    print(
-        "Checkbox flips in the artifact stay with the executing agent per its "
-        "embedded rules; Mythify holds the evidence trail."
-    )
-    print(describe_next_pending(plan))
-    return 0
+    return slug, None
 
 
 def cmd_plan_add_step(args, state):
@@ -1118,7 +1043,25 @@ def cmd_plan_show(args, state):
     print("[OK] Plan: {0}{1}".format(slug, label))
     print("Goal: {0}".format(plan.get("goal", "")))
     source = plan.get("source")
-    if isinstance(source, dict) and source.get("kind"):
+    if isinstance(source, dict) and source.get("kind") == "map":
+        decisions = source.get("decisions") or []
+        out_of_scope = source.get("out_of_scope") or []
+        print("Source: map {0} (destination settled before planning)".format(source.get("map", "unknown")))
+        if decisions:
+            print("Decisions carried from the map:")
+            for decision in decisions:
+                print(
+                    "  - {0} ({1}): {2}".format(
+                        decision.get("title", ""),
+                        decision.get("ticket_id", ""),
+                        decision.get("gist", ""),
+                    )
+                )
+        if out_of_scope:
+            print("Out of scope for this plan:")
+            for entry in out_of_scope:
+                print("  - {0}: {1}".format(entry.get("id", ""), entry.get("note", "")))
+    elif isinstance(source, dict) and source.get("kind"):
         print(
             "Source: {0} artifact {1} (imported {2})".format(
                 source.get("kind"),

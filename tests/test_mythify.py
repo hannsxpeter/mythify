@@ -687,6 +687,9 @@ class TestProtocolHandshake(CliTestCase):
         for name in (
             "mythify_log_compaction.py",
             "mythify_loopfit.py",
+            "mythify_map_parser.py",
+            "mythify_maps.py",
+            "mythify_plan_import.py",
             "mythify_provenance.py",
             "mythify_runtime_helpers.py",
         ):

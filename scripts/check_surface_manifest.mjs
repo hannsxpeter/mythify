@@ -158,6 +158,7 @@ function main() {
       "mcp-server/src/index.js",
       "mcp-server/src/adapter-tools.js",
       "mcp-server/src/view-tools.js",
+      "mcp-server/src/map-tools.js",
       "mcp-server/src/memory-tools.js",
       "mcp-server/src/plan-tools.js",
       "mcp-server/src/outcome-tools.js",

@@ -674,6 +674,9 @@ variable when it is set (Python `Path.home()`, Node `os.homedir()` both already 
 |-- campaigns/
 |   |-- active
 |   `-- <slug>.json
+|-- maps/
+|   |-- active
+|   `-- <slug>.json
 |-- reports/
 |   `-- <cursor>.json
 |-- fanout/
@@ -1021,7 +1024,7 @@ owns the public entry point and delegates cohesive command families to sibling
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. It does not mutate state, rerun checks, or upgrade attested claims. | 0; 1 if no workspace |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events, with an `Attention` section for failed checks, failed steps, failure reflections, and attested warnings. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. | 0; 1 if no workspace, invalid recent value, or incompatible flags |
 | `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router. It classifies the task, selects the capability profile and topology, inspects durable state and the latest executed verification, then returns a route, reason, next command, prompt packet, verification strategy, chat policy, pause rules, expected state writes, and evidence. It must not mutate state or move execution out of the initiating host unless the user explicitly asks. | 0; 1 if no workspace |
-| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet. Kinds are `research`, `analysis`, `failure`, `handoff`, `review`, `campaign`, and `next`; packet output is steering material for the host, not verification evidence. `next` selects failure recovery only when the latest executed check is red, then campaign, research, handoff, or analysis based on active state. | 0; 1 if no workspace or named state is missing |
+| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet. Kinds are `research`, `analysis`, `failure`, `handoff`, `review`, `campaign`, `map`, and `next`; packet output is steering material for the host, not verification evidence. `next` selects failure recovery only when the latest executed check is red, then campaign, map, research, handoff, or analysis based on active state. | 0; 1 if no workspace or named state is missing |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. It does not mutate state, run checks, stop loops, or treat notes as verification. | 0; 1 if no workspace |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
@@ -1033,6 +1036,16 @@ owns the public entry point and delegates cohesive command families to sibling
 | `outcome status [NAME] [--json]` | Show outcome status, verifier, metric, iteration budget, and latest next action. | 0; 1 if not found |
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final state. | 0 if succeeded, 2 otherwise, 1 if not found |
 | `outcome stop [NAME] --reason TEXT [--json]` | Mark an active or named outcome stopped and clear the active pointer when it matches. | 0; 1 if not found |
+| `map create DESTINATION [--name NAME] [--notes TEXT] [--fog TEXT] [--json]` | Chart a wayfinding decision map and set it active. `--fog` is repeatable and seeds the Not-yet-specified register. | 0; 1 if no workspace |
+| `map list [--json]` | List maps with active marker, open and frontier counts, decisions, fog, and status. | 0; 1 if no workspace |
+| `map show [NAME] [--json]` | Show the map at low resolution: destination, notes, decisions so far, frontier, claimed, blocked, fog, out of scope, and the next action. Read-only. | 0; 1 if not found |
+| `map ticket TITLE --type research\|prototype\|grilling\|task [--question TEXT] [--mode afk\|hitl] [--blocked-by IDS] [--verify COMMAND] [--from-fog ID] [--map NAME]` | Add a decision ticket (id = `T` + next number). The type fixes the mode: research and task are `afk`, prototype and grilling are `hitl`; `--mode` is accepted only for `task`. `--blocked-by` accepts repeated or comma-separated ids that must already exist. `--from-fog` graduates a fog patch exactly once. | 0; 1 on unknown blocker, unknown or already-graduated fog, or a mode override on a non-task ticket |
+| `map claim ID [--by WHO] [--map NAME]` | Claim an open, unblocked ticket and record a verification cursor. Refuses a blocked ticket, a ticket claimed by someone else, and a second non-research ticket held by the same claimant. Defaults to `MYTHIFY_MAP_CLAIMANT` or `session`. | 0; 1 if refused |
+| `map verify ID [--map NAME] [--timeout N]` | Run the ticket's `verify_command` and record the executed verification stamped with `map`, `ticket_id`, `ticket_title`, and `ticket_type`, satisfying the ticket's resolution gate. Requires a prior claim. CLI-only. | 0 verified; 2 command failed or run disabled; 1 usage error |
+| `map resolve ID --answer TEXT [--gist TEXT] [--human-input TEXT] [--out-of-scope] [--fog TEXT] [--scope-out TEXT] [--map NAME]` | Close a claimed ticket. `--answer` is required. A `hitl` ticket REQUIRES `--human-input` unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0`. A ticket storing `verify_command` requires a passing executed record with exit code 0 and a matching normalized command at or after the claim cursor. `--out-of-scope` closes the ticket into the Out-of-scope register instead of Decisions and skips the claim, block, human-input, and verifier gates. | 0; 1 if refused |
+| `map fog NOTE [--map NAME]` | Record an in-scope question too dim to ticket. Reopens a `clear` map to `charting`. | 0; 1 if no map |
+| `map scope-out NOTE --reason TEXT [--map NAME]` | Record work ruled past the destination. Out-of-scope work never graduates. | 0; 1 if no map |
+| `map promote [NAME] [--plan NAME] [--steps JSON] [--horizon N]` | Create a plan from a map with no open tickets and no ungraduated fog. The plan's goal is the destination and its `source` block carries `{kind: "map", map, destination, decisions, out_of_scope}`. Marks the map `promoted`, records `promoted_plan`, and clears the active map pointer. | 0; 1 if the map is unclear, missing, or already promoted |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional), "verify_command": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Convert godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks into a plan and set it active. Discovers the artifact at the project root when PATH is omitted; both present without `--source` is an error. Live tasks import in document order (superseded strikethrough tasks skipped, checked boxes import completed); each step keeps `source_id`, `verify_command`, `wave`, `phase`, plus `depends_on` and `fixes` when present. Sets `strict_context` and a `source` provenance block; re-importing the same artifact path is refused while the imported plan exists. Warns on frontmatter counter drift. Never edits the artifact. | 0; 1 on missing, ambiguous, unrecognized, or already-imported artifacts |
 | `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan, optionally with an executable `verify_command`. | 0; 1 if plan not found |
@@ -1069,14 +1082,14 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 20+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `5.0.0`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `5.1.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 41 tools: the 38 core tools below plus the 3 fanout tools defined in the
+Exactly 47 tools: the 44 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -1117,6 +1130,12 @@ does AND when to use it, since descriptions drive tool selection.
 | `plan_add_step` | `{title: string, success_criteria?: string, verify_command?: string, plan?: string}` | Append to named or active plan. |
 | `plan_update_step` | `{step_id: number, status: enum(pending, in_progress, completed, failed, skipped), result?: string, plan?: string}` | Enforce the evidence rule: `completed` or `failed` without `result` returns `[FAIL] Evidence required ...` and does NOT modify the plan. Every `in_progress` transition records a verification cursor. By default, `completed` also requires a later recorded executed verification with `verified: true`, `exit_code: 0`, and any stored `verify_command` matched exactly after normalization (see "Verified-step gate"). Otherwise it returns the same `[FAIL] Verified evidence required ...` text the CLI uses, without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. On success, include the next pending step in the response. |
 | `plan_status` | `{plan?: string}` | Goal, progress count, step list with icons. |
+| `map_create` | `{destination: string, name?: string, notes?: string, fog?: string[]}` | Chart a wayfinding decision map and set it active. Fog entries become `F`-prefixed Not-yet-specified patches. |
+| `map_add_ticket` | `{title: string, type: enum(research, prototype, grilling, task), question?: string, mode?: enum(afk, hitl), blocked_by?: string[], verify_command?: string, from_fog?: string, map?: string}` | Add a decision ticket. The type fixes the mode (research and task `afk`, prototype and grilling `hitl`); `mode` is accepted only for `task` and otherwise returns `[FAIL] Mode is fixed for ...`. Unknown blockers and already-graduated fog patches are refused. |
+| `map_claim` | `{ticket_id: string, by?: string, map?: string}` | Claim an open, unblocked ticket and record a verification cursor. Refuses blocked tickets, tickets claimed by another party, and a second non-research ticket held by the same claimant. |
+| `map_resolve` | `{ticket_id: string, answer: string, gist?: string, human_input?: string, out_of_scope?: boolean, fog?: string[], scope_out?: string[], map?: string}` | Close a claimed ticket. A `hitl` ticket without `human_input` returns the human-input refusal and does NOT modify the map, unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0`. A ticket storing `verify_command` requires a passing executed record with exit code 0 and a matching normalized command at or after the claim cursor. `out_of_scope: true` files the ticket under Out of scope instead of Decisions. |
+| `map_status` | `{map?: string}` | Read-only low-resolution map: destination, notes, decisions so far, frontier, claimed, blocked, fog, out of scope, and next action. |
+| `map_promote` | `{map?: string, plan?: string, steps?: [{title: string, success_criteria?: string, verify_command?: string}], horizon?: number}` | Create a plan from a map with no open tickets and no ungraduated fog. The plan carries `source: {kind: "map", ...}` with the decisions and out-of-scope register. Refuses an unclear or already-promoted map. |
 | `verify_run` | `{command: string, claim?: string, timeout_seconds?: number = 300}` | Execute through the shell, record an executed verification, return the verdict with output tails. If env `MYTHIFY_DISABLE_RUN=1`, refuse with an explanation and record nothing. |
 | `verify_claim` | `{claim: string, evidence: string}` | Record an attested entry, return the `[WARN] ATTESTED` line. |
 | `reflect` | `{action_taken: string, outcome: enum(success, partial, failure), observation: string, root_cause?: string, next_action: string, lesson?: string}` | Append reflection; auto-record lesson if provided (project scope, tag `auto-reflected`). Note: jsonl field names follow the file format (`action`, `next`), not the tool parameter names. |
@@ -1409,6 +1428,77 @@ implementation work is complete. When research turns into code or docs, the
 host must move through a plan, outcome, or campaign and record executable
 verification where available.
 
+## Wayfinding map workflow
+
+`map` is the state surface for the phase before a plan exists: work too big for
+one session whose route to the destination is not visible yet. A map holds
+questions to settle, not slices to build. The shape is adapted from the
+wayfinder skill (`https://github.com/mattpocock/skills`); the evidence gates are
+Mythify's.
+
+State lives under `.mythify/maps/`:
+
+- `active`: current map pointer, cleared when a map is promoted.
+- `<slug>.json`: `id`, `destination`, `notes`, `status`
+  (`charting`, `clear`, `promoted`), `tickets`, `fog`, `out_of_scope`,
+  `decisions`, `created`, `updated`, and `promoted_plan` once promoted.
+
+A ticket carries `id` (`T`-prefixed), `title`, `question`, `type`, `mode`,
+`status` (`open`, `closed`, `out_of_scope`), `blocked_by`, `claimed_by`,
+`claimed_at`, `verification_cursor`, optional `verify_command` and
+`verified_command`, `resolution`, `human_input`, `resolved_at`, and `created`.
+A fog patch carries `id` (`F`-prefixed), `note`, `graduated_to`, and `created`.
+An out-of-scope entry carries `id` (`X`-prefixed), `note`, `reason`,
+`ticket_id`, and `created`.
+
+Four ticket types, each fixing whether a human is in the loop:
+
+| Type | Mode | Resolution requirement |
+| :--- | :--- | :--- |
+| `research` | `afk` | an answer; exempt from the one-ticket rule and runs in parallel |
+| `task` | `afk` by default, `hitl` on request | an answer, plus a passing executed run matching `verify_command` when one is stored |
+| `prototype` | `hitl` | an answer and `human_input` |
+| `grilling` | `hitl` | an answer and `human_input` |
+
+`--mode` and the MCP `mode` field are accepted only for `task`. A mode override
+on any other type is refused, so a conversation cannot be quietly downgraded
+into something the agent answers by itself.
+
+Four gates make a map Mythify rather than a decision board, and each refuses
+without mutating state:
+
+1. **Claim before work.** `map claim` refuses a blocked ticket, a ticket already
+   claimed by someone else, and a second non-research ticket held by the same
+   claimant. Claiming records `verification_cursor`, the append position of
+   `verifications.jsonl` at claim time.
+2. **Human input for HITL.** `map resolve` refuses a `hitl` ticket without
+   `--human-input` unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0`, the explicit legacy
+   opt-out that mirrors `MYTHIFY_REQUIRE_VERIFIED_STEP`. This is the attested
+   claim rule applied to decisions: an agent's own words never settle a question
+   that belongs to a human.
+3. **Executed evidence for verifiable tasks.** A ticket storing `verify_command`
+   requires an executed record with `verified: true`, `exit_code: 0`, and a
+   normalized command equal to the stored one, at or after the claim cursor.
+   `map verify` runs that command and stamps the record with `map`, `ticket_id`,
+   `ticket_title`, and `ticket_type`. Evidence recorded before the claim can
+   never be reused.
+4. **A clear way before handoff.** `map promote` refuses a map with any open
+   ticket or ungraduated fog patch.
+
+`--out-of-scope` is the scoping escape hatch, not a bypass: it closes the ticket
+into the Out-of-scope register with its reason, leaves Decisions untouched, and
+skips the claim, block, human-input, and verifier gates because nothing is being
+decided. Out-of-scope work never graduates.
+
+`map promote` calls the same plan-writing helper as `plan create`
+(`create_plan_record` in the CLI, `createPlanRecord` in the MCP runtime), so a
+promoted plan is byte-shaped like a hand-written one plus a `source` block of
+`{kind: "map", map, destination, decisions, out_of_scope}`. `plan show` renders
+that block as the decisions carried from the map and the plan's scope boundary.
+
+`map verify` is CLI-only, like `plan verify` and `plan import`: it executes a
+command, so it stays on the surface that owns execution ergonomics.
+
 ## Prompt packet workflow
 
 `prompt` is a CLI read-only surface for chat-native reprompting:
@@ -1419,6 +1509,7 @@ verification where available.
 - `prompt handoff [--goal TEXT] [--verify COMMAND] [--json]`
 - `prompt review [--goal TEXT] [--verify COMMAND] [--json]`
 - `prompt campaign [NAME] [--goal TEXT] [--verify COMMAND] [--json]`
+- `prompt map [NAME] [--goal TEXT] [--verify COMMAND] [--json]`
 - `prompt next [--goal TEXT] [--verify COMMAND] [--json]`
 
 Each packet returns:
@@ -1462,11 +1553,18 @@ Priority order favors recovery and durable loops:
 2. full-send language such as "one shot", "in one go", "address all", or
    "yolo": `campaign`;
 3. active campaign or outcome with continue language: `campaign` or `outcome`;
-4. explicit godaudits or godplans language: `review` or `plan`;
-5. explicit research or review language: `research` or `review`;
-6. active plan continuation: `handoff`;
-7. direct low-risk prompts: `direct`;
-8. otherwise: `plan`.
+4. explicit wayfinding language, or an active map with continue language: `map`;
+5. explicit godaudits or godplans language: `review` or `plan`;
+6. explicit research or review language: `research` or `review`;
+7. active plan continuation: `handoff`;
+8. direct low-risk prompts: `direct`;
+9. otherwise: `plan`.
+
+Full-send language keeps its higher priority, so a prompt that asks for
+execution routes to `campaign` even when it also sounds foggy. A map that has
+been promoted stops steering: its state view is null and routing falls through
+to the plan it produced. When a map is active and already clear, the next
+command becomes `map promote` rather than another ticket.
 
 The route state view also carries `godplans_plan` and `godaudits_audit`
 summaries (null when the artifact is absent), read from `.godplans/PLAN.mdx`
@@ -1545,7 +1643,7 @@ research, analysis, failure recovery, handoff, review, campaign, and next.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the manifest tool names (set equality), the 38 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
+1. `tools/list` returns exactly the manifest tool names (set equality), the 44 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
    execution profile `direct`, and a command-backed fast triage result when
@@ -1872,6 +1970,47 @@ directory. Required coverage:
 - Corrupt recovery: write garbage into memory.json, run `memory get`, expect
   `[WARN]` on stderr, exit 0, and a `memory.json.corrupt-*` file.
 
+### tests/test_maps.py
+
+Stdlib `unittest` over the CLI as a subprocess, with the same scrubbed
+environment as `tests/test_mythify.py` plus `MYTHIFY_REQUIRE_HUMAN_INPUT` and
+`MYTHIFY_MAP_CLAIMANT` removed. Required coverage:
+
+- Charting: `map create` records destination, notes, and fog; ticket type fixes
+  the mode; a mode override on a non-task ticket is refused and the map is left
+  unmodified; unknown blockers are refused; a fog patch graduates exactly once.
+- Claim discipline: blocked tickets cannot be claimed; one claimant holds one
+  non-research decision ticket at a time while research claims stay parallel; a
+  ticket claimed elsewhere is refused; resolving an unclaimed ticket is refused.
+- Resolution evidence: a HITL ticket refuses a self-authored resolution and
+  leaves the ticket open; it resolves with `--human-input`;
+  `MYTHIFY_REQUIRE_HUMAN_INPUT=0` is the explicit legacy opt-out; an AFK ticket
+  needs no human input; an empty answer is refused; a task ticket with a
+  verifier refuses resolution until `map verify` passes; a failing verifier does
+  not satisfy the gate; evidence recorded before the claim cannot be reused; the
+  `map verify` record carries the ticket context.
+- Scope and fog: an out-of-scope ticket stays out of the decision index; a
+  resolution can surface fresh fog and scope boundaries; `map scope-out` records
+  a standalone boundary; new fog reopens a clear map.
+- Promotion: refused while any ticket or fog remains; carries decisions and the
+  out-of-scope register into the plan's `source` block; accepts explicit steps;
+  clears the active pointer and refuses a second promotion.
+- Surfaces: `status` reports the active map, `map show` refers to tickets by
+  name, `map list` marks the active map, `prompt map` renders the wayfinding
+  rules, and `prompt next` selects the map while one is active.
+
+### mcp-server/test/map-tools.test.js
+
+An in-memory registrar harness (the same shape as `plan-tools.test.js`) asserts
+that the MCP runtime enforces the identical gates: the registrar wires every
+`MAP_TOOL_NAMES` handler with a title and description, mode overrides on
+conversation tickets are refused, blocked tickets stay off the frontier, one
+decision ticket is held at a time, `map_resolve` refuses a HITL ticket without
+`human_input`, a verifier-bearing task ticket needs a passing exit-0 record at
+or after the claim cursor, fog graduates once, out-of-scope work skips the
+decision index, `map_promote` refuses an unclear or already-promoted map, and
+`map_status` never mutates.
+
 ### tests/test_local_model_eval.py
 
 Offline command-engine tests verify the local benchmark harness without real
@@ -2061,7 +2200,7 @@ Platform mapping:
   `gpt-5.6-sol-high-fast` when that id is available. If no matching encoded
   id is found, Mythify leaves the requested model unchanged.
 
-### Tools (3, total 41)
+### Tools (3, total 47)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
@@ -2258,7 +2397,7 @@ or upgrade provider output into evidence.
 ### Smoke coverage (mcp-server/test/, runs in CI with no network)
 
 Using the `command` engine with a deterministic local template and stub local
-CLI binaries: 41-tool set equality; a 3-task command job runs to completion
+CLI binaries: 47-tool set equality; a 3-task command job runs to completion
 and `fanout_results` returns the outputs; `context_paths` content demonstrably
 reaches the worker prompt; the kill switch refuses; the depth guard refuses; a
 failing command produces a failed task with captured stderr; job.json matches

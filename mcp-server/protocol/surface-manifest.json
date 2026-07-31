@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 29,
+      "command_count": 30,
       "tiers": {
         "front_door": [
           "route",
@@ -15,6 +15,7 @@
           "step",
           "outcome",
           "campaign",
+          "map",
           "research",
           "prompt"
         ],
@@ -58,6 +59,7 @@
         "timeline",
         "phase",
         "trace",
+        "map",
         "research",
         "campaign",
         "classify",
@@ -75,9 +77,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 38,
+      "core_tool_count": 44,
       "fanout_tool_count": 3,
-      "total_tools": 41,
+      "total_tools": 47,
       "tiers": {
         "front_door": [
           "workflow_route",
@@ -90,6 +92,12 @@
           "plan_add_step",
           "plan_update_step",
           "plan_status",
+          "map_create",
+          "map_add_ticket",
+          "map_claim",
+          "map_resolve",
+          "map_status",
+          "map_promote",
           "outcome_start",
           "outcome_check",
           "outcome_status",
@@ -160,6 +168,12 @@
         "plan_add_step",
         "plan_update_step",
         "plan_status",
+        "map_create",
+        "map_add_ticket",
+        "map_claim",
+        "map_resolve",
+        "map_status",
+        "map_promote",
         "outcome_start",
         "outcome_check",
         "outcome_status",

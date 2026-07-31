@@ -21,6 +21,12 @@
       "prompt_packet": "handoff"
     },
     {
+      "id": "map",
+      "priority": 35,
+      "description": "Chart or work a wayfinding decision map when the effort is too big for one session and the route to the destination is not visible yet.",
+      "prompt_packet": "map"
+    },
+    {
       "id": "research",
       "priority": 40,
       "description": "Create or continue source-backed research before implementation when the task depends on external or uncertain information.",

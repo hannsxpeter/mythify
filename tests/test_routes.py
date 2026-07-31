@@ -176,6 +176,51 @@ class TestRouteMatrix(RouteCase):
         self.run_cli("research", "start", "wire format", "--name", "wf")
         self.assertEqual(self.route("continue")["route"], "research")
 
+    def test_map_on_wayfinding_language(self):
+        payload = self.route(
+            "I have a loose idea for a billing revamp and need to work out what we decide first"
+        )
+        self.assertEqual(payload["route"], "map")
+        self.assertIn("map create", payload["next_command"])
+        self.assertIn("map create with the destination", payload["state_writes"])
+
+    def test_map_active_resume_points_at_the_packet(self):
+        self.run_cli("map", "create", "ship a spec", "--name", "spec", "--fog", "unknown bits")
+        payload = self.route("continue")
+        self.assertEqual(payload["route"], "map")
+        self.assertEqual(payload["next_command"], "mythify prompt map")
+        self.assertEqual(payload["state"]["active_map"]["id"], "spec")
+
+    def test_clear_map_routes_to_the_plan_handoff(self):
+        self.run_cli("map", "create", "ship a spec", "--name", "spec")
+        self.run_cli("map", "ticket", "pick the shape", "--type", "grilling")
+        self.run_cli("map", "claim", "T1")
+        self.run_cli(
+            "map", "resolve", "T1", "--answer", "one service", "--human-input", "the human chose one"
+        )
+        payload = self.route("continue")
+        self.assertEqual(payload["route"], "map")
+        self.assertEqual(payload["next_command"], "mythify map promote")
+
+    def test_promoted_map_stops_steering(self):
+        self.run_cli("map", "create", "ship a spec", "--name", "spec")
+        self.run_cli("map", "ticket", "pick the shape", "--type", "grilling")
+        self.run_cli("map", "claim", "T1")
+        self.run_cli(
+            "map", "resolve", "T1", "--answer", "one service", "--human-input", "the human chose one"
+        )
+        self.run_cli("map", "promote")
+        payload = self.route("continue from where we left off")
+        self.assertEqual(payload["route"], "handoff")
+        self.assertIsNone(payload["state"]["active_map"])
+
+    def test_full_send_still_beats_wayfinding_language(self):
+        # A full-send prompt asks for execution, so it keeps the campaign route
+        # even when it also sounds foggy.
+        self.assertEqual(
+            self.route("One shot this loose idea end to end, ship it")["route"], "campaign"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

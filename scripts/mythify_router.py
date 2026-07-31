@@ -9,6 +9,17 @@ from mythify_classification import classify_task_text
 from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_model_policy import build_model_policy, run_model_triage
 from mythify_plan_horizon import route_plan_horizon
+from mythify_maps import (
+    format_ticket_line,
+    frontier_tickets,
+    get_active_map_slug,
+    load_map,
+    map_is_clear,
+    map_next_action,
+    open_tickets,
+    ticket_name,
+    ungraduated_fog,
+)
 from mythify_workflows import (
     build_campaign_prompt_payload,
     campaign_next_action,
@@ -83,6 +94,14 @@ ROUTE_OUTCOME_TERMS = (
 ROUTE_VERIFY_TERMS = (
     "verify", "test", "tests", "passes", "passing", "check", "build",
     "lint",
+)
+ROUTE_MAP_TERMS = (
+    "wayfind", "wayfinder", "wayfinding", "decision map", "chart the map",
+    "chart a map", "map the work", "map out the work", "loose idea",
+    "too big for one session", "too big for one agent session",
+    "what do we need to decide", "figure out what to decide",
+    "decide before we plan", "scope this out", "not sure where to start",
+    "shape of the work", "unknown unknowns",
 )
 ROUTE_GODPLANS_TERMS = ("godplans", "god plans")
 ROUTE_GODAUDITS_TERMS = ("godaudits", "god audits")
@@ -312,7 +331,97 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
         return build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command)
     if kind == "review":
         return build_review_prompt_packet(state, goal=goal, verify_command=verify_command)
+    if kind == "map":
+        return build_map_prompt_packet(state, name=name, goal=goal)
     return {"error": "[FAIL] Unknown prompt packet kind: {0}".format(kind)}
+
+
+def build_map_prompt_packet(state, name=None, goal=""):
+    slug, record = load_map(state, name)
+    if record is None:
+        return {"error": "[FAIL] Map not found. Create one with: map create DESTINATION"}
+    frontier = frontier_tickets(record)
+    claimed = [t for t in open_tickets(record) if t.get("claimed_by")]
+    fog = ungraduated_fog(record)
+    decisions = record.get("decisions") or []
+    out_of_scope = record.get("out_of_scope") or []
+    lines = [
+        "Wayfinding map prompt packet: {0}".format(slug),
+        "Destination: {0}".format(record.get("destination", "")),
+        "Status: {0}".format(record.get("status", "charting")),
+    ]
+    if goal:
+        lines.append("Session goal: {0}".format(goal))
+    if record.get("notes"):
+        lines.append("Notes: {0}".format(record.get("notes")))
+    lines.append("Decisions so far ({0}):".format(len(decisions)))
+    for decision in decisions[-8:]:
+        lines.append(
+            "- {0} ({1}) - {2}".format(
+                decision.get("title", ""),
+                decision.get("ticket_id", ""),
+                decision.get("gist", ""),
+            )
+        )
+    lines.append("Frontier ({0}):".format(len(frontier)))
+    for ticket in frontier:
+        lines.append(format_ticket_line(record, ticket))
+    if claimed:
+        lines.append("Already claimed ({0}):".format(len(claimed)))
+        for ticket in claimed:
+            lines.append(format_ticket_line(record, ticket))
+    if fog:
+        lines.append("Not yet specified ({0}):".format(len(fog)))
+        for item in fog[-8:]:
+            lines.append("- {0}: {1}".format(item.get("id"), item.get("note", "")))
+    if out_of_scope:
+        lines.append("Out of scope ({0}):".format(len(out_of_scope)))
+        for item in out_of_scope[-8:]:
+            lines.append("- {0}: {1}".format(item.get("id"), item.get("note", "")))
+    lines.extend([
+        "",
+        "Instructions:",
+        "- Plan, do not do: every ticket resolves a decision, not a slice of the build.",
+        "- Refer to the map and its tickets by name; a bare id reads as noise.",
+        "- Claim one frontier ticket with map claim before any work; only research tickets run in parallel.",
+        "- Resolve a HITL ticket only after the human answers, and pass their words as --human-input.",
+        "- Resolve a task ticket that stores a verify command only after map verify passes.",
+        "- Record the answer with map resolve, then ticket what the answer made specifiable and fog what it did not.",
+        "- If the answer shows a ticket sits past the destination, rule it out of scope instead of resolving it.",
+        "- Stop after one decision ticket; the map survives the session, the context window does not.",
+        "- When no ticket and no fog remain, hand off with map promote.",
+        "Next action: {0}".format(map_next_action(record)),
+    ])
+    lines.append("Guardrail: {0}".format(PROMPT_PACKET_GUARDRAIL))
+    return {
+        "kind": "map",
+        "selected_kind": "map",
+        "title": "Wayfinding map prompt packet",
+        "source": {"type": "map", "id": slug},
+        "context": {
+            "destination": record.get("destination", ""),
+            "status": record.get("status", "charting"),
+            "notes": record.get("notes", ""),
+            "goal": goal,
+            "decisions": decisions[-8:],
+            "frontier": [
+                {
+                    "id": ticket.get("id"),
+                    "name": ticket_name(ticket),
+                    "type": ticket.get("type"),
+                    "mode": ticket.get("mode"),
+                }
+                for ticket in frontier
+            ],
+            "claimed": [ticket_name(ticket) for ticket in claimed],
+            "fog": fog[-8:],
+            "out_of_scope": out_of_scope[-8:],
+            "clear": map_is_clear(record),
+            "next_action": map_next_action(record),
+        },
+        "next_prompt": "\n".join(lines),
+        "guardrail": PROMPT_PACKET_GUARDRAIL,
+    }
 
 
 def build_research_prompt_packet(state, name=None, goal="", verify_command=""):
@@ -583,6 +692,8 @@ def select_next_prompt_packet_kind(state):
         return "failure"
     if get_active_campaign_slug(state):
         return "campaign"
+    if get_active_map_slug(state):
+        return "map"
     if get_active_research_slug(state):
         return "research"
     if get_active_slug(state):
@@ -635,6 +746,7 @@ def workflow_route_state(state):
         active_outcome_slug, active_outcome = None, None
         active_campaign_slug, active_campaign = None, None
         active_research_slug, active_research = None, None
+        active_map_slug, active_map = None, None
         latest_index, latest = None, None
     else:
         active_plan_slug = get_active_slug(state)
@@ -642,6 +754,7 @@ def workflow_route_state(state):
         active_outcome_slug, active_outcome = load_outcome(state)
         active_campaign_slug, active_campaign = load_campaign(state)
         active_research_slug, active_research = load_research(state)
+        active_map_slug, active_map = load_map(state)
         latest_index, latest = latest_executed_verification(state)
     latest_view = None
     if latest is not None:
@@ -698,6 +811,19 @@ def workflow_route_state(state):
             "claim_count": len(active_research.get("claims") or []),
             "source_count": len(active_research.get("sources") or []),
         }
+    map_view = None
+    # A promoted map has handed its destination to a plan, so it stops steering.
+    if active_map and active_map.get("status") != "promoted":
+        map_view = {
+            "id": active_map_slug,
+            "destination": active_map.get("destination", ""),
+            "status": active_map.get("status", "charting"),
+            "open_tickets": len(open_tickets(active_map)),
+            "frontier": len(frontier_tickets(active_map)),
+            "decisions": len(active_map.get("decisions") or []),
+            "fog": len(ungraduated_fog(active_map)),
+            "clear": map_is_clear(active_map),
+        }
     root = artifact_project_root(state)
     godplans_view = godplans_summary(root)
     godaudits_view = godaudits_summary(root)
@@ -706,6 +832,7 @@ def workflow_route_state(state):
         "active_outcome": outcome_view,
         "active_campaign": campaign_view,
         "active_research": research_view,
+        "active_map": map_view,
         "latest_executed_verification": latest_view,
         "godplans_plan": godplans_view if godplans_view.get("present") else None,
         "godaudits_audit": godaudits_view if godaudits_view.get("present") else None,
@@ -757,6 +884,13 @@ def route_command_for(route, task, state_view):
         return (
             "mythify outcome start {0} --success {1} --verify {2}"
         ).format(quoted_task, shlex.quote("DEFINE SUCCESS"), shlex.quote("DEFINE VERIFIER"))
+    if route == "map":
+        active_map = state_view.get("active_map")
+        if active_map:
+            if active_map.get("clear"):
+                return "mythify map promote"
+            return "mythify prompt map"
+        return "mythify map create {0}".format(quoted_task)
     if route == "research":
         if state_view.get("active_research"):
             return "mythify prompt research"
@@ -797,6 +931,22 @@ def route_state_writes(route, state_view):
         if state_view.get("active_outcome"):
             return ["outcome check after each bounded attempt"]
         return ["outcome start with explicit success criteria and verifier"]
+    if route == "map":
+        active_map = state_view.get("active_map")
+        if active_map and active_map.get("clear"):
+            return ["map promote once the destination is handed to a plan"]
+        if active_map:
+            return [
+                "map claim before working a ticket",
+                "map resolve with the answer, and human input for a HITL ticket",
+                "map ticket for newly specifiable questions",
+                "map fog for what is still too dim to ticket",
+            ]
+        return [
+            "map create with the destination",
+            "map ticket for each decision you can already state",
+            "map fog for what you cannot state sharply yet",
+        ]
     if route == "research":
         if state_view.get("active_research"):
             return ["research add-source", "research add-claim", "research close"]
@@ -847,6 +997,7 @@ def workflow_route_evidence(route, state_view, classification):
         "active_outcome",
         "active_campaign",
         "active_research",
+        "active_map",
         "godplans_plan",
         "godaudits_audit",
     ):
@@ -894,6 +1045,18 @@ def select_workflow_route(task, state_view, classification):
         return (
             "outcome",
             "The prompt names success or verification conditions, so use a bounded outcome loop.",
+        )
+    if route_has(text, ROUTE_MAP_TERMS):
+        return (
+            "map",
+            "The prompt describes work whose route is not visible yet, so chart a "
+            "decision map before planning execution.",
+        )
+    if state_view.get("active_map") and route_has(text, ROUTE_RESUME_TERMS):
+        return (
+            "map",
+            "An active decision map exists and the prompt asks to continue, so work "
+            "its next ticket before planning execution.",
         )
     if route_has(text, ROUTE_GODAUDITS_TERMS):
         return (
