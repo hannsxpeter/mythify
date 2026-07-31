@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-07-31
+
+Minor release: a wayfinding decision map for work that is too big for one
+session, with Mythify's evidence discipline applied to decisions.
+
+### Added
+
+- Added the `map` command family and six `map_*` MCP tools: a durable decision
+  map with a destination, decision tickets on a blocking frontier, a
+  `Not yet specified` fog register, and an `Out of scope` register. Tickets
+  resolve questions rather than build slices.
+- Added human-in-the-loop enforcement to resolutions. A `grilling` or
+  `prototype` ticket cannot be resolved without `--human-input`, so an agent
+  cannot answer its own question and call it settled. `MYTHIFY_REQUIRE_HUMAN_INPUT=0`
+  is the explicit legacy opt-out, mirroring `MYTHIFY_REQUIRE_VERIFIED_STEP`.
+- Added `map verify`, which runs a task ticket's own verify command and records
+  the executed evidence stamped with `map`, `ticket_id`, `ticket_title`, and
+  `ticket_type`. A ticket that stores a verify command cannot be resolved
+  without a passing exit-0 run recorded since the claim.
+- Added claim discipline: a ticket must be claimed before any work, blocked
+  tickets cannot be claimed, and one claimant holds one decision ticket at a
+  time. Research tickets are exempt and run in parallel.
+- Added `map promote`, which hands a map with no open tickets and no
+  ungraduated fog to a plan whose goal is the destination and whose `source`
+  block carries every decision and scope boundary that was settled.
+- Added a `map` workflow route and a `map` prompt packet to both runtimes, so
+  a foggy prompt routes to charting instead of premature planning.
+
+### Changed
+
+- The MCP surface is now 47 tools: 44 core plus 3 fanout.
+- `plan show` renders a map-sourced plan's decisions and out-of-scope register
+  instead of the godfiles import line.
+- Split `mythify_plan_import.py`, `mythify_map_parser.py`,
+  `mcp-server/src/map-tools.js`, and `mcp-server/src/prompt-packets.js` out of
+  their parent modules to keep every runtime source file under the size guard.
+
+### Compatibility
+
+- All existing commands, tools, state formats, and verification rules are
+  unchanged. Projects that never chart a map see no behavior difference; the
+  `maps/` state directory is created on `init` and stays empty.
+
 ## [5.0.0] - 2026-07-14
 
 Major release: provider-neutral model routing and native Claude UltraCode
@@ -1264,7 +1307,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.0.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/hannsxpeter/mythify/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/hannsxpeter/mythify/compare/v4.3.0...v5.0.0
 [4.3.0]: https://github.com/hannsxpeter/mythify/compare/v4.2.0...v4.3.0
 [4.2.0]: https://github.com/hannsxpeter/mythify/compare/v4.1.0...v4.2.0

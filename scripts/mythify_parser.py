@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+from mythify_map_parser import add_map_parser
+
 
 def nonnegative_int(value):
     parsed = int(value)
@@ -351,6 +353,14 @@ def build_parser(symbols):
     p.add_argument("name", nargs="?", help="Campaign name. Defaults to the active campaign.")
     add_prompt_common(p)
     p.set_defaults(handler=cmd_prompt_packet, packet_kind="campaign")
+
+    p = prompt_sub.add_parser(
+        "map",
+        help="Render a wayfinding map prompt packet for the next decision ticket.",
+    )
+    p.add_argument("name", nargs="?", help="Map name. Defaults to the active map.")
+    add_prompt_common(p)
+    p.set_defaults(handler=cmd_prompt_packet, packet_kind="map")
 
     p = prompt_sub.add_parser(
         "next",
@@ -818,6 +828,8 @@ def build_parser(symbols):
     p.add_argument("name", nargs="?", help="Campaign name. Defaults to active.")
     p.add_argument("--reason", required=True, help="Why the campaign is being stopped.")
     p.set_defaults(handler=cmd_campaign_stop)
+
+    add_map_parser(sub, symbols)
 
     p = sub.add_parser(
         "classify",

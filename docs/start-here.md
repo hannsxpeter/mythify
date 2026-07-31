@@ -64,7 +64,7 @@ cursor without replaying old project history. Do not combine `--mark` with
 so issue lists can be copied into the chat instead of staying hidden in logs.
 Use `--peek` when you want to inspect the report without moving the cursor.
 
-## Three Workflows Worth Learning
+## Four Workflows Worth Learning
 
 ### 1. Small Fix
 
@@ -95,7 +95,29 @@ mythify report --since last --format chat
 
 Each completed step gets evidence, not just confidence.
 
-### 3. Release Readiness
+### 3. Foggy Work
+
+Use this when the effort is too big for one session and you do not yet know
+what the steps are, because the decisions have not been made.
+
+```bash
+mythify map create "Ship a billing revamp spec" --fog "how do existing subscriptions migrate"
+mythify map ticket "Pick the proration model" --type grilling
+mythify map claim T1
+# hold the actual conversation with the human
+mythify map resolve T1 --answer "Daily proration with a monthly true-up" \
+  --human-input "the human chose daily with a monthly true-up"
+mythify map show
+# when no ticket and no fog remain:
+mythify map promote
+```
+
+One decision ticket per session. A `grilling` or `prototype` ticket will not
+close without `--human-input`, because an agent that answers its own question
+has proved nothing. `map promote` hands the settled destination, its decisions,
+and its scope boundary to a plan, and the loop above takes over.
+
+### 4. Release Readiness
 
 Use this before publishing or merging broad changes.
 

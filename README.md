@@ -1,6 +1,9 @@
 # Mythify
 
 [![CI](https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml/badge.svg)](https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hannsxpeter/mythify?sort=semver&label=release&color=blue)](https://github.com/hannsxpeter/mythify/releases/latest)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![Node 20+](https://img.shields.io/badge/node-20%2B-blue.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **An evidence protocol for AI coding agents.** Mythify makes an AI agent plan
@@ -213,6 +216,59 @@ evidence, and repeats. It stops the moment any of these happens:
 The loop never declares success without the verifier, and it can never run
 unbounded. Autonomy, but on Mythify's terms.
 
+## Wayfinding: deciding before planning (new in 5.1)
+
+Some work is too big for one session and the route to the finish is not visible
+yet. A plan is the wrong tool: you cannot write steps for decisions you have not
+made. Mythify's **map** holds those decisions:
+
+```bash
+mythify map create "Ship a billing revamp spec" \
+  --fog "how do existing subscriptions migrate"
+
+mythify map ticket "Pick the proration model" --type grilling
+mythify map ticket "Confirm the gateway supports partial refunds" --type research
+mythify map ticket "Provision a sandbox account" --type task \
+  --verify "curl -sf https://sandbox.example/health" --blocked-by T2
+
+mythify map show          # destination, decisions so far, frontier, fog, out of scope
+```
+
+A ticket is a **question**, not a slice of the build. Its type decides who
+answers it, and Mythify enforces that:
+
+| Type | Who answers | To close it |
+| :--- | :--- | :--- |
+| `research` | the agent alone | an answer; these run in parallel |
+| `task` | the agent alone | an answer, plus a passing `map verify` if it stores a check |
+| `grilling` | a human | an answer **and** `--human-input` with what the human decided |
+| `prototype` | a human reacting to something rough | the same |
+
+That last rule is the evidence rule again, applied to decisions: an agent that
+answers its own question has proved nothing, exactly like an agent that says
+the tests pass without running them. `mythify map resolve T1 --answer "..."` on
+a `grilling` ticket is **refused** until a real human has weighed in.
+
+The rest follows from that:
+
+- **Claim before you work.** One decision ticket at a time, so parallel sessions
+  cannot collide. Research is exempt.
+- **Fog is first class.** What you cannot state sharply yet goes in
+  `Not yet specified` and graduates into a ticket later, once it is sharp.
+- **Out of scope is recorded, not forgotten.** Work ruled past the destination
+  is closed with a reason and never comes back.
+- **The map ends where the plan begins.** When no ticket and no fog remain,
+  `mythify map promote` creates a plan whose goal is the destination and whose
+  provenance carries every decision and every scope boundary you settled.
+
+`mythify route "I have a loose idea and need to work out what we decide first"`
+picks this route on its own, and `mythify prompt map` renders the whole map plus
+the rules for a fresh session.
+
+The design is adapted from Matt Pocock's
+[wayfinder skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/wayfinder/SKILL.md),
+with Mythify's evidence gates layered on top.
+
 ## Working from existing plans and audits
 
 If you use [godplans](https://github.com/hannsxpeter/godplans) or
@@ -235,7 +291,7 @@ use `isolation: "worktree"` so each runs in its own git worktree on a fresh
 branch and cannot collide with the others; you merge the branches you want.
 
 The MCP server shares the exact same `.mythify/` folder as the CLI, so a plan
-made in one is visible in the other. It exposes Mythify through 41 MCP tools;
+made in one is visible in the other. It exposes Mythify through 47 MCP tools;
 the full list is in [docs/design.md](docs/design.md).
 
 ## Feeling native in chat
@@ -255,6 +311,10 @@ The everyday commands:
 | :--- | :--- |
 | `init` | Create the `.mythify/` folder (run once per project). |
 | `route "TASK"` | Recommend the next workflow move (read-only). |
+| `map create DESTINATION` | Chart a decision map when the route is not visible yet. |
+| `map ticket TITLE --type ...` | Add a decision ticket: research, prototype, grilling, or task. |
+| `map claim ID` / `map resolve ID --answer ...` | Take one ticket, then close it with its decision. |
+| `map promote` | Hand a settled map to a plan, decisions and scope included. |
 | `plan create GOAL [--steps JSON]` | Create a plan; steps may include `verify_command`. |
 | `plan add-step TITLE [--verify CMD]` | Add a step, optionally with its check. |
 | `plan verify ID` | Run a step's own check and record scoped evidence. |
