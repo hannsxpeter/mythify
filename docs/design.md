@@ -56,10 +56,14 @@ mythify/
 |   |-- mythify_io.py            durable IO helper
 |   |-- mythify_log_compaction.py verification-log compaction helper
 |   |-- mythify_loopfit.py       loop-worthiness analysis helper
+|   |-- mythify_map_parser.py    wayfinding map subcommand parser
+|   |-- mythify_maps.py          wayfinding decision map store and gates
 |   |-- mythify_memory.py        memory and lesson helper
 |   |-- mythify_model_policy.py  model policy and triage helper
 |   |-- mythify_model_routing.py provider-neutral topology and review helper
 |   |-- mythify_outcomes.py      outcome loop helper
+|   |-- mythify_parser.py        CLI argument parser construction
+|   |-- mythify_plan_import.py   godplans and godaudits plan import helper
 |   |-- mythify_provenance.py    verification provenance helper
 |   |-- mythify_router.py        prompt packet and workflow route helper
 |   |-- mythify_runtime_helpers.py shared CLI runtime helpers
@@ -89,9 +93,12 @@ mythify/
 |   |-- src/host-cli.js
 |   |-- src/index.js
 |   |-- src/lifecycle-adapter.js
+|   |-- src/map-tools.js         wayfinding map tools and shared map helpers
 |   |-- src/model-policy.js
 |   |-- src/model-provider.js
 |   |-- src/operation-registry.js
+|   |-- src/plan-tools.js
+|   |-- src/prompt-packets.js    prompt packet builders shared by route and prompt
 |   |-- src/provider-defaults.js
 |   |-- src/surface-manifest.js
 |   |-- src/verification-provenance.js
@@ -110,6 +117,7 @@ mythify/
 |   |-- test/lifecycle-adapter.test.js
 |   |-- test/lifecycle-probe.test.js
 |   |-- test/local-model-run.test.js
+|   |-- test/map-tools.test.js
 |   |-- test/model-policy.test.js
 |   |-- test/model-provider.test.js
 |   |-- test/provider-defaults.test.js
@@ -128,6 +136,8 @@ mythify/
 |-- tests/
 |   |-- test_mythify.py          CLI unit and end-to-end tests (stdlib unittest)
 |   |-- test_godfiles.py         god artifact parser, plan import, routing, views
+|   |-- test_maps.py             wayfinding map gates, promotion, and surfaces
+|   |-- test_routes.py           workflow router decision-tree coverage
 |   |-- test_campaign_discipline.py campaign verifier gate and hygiene tests
 |   |-- test_interop.py          CLI and MCP server against the same state dir
 |   |-- test_local_model_eval.py offline test for the local comparison harness
