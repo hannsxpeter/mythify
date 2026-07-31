@@ -1,9 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   VERIFICATION_TOOL_NAMES,
   registerVerificationTools,
 } from "../src/verification-tools.js";
+
+// Read the version from the package rather than pinning a literal, so a release
+// bump cannot fail this test for a reason unrelated to what it covers.
+const PACKAGE_VERSION = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
+).version;
 
 function makeHarness({ verified = true } = {}) {
   const registered = [];
@@ -78,7 +85,7 @@ test("verification tool registrar wires verify and reflection handlers", async (
     "mythify_version",
     "worktree_clean",
   ]);
-  assert.equal(verifications[0].provenance.mythify_version, "5.0.0");
+  assert.equal(verifications[0].provenance.mythify_version, PACKAGE_VERSION);
 
   const verifyClaim = registered.find((entry) => entry.name === "verify_claim");
   const claimResult = await verifyClaim.handler({
