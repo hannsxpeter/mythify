@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-label="Mythify: your AI coding agent cannot say the tests passed until it has actually run them.">
+  <title>Mythify</title>
+  <desc>Mythify wordmark with the tagline: your AI coding agent cannot say the tests passed until it has actually run them. A tilted die-cut sticker reads exit 0, verified.</desc>
+
+  <!-- goddesign | seed 3205094279 | Playful Pop x Marquee Hero | jitter h+7 L-0.01 r-1 -->
+  <style>
+    /* Font waiver: SVG loaded via img cannot fetch webfonts, so the direction's
+       Bricolage Grotesque / Karla behavior ships on a documented fallback stack. */
+    .u-display { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 800; }
+    .u-body    { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 400; }
+    .u-label   { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; letter-spacing: 1.6px; }
+    .u-mono    { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; }
+  </style>
+
+  <defs>
+    <clipPath id="board">
+      <rect x="0" y="0" width="1200" height="340" rx="14" />
+    </clipPath>
+    <filter id="lift" x="-30%" y="-30%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#201A33" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <g clip-path="url(#board)">
+    <rect x="0" y="0" width="1200" height="340" fill="#FCF5EC" />
+
+    <!-- atmosphere: the paper is scored, not flat. Hairline rules sit under the type. -->
+    <g stroke="#201A33" stroke-opacity="0.06" stroke-width="1">
+      <path d="M0 62.5H1200M0 124.5H1200M0 186.5H1200M0 248.5H1200M0 310.5H1200" />
+    </g>
+
+    <!-- wordmark -->
+    <text class="u-display" x="72" y="152" font-size="104" letter-spacing="-3.2" fill="#201A33">MYTHIFY</text>
+
+    <!-- the one supporting sentence -->
+    <text class="u-body" x="76" y="205" font-size="27" fill="#201A33">Your AI coding agent cannot say the tests passed</text>
+    <text class="u-body" x="76" y="242" font-size="27" fill="#201A33">until it has actually run them.</text>
+
+    <!-- the subject's own artifact: a recorded verification line -->
+    <g transform="translate(76 274)">
+      <rect x="0" y="0" width="470" height="38" rx="10" fill="#FCECD6" stroke="#201A33" stroke-width="2" />
+      <text class="u-mono" x="18" y="25" font-size="16" fill="#201A33">$ mythify verify run "pytest"</text>
+      <circle cx="374" cy="19" r="6" fill="#24C3C0" stroke="#201A33" stroke-width="2" />
+      <text class="u-mono" x="392" y="25" font-size="16" fill="#6E6680">exit 0</text>
+    </g>
+
+    <!-- SIGNATURE: die-cut sticker, tilted, cropping the right edge -->
+    <g transform="translate(1074 168) rotate(-9)" filter="url(#lift)">
+      <rect x="-124" y="-104" width="248" height="208" rx="30" fill="#FCF5EC" />
+      <rect x="-118" y="-98" width="236" height="196" rx="26" fill="#24C3C0" stroke="#201A33" stroke-width="3" />
+      <text class="u-label" x="0" y="-46" font-size="14" text-anchor="middle" fill="#201A33">VERIFIED BY</text>
+      <text class="u-display" x="0" y="26" font-size="76" text-anchor="middle" letter-spacing="-2" fill="#201A33">exit 0</text>
+      <path d="M-78 52H78" stroke="#201A33" stroke-width="3" stroke-linecap="round" />
+      <text class="u-label" x="0" y="80" font-size="13" text-anchor="middle" fill="#201A33">NOT BY "DONE"</text>
+    </g>
+  </g>
+</svg>

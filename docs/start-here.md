@@ -1,24 +1,32 @@
 # Start Here
 
-Mythify is an evidence protocol for AI coding agents. It helps an agent leave
-behind a durable answer to four questions:
+Mythify is an evidence protocol for AI coding agents. Its job is to leave behind
+a durable answer to four questions, in language anyone can read:
 
 - What was the goal?
 - What changed?
 - What was actually verified?
-- What remains uncertain or unfinished?
+- What is still uncertain or unfinished?
 
-You do not need to learn every command first. Start with the reduced surface:
-`route`, `report`, `verify run`, and `status`.
+You do not need to learn the whole command surface. Four commands cover the
+first week: `route`, `report`, `verify run`, and `status`.
 
-If your host supports local skills, the checkout installer also installs
-`mythify-work`, `mythify-route`, and `mythify-verify`. Use `$mythify-work` when
-you want the Godpowers-style experience where the plan, failed checks,
-verifiers, and next actions are narrated inside the chat.
+If your host supports local skills, the installer also installs `mythify-work`,
+`mythify-route`, and `mythify-verify`. Use `$mythify-work` (Codex) or
+`/mythify-work` (Claude Code) when you want the plan, the failed checks, the
+verifiers, and the next actions narrated inside the chat as they happen.
 
-## One Happy Path
+## The one habit
 
-From a Mythify checkout:
+If you take nothing else from this page: **a completion claim needs a command
+behind it.** Not a stronger model, not a longer explanation. A command, its exit
+code, and a record of both.
+
+Everything below is machinery for making that habit cheap.
+
+## One happy path
+
+From a Mythify clone:
 
 ```bash
 ./scripts/install_user.sh --project /path/to/your/project
@@ -29,7 +37,7 @@ mythify report --cursor chat --mark
 mythify step 1 in_progress
 ```
 
-Then do the normal engineering work. When you have a check:
+Then do the normal engineering work. When you have a check to run:
 
 ```bash
 mythify report --since last --cursor chat --format chat
@@ -41,47 +49,52 @@ mythify summary
 
 That is the core product. Everything else is optional.
 
-In chat, the same flow is shorter:
+In chat, the same flow is one line:
 
 ```text
 $mythify-work Fix the failing parser test
 ```
 
-The skill tells the host agent to run the same durable loop while surfacing
-`report --since last --cursor chat --format chat` after steps and verifiers.
+The skill tells the host agent to run that same durable loop while surfacing
+`report --since last --cursor chat --format chat` after each step and verifier.
 
-Use `route` when you want Mythify to choose the workflow shape from the prompt
-and durable state. It may return direct, plan, research, review, outcome,
-campaign, failure recovery, handoff, or prompt-packet routing, but it does not
-execute the work for you.
+## Two commands worth understanding early
 
-Use `report` while you work, not only at the end. It turns new Mythify events
-into short chat-ready updates, then advances a cursor so repeated calls do not
-repeat the same evidence. Use `--mark` at the start of a task to set a chat
-cursor without replaying old project history. Do not combine `--mark` with
-`--since`: mark first, then use `--since last` for later updates. Its
-`Attention` section calls out failed checks, failed steps, and attested warnings
-so issue lists can be copied into the chat instead of staying hidden in logs.
-Use `--peek` when you want to inspect the report without moving the cursor.
+**`route`** picks the workflow shape from your prompt and your current durable
+state. It can return direct, plan, research, review, outcome, campaign, failure
+recovery, handoff, or prompt-packet routing. It only advises. It never executes
+the work for you.
 
-## Four Workflows Worth Learning
+**`report`** is for while you work, not only at the end. It turns new Mythify
+events into short chat-ready updates, then advances a cursor so repeated calls do
+not replay the same evidence. Its `Attention` section pulls failed checks, failed
+steps, and attested warnings up to the top, so problems land in the chat instead
+of staying buried in logs.
 
-### 1. Small Fix
+- `--mark` at the start of a task sets the chat cursor without replaying old
+  project history.
+- `--since last` for every update after that.
+- Do not combine `--mark` with `--since`. Mark first, then use `--since last`.
+- `--peek` inspects the report without moving the cursor.
 
-Use this when the task is clear and the verifier is obvious.
+## Four workflows worth learning
+
+### 1. Small fix
+
+The task is clear and the check is obvious. Do not build ceremony around it.
 
 ```bash
 mythify route "Fix typo in CLI help"
-# If route says direct or fast, do the edit.
+# If route says direct or fast, just do the edit.
 mythify verify run "python3 -m unittest discover -s tests -v" --claim "CLI tests pass"
 ```
 
-The point is not ceremony. The point is that the completion claim has a command
+The point is not the plan. The point is that the completion claim has a command
 behind it.
 
-### 2. Serious Change
+### 2. Serious change
 
-Use this when the work has multiple steps or could regress behavior.
+Multiple steps, or a real chance of breaking something.
 
 ```bash
 mythify plan create "Add package installer" --steps '[{"title":"Implement installer","success_criteria":"installer smoke test passes"},{"title":"Document installer","success_criteria":"docs link check passes"}]'
@@ -93,12 +106,13 @@ mythify step 1 completed "verify run exit 0: installer smoke test passes"
 mythify report --since last --format chat
 ```
 
-Each completed step gets evidence, not just confidence.
+Each completed step carries evidence, not confidence.
 
-### 3. Foggy Work
+### 3. Foggy work
 
-Use this when the effort is too big for one session and you do not yet know
-what the steps are, because the decisions have not been made.
+The effort is too big for one session and you do not yet know the steps, because
+the decisions have not been made. Do not write a plan for decisions you have not
+taken.
 
 ```bash
 mythify map create "Ship a billing revamp spec" --fog "how do existing subscriptions migrate"
@@ -113,13 +127,13 @@ mythify map promote
 ```
 
 One decision ticket per session. A `grilling` or `prototype` ticket will not
-close without `--human-input`, because an agent that answers its own question
-has proved nothing. `map promote` hands the settled destination, its decisions,
-and its scope boundary to a plan, and the loop above takes over.
+close without `--human-input`, because an agent that answers its own question has
+proved nothing. `map promote` hands the settled destination, its decisions, and
+its scope boundary to a plan, and the loop above takes over.
 
-### 4. Release Readiness
+### 4. Release readiness
 
-Use this before publishing or merging broad changes.
+Before publishing, or before merging something broad.
 
 ```bash
 mythify verify run "python3 -m unittest discover -s tests -v" --claim "Python suite passes"
@@ -128,26 +142,26 @@ mythify verify run "python3 scripts/mythify.py readiness --json" --claim "readin
 mythify readiness
 ```
 
-`readiness` is a dashboard over recorded evidence. It does not make the release
-safe by itself.
+`readiness` is a dashboard over recorded evidence. It reports what has been
+proven. It does not make the release safe by itself.
 
-## What To Ignore At First
+## What to ignore at first
 
-Do not start with fanout, host model switching, provider probes, remote
-execution, lifecycle adapters, or every MCP tool. Those are power-user surfaces.
-The first habit is simple: plan when useful, run checks, record evidence.
+Skip fanout, host model switching, provider probes, remote execution, lifecycle
+adapters, and most of the MCP tool set. Those are power-user surfaces and none of
+them are load-bearing on day one.
 
-Do not start with `classify` unless you only need classification. For ordinary
-chat work, `route` wraps classification with durable state and returns the next
-workflow move.
+Skip `classify` too, unless you specifically need classification on its own. For
+ordinary chat work, `route` wraps classification with durable state and returns
+the next workflow move.
 
-## When To Add MCP
+## When to add MCP
 
-The CLI is enough for shell-capable agents. Add the MCP server when your host
-can call tools directly, when you want desktop sessions to share `.mythify/`
-state, or when you need MCP-only surfaces such as fanout.
+The CLI is enough for any shell-capable agent. Add the MCP server when your host
+calls tools directly, when you want desktop sessions to share the same
+`.mythify/` state, or when you need an MCP-only surface such as fanout.
 
-For Codex after running the installer:
+For Codex, after running the installer:
 
 ```bash
 codex mcp add mythify \

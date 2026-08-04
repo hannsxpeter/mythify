@@ -25,6 +25,10 @@ STANDALONE_DOCS = (
     "docs/evidence/codex-word-count-2026-07-13.json",
     "docs/evidence/efficacy-reproduction.md",
 )
+STANDALONE_ASSETS = (
+    "docs/assets/banner.svg",
+    "docs/assets/loop.svg",
+)
 
 
 def read_version(repo_root):
@@ -62,6 +66,7 @@ def artifact_files(repo_root):
         repo_root / "scripts" / "mythify_chat_report_hook.sh",
     }
     files.update(repo_root / relative for relative in STANDALONE_DOCS)
+    files.update(repo_root / relative for relative in STANDALONE_ASSETS)
     files.update((repo_root / "scripts").glob("mythify_*.py"))
     files.update(path for path in (repo_root / "protocol").rglob("*") if path.is_file())
     for skill_name in SKILL_NAMES:

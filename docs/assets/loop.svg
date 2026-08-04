@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" width="1200" height="460" role="img" aria-label="The Mythify loop: plan, act, verify. A passing check completes the step; a failing check sends the agent back to fix and try again.">
+  <title>The Mythify loop</title>
+  <desc>Plan leads to Act, Act leads to Verify. Verify runs a real command. Exit code zero marks the step complete. Any other exit code sends the work back to Act to be fixed and re-run. Everything is written to the .mythify folder on disk.</desc>
+
+  <!-- goddesign | seed 3205094279 | Playful Pop x Marquee Hero | jitter h+7 L-0.01 r-1 -->
+  <style>
+    /* Font waiver: SVG loaded via img cannot fetch webfonts, so the direction's
+       Bricolage Grotesque / Karla behavior ships on a documented fallback stack. */
+    .u-display { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 800; }
+    .u-body    { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 400; }
+    .u-label   { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; letter-spacing: 1.5px; }
+    .u-mono    { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; }
+  </style>
+
+  <defs>
+    <clipPath id="board2">
+      <rect x="0" y="0" width="1200" height="460" rx="14" />
+    </clipPath>
+    <marker id="tip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0.5 10 5 0 9.5z" fill="#201A33" />
+    </marker>
+    <marker id="tipRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0.5 10 5 0 9.5z" fill="#FF4F59" />
+    </marker>
+    <filter id="lift2" x="-30%" y="-30%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#201A33" flood-opacity="0.10" />
+    </filter>
+  </defs>
+
+  <g clip-path="url(#board2)">
+    <rect x="0" y="0" width="1200" height="460" fill="#FCF5EC" />
+    <rect x="0" y="366" width="1200" height="94" fill="#FCECD6" />
+
+    <!-- PLAN -->
+    <g filter="url(#lift2)">
+      <rect x="56" y="96" width="252" height="152" rx="14" fill="#FCECD6" stroke="#201A33" stroke-width="3" />
+    </g>
+    <text class="u-display" x="182" y="164" font-size="40" text-anchor="middle" letter-spacing="-1" fill="#201A33">PLAN</text>
+    <text class="u-body" x="182" y="196" font-size="16" text-anchor="middle" fill="#201A33">Break the goal into steps.</text>
+    <text class="u-body" x="182" y="219" font-size="16" text-anchor="middle" fill="#6E6680">Each one says how it will</text>
+    <text class="u-body" x="182" y="238" font-size="16" text-anchor="middle" fill="#6E6680">be checked.</text>
+
+    <path d="M320 172H366" stroke="#201A33" stroke-width="3" marker-end="url(#tip)" />
+
+    <!-- ACT -->
+    <g filter="url(#lift2)">
+      <rect x="378" y="96" width="252" height="152" rx="14" fill="#FCECD6" stroke="#201A33" stroke-width="3" />
+    </g>
+    <text class="u-display" x="504" y="164" font-size="40" text-anchor="middle" letter-spacing="-1" fill="#201A33">ACT</text>
+    <text class="u-body" x="504" y="196" font-size="16" text-anchor="middle" fill="#201A33">Do one step.</text>
+    <text class="u-body" x="504" y="219" font-size="16" text-anchor="middle" fill="#6E6680">Write the code, fix the</text>
+    <text class="u-body" x="504" y="238" font-size="16" text-anchor="middle" fill="#6E6680">bug, edit the file.</text>
+
+    <path d="M642 172H688" stroke="#201A33" stroke-width="3" marker-end="url(#tip)" />
+
+    <!-- VERIFY: the loud one -->
+    <g filter="url(#lift2)">
+      <rect x="700" y="80" width="284" height="184" rx="14" fill="#F5CA3C" stroke="#201A33" stroke-width="3" />
+    </g>
+    <text class="u-display" x="842" y="150" font-size="46" text-anchor="middle" letter-spacing="-1.4" fill="#201A33">VERIFY</text>
+    <text class="u-body" x="842" y="184" font-size="16" text-anchor="middle" fill="#201A33">Run a real command.</text>
+    <text class="u-mono" x="842" y="216" font-size="17" text-anchor="middle" fill="#201A33">pytest / npm test / curl</text>
+    <text class="u-body" x="842" y="243" font-size="16" text-anchor="middle" fill="#201A33">The exit code decides.</text>
+
+    <!-- outcome: pass -->
+    <path d="M996 142H1038" stroke="#201A33" stroke-width="3" marker-end="url(#tip)" />
+    <text class="u-mono" x="1017" y="126" font-size="14" text-anchor="middle" fill="#201A33">exit 0</text>
+    <g filter="url(#lift2)">
+      <rect x="1050" y="114" width="122" height="60" rx="14" fill="#24C3C0" stroke="#201A33" stroke-width="3" />
+    </g>
+    <text class="u-label" x="1111" y="142" font-size="13" text-anchor="middle" fill="#201A33">STEP</text>
+    <text class="u-label" x="1111" y="160" font-size="13" text-anchor="middle" fill="#201A33">COMPLETE</text>
+
+    <!-- outcome: fail, loops back. Deliberately the heavier of the two branches. -->
+    <path d="M842 280V320H504V256" stroke="#FF4F59" stroke-width="3" fill="none" stroke-linecap="round" marker-end="url(#tipRed)" />
+    <rect x="551" y="303" width="244" height="34" rx="10" fill="#FF4F59" stroke="#201A33" stroke-width="2" />
+    <text class="u-label" x="673" y="325" font-size="13" text-anchor="middle" fill="#201A33">ANY OTHER CODE: FIX IT</text>
+
+    <!-- the durable floor -->
+    <text class="u-display" x="56" y="406" font-size="21" letter-spacing="-0.4" fill="#201A33">Written to disk, not to the chat.</text>
+    <text class="u-body" x="56" y="434" font-size="17" fill="#201A33">The plan, the steps and every recorded exit code live in a <tspan class="u-mono" font-size="16">.mythify/</tspan> folder in your project, so tomorrow's session opens where today's stopped.</text>
+  </g>
+</svg>
