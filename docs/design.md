@@ -330,7 +330,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 38 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 44 core plus 3 fanout count
   split.
 - Front door, workflow, advanced, and labs tier membership for the CLI and MCP
   surfaces.
