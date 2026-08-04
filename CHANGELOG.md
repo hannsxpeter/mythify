@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-08-04
+
+Minor release: graph-engineering hardening. The exit-code anchor stays the
+ground truth; this release pairs it with watchers for the cheap ways a green
+exit code detaches from the work it stands for, freezes the rules the
+optimizer could previously thaw silently, and gives loop collisions a
+vocabulary. Every behavior ships in both runtimes.
+
+### Added
+
+- Added advisory evidence-quality guards (`mythify_evidence_guard.py`,
+  `evidence-guard.js`). `plan create`, `plan add-step`, and `map ticket` warn
+  when a stored verify command is a no-op (`true`, `:`, `exit 0`, a bare
+  `echo`), and the evidence harness flags recent trivial passes: a green run
+  whose command can never fail or whose output reports zero tests
+  (`Ran 0 tests`, `collected 0 items`, `no test files`, `0 passing`).
+- Added legacy opt-out visibility. The harness names every active gate opt-out
+  (`MYTHIFY_REQUIRE_VERIFIED_STEP=0`, `MYTHIFY_REQUIRE_HUMAN_INPUT=0`,
+  `MYTHIFY_DISABLE_RUN=1`); a completion recorded under the disabled strict
+  gate stamps `strict_gate_waived` on the step, and a HITL ticket resolved
+  under the disabled human gate stamps `human_input_waived` on the ticket.
+  Both waivers surface as attention items. The knobs keep working; they no
+  longer work silently.
+- Added provenance movement to the step gate. Completing a step compares the
+  passing run's recorded commit and worktree state against the present:
+  visible movement (commit changed, or a clean-at-run tree now dirty) warns by
+  default and refuses under `strict_context`. The dirty-at-run, dirty-now dev
+  loop stays silent.
+- Added outcome loop hardening: `--metric-floor N` makes the metric a real
+  counter-watcher (a green verifier with a score below the floor does not
+  succeed, and regressions against `best_metric_score` are stamped on the
+  iteration); `--frozen-paths` is an enforced deny-list in every mode, the
+  held-out set the loop must never touch; a first-iteration success carries a
+  vacuity caution to confirm the verifier can fail; and starting a second
+  outcome while one is active is refused unless `--supersede REASON` retires
+  the old loop with durable lineage (`supersedes` / `superseded_by`).
+- Added `outcome check --audit`: re-run a finished outcome's verifier without
+  mutating its history. A red audit stamps `evidence_stale` on the goal and
+  surfaces in status, progress, and the harness; a green audit clears it.
+- Added a verifier-drift watcher: when an outcome's recorded iterations ran
+  different verify commands (or the stored command changed after the fact),
+  background and harness views flag that the sensor may have been tuned.
+- Added loop-collision vocabulary: `route` names every active loop family
+  (campaign, outcome, map, research, plan) and which one steers under the
+  documented priority order whenever more than one is live.
+- Added a question-the-reference line to the failure prompt packet: after two
+  or more consecutive failures of the same verifier, the packet asks whether
+  the success criterion itself is right and routes that doubt to a grilling
+  ticket instead of another blind attempt.
+- Added ledger chaining: every verification record carries `prev_sha256`, the
+  hash of the raw line before it, in both runtimes. The harness flags chain
+  breaks as tamper evidence, and `logs compact` preserves raw line bytes so
+  retained links survive compaction.
+- Added a frozen-node pin for the release gate manifest: `protocol check` now
+  verifies `protocol/release-gates.json` and its packaged mirror against a
+  digest embedded in the CLI, the same pattern as `PROTOCOL_SOURCE_SHA256`.
+
+### Changed
+
+- `map resolve --out-of-scope` no longer bypasses the human-input gate:
+  ruling a human's question out of scope is itself the human's call, so a
+  HITL ticket requires `--human-input` on every resolution path.
+- Protocol handshake checking moved from `scripts/mythify.py` into
+  `scripts/mythify_protocol.py`; `scripts/build_variants.py` now rewrites the
+  hash constant there.
+
 ## [5.1.0] - 2026-07-31
 
 Minor release: a wayfinding decision map for work that is too big for one
@@ -1307,7 +1373,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.1.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/hannsxpeter/mythify/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/hannsxpeter/mythify/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/hannsxpeter/mythify/compare/v4.3.0...v5.0.0
 [4.3.0]: https://github.com/hannsxpeter/mythify/compare/v4.2.0...v4.3.0

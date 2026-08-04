@@ -794,6 +794,31 @@ function selectWorkflowRoute(task, stateView, classification) {
   return ["plan", "Classification says this is multi-step work that should be planned and verified."];
 }
 
+// Name the live loop families and which one steers, or null when at most one
+// family is active. Collisions are legal; unnamed collisions are not: the
+// priority order picks a winner, and this makes the pick visible.
+function activeLoopCollision(stateView) {
+  const families = [
+    ["active_campaign", "campaign"],
+    ["active_outcome", "outcome"],
+    ["active_map", "map"],
+    ["active_research", "research"],
+    ["active_plan", "plan"],
+  ]
+    .filter(([key]) => Boolean(stateView[key]))
+    .map(([, label]) => label);
+  if (families.length < 2) {
+    return null;
+  }
+  return {
+    families,
+    steers: families[0],
+    note:
+      `multiple loop families are active (${families.join(", ")}); under the route ` +
+      `priority order, ${families[0]} steers when the prompt is ambiguous`,
+  };
+}
+
 function buildWorkflowRoute(task, classification) {
   const stateView = workflowRouteState();
   let [route, reason] = selectWorkflowRoute(task, stateView, classification);
@@ -817,6 +842,7 @@ function buildWorkflowRoute(task, classification) {
     kind: "workflow_route",
     route,
     reason,
+    loop_collision: activeLoopCollision(stateView),
     input: String(task || ""),
     classification,
     state: stateView,
@@ -854,6 +880,9 @@ function formatWorkflowRoute(payload) {
     `Prompt packet: ${payload.prompt_packet?.kind || ""} (${payload.prompt_packet?.command || ""})`,
     `Verification strategy: ${payload.verification_strategy || ""}`,
   ];
+  if (payload.loop_collision) {
+    lines.push(`Loop collision: ${payload.loop_collision.note || ""}`);
+  }
   const policy = payload.chat_policy || {}, adapter = payload.execution_adapter || {};
   if (adapter.recommended === true) {
     lines.push(

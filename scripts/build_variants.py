@@ -3,8 +3,9 @@
 
 Each generated file is the canonical protocol body prefixed with a header line
 marking it as generated, followed by a blank line. The embedded
-PROTOCOL_SOURCE_SHA256 constant in scripts/mythify.py is rewritten to the new
-digest in the same run, so a protocol edit cannot leave the handshake stale.
+PROTOCOL_SOURCE_SHA256 constant in scripts/mythify_protocol.py is rewritten to
+the new digest in the same run, so a protocol edit cannot leave the handshake
+stale.
 The script is idempotent: running it twice produces byte-identical output.
 Standard library only.
 """
@@ -25,19 +26,19 @@ TARGETS = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 
 
 def sync_cli_hash_constant(repo_root, digest):
-    cli_path = repo_root / "scripts" / "mythify.py"
+    cli_path = repo_root / "scripts" / "mythify_protocol.py"
     text = cli_path.read_text(encoding="utf-8")
     replacement = 'PROTOCOL_SOURCE_SHA256 = "{0}"'.format(digest)
     updated, count = CLI_HASH_PATTERN.subn(replacement, text, count=1)
     if count != 1:
         print(
-            "[FAIL] PROTOCOL_SOURCE_SHA256 constant not found in scripts/mythify.py",
+            "[FAIL] PROTOCOL_SOURCE_SHA256 constant not found in scripts/mythify_protocol.py",
             file=sys.stderr,
         )
         return False
     if updated != text:
         cli_path.write_text(updated, encoding="utf-8")
-        print("[OK] Updated PROTOCOL_SOURCE_SHA256 in scripts/mythify.py")
+        print("[OK] Updated PROTOCOL_SOURCE_SHA256 in scripts/mythify_protocol.py")
     return True
 
 

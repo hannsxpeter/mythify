@@ -12,6 +12,11 @@ from mythify_provenance import current_verification_provenance, verification_fre
 
 mythify_version = ""
 
+from mythify_evidence_guard import (
+    active_legacy_opt_outs,
+    ledger_chain_breaks,
+    trivial_pass_reason,
+)
 from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_io import read_jsonl
 
@@ -401,6 +406,67 @@ def evidence_attention_from_stale_executed(records):
     return []
 
 
+def evidence_attention_from_trivial_passes(records, recent):
+    """Pair the exit-code anchor with a watcher for the cheap way to win it.
+
+    Flags recent passing executed records whose command can never fail or
+    whose output says the run exercised zero tests. Advisory only: the record
+    stays recorded evidence; the attention item names why it proves nothing.
+    """
+    attention = []
+    for record in recent_tail(records, recent):
+        reason = trivial_pass_reason(record)
+        if reason:
+            attention.append({
+                "level": "warning",
+                "source": "verification",
+                "summary": "trivial pass: {0}".format(evidence_record_label(record)),
+                "detail": "{0}; the green exit code proves nothing".format(reason),
+                "timestamp": record.get("timestamp", ""),
+            })
+    return attention
+
+
+def evidence_attention_from_opt_outs(environ=None):
+    """Name every legacy gate opt-out active in this session.
+
+    The knobs stay available by contract, but a frozen rule the optimizer can
+    thaw silently is no rule at all; this makes the thaw visible.
+    """
+    environ = os.environ if environ is None else environ
+    return [{
+        "level": "warning",
+        "source": "session",
+        "summary": "legacy opt-out active: {0}".format(item["name"]),
+        "detail": item["effect"],
+        "timestamp": "",
+    } for item in active_legacy_opt_outs(environ)]
+
+
+def evidence_attention_from_ledger_chain(state):
+    """Flag chained ledger lines whose prev_sha256 no longer matches.
+
+    The chain is tamper evidence, not proof: a break means a line was edited,
+    inserted, or removed in place, which recorded evidence never does.
+    """
+    try:
+        text = (state / "verifications.jsonl").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    breaks = ledger_chain_breaks(text)
+    if not breaks:
+        return []
+    return [{
+        "level": "issue",
+        "source": "ledger",
+        "summary": "verification ledger chain break at record {0}".format(
+            ", ".join(str(index) for index in breaks[:5])
+        ),
+        "detail": "a chained record's prev_sha256 does not match the preceding line; the ledger may have been edited",
+        "timestamp": "",
+    }]
+
+
 def evidence_attention_from_verifications(records, recent):
     attention = []
     for record in recent_tail(records, recent):
@@ -439,6 +505,16 @@ def evidence_attention_from_plan(plan):
                 "detail": compact_label(step.get("result"), "no result recorded"),
                 "timestamp": step.get("updated_at", ""),
             })
+        elif step.get("status") == "completed" and step.get("strict_gate_waived"):
+            attention.append({
+                "level": "warning",
+                "source": "plan",
+                "summary": "step {0} completed under a waived strict gate".format(
+                    step.get("id")
+                ),
+                "detail": "MYTHIFY_REQUIRE_VERIFIED_STEP=0 was active; evidence is prose-only",
+                "timestamp": step.get("updated_at", ""),
+            })
     return attention
 
 
@@ -451,6 +527,26 @@ def evidence_attention_from_background(background):
                 "source": "outcome",
                 "summary": "failed outcome: {0}".format(outcome.get("id") or "outcome"),
                 "detail": compact_label(outcome.get("goal"), "outcome"),
+                "timestamp": outcome.get("updated", "") or outcome.get("created", ""),
+            })
+        if outcome.get("verifier_drift"):
+            attention.append({
+                "level": "warning",
+                "source": "outcome",
+                "summary": "outcome verifier changed mid-loop: {0}".format(
+                    outcome.get("id") or "outcome"
+                ),
+                "detail": "iterations record different verify commands; the sensor may have been tuned",
+                "timestamp": outcome.get("updated", "") or outcome.get("created", ""),
+            })
+        if outcome.get("evidence_stale"):
+            attention.append({
+                "level": "issue",
+                "source": "outcome",
+                "summary": "audit recheck failed for outcome: {0}".format(
+                    outcome.get("id") or "outcome"
+                ),
+                "detail": "the recorded result no longer reproduces; re-verify before trusting it",
                 "timestamp": outcome.get("updated", "") or outcome.get("created", ""),
             })
     for job in background.get("fanout_jobs", []):
@@ -598,10 +694,13 @@ def build_evidence_harness_view(state, recent=5):
     attention = (
         evidence_attention_from_plan(active_plan)
         + evidence_attention_from_verifications(records, recent)
+        + evidence_attention_from_trivial_passes(records, recent)
         + evidence_attention_from_background(background)
         + evidence_attention_from_god_artifacts(god_views)
         + evidence_attention_from_drift(records, recent)
         + evidence_attention_from_stale_executed(records)
+        + evidence_attention_from_ledger_chain(state)
+        + evidence_attention_from_opt_outs()
     )
     view = {
         "state_dir": str(state),

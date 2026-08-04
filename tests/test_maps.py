@@ -213,7 +213,7 @@ class TestResolutionEvidence(MapCase):
         self.chart()
         self.ok("map", "ticket", "Pick the proration model", "--type", "grilling")
         self.ok("map", "claim", "T1")
-        self.ok(
+        result = self.ok(
             "map",
             "resolve",
             "T1",
@@ -221,7 +221,10 @@ class TestResolutionEvidence(MapCase):
             "daily proration",
             env={"MYTHIFY_REQUIRE_HUMAN_INPUT": "0"},
         )
-        self.assertEqual(self.ticket(self.map_json(), "T1")["status"], "closed")
+        ticket = self.ticket(self.map_json(), "T1")
+        self.assertEqual(ticket["status"], "closed")
+        self.assertTrue(ticket["human_input_waived"])
+        self.assertIn("Human-input gate waived", result.stderr)
 
     def test_afk_ticket_needs_no_human_input(self):
         self.chart()
@@ -291,6 +294,16 @@ class TestResolutionEvidence(MapCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("is unclaimed", result.stderr)
 
+    def test_noop_ticket_verifier_warns_at_authoring(self):
+        self.chart()
+        warned = self.ok("map", "ticket", "Provision sandbox", "--type", "task", "--verify", "true")
+        self.assertIn("looks like a no-op", warned.stderr)
+        clean = self.ok(
+            "map", "ticket", "Run the suite", "--type", "task",
+            "--verify", "python3 -m unittest discover -s tests",
+        )
+        self.assertNotIn("looks like a no-op", clean.stderr)
+
 
 class TestScopeAndFog(MapCase):
     def test_out_of_scope_ticket_leaves_the_decision_index_alone(self):
@@ -303,11 +316,42 @@ class TestScopeAndFog(MapCase):
             "--answer",
             "the renderer sits past this destination",
             "--out-of-scope",
+            "--human-input",
+            "the human agreed the renderer sits past this destination",
         )
         payload = self.map_json()
         self.assertEqual(self.ticket(payload, "T1")["status"], "out_of_scope")
         self.assertEqual(payload["decisions"], [])
         self.assertEqual(payload["out_of_scope"][0]["ticket_id"], "T1")
+
+    def test_out_of_scope_does_not_bypass_the_human_input_gate(self):
+        """Ruling a human's question out of scope is itself the human's call."""
+        self.chart()
+        self.ok("map", "ticket", "Rewrite the invoice renderer", "--type", "grilling")
+        refused = self.run_cli(
+            "map",
+            "resolve",
+            "T1",
+            "--answer",
+            "the renderer sits past this destination",
+            "--out-of-scope",
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("Human input required", refused.stderr)
+        self.assertEqual(self.ticket(self.map_json(), "T1")["status"], "open")
+
+    def test_out_of_scope_afk_ticket_needs_no_human_input(self):
+        self.chart()
+        self.ok("map", "ticket", "Confirm refunds API", "--type", "research")
+        self.ok(
+            "map",
+            "resolve",
+            "T1",
+            "--answer",
+            "refund research sits past this destination",
+            "--out-of-scope",
+        )
+        self.assertEqual(self.ticket(self.map_json(), "T1")["status"], "out_of_scope")
 
     def test_resolution_can_surface_fresh_fog_and_scope_boundaries(self):
         self.chart()

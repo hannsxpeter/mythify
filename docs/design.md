@@ -51,6 +51,7 @@ mythify/
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
 |   |-- mythify_classification.py deterministic classification helper
+|   |-- mythify_evidence_guard.py advisory evidence-quality guards
 |   |-- mythify_godfiles.py      godplans PLAN.mdx and godaudits AUDIT.mdx reader
 |   |-- mythify_host_model.py    host model switch record helper
 |   |-- mythify_io.py            durable IO helper
@@ -64,6 +65,7 @@ mythify/
 |   |-- mythify_outcomes.py      outcome loop helper
 |   |-- mythify_parser.py        CLI argument parser construction
 |   |-- mythify_plan_import.py   godplans and godaudits plan import helper
+|   |-- mythify_protocol.py      protocol handshake and frozen-manifest checks
 |   |-- mythify_provenance.py    verification provenance helper
 |   |-- mythify_router.py        prompt packet and workflow route helper
 |   |-- mythify_runtime_helpers.py shared CLI runtime helpers
@@ -85,6 +87,7 @@ mythify/
 |   |-- client-configs/
 |   |-- src/capability-registry.js
 |   |-- src/classification.js
+|   |-- src/evidence-guard.js    JS mirror of mythify_evidence_guard.py
 |   |-- src/execution-adapter.js
 |   |-- src/fanout.js
 |   |-- src/fanout-prompt.js
@@ -489,7 +492,14 @@ work:
   reflections, and the next control action. Present god artifacts appear under
   `god_artifacts` with status lines; open Critical findings and counter drift
   become attention items, and with no active plan the next action points at
-  `plan import`.
+  `plan import`. Advisory evidence-quality watchers add attention items for:
+  recent trivial passes (a green run whose command can never fail or whose
+  output reports zero tests), active legacy gate opt-outs
+  (`MYTHIFY_REQUIRE_VERIFIED_STEP=0`, `MYTHIFY_REQUIRE_HUMAN_INPUT=0`,
+  `MYTHIFY_DISABLE_RUN=1`), steps completed under a waived strict gate,
+  ledger chain breaks, outcome verifier drift (iterations recording different
+  verify commands), and outcomes whose audit recheck failed. All are
+  advisory: they never block completion or downgrade recorded evidence.
 - Evidence boundary: the view reports durable evidence and durable worker
   state. Worker output remains material, not verification evidence, until an
   executed verifier records proof for the merged work.
@@ -839,6 +849,7 @@ outcomes/&lt;slug&gt;/goal.json:
   "success_criteria": "str",
   "verify_command": "str",
   "metric_command": "str (empty when absent)",
+  "metric_floor": "number or null (requires metric_command)",
   "agent_command": "str (CLI self-driving loop; empty when supervised)",
   "max_iterations": 3,
   "iteration_count": 0,
@@ -846,6 +857,7 @@ outcomes/&lt;slug&gt;/goal.json:
   "cost_spent": 0.0,
   "escalate_after": "integer or null (CLI self-driving loop)",
   "allowed_paths": ["str"],
+  "frozen_paths": ["str"],
   "scope_baseline": "Git commit or absent (CLI self-driving scoped loop)",
   "visibility": "auto|quiet|summary|verbose|threaded",
   "status": "active|succeeded|failed|stopped",
@@ -853,13 +865,33 @@ outcomes/&lt;slug&gt;/goal.json:
   "updated": "ISO-8601",
   "last_verified": "boolean or null",
   "best_metric_score": "number or null",
-  "stop_reason": "str or null"
+  "stop_reason": "str or null",
+  "supersedes": "slug or null",
+  "superseded_by": "slug or absent",
+  "evidence_stale": "boolean or absent (set by outcome check --audit)",
+  "last_audit": "ISO-8601 or absent"
 }
 ```
 
 `allowed_paths` are not a sandbox. The supervised CLI and MCP `outcome check`
 paths report available Git scope hints without blocking. CLI `outcome run`
-enforces the same list after each agent attempt. A scoped self-driving run
+enforces the same list after each agent attempt. `frozen_paths` is the
+opposite contract: an enforced deny-list in every mode, supervised checks
+included. It is the held-out set the loop must never touch (tests are the
+canonical case, so a scoped agent cannot rewrite its own verifier); a change
+under a frozen prefix stops the loop, and the `.mythify/` exemption does not
+apply to it. `metric_floor` turns the optional metric into a counter-watcher:
+a green verifier whose parsed score is missing or below the floor does not
+succeed, and a score below `best_metric_score` stamps `metric_regressed` on
+the iteration. Starting a second outcome while one is active is refused
+unless `--supersede REASON` retires the old loop, which records
+`superseded_by` and the reason on the old goal and `supersedes` on the new
+one. A success on iteration 1, before any recorded failed attempt, carries a
+vacuity caution in `next_action`: confirm the verifier can fail.
+`outcome check --audit` re-runs a finished outcome's verifier without
+mutating `iteration_count` or `status`, appends the run flagged `audit`, and
+sets `evidence_stale` to whether the run failed; audits are the loop whose
+only job is checking that a recorded result still touches reality. A scoped self-driving run
 requires a clean Git worktree before the first agent executes, records the
 current commit as `scope_baseline`, and compares the baseline commit plus the
 working tree against every allowed path. Rename and copy checks include both
@@ -881,7 +913,10 @@ outcomes/&lt;slug&gt;/iterations.jsonl, one JSON object per verifier attempt:
   "metric": "result object or null",
   "verified": true,
   "scope_violations": ["str"],
-  "status_after": "succeeded|active|failed",
+  "frozen_violations": ["str"],
+  "metric_regressed": false,
+  "metric_floor_unmet": false,
+  "status_after": "succeeded|active|failed|stopped",
   "next_action": "str"
 }
 ```
@@ -942,8 +977,8 @@ then `.json`. This makes same-title lessons collision-free.
 verifications.jsonl, one JSON object per line. Two kinds:
 
 ```json
-{"kind": "executed", "claim": "str or null", "command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "timestamp": "ISO-8601", "provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "mythify_version": "semver string"}, "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null"}
-{"kind": "attested", "claim": "str", "evidence": "str", "verified": null, "timestamp": "ISO-8601", "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null"}
+{"kind": "executed", "claim": "str or null", "command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "timestamp": "ISO-8601", "provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "mythify_version": "semver string"}, "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null", "prev_sha256": "hex string or null"}
+{"kind": "attested", "claim": "str", "evidence": "str", "verified": null, "timestamp": "ISO-8601", "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null", "prev_sha256": "hex string or null"}
 ```
 
 `verified` is a boolean only for executed verifications (true when exit_code == 0).
@@ -968,6 +1003,14 @@ currently `in_progress` step can be found, record `plan`, `step_id`,
 write those fields with `null`. Readers must tolerate older verification
 records that do not contain provenance or step context, but readiness must not
 silently upgrade a legacy record to fresh evidence.
+
+Every new verification record is chained: `prev_sha256` is the sha256 of the
+raw line preceding it in the file, or `null` for the first record. The chain
+is tamper evidence, not cryptography: an edited, inserted, or deleted line
+breaks the next record's link, and the evidence harness flags the break as an
+attention item. The first line of the active file is never judged (its
+predecessor may live in a compaction archive), and legacy records without
+`prev_sha256` stay silent.
 
 reflections.jsonl, one JSON object per line:
 
@@ -997,8 +1040,9 @@ logs/archive/*.jsonl:
 - `logs compact [--keep N] [--dry-run] [--json]` is maintenance, not
   verification evidence. Default `--keep` is 1000. When a target log has more
   than `N` valid records, write a raw archive first, then atomically replace
-  the active log with the most recent `N` valid records. `--dry-run` reports
-  candidates and counts without writing files.
+  the active log with the most recent `N` valid records, preserved as their
+  original raw line bytes so retained `prev_sha256` links survive compaction.
+  `--dry-run` reports candidates and counts without writing files.
 
 ### Slugs
 
@@ -1027,21 +1071,21 @@ owns the public entry point and delegates cohesive command families to sibling
 | Command | Behavior | Exit code |
 | :--- | :--- | :--- |
 | `init` | Create `./.mythify` with subdirectories and empty memory.json, and add `.mythify/` to the project `.gitignore` for the default in-repo state directory. If already inside a workspace, print `[WARN]` and exit 0. | 0 |
-| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. | 0 if every checked file matches; 1 on missing metadata or drift |
+| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. With no paths, check source protocol when present and local `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` files. Every invocation also pins any present `protocol/release-gates.json` (and its packaged mirror) against the embedded `RELEASE_GATES_SHA256`. | 0 if every checked file matches; 1 on missing metadata or drift |
 | `status` | Orientation: active plan with step icons, next pending step and its criteria, one-line counts (memory, lessons, verifications, reflections). | 0; 1 if no workspace |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, memory and lesson counts, verification totals, recent verification records, and recent reflections. It does not mutate state or report model confidence. | 0; 1 if no workspace |
 | `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and the next control action from durable state. It does not mutate state or treat worker output as verification. | 0; 1 if no workspace |
 | `history [--recent N] [--json]` | Read-only verification history: executed and attested records, verdicts, commands, exit codes, duration, and plan or step context from durable state. It does not mutate state, rerun checks, or upgrade attested claims. | 0; 1 if no workspace |
 | `report [--since last\|start] [--format chat\|json] [--recent N] [--cursor NAME] [--peek] [--mark]` | Chat-ready live work report over durable plan, step, verification, and reflection events, with an `Attention` section for failed checks, failed steps, failure reflections, and attested warnings. By default it advances a cursor so repeated calls show only new events; `--peek` leaves the cursor unchanged; `--mark` advances the cursor to the latest event without showing old events and cannot be combined with `--since`. | 0; 1 if no workspace, invalid recent value, or incompatible flags |
-| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router. It classifies the task, selects the capability profile and topology, inspects durable state and the latest executed verification, then returns a route, reason, next command, prompt packet, verification strategy, chat policy, pause rules, expected state writes, and evidence. It must not mutate state or move execution out of the initiating host unless the user explicitly asks. | 0; 1 if no workspace |
+| `route TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Read-only workflow router. It classifies the task, selects the capability profile and topology, inspects durable state and the latest executed verification, then returns a route, reason, a loop-collision note naming every active loop family and which one steers when more than one is live, next command, prompt packet, verification strategy, chat policy, pause rules, expected state writes, and evidence. It must not mutate state or move execution out of the initiating host unless the user explicitly asks. | 0; 1 if no workspace |
 | `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet. Kinds are `research`, `analysis`, `failure`, `handoff`, `review`, `campaign`, `map`, and `next`; packet output is steering material for the host, not verification evidence. `next` selects failure recovery only when the latest executed check is red, then campaign, map, research, handoff, or analysis based on active state. | 0; 1 if no workspace or named state is missing |
 | `background [--recent N] [--json]` | Read-only background task view: outcome loops, fanout jobs, task counts, current statuses, and next actions from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
 | `progress [--recent N] [--json]` | Read-only outcome loop progress: active and recent outcomes, iteration budget, verifier exit details, metric score when present, and next action from durable state. It does not mutate state, run checks, stop loops, or treat notes as verification. | 0; 1 if no workspace |
 | `readiness [--json]` | Read-only release readiness: recorded verification gates, project git state, roadmap state, and release-review status without rerunning gates or declaring the release safe. | 0; 1 if no workspace |
 | `timeline [--recent N] [--json]` | Read-only fanout worker timeline: recent fanout jobs, task start and finish events, duration, status, errors, and output metadata from durable state. It does not mutate state or report worker output as verification evidence. | 0; 1 if no workspace |
 | `phase [--recent N] [--json]` | Read-only phase view: active plan steps grouped into Understand, Design, Build, Judge, and Verify, with supporting evidence counts from durable state. It does not mutate state or report model confidence as progress. | 0; 1 if no workspace |
-| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop, set it active, and record the verifier, optional metric, optional self-driving `agent_command?: string`, iteration and cost budgets, escalation threshold, Git-enforced allowed paths, and visibility policy. | 0; 1 if no workspace or invalid budget |
-| `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric for the active or named outcome, append an iteration record, append executed verification evidence, and return the next action. | 0 if verified, 2 if still unmet or failed, 1 if not found |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--metric-floor N] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--frozen-paths CSV] [--supersede REASON] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop, set it active, and record the verifier, optional metric and metric floor, optional self-driving `agent_command?: string`, iteration and cost budgets, escalation threshold, Git-enforced allowed paths, the enforced frozen-path deny-list, and visibility policy. A second start while another outcome is active requires `--supersede REASON`, which stops the old loop with recorded lineage. | 0; 1 if no workspace, invalid budget, a floor without a metric, or an unsuperseded active loop |
+| `outcome check [NAME] [--notes TEXT] [--audit] [--timeout N] [--json]` | Run the verifier and optional metric for the active or named outcome, append an iteration record, append executed verification evidence, and return the next action. `--audit` re-runs a finished outcome's verifier without mutating its iteration count or status and sets `evidence_stale` from the result. | 0 if verified, 2 if still unmet or failed, 1 if not found or auditing an active loop |
 | `outcome run [NAME] [--notes TEXT] [--timeout N]` | Drive a self-driving loop started with `--agent`: run the bounded agent command, execute the verifier and optional metric, record evidence, enforce iteration, cost, path, and escalation limits, and stop on success or a guard. CLI-only. | 0 if verified; 2 if still unmet, blocked, or budget-exhausted; 1 if not found or not self-driving |
 | `outcome status [NAME] [--json]` | Show outcome status, verifier, metric, iteration budget, and latest next action. | 0; 1 if not found |
 | `outcome results [NAME] [--json]` | Show every recorded verifier iteration plus final state. | 0 if succeeded, 2 otherwise, 1 if not found |
@@ -1052,7 +1096,7 @@ owns the public entry point and delegates cohesive command families to sibling
 | `map ticket TITLE --type research\|prototype\|grilling\|task [--question TEXT] [--mode afk\|hitl] [--blocked-by IDS] [--verify COMMAND] [--from-fog ID] [--map NAME]` | Add a decision ticket (id = `T` + next number). The type fixes the mode: research and task are `afk`, prototype and grilling are `hitl`; `--mode` is accepted only for `task`. `--blocked-by` accepts repeated or comma-separated ids that must already exist. `--from-fog` graduates a fog patch exactly once. | 0; 1 on unknown blocker, unknown or already-graduated fog, or a mode override on a non-task ticket |
 | `map claim ID [--by WHO] [--map NAME]` | Claim an open, unblocked ticket and record a verification cursor. Refuses a blocked ticket, a ticket claimed by someone else, and a second non-research ticket held by the same claimant. Defaults to `MYTHIFY_MAP_CLAIMANT` or `session`. | 0; 1 if refused |
 | `map verify ID [--map NAME] [--timeout N]` | Run the ticket's `verify_command` and record the executed verification stamped with `map`, `ticket_id`, `ticket_title`, and `ticket_type`, satisfying the ticket's resolution gate. Requires a prior claim. CLI-only. | 0 verified; 2 command failed or run disabled; 1 usage error |
-| `map resolve ID --answer TEXT [--gist TEXT] [--human-input TEXT] [--out-of-scope] [--fog TEXT] [--scope-out TEXT] [--map NAME]` | Close a claimed ticket. `--answer` is required. A `hitl` ticket REQUIRES `--human-input` unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0`. A ticket storing `verify_command` requires a passing executed record with exit code 0 and a matching normalized command at or after the claim cursor. `--out-of-scope` closes the ticket into the Out-of-scope register instead of Decisions and skips the claim, block, human-input, and verifier gates. | 0; 1 if refused |
+| `map resolve ID --answer TEXT [--gist TEXT] [--human-input TEXT] [--out-of-scope] [--fog TEXT] [--scope-out TEXT] [--map NAME]` | Close a claimed ticket. `--answer` is required. A `hitl` ticket REQUIRES `--human-input` unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0`. A ticket storing `verify_command` requires a passing executed record with exit code 0 and a matching normalized command at or after the claim cursor. `--out-of-scope` closes the ticket into the Out-of-scope register instead of Decisions and skips the claim, block, and verifier gates, but never the human-input gate: ruling a human's question out of scope is itself the human's call. | 0; 1 if refused |
 | `map fog NOTE [--map NAME]` | Record an in-scope question too dim to ticket. Reopens a `clear` map to `charting`. | 0; 1 if no map |
 | `map scope-out NOTE --reason TEXT [--map NAME]` | Record work ruled past the destination. Out-of-scope work never graduates. | 0; 1 if no map |
 | `map promote [NAME] [--plan NAME] [--steps JSON] [--horizon N]` | Create a plan from a map with no open tickets and no ungraduated fog. The plan's goal is the destination and its `source` block carries `{kind: "map", map, destination, decisions, out_of_scope}`. Marks the map `promoted`, records `promoted_plan`, and clears the active map pointer. | 0; 1 if the map is unclear, missing, or already promoted |
@@ -1092,7 +1136,7 @@ Implementation notes:
 ## MCP server: mcp-server/
 
 Node 20+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `5.1.0`,
+(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `5.2.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
@@ -1125,9 +1169,9 @@ does AND when to use it, since descriptions drive tool selection.
 | `phase_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only Understand, Design, Build, Judge, Verify phase view of active plan steps and durable evidence counts. It must not mutate state and must not report model confidence as progress. |
 | `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Render a chat-ready next prompt for the active or named campaign's current task and phase. It must not mutate state, run checks, advance a phase, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and advances the campaign with evidence. |
 | `prompt_packet` | `{kind?: enum(research, analysis, failure, handoff, review, campaign, next), name?: string, goal?: string, verify_command?: string, format?: enum(text, json)}` | Render a chat-ready prompt packet for research to implementation, analysis to plan, failure recovery, handoff, review, campaign, or the next useful workflow move. It must not mutate state, run checks, advance work, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and records evidence. |
-| `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text, capability-profile policy, and durable state. It returns `route`, `reason`, `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
-| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, max_iterations?: number, allowed_paths?: string[], visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` supplies advisory Git scope reporting to supervised checks. CLI `outcome run` enforces it against a clean Git baseline and stops on violations or inspection failures. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
-| `outcome_check` | `{name?: string, notes?: string, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
+| `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text, capability-profile policy, and durable state. It returns `route`, `reason`, `loop_collision` (the active loop families and which one steers, or null), `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
+| `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, metric_floor?: number, max_iterations?: number, allowed_paths?: string[], frozen_paths?: string[], supersede?: string, visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` supplies advisory Git scope reporting to supervised checks. CLI `outcome run` enforces it against a clean Git baseline and stops on violations or inspection failures. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
+| `outcome_check` | `{name?: string, notes?: string, audit?: boolean, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. `audit: true` re-runs a finished outcome's verifier without mutating its history and sets `evidence_stale` from the result. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
 | `outcome_results` | `{name?: string, format?: enum(text, json)}` | Show all recorded verifier iterations and final state. |
 | `outcome_stop` | `{name?: string, reason: string, format?: enum(text, json)}` | Mark an outcome stopped and clear the active pointer when it matches. |
@@ -1485,7 +1529,10 @@ without mutating state:
    `--human-input` unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0`, the explicit legacy
    opt-out that mirrors `MYTHIFY_REQUIRE_VERIFIED_STEP`. This is the attested
    claim rule applied to decisions: an agent's own words never settle a question
-   that belongs to a human.
+   that belongs to a human. The gate covers every resolution path, including
+   `--out-of-scope`, because ruling a human's question out of scope is itself
+   the human's call. Resolving under the opt-out stamps `human_input_waived`
+   on the ticket and prints a `[WARN]`, so a thawed gate always leaves a trace.
 3. **Executed evidence for verifiable tasks.** A ticket storing `verify_command`
    requires an executed record with `verified: true`, `exit_code: 0`, and a
    normalized command equal to the stored one, at or after the claim cursor.
@@ -1648,6 +1695,14 @@ contract, `workflow_route` when they need Mythify to choose the next workflow
 path, or `prompt_packet` when they need the shared packet contract across
 research, analysis, failure recovery, handoff, review, campaign, and next.
 
+The failure packet carries `failed_command_streak`: the count of consecutive
+failed executed runs of the latest failed command. At a streak of two or more,
+the packet adds a question-the-reference instruction: ask whether the success
+criterion itself is right, route that doubt to a human with a grilling ticket,
+and never weaken the verifier to pass. Repeated failure is the one moment the
+reference is most likely wrong, and reference doubt belongs to the surface
+that already requires outside judgment.
+
 ### Smoke test: mcp-server/test/smoke.test.js
 
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
@@ -1716,7 +1771,12 @@ metadata header:
 `python3 scripts/mythify.py protocol check [PATH ...] [--json]` compares the
 embedded CLI hash with explicit protocol copy paths. With no paths, it checks
 the source repo protocol when present and any `CLAUDE.md`, `AGENTS.md`, and
-`.cursorrules` files in the current working directory.
+`.cursorrules` files in the current working directory. Every invocation also
+hash-pins any present `protocol/release-gates.json` and its packaged mirror
+against the embedded `RELEASE_GATES_SHA256`: the gate list an optimizer is
+graded against is a frozen node, so a legitimate change must also update the
+constant in `scripts/mythify_protocol.py`. A missing manifest is skipped, not
+failed; release readiness already surfaces its absence.
 
 Failure modes:
 
@@ -2445,6 +2505,15 @@ tool:
   the command. Legacy steps without a cursor fall back to the step's
   `updated_at`, or the parent plan's `created` timestamp when the step was never
   updated.
+- When a satisfying record exists, the gate also compares the latest one's
+  recorded provenance against the present. Visible movement between the run
+  and the completion claim (the commit changed, or a clean-at-run worktree is
+  now dirty) prints a `[WARN]` by default and refuses under `strict_context`;
+  the indeterminate dev-loop case (dirty at run, dirty now) stays silent.
+- Completing a step while `MYTHIFY_REQUIRE_VERIFIED_STEP=0` disables the gate
+  stamps `strict_gate_waived` on the step and prints a `[WARN]`. The opt-out
+  keeps working; it never works silently, and the harness surfaces waived
+  completions as attention items.
 - On failure the plan is NOT modified and the command prints
   `[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing executed 'verify run' with exit code 0 was recorded since this step started. When the step stores a verify_command, the recorded command must match it. Run the step's verifier first, or set MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion.`
   The CLI exits 1; the MCP tool returns that text.

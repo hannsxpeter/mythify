@@ -685,11 +685,13 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_workflows.py",
         )
         for name in (
+            "mythify_evidence_guard.py",
             "mythify_log_compaction.py",
             "mythify_loopfit.py",
             "mythify_map_parser.py",
             "mythify_maps.py",
             "mythify_plan_import.py",
+            "mythify_protocol.py",
             "mythify_provenance.py",
             "mythify_runtime_helpers.py",
         ):
@@ -3880,7 +3882,8 @@ class TestVerify(CliTestCase):
             set(record.keys()),
             {"kind", "claim", "command", "exit_code", "duration_seconds",
              "stdout_tail", "stderr_tail", "verified", "timestamp", "plan",
-             "step_id", "step_title", "step_status", "provenance"},
+             "step_id", "step_title", "step_status", "provenance",
+             "prev_sha256"},
         )
         self.assertEqual(record["kind"], "executed")
         self.assertEqual(record["claim"], "exit zero works")
@@ -4105,7 +4108,7 @@ class TestVerify(CliTestCase):
         self.assertEqual(
             set(record.keys()),
             {"kind", "claim", "evidence", "verified", "timestamp", "plan",
-             "step_id", "step_title", "step_status"},
+             "step_id", "step_title", "step_status", "prev_sha256"},
         )
         self.assertEqual(record["kind"], "attested")
         self.assertEqual(record["claim"], "docs updated")
@@ -5083,3 +5086,192 @@ class TestCorruptRecovery(CliTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutcomeGraphHardening(CliTestCase):
+    """Loop-topology guards: supersession lineage, metric floors, frozen
+    paths, audit rechecks, and the first-pass vacuity caution."""
+
+    def start(self, *extra, name, verify=None):
+        result = self.run_cli(
+            "outcome", "start", "Goal {0}".format(name),
+            "--success", "verifier passes",
+            "--verify", verify or shell_py("raise SystemExit(0)"),
+            "--name", name, *extra,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        return result
+
+    def goal_json(self, state, slug):
+        return self.read_json(state / "outcomes" / slug / "goal.json")
+
+    def test_second_active_outcome_requires_supersede(self):
+        state = self.init_workspace()
+        self.start(name="loop-a")
+        refused = self.run_cli(
+            "outcome", "start", "Goal loop-b", "--success", "s",
+            "--verify", shell_py("raise SystemExit(0)"), "--name", "loop-b",
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("still active", refused.stdout)
+        self.assertFalse((state / "outcomes" / "loop-b").exists())
+        superseding = self.start(
+            "--supersede", "loop-a targeted the wrong module", name="loop-b"
+        )
+        self.assertIn("superseded: loop-a", superseding.stdout)
+        old = self.goal_json(state, "loop-a")
+        self.assertEqual(old["status"], "stopped")
+        self.assertEqual(old["superseded_by"], "loop-b")
+        self.assertIn("superseded by loop-b", old["stop_reason"])
+        self.assertEqual(self.goal_json(state, "loop-b")["supersedes"], "loop-a")
+
+    def test_metric_floor_requires_metric_and_gates_success(self):
+        self.init_workspace()
+        missing = self.run_cli(
+            "outcome", "start", "Floored", "--success", "s",
+            "--verify", shell_py("raise SystemExit(0)"),
+            "--metric-floor", "5", "--name", "floored",
+        )
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn("--metric", missing.stdout)
+        self.start(
+            "--metric", shell_py("import sys; sys.stdout.write('3.0')"),
+            "--metric-floor", "5", name="floored",
+        )
+        low = self.run_cli("outcome", "check", "--json")
+        self.assertEqual(low.returncode, 2)
+        payload = json.loads(low.stdout)
+        self.assertIs(payload["record"]["verified"], False)
+        self.assertIs(payload["record"]["metric_floor_unmet"], True)
+        self.assertIn("Metric floor not met", payload["record"]["next_action"])
+        self.assertEqual(payload["goal"]["status"], "active")
+        self.start(
+            "--metric", shell_py("import sys; sys.stdout.write('3.0')"),
+            "--metric-floor", "2", "--supersede", "lower the floor",
+            name="floored-two",
+        )
+        met = self.run_cli("outcome", "check", "--json")
+        self.assertEqual(met.returncode, 0, met.stderr)
+        self.assertEqual(json.loads(met.stdout)["goal"]["status"], "succeeded")
+
+    def test_first_pass_success_carries_a_vacuity_caution(self):
+        self.init_workspace()
+        self.start(name="instant")
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertIn("confirm the verifier can fail", checked.stdout)
+
+    def test_frozen_paths_are_enforced_in_supervised_checks(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.project, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "mythify@example.invalid"],
+            cwd=self.project, check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Mythify Test"],
+            cwd=self.project, check=True,
+        )
+        (self.project / ".gitignore").write_text(".mythify/\n", encoding="utf-8")
+        (self.project / "tests").mkdir()
+        (self.project / "tests" / "test_x.py").write_text("# held out\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.project, check=True)
+        state = self.init_workspace()
+        self.start("--frozen-paths", "tests", name="frozen")
+        (self.project / "tests" / "test_x.py").write_text("# tampered\n", encoding="utf-8")
+        checked = self.run_cli("outcome", "check", "--json")
+        self.assertEqual(checked.returncode, 2)
+        payload = json.loads(checked.stdout)
+        self.assertIs(payload["record"]["verified"], False)
+        self.assertIn("tests/test_x.py", payload["record"]["frozen_violations"])
+        self.assertEqual(payload["goal"]["status"], "stopped")
+        self.assertIn("frozen-path violation", payload["goal"]["stop_reason"])
+        verification = self.read_jsonl(state / "verifications.jsonl")[-1]
+        self.assertEqual(verification["exit_code"], -1)
+        self.assertIs(verification["verified"], False)
+
+    def test_audit_recheck_marks_stale_evidence_without_mutating_history(self):
+        state = self.init_workspace()
+        flag = self.project / "flag.txt"
+        flag.write_text("present\n", encoding="utf-8")
+        self.start(verify="test -f flag.txt", name="audited")
+        active_refused = self.run_cli("outcome", "check", "--audit")
+        self.assertEqual(active_refused.returncode, 1)
+        self.assertIn("still active", active_refused.stderr)
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        flag.unlink()
+        red = self.run_cli("outcome", "check", "--audit")
+        self.assertEqual(red.returncode, 2)
+        goal = self.goal_json(state, "audited")
+        self.assertIs(goal["evidence_stale"], True)
+        self.assertEqual(goal["status"], "succeeded")
+        self.assertEqual(goal["iteration_count"], 1)
+        iterations = self.read_jsonl(state / "outcomes" / "audited" / "iterations.jsonl")
+        self.assertIs(iterations[-1]["audit"], True)
+        self.assertIs(iterations[-1]["verified"], False)
+        status = self.run_cli("outcome", "status")
+        self.assertIn("evidence: STALE", status.stdout)
+        flag.write_text("restored\n", encoding="utf-8")
+        green = self.run_cli("outcome", "check", "--audit")
+        self.assertEqual(green.returncode, 0, green.stderr)
+        self.assertIs(self.goal_json(state, "audited")["evidence_stale"], False)
+
+
+class TestReleaseGateManifestPin(CliTestCase):
+    """protocol check hash-pins the release gate manifest: the gate list the
+    optimizer is graded against is a frozen node, and drift fails loudly."""
+
+    def drop_in(self):
+        scripts_dir = self.project / "scripts"
+        scripts_dir.mkdir()
+        for source in (REPO_ROOT / "scripts").glob("mythify*.py"):
+            shutil.copy2(source, scripts_dir / source.name)
+        protocol_dir = self.project / "protocol"
+        protocol_dir.mkdir()
+        for name in (
+            "classification-rules.json",
+            "model-capabilities.json",
+            "operation-registry.json",
+            "workflow-router.json",
+            "release-gates.json",
+        ):
+            shutil.copy2(REPO_ROOT / "protocol" / name, protocol_dir / name)
+
+    def check(self):
+        env = dict(os.environ)
+        env.pop("MYTHIFY_DIR", None)
+        env["HOME"] = str(self.home)
+        return subprocess.run(
+            [sys.executable, "scripts/mythify.py", "protocol", "check"],
+            cwd=str(self.project),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def test_matching_manifest_verifies(self):
+        self.drop_in()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("release-gates.json", result.stdout)
+
+    def test_tampered_manifest_fails_with_a_frozen_node_message(self):
+        self.drop_in()
+        manifest = self.project / "protocol" / "release-gates.json"
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        payload["gates"][0]["commands"] = ["true"]
+        manifest.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+        result = self.check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Release gate manifest drift", result.stderr)
+
+    def test_missing_manifest_is_skipped_not_failed(self):
+        self.drop_in()
+        (self.project / "protocol" / "release-gates.json").unlink()
+        result = self.check()
+        # No protocol files at all in this bare drop-in, so the command
+        # reports no_files rather than inventing a manifest failure.
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("No protocol files found", result.stderr)

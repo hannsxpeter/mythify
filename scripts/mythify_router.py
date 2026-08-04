@@ -524,15 +524,33 @@ def build_analysis_prompt_packet(state, goal="", verify_command=""):
     }
 
 
+def failed_command_streak(state, record):
+    """Consecutive failed executed runs of RECORD's command, latest first."""
+    if not record:
+        return 0
+    command = str(record.get("command") or "")
+    streak = 0
+    for row in reversed(read_jsonl(state / "verifications.jsonl")):
+        if row.get("kind") != "executed" or str(row.get("command") or "") != command:
+            continue
+        if row.get("verified") is False:
+            streak += 1
+        else:
+            break
+    return streak
+
+
 def build_failure_prompt_packet(state, verify_command=""):
     index, record = latest_failed_verification(state)
     reflection_index, reflection = latest_failure_reflection(state)
+    streak = failed_command_streak(state, record)
     lines = ["Failure recovery prompt packet"]
     context = {
         "failed_verification_index": index,
         "failed_verification": record,
         "failure_reflection_index": reflection_index,
         "failure_reflection": reflection,
+        "failed_command_streak": streak,
         "verify_command": verify_command,
     }
     if record:
@@ -564,6 +582,13 @@ def build_failure_prompt_packet(state, verify_command=""):
         "- Report the failure, fix, and verification evidence in chat.",
         "- If the fix is hard to reverse, first lay out 2-3 labeled approaches with tradeoffs, then recommend one.",
     ])
+    if streak >= 2:
+        lines.append(
+            "- This verifier has failed {0} consecutive runs. Question the "
+            "reference itself: is the success criterion right? Route that "
+            "doubt to a human with a grilling ticket (map ticket TITLE "
+            "--type grilling); never weaken the verifier to pass.".format(streak)
+        )
     if verify_command:
         lines.append("- Verifier to run: {0}".format(verify_command))
     elif record and record.get("command"):
@@ -1099,6 +1124,35 @@ def select_workflow_route(task, state_view, classification):
     )
 
 
+def active_loop_collision(state_view):
+    """Name the live loop families and which one steers, or None when at most
+    one family is active. Collisions are legal; unnamed collisions are not:
+    the priority order picks a winner, and this makes the pick visible."""
+    families = [
+        label
+        for key, label in (
+            ("active_campaign", "campaign"),
+            ("active_outcome", "outcome"),
+            ("active_map", "map"),
+            ("active_research", "research"),
+            ("active_plan", "plan"),
+        )
+        if state_view.get(key)
+    ]
+    if len(families) < 2:
+        return None
+    return {
+        "families": families,
+        "steers": families[0],
+        "note": (
+            "multiple loop families are active ({0}); under the route "
+            "priority order, {1} steers when the prompt is ambiguous".format(
+                ", ".join(families), families[0]
+            )
+        ),
+    }
+
+
 def build_workflow_route(task, state, classification):
     state_view = workflow_route_state(state)
     route, reason = select_workflow_route(task, state_view, classification)
@@ -1126,10 +1180,12 @@ def build_workflow_route(task, state, classification):
         .get("native_adapter", {})
     )
     state_writes = route_state_writes(route, state_view)
+    loop_collision = active_loop_collision(state_view)
     return {
         "kind": "workflow_route",
         "route": route,
         "reason": reason,
+        "loop_collision": loop_collision,
         "input": str(task or ""),
         "classification": classification,
         "state": state_view,
@@ -1170,6 +1226,9 @@ def format_workflow_route(payload):
         ),
         "Verification strategy: {0}".format(payload.get("verification_strategy", "")),
     ]
+    collision = payload.get("loop_collision")
+    if collision:
+        lines.append("Loop collision: {0}".format(collision.get("note", "")))
     adapter = payload.get("execution_adapter") or {}
     if adapter.get("recommended") is True:
         lines.append(

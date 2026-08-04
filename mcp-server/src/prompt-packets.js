@@ -413,14 +413,38 @@ function buildAnalysisPromptPacket({ goal = "", verifyCommand = "" } = {}) {
   };
 }
 
+// Consecutive failed executed runs of the record's command, latest first.
+function failedCommandStreak(record) {
+  if (!record) {
+    return 0;
+  }
+  const command = String(record.command || "");
+  let streak = 0;
+  const records = readJsonl(verificationsPath());
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const row = records[index];
+    if (row.kind !== "executed" || String(row.command || "") !== command) {
+      continue;
+    }
+    if (row.verified === false) {
+      streak += 1;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 function buildFailurePromptPacket({ verifyCommand = "" } = {}) {
   const [index, record] = latestFailedVerification();
   const [reflectionIndex, reflection] = latestFailureReflection();
+  const streak = failedCommandStreak(record);
   const context = {
     failed_verification_index: index,
     failed_verification: record,
     failure_reflection_index: reflectionIndex,
     failure_reflection: reflection,
+    failed_command_streak: streak,
     verify_command: verifyCommand,
   };
   const lines = ["Failure recovery prompt packet"];
@@ -455,6 +479,13 @@ function buildFailurePromptPacket({ verifyCommand = "" } = {}) {
   lines.push("- Rerun the failed verifier, or the provided verifier if it is more specific.");
   lines.push("- Report the failure, fix, and verification evidence in chat.");
   lines.push("- If the fix is hard to reverse, first lay out 2-3 labeled approaches with tradeoffs, then recommend one.");
+  if (streak >= 2) {
+    lines.push(
+      `- This verifier has failed ${streak} consecutive runs. Question the reference itself: ` +
+        "is the success criterion right? Route that doubt to a human with a grilling ticket " +
+        "(map ticket TITLE --type grilling); never weaken the verifier to pass."
+    );
+  }
   if (verifyCommand) {
     lines.push(`- Verifier to run: ${verifyCommand}`);
   } else if (record?.command) {

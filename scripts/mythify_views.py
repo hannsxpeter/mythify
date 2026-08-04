@@ -879,6 +879,17 @@ def list_fanout_summaries(state):
 def summarize_outcome(state, slug, goal):
     iterations = read_jsonl(outcome_iterations_path(state, slug))
     last_iteration = iterations[-1] if iterations else None
+    # Sensor-drift watcher: every iteration records the command it actually
+    # ran, so a verifier swapped mid-loop is visible in the durable record.
+    commands = {
+        str((item.get("verify") or {}).get("command") or "")
+        for item in iterations
+        if isinstance(item.get("verify"), dict)
+    }
+    goal_command = str(goal.get("verify_command") or "")
+    verifier_drift = bool(commands) and (
+        len(commands) > 1 or (goal_command != "" and goal_command not in commands)
+    )
     return {
         "id": slug,
         "goal": goal.get("goal", ""),
@@ -889,6 +900,8 @@ def summarize_outcome(state, slug, goal):
         "created": goal.get("created", ""),
         "updated": goal.get("updated", ""),
         "last_verified": goal.get("last_verified"),
+        "verifier_drift": verifier_drift,
+        "evidence_stale": bool(goal.get("evidence_stale")),
         "last_iteration": last_iteration,
         "next_action": last_iteration.get("next_action") if last_iteration else (
             "make a bounded attempt, then run outcome check"

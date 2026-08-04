@@ -61,7 +61,7 @@ class ReleaseVersionTest(unittest.TestCase):
         self.assertEqual(lock["packages"][""]["version"], version)
         self.assertIn("Current release target: `v{}`".format(version), release)
         self.assertIn("Current release target: `v{}`".format(version), roadmap)
-        self.assertIn("## [{}] - 2026-07-31".format(version), changelog)
+        self.assertIn("## [{}] - 2026-08-04".format(version), changelog)
         self.assertIn("mythify-cli-{}.tar.gz".format(version), release)
         self.assertIn("mythify-mcp-{}.tgz".format(version), release)
         tag_commands = [

@@ -56,6 +56,26 @@ def current_verification_provenance(version, state=None, root=None):
     }
 
 
+def evidence_moved_since_run(record, current):
+    """Reason the world visibly moved between RECORD's run and now, or None.
+
+    Deliberately narrower than verification_freshness: a dev-loop worktree is
+    dirty both when the verifier runs and when the step completes, and that
+    indeterminate case stays silent. Only visible movement counts: the commit
+    changed since the run, or a clean-at-run tree became dirty.
+    """
+    provenance = record.get("provenance") if isinstance(record, dict) else None
+    if not isinstance(provenance, dict) or not isinstance(current, dict):
+        return None
+    record_commit = provenance.get("git_commit")
+    current_commit = current.get("git_commit")
+    if record_commit and current_commit and record_commit != current_commit:
+        return "git_commit_changed_since_run"
+    if provenance.get("worktree_clean") is True and current.get("worktree_clean") is False:
+        return "worktree_changed_since_run"
+    return None
+
+
 def verification_freshness(record, current):
     provenance = record.get("provenance") if isinstance(record, dict) else None
     if not isinstance(provenance, dict):

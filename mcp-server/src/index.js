@@ -48,6 +48,10 @@ import { registerOutcomeTools } from "./outcome-tools.js";
 import { registerMapTools } from "./map-tools.js";
 import { buildDefaultPlanSteps } from "./plan-horizon.js";
 import { registerPlanTools } from "./plan-tools.js";
+import {
+  currentVerificationProvenanceForStateDir,
+  evidenceMovedSinceRun,
+} from "./verification-provenance.js";
 import { registerVerificationTools } from "./verification-tools.js";
 import { registerFanoutTools } from "./fanout.js";
 
@@ -1008,10 +1012,7 @@ function outcomeProjectRoot() {
   return path.basename(stateDir) === ".mythify" ? path.dirname(stateDir) : process.cwd();
 }
 
-function outcomeScopeViolations(allowedPaths) {
-  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) {
-    return [];
-  }
+function outcomeChangedPaths() {
   const run = spawnSync(
     "git",
     ["-C", outcomeProjectRoot(), "status", "--porcelain"],
@@ -1025,16 +1026,22 @@ function outcomeScopeViolations(allowedPaths) {
   if (run.error || run.status !== 0) {
     return [];
   }
-  const prefixes = allowedPaths
-    .map((item) => String(item).replace(/\/+$/, ""))
-    .filter((item) => item !== "");
-  const changed = String(run.stdout || "")
+  return String(run.stdout || "")
     .split(/\r?\n/)
     .map((line) => line.length > 3 ? line.slice(3).trim() : "")
     .filter((entry) => entry !== "")
     .map((entry) => entry.includes(" -> ") ? entry.split(" -> ", 2)[1] : entry)
     .map((entry) => entry.replace(/^"|"$/g, ""));
-  return changed.filter((entry) => {
+}
+
+function outcomeScopeViolations(allowedPaths) {
+  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) {
+    return [];
+  }
+  const prefixes = allowedPaths
+    .map((item) => String(item).replace(/\/+$/, ""))
+    .filter((item) => item !== "");
+  return outcomeChangedPaths().filter((entry) => {
     const normalized = entry.replace(/\/+$/, "");
     if (normalized === ".mythify" || normalized.startsWith(".mythify/")) {
       return false;
@@ -1061,6 +1068,18 @@ function formatOutcomeStatus(slug, goal, iterations = []) {
       `scope (supervised checks report; CLI outcome run enforces post-hoc via git): ` +
       goal.allowed_paths.join(", ")
     );
+  }
+  if (Array.isArray(goal.frozen_paths) && goal.frozen_paths.length > 0) {
+    lines.push(`frozen (never touched, enforced): ${goal.frozen_paths.join(", ")}`);
+  }
+  if (goal.metric_floor !== null && goal.metric_floor !== undefined) {
+    lines.push(`metric floor: ${goal.metric_floor}`);
+  }
+  if (goal.supersedes) {
+    lines.push(`supersedes: ${goal.supersedes}`);
+  }
+  if (goal.evidence_stale) {
+    lines.push("evidence: STALE (the last audit recheck failed; re-verify before trusting)");
   }
   if (iterations.length > 0) {
     const last = iterations[iterations.length - 1];
@@ -1291,6 +1310,8 @@ registerPlanTools(server, {
   verificationRecordHasExplicitStepContext,
   nextPendingText,
   readActiveSlug,
+  evidenceMovedSinceRun,
+  currentProvenance: () => currentVerificationProvenanceForStateDir(resolveStateDir()),
   mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
 });
 
@@ -1332,12 +1353,13 @@ registerOutcomeTools(server, {
   formatOutcomeStatus,
   runShellCapture,
   parseMetricScore,
-  appendJsonl,
+  appendJsonl: (target, record) => appendJsonlChained(target, record),
   outcomeIterationsPath,
   verificationsPath,
   verificationStepContext,
   clearActiveOutcomeSlug,
   scopeViolations: outcomeScopeViolations,
+  changedPaths: outcomeChangedPaths,
   mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
 });
 
@@ -1345,12 +1367,61 @@ registerOutcomeTools(server, {
 // Verification tools
 // ---------------------------------------------------------------------------
 
+// The chained tail read is bounded but generous: a verification record with
+// two redacted 4000-char tails serializes well under this, so the previous
+// line is always read whole.
+const JSONL_CHAIN_TAIL_BYTES = 256 * 1024;
+
+function lastJsonlLine(target) {
+  let stat;
+  try {
+    stat = fs.statSync(target);
+  } catch {
+    return "";
+  }
+  const start = Math.max(0, stat.size - JSONL_CHAIN_TAIL_BYTES);
+  let window;
+  try {
+    const fd = fs.openSync(target, "r");
+    try {
+      const length = stat.size - start;
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, start);
+      window = buffer.toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+  const lines = window.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (lines[index].trim()) {
+      return lines[index];
+    }
+  }
+  return "";
+}
+
+// Chain only the verification ledger: each record carries the sha256 of the
+// previous raw line, so silent in-place edits become visible to the chain
+// checker. Tamper evidence, not cryptography.
+function appendJsonlChained(target, record) {
+  if (path.basename(String(target)) === "verifications.jsonl") {
+    const last = lastJsonlLine(target);
+    record.prev_sha256 = last
+      ? crypto.createHash("sha256").update(last, "utf8").digest("hex")
+      : null;
+  }
+  appendJsonl(target, record);
+}
+
 registerVerificationTools(server, {
   guarded,
   runShellCapture,
   isoNow,
   verificationStepContext,
-  appendJsonl,
+  appendJsonl: appendJsonlChained,
   verificationsPath,
   reflectionsPath,
   recordLesson,

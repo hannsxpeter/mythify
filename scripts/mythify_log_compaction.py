@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from mythify_io import _write_text_atomic, jsonl_file_lock, read_jsonl, write_jsonl_atomic
+from mythify_io import _write_text_atomic, jsonl_file_lock, read_jsonl
 from mythify_runtime_helpers import now_stamp
 
 LOG_COMPACT_TARGETS = ("verifications.jsonl", "reflections.jsonl")
@@ -63,10 +63,28 @@ def compact_jsonl_log_locked(state, log_name, keep, dry_run):
         return result
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     _write_text_atomic(archive_path, raw_text)
-    write_jsonl_atomic(path, records[-keep:])
+    # Keep the retained records as their original raw lines, not re-serialized
+    # dicts: the ledger hash chain covers raw line bytes, and rewriting them
+    # through a different serializer would break every retained link.
+    kept_lines = parseable_raw_lines(raw_text)[-keep:]
+    _write_text_atomic(path, "".join(line + "\n" for line in kept_lines))
     result["status"] = "compacted"
     result["archived"] = True
     return result
+
+
+def parseable_raw_lines(raw_text):
+    lines = []
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            json.loads(stripped)
+        except ValueError:
+            continue
+        lines.append(line)
+    return lines
 
 
 def format_log_compaction_result(result):

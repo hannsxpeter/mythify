@@ -82,3 +82,28 @@ export function verificationFreshness(record, current) {
   }
   return { status: "fresh", reason: "provenance_matches" };
 }
+
+// Reason the world visibly moved between the record's run and now, or null.
+// Deliberately narrower than verificationFreshness: a dev-loop worktree is
+// dirty both when the verifier runs and when the step completes, and that
+// indeterminate case stays silent. Only visible movement counts: the commit
+// changed since the run, or a clean-at-run tree became dirty.
+export function evidenceMovedSinceRun(record, current) {
+  const provenance = record &&
+    typeof record.provenance === "object" &&
+    !Array.isArray(record.provenance)
+    ? record.provenance
+    : null;
+  if (!provenance || !current || typeof current !== "object") {
+    return null;
+  }
+  const recordCommit = provenance.git_commit;
+  const currentCommit = current.git_commit;
+  if (recordCommit && currentCommit && recordCommit !== currentCommit) {
+    return "git_commit_changed_since_run";
+  }
+  if (provenance.worktree_clean === true && current.worktree_clean === false) {
+    return "worktree_changed_since_run";
+  }
+  return null;
+}

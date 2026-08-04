@@ -16,6 +16,7 @@ closes, exactly as a plan step must.
 import json
 import sys
 
+from mythify_evidence_guard import noop_verifier_reason
 from mythify_io import _write_text_atomic, read_json, read_jsonl, write_json_atomic
 
 MAP_TICKET_TYPES = ("research", "prototype", "grilling", "task")
@@ -40,6 +41,11 @@ MAP_HUMAN_INPUT_MESSAGE = (
     "resolve it from its own words. Hold the conversation, then pass "
     "--human-input with what the human actually decided. Set "
     "MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy self-resolved tickets."
+)
+MAP_HUMAN_INPUT_WAIVED_WARNING = (
+    "[WARN] Human-input gate waived: MYTHIFY_REQUIRE_HUMAN_INPUT=0 is set, so "
+    "this HITL ticket resolved without the human's words. The waiver is "
+    "stamped on the ticket as human_input_waived."
 )
 MAP_ANSWER_MESSAGE = (
     "[FAIL] Answer required: pass --answer describing the decision this ticket "
@@ -521,6 +527,14 @@ def cmd_map_ticket(args, state):
     }
     if not ticket["verify_command"]:
         del ticket["verify_command"]
+    else:
+        noop_reason = noop_verifier_reason(ticket["verify_command"])
+        if noop_reason:
+            fail(
+                "[WARN] Ticket verify command looks like a no-op ({0}): {1}. "
+                "It will satisfy the resolution gate without checking "
+                "anything.".format(noop_reason, ticket["verify_command"])
+            )
     record.setdefault("tickets", []).append(ticket)
     if fog_item is not None:
         fog_item["graduated_to"] = ticket["id"]
@@ -681,6 +695,15 @@ def cmd_map_resolve(args, state):
         fail(MAP_ANSWER_MESSAGE)
         return 1
     out_of_scope = bool(args.out_of_scope)
+    human_input = (args.human_input or "").strip()
+    # Ruling a human's question out of scope is itself the human's call, so the
+    # HITL gate applies on every resolution path, including --out-of-scope.
+    if ticket.get("mode") == "hitl" and not human_input:
+        if require_human_input_enabled():
+            fail(MAP_HUMAN_INPUT_MESSAGE)
+            return 1
+        ticket["human_input_waived"] = True
+        fail(MAP_HUMAN_INPUT_WAIVED_WARNING)
     if not out_of_scope:
         if not ticket.get("claimed_by"):
             fail(
@@ -697,10 +720,6 @@ def cmd_map_resolve(args, state):
                 )
             )
             return 1
-        human_input = (args.human_input or "").strip()
-        if ticket.get("mode") == "hitl" and not human_input and require_human_input_enabled():
-            fail(MAP_HUMAN_INPUT_MESSAGE)
-            return 1
         if ticket.get("verify_command"):
             evidence = passing_ticket_verification(state, ticket)
             if evidence is None:
@@ -712,7 +731,7 @@ def cmd_map_resolve(args, state):
                 )
                 return 1
             ticket["verified_command"] = evidence.get("command", "")
-        ticket["human_input"] = human_input
+    ticket["human_input"] = human_input
     stamp = now_iso()
     ticket["resolution"] = answer
     ticket["resolved_at"] = stamp
@@ -755,6 +774,8 @@ def cmd_map_resolve(args, state):
     if out_of_scope:
         print("[OK] Ruled ticket {0} out of scope in map {1}".format(ticket_name(ticket), slug))
         print("Why: {0}".format(answer))
+        if ticket.get("human_input"):
+            print("Human input: {0}".format(ticket["human_input"]))
     else:
         print("[OK] Resolved ticket {0} in map {1}".format(ticket_name(ticket), slug))
         print("Answer: {0}".format(answer))

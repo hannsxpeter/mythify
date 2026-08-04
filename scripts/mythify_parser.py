@@ -1053,6 +1053,16 @@ def build_parser(symbols):
     p.add_argument("--verify", required=True, help="Shell command that verifies the outcome.")
     p.add_argument("--metric", default="", help="Optional shell command that emits a metric.")
     p.add_argument(
+        "--metric-floor",
+        type=float,
+        default=None,
+        metavar="N",
+        help=(
+            "Minimum metric score required for success. Requires --metric; a "
+            "green verifier with a score below the floor does not succeed."
+        ),
+    )
+    p.add_argument(
         "--max-iterations",
         type=int,
         default=3,
@@ -1064,6 +1074,23 @@ def build_parser(symbols):
         help=(
             "Comma-separated scope paths. The CLI outcome loop enforces this "
             "post-hoc via git: a check fails if files change outside the scope."
+        ),
+    )
+    p.add_argument(
+        "--frozen-paths",
+        default="",
+        help=(
+            "Comma-separated paths the loop must never touch (e.g. tests/). "
+            "Enforced in every mode; a change under a frozen prefix stops the loop."
+        ),
+    )
+    p.add_argument(
+        "--supersede",
+        default=None,
+        metavar="REASON",
+        help=(
+            "Retire the currently active outcome into this one, recording the "
+            "reason and lineage. Without it, a second start is refused."
         ),
     )
     p.add_argument(
@@ -1134,6 +1161,14 @@ def build_parser(symbols):
     )
     p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
     p.add_argument("--notes", default="", help="Notes for this iteration.")
+    p.add_argument(
+        "--audit",
+        action="store_true",
+        help=(
+            "Re-run a finished outcome's verifier without mutating its "
+            "history; a red run marks the outcome's evidence stale."
+        ),
+    )
     p.add_argument(
         "--timeout",
         type=float,

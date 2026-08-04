@@ -14,7 +14,10 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI = SCRIPTS_DIR / "mythify.py"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from mythify_provenance import verification_freshness  # noqa: E402
+from mythify_provenance import (  # noqa: E402
+    evidence_moved_since_run,
+    verification_freshness,
+)
 from mythify_views_status import (  # noqa: E402
     release_readiness_status,
     summarize_release_gate,
@@ -154,6 +157,88 @@ class VerificationProvenanceTest(unittest.TestCase):
             verification_freshness({"provenance": []}, current),
             {"status": "legacy", "reason": "missing_provenance"},
         )
+
+    def test_evidence_moved_since_run_names_only_visible_movement(self):
+        clean = {"git_commit": "same", "worktree_clean": True}
+        self.assertIsNone(evidence_moved_since_run({}, clean))
+        self.assertIsNone(
+            evidence_moved_since_run({"provenance": {"git_commit": "same", "worktree_clean": True}}, clean)
+        )
+        self.assertEqual(
+            evidence_moved_since_run(
+                {"provenance": {"git_commit": "old", "worktree_clean": True}},
+                {"git_commit": "new", "worktree_clean": True},
+            ),
+            "git_commit_changed_since_run",
+        )
+        self.assertEqual(
+            evidence_moved_since_run(
+                {"provenance": {"git_commit": "same", "worktree_clean": True}},
+                {"git_commit": "same", "worktree_clean": False},
+            ),
+            "worktree_changed_since_run",
+        )
+        # The dev-loop case stays silent: dirty at run, dirty at completion.
+        self.assertIsNone(
+            evidence_moved_since_run(
+                {"provenance": {"git_commit": "same", "worktree_clean": False}},
+                {"git_commit": "same", "worktree_clean": False},
+            )
+        )
+        # Off-git runs carry no commit and never claim movement.
+        self.assertIsNone(
+            evidence_moved_since_run(
+                {"provenance": {"git_commit": None, "worktree_clean": None}},
+                {"git_commit": None, "worktree_clean": None},
+            )
+        )
+
+    def read_plan(self, slug):
+        path = self.project / ".mythify" / "plans" / (slug + ".json")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def write_plan(self, slug, plan):
+        path = self.project / ".mythify" / "plans" / (slug + ".json")
+        path.write_text(json.dumps(plan), encoding="utf-8")
+
+    def test_step_gate_warns_when_the_world_moved_since_the_run(self):
+        self.init_git_repo()
+        self.assertEqual(self.run_cli("init").returncode, 0)
+        subprocess.run(["git", "add", "-A"], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-qm", "state"], cwd=self.project, check=True)
+        self.run_cli(
+            "plan", "create", "g", "--name", "p",
+            "--steps", json.dumps([{"title": "a", "verify_command": "true"}]),
+        )
+        verify = self.run_cli("plan", "verify", "1")
+        self.assertEqual(verify.returncode, 0, verify.stderr)
+        (self.project / "tracked.txt").write_text("edited after the run\n", encoding="utf-8")
+        done = self.run_cli("step", "1", "completed", "verify run exit 0")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("worktree_changed_since_run", done.stderr)
+
+    def test_step_gate_refuses_moved_evidence_under_strict_context(self):
+        self.init_git_repo()
+        self.assertEqual(self.run_cli("init").returncode, 0)
+        subprocess.run(["git", "add", "-A"], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-qm", "state"], cwd=self.project, check=True)
+        self.run_cli(
+            "plan", "create", "g", "--name", "p",
+            "--steps", json.dumps([{"title": "a", "verify_command": "true"}]),
+        )
+        plan = self.read_plan("p")
+        plan["strict_context"] = True
+        self.write_plan("p", plan)
+        verify = self.run_cli("plan", "verify", "1")
+        self.assertEqual(verify.returncode, 0, verify.stderr)
+        (self.project / "tracked.txt").write_text("edited after the run\n", encoding="utf-8")
+        refused = self.run_cli("step", "1", "completed", "verify run exit 0")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("Stale evidence under strict context", refused.stderr)
+        rerun = self.run_cli("plan", "verify", "1")
+        self.assertEqual(rerun.returncode, 0, rerun.stderr)
+        done = self.run_cli("step", "1", "completed", "verify run exit 0")
+        self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_p_must_02_readiness_uses_only_fresh_passing_evidence(self):
         gate = {

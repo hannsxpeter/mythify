@@ -250,12 +250,46 @@ test("out-of-scope work is registered rather than recorded as a decision", async
     ticket_id: "T1",
     answer: "the renderer sits past this destination",
     out_of_scope: true,
+    human_input: "the human agreed the renderer sits past this destination",
   });
   assert.match(text, /^\[OK\] Ruled ticket/);
   const record = harness.maps.get("billing");
   assert.equal(record.tickets[0].status, "out_of_scope");
   assert.equal(record.decisions.length, 0);
   assert.equal(record.out_of_scope[0].ticket_id, "T1");
+});
+
+test("out_of_scope does not bypass the human-input gate on a HITL ticket", async () => {
+  const harness = makeHarness();
+  await chart(harness);
+  await harness.call("map_add_ticket", { title: "Rewrite the invoice renderer", type: "grilling" });
+  const refused = await harness.call("map_resolve", {
+    ticket_id: "T1",
+    answer: "the renderer sits past this destination",
+    out_of_scope: true,
+  });
+  assert.match(refused, /Human input required/);
+  assert.equal(harness.maps.get("billing").tickets[0].status, "open");
+});
+
+test("the legacy human-input opt-out stamps a durable waiver on the ticket", async () => {
+  const harness = makeHarness();
+  await chart(harness);
+  await harness.call("map_add_ticket", { title: "Pick the proration model", type: "grilling" });
+  await harness.call("map_claim", { ticket_id: "T1" });
+  process.env.MYTHIFY_REQUIRE_HUMAN_INPUT = "0";
+  try {
+    const resolved = await harness.call("map_resolve", {
+      ticket_id: "T1",
+      answer: "daily proration",
+    });
+    assert.match(resolved, /Human-input gate waived/);
+  } finally {
+    delete process.env.MYTHIFY_REQUIRE_HUMAN_INPUT;
+  }
+  const ticket = harness.maps.get("billing").tickets[0];
+  assert.equal(ticket.status, "closed");
+  assert.equal(ticket.human_input_waived, true);
 });
 
 test("map_promote refuses an unclear map and carries decisions into the plan", async () => {

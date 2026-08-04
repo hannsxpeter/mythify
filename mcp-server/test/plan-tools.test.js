@@ -5,7 +5,7 @@ import {
   registerPlanTools,
 } from "../src/plan-tools.js";
 
-function makeHarness() {
+function makeHarness(overrides = {}) {
   const registered = [];
   const plans = new Map();
   const verifications = [];
@@ -69,7 +69,10 @@ function makeHarness() {
       return pending ? `Next pending step: [ ] ${pending.id}. ${pending.title}` : "No pending steps remain.";
     },
     readActiveSlug: () => active,
+    evidenceMovedSinceRun: () => null,
+    currentProvenance: () => ({}),
     mcpFrontDoorNote: " Route first.",
+    ...overrides,
   });
 
   return { registered, plans, verifications, get active() { return active; } };
@@ -287,4 +290,72 @@ test("plan tool registrar rejects missing required deps", () => {
     () => registerPlanTools({ registerTool() {} }, {}),
     /requires deps\.guarded/
   );
+});
+
+test("a no-op verify command is flagged at authoring time", async () => {
+  const harness = makeHarness();
+  const planCreate = harness.registered.find((entry) => entry.name === "plan_create");
+  const created = await planCreate.handler({
+    goal: "Ship plan",
+    name: "noop-plan",
+    steps: [{ title: "Build", verify_command: "true" }],
+  });
+  assert.match(created, /looks like a no-op/);
+
+  const planAddStep = harness.registered.find((entry) => entry.name === "plan_add_step");
+  const added = await planAddStep.handler({ title: "Print", verify_command: "echo ok" });
+  assert.match(added, /looks like a no-op/);
+
+  const real = await planAddStep.handler({
+    title: "Test",
+    verify_command: "python3 -m unittest discover -s tests",
+  });
+  assert.doesNotMatch(real, /looks like a no-op/);
+});
+
+test("a legacy completion stamps a durable strict-gate waiver", async () => {
+  const harness = makeHarness({ strictStepEvidenceEnabled: () => false });
+  const planCreate = harness.registered.find((entry) => entry.name === "plan_create");
+  await planCreate.handler({
+    goal: "Ship plan",
+    name: "legacy-plan",
+    steps: [{ title: "Build" }],
+  });
+  const planUpdateStep = harness.registered.find((entry) => entry.name === "plan_update_step");
+  const completed = await planUpdateStep.handler({
+    step_id: 1,
+    status: "completed",
+    result: "prose only",
+  });
+  assert.match(completed, /Strict gate waived/);
+  assert.equal(harness.plans.get("legacy-plan").steps[0].strict_gate_waived, true);
+});
+
+test("moved evidence warns by default and refuses under strict context", async () => {
+  const harness = makeHarness({
+    evidenceMovedSinceRun: () => "git_commit_changed_since_run",
+  });
+  const planCreate = harness.registered.find((entry) => entry.name === "plan_create");
+  const update = harness.registered.find((entry) => entry.name === "plan_update_step");
+  await planCreate.handler({
+    goal: "Moved evidence",
+    steps: [{ title: "Build", verify_command: "true" }],
+  });
+  await update.handler({ step_id: 1, status: "in_progress" });
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 0, command: "true",
+    timestamp: "2026-06-16T00:00:01.000Z", plan: "moved-evidence", step_id: 1,
+  });
+  const warned = await update.handler({ step_id: 1, status: "completed", result: "done" });
+  assert.match(warned, /^\[OK\]/);
+  assert.match(warned, /The world moved since the passing run/);
+
+  harness.plans.get("moved-evidence").strict_context = true;
+  await update.handler({ step_id: 1, status: "in_progress" });
+  harness.verifications.push({
+    kind: "executed", verified: true, exit_code: 0, command: "true",
+    timestamp: "2026-06-16T00:00:02.000Z", plan: "moved-evidence", step_id: 1,
+  });
+  const refused = await update.handler({ step_id: 1, status: "completed", result: "done" });
+  assert.match(refused, /^\[FAIL\] Stale evidence under strict context/);
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { noopVerifierReason } from "./evidence-guard.js";
 import {
   MAX_PLAN_HORIZON,
   buildDefaultPlanSteps,
@@ -14,6 +15,18 @@ export const PLAN_TOOL_NAMES = [
 ];
 
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
+
+// Advisory pairing for the exit-code anchor: name the cheap way to win.
+function noopVerifierWarning(stepId, verifyCommand) {
+  const reason = noopVerifierReason(verifyCommand);
+  if (!reason) {
+    return null;
+  }
+  return (
+    `[WARN] Step ${stepId} verify command looks like a no-op (${reason}): ${verifyCommand}. ` +
+    "It will satisfy the strict gate without checking anything."
+  );
+}
 
 function requireDep(deps, name) {
   const value = deps[name];
@@ -43,6 +56,8 @@ export function registerPlanTools(server, deps) {
   const verificationRecordHasExplicitStepContext = requireDep(deps, "verificationRecordHasExplicitStepContext");
   const nextPendingText = requireDep(deps, "nextPendingText");
   const readActiveSlug = requireDep(deps, "readActiveSlug");
+  const evidenceMovedSinceRun = requireDep(deps, "evidenceMovedSinceRun");
+  const currentProvenance = requireDep(deps, "currentProvenance");
   const frontDoorNote = typeof deps.mcpFrontDoorNote === "string" ? deps.mcpFrontDoorNote : "";
 
   server.registerTool(
@@ -132,6 +147,12 @@ export function registerPlanTools(server, deps) {
           lines.push(stepLine(step));
         }
       }
+      for (const step of planSteps) {
+        const warning = noopVerifierWarning(step.id, step.verify_command || "");
+        if (warning) {
+          lines.push(warning);
+        }
+      }
       return lines.join("\n");
     })
   );
@@ -176,7 +197,12 @@ export function registerPlanTools(server, deps) {
       }
       plan.steps.push(step);
       savePlan(slug, plan);
-      return `[OK] Added step ${step.id} to plan "${slug}": ${title}`;
+      const lines = [`[OK] Added step ${step.id} to plan "${slug}": ${title}`];
+      const warning = noopVerifierWarning(step.id, verifyCommand);
+      if (warning) {
+        lines.push(warning);
+      }
+      return lines.join("\n");
     })
   );
 
@@ -220,6 +246,7 @@ export function registerPlanTools(server, deps) {
       if (!step) {
         return `[FAIL] No step with id ${step_id} in plan "${slug}".`;
       }
+      let staleWarning = null;
       if (status === "completed" && strictStepEvidenceEnabled()) {
         const lowerBound =
           typeof step.updated_at === "string" && step.updated_at !== ""
@@ -232,7 +259,7 @@ export function registerPlanTools(server, deps) {
           ? readJsonlSince(verificationsPath(), lowerBound)
           : readJsonl(verificationsPath()).slice(cursor);
         const expectedCommand = String(step.verify_command || "").trim();
-        const hasPassingRun = verifications.some(
+        const passingRuns = verifications.filter(
           (record) => {
             const explicitContext = verificationRecordHasExplicitStepContext(
               record,
@@ -253,7 +280,7 @@ export function registerPlanTools(server, deps) {
             );
           }
         );
-        if (!hasPassingRun) {
+        if (passingRuns.length === 0) {
           return (
             "[FAIL] Verified evidence required: strict evidence mode is enabled by default, but no passing executed " +
             "'verify run' with exit code 0 was recorded since this step started. When the step stores a verify_command, " +
@@ -261,6 +288,30 @@ export function registerPlanTools(server, deps) {
             "MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion."
           );
         }
+        const moved = evidenceMovedSinceRun(
+          passingRuns[passingRuns.length - 1],
+          currentProvenance()
+        );
+        if (moved && plan.strict_context === true) {
+          return (
+            `[FAIL] Stale evidence under strict context: ${moved}. The passing run predates the ` +
+            "current source state; re-run the step's verifier, then complete."
+          );
+        }
+        if (moved) {
+          staleWarning =
+            `[WARN] The world moved since the passing run (${moved}); the evidence may not ` +
+            "describe the current source state. Re-run the verifier if in doubt.";
+        }
+      }
+      let waiverWarning = null;
+      if (status === "completed" && !strictStepEvidenceEnabled()) {
+        // The legacy opt-out stays available, but never silently: the waiver
+        // is stamped on the step so watchers can surface prose-only completions.
+        step.strict_gate_waived = true;
+        waiverWarning =
+          "[WARN] Strict gate waived: MYTHIFY_REQUIRE_VERIFIED_STEP=0 is set, so this " +
+          "completion carries prose-only evidence. The waiver is stamped on the step as strict_gate_waived.";
       }
       if (status === "in_progress") {
         step.verification_cursor = readJsonl(verificationsPath()).length;
@@ -271,10 +322,17 @@ export function registerPlanTools(server, deps) {
       }
       step.updated_at = isoNow();
       savePlan(slug, plan);
-      return [
+      const lines = [
         `[OK] Step ${step_id} of plan "${slug}" is now ${status}: ${step.title}`,
-        nextPendingText(plan),
-      ].join("\n");
+      ];
+      if (staleWarning) {
+        lines.push(staleWarning);
+      }
+      if (waiverWarning) {
+        lines.push(waiverWarning);
+      }
+      lines.push(nextPendingText(plan));
+      return lines.join("\n");
     })
   );
 

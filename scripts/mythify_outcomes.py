@@ -7,7 +7,14 @@ import re
 import subprocess
 import sys
 
-from mythify_io import _write_text_atomic, append_jsonl, read_json, read_jsonl, write_json_atomic
+from mythify_io import (
+    _write_text_atomic,
+    append_chained_jsonl,
+    append_jsonl,
+    read_json,
+    read_jsonl,
+    write_json_atomic,
+)
 
 OUTCOME_CHECK_DISABLED_MESSAGE = (
     "[FAIL] outcome check is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was "
@@ -211,6 +218,28 @@ def scope_violations(state, allowed_paths):
     return paths_outside_scope(changed, allowed_paths)
 
 
+def frozen_path_violations(changed, frozen):
+    """Changed paths under a frozen prefix. A deny-list, enforced everywhere.
+
+    Frozen paths are the held-out set the loop must never touch, tests being
+    the canonical case, so a scoped agent cannot rewrite its own verifier.
+    Unlike allowed_paths, this is enforced in host-supervised checks too, and
+    the .mythify/ exemption does not apply: the user named these prefixes.
+    """
+    if not frozen or not changed:
+        return []
+    prefixes = [item.rstrip("/") for item in frozen]
+    hits = []
+    for path in changed:
+        normalized = path.rstrip("/")
+        if any(
+            normalized == prefix or normalized.startswith(prefix + "/")
+            for prefix in prefixes
+        ):
+            hits.append(path)
+    return hits
+
+
 class ScopeInspectionError(RuntimeError):
     pass
 
@@ -263,7 +292,7 @@ def _diff_name_status_paths(raw):
     return paths
 
 
-def self_driving_scope_violations(state, allowed_paths, baseline):
+def self_driving_changed_paths(state, baseline):
     root = outcome_project_root(state)
     commit = str((baseline or {}).get("git_commit") or "")
     if not commit:
@@ -276,8 +305,11 @@ def self_driving_scope_violations(state, allowed_paths, baseline):
     untracked = [
         item for item in untracked_raw.decode("utf-8", "surrogateescape").split("\0") if item
     ]
-    changed = list(dict.fromkeys(tracked + untracked))
-    return paths_outside_scope(changed, allowed_paths)
+    return list(dict.fromkeys(tracked + untracked))
+
+
+def self_driving_scope_violations(state, allowed_paths, baseline):
+    return paths_outside_scope(self_driving_changed_paths(state, baseline), allowed_paths)
 
 
 def parse_metric_score(output):
@@ -307,6 +339,15 @@ def format_outcome_status(slug, goal, iterations=None):
     allowed = goal.get("allowed_paths") or []
     if allowed:
         lines.append("scope (enforced post-hoc via git): {0}".format(", ".join(allowed)))
+    frozen = goal.get("frozen_paths") or []
+    if frozen:
+        lines.append("frozen (never touched, enforced): {0}".format(", ".join(frozen)))
+    if goal.get("metric_floor") is not None:
+        lines.append("metric floor: {0}".format(goal.get("metric_floor")))
+    if goal.get("supersedes"):
+        lines.append("supersedes: {0}".format(goal.get("supersedes")))
+    if goal.get("evidence_stale"):
+        lines.append("evidence: STALE (the last audit recheck failed; re-verify before trusting)")
     if iterations:
         last = iterations[-1]
         lines.append(
@@ -335,6 +376,27 @@ def cmd_outcome_start(args, state):
     if escalate_after is not None and escalate_after < 1:
         print("[FAIL] outcome start requires --escalate-after >= 1.")
         return 1
+    metric_floor = getattr(args, "metric_floor", None)
+    if metric_floor is not None and not args.metric:
+        print("[FAIL] outcome start requires --metric when --metric-floor is set.")
+        return 1
+    # Two live loops fight each other and neither owns the trade-off, so a
+    # second start needs an explicit supersession instead of silently stealing
+    # the active pointer.
+    supersede_reason = (getattr(args, "supersede", None) or "").strip()
+    superseded = None
+    active_slug = get_active_outcome_slug(state)
+    if active_slug:
+        active_goal = read_json(outcome_goal_path(state, active_slug), None)
+        if isinstance(active_goal, dict) and active_goal.get("status") == "active":
+            if not supersede_reason:
+                print(
+                    "[FAIL] Outcome {0} is still active. Stop it with outcome "
+                    "stop --reason, or pass --supersede REASON to retire it "
+                    "into this one.".format(active_slug)
+                )
+                return 1
+            superseded = (active_slug, active_goal)
     base = args.name or args.goal
     slug = slugify(base) or "outcome"
     original = slug
@@ -349,6 +411,7 @@ def cmd_outcome_start(args, state):
         "success_criteria": args.success,
         "verify_command": args.verify,
         "metric_command": args.metric or "",
+        "metric_floor": metric_floor,
         "agent_command": getattr(args, "agent", None) or "",
         "max_iterations": args.max_iterations,
         "iteration_count": 0,
@@ -356,6 +419,7 @@ def cmd_outcome_start(args, state):
         "cost_spent": 0.0,
         "escalate_after": escalate_after,
         "allowed_paths": parse_allowed_paths(args.allowed_paths),
+        "frozen_paths": parse_allowed_paths(getattr(args, "frozen_paths", "")),
         "visibility": args.visibility,
         "status": "active",
         "created": now,
@@ -363,7 +427,15 @@ def cmd_outcome_start(args, state):
         "last_verified": None,
         "best_metric_score": None,
         "stop_reason": None,
+        "supersedes": superseded[0] if superseded else None,
     }
+    if superseded:
+        old_slug, old_goal = superseded
+        old_goal["status"] = "stopped"
+        old_goal["stop_reason"] = "superseded by {0}: {1}".format(slug, supersede_reason)
+        old_goal["superseded_by"] = slug
+        old_goal["updated"] = now
+        save_outcome(state, old_slug, old_goal)
     save_outcome(state, slug, goal)
     set_active_outcome_slug(state, slug)
     if args.json_output:
@@ -375,6 +447,12 @@ def cmd_outcome_start(args, state):
         print("verify: {0}".format(args.verify))
         if args.metric:
             print("metric: {0}".format(args.metric))
+        if metric_floor is not None:
+            print("metric floor: {0}".format(metric_floor))
+        if goal["frozen_paths"]:
+            print("frozen (never touched, enforced): {0}".format(", ".join(goal["frozen_paths"])))
+        if superseded:
+            print("superseded: {0} ({1})".format(superseded[0], supersede_reason))
         print("iterations: 0/{0}".format(args.max_iterations))
         print("next: make a bounded attempt, then run outcome check.")
     return 0
@@ -400,12 +478,14 @@ def parse_reported_cost(output):
 
 
 def perform_outcome_iteration(
-    state, slug, goal, timeout, notes="", agent_record=None, scope_violations_override=None
+    state, slug, goal, timeout, notes="", agent_record=None,
+    scope_violations_override=None, changed_paths_override=None,
 ):
-    """Run one verifier (and optional metric) iteration, enforce scope and the
-    cost budget, append the iteration and executed-verification records, update
-    the goal, and return the iteration record. Shared by outcome check (the host
-    made the attempt) and outcome run (the loop invoked the agent)."""
+    """Run one verifier (and optional metric) iteration, enforce scope, frozen
+    paths, the metric floor, and the cost budget, append the iteration and
+    executed-verification records, update the goal, and return the iteration
+    record. Shared by outcome check (the host made the attempt) and outcome run
+    (the loop invoked the agent)."""
     verify = run_shell_capture(goal["verify_command"], timeout)
     metric_record = None
     metric_ok = True
@@ -423,13 +503,39 @@ def perform_outcome_iteration(
             "verified": metric["verified"],
             "score": metric_score,
         }
+    metric_floor = goal.get("metric_floor")
+    floor_unmet = metric_floor is not None and (
+        metric_score is None or metric_score < float(metric_floor)
+    )
+    best_before = goal.get("best_metric_score")
+    metric_regressed = (
+        metric_score is not None
+        and best_before is not None
+        and metric_score < best_before
+    )
     violations = (
         list(scope_violations_override)
         if scope_violations_override is not None
         else scope_violations(state, goal.get("allowed_paths") or [])
     )
     scope_enforced = scope_violations_override is not None
-    verified = bool(verify["verified"] and metric_ok and not (scope_enforced and violations))
+    frozen = goal.get("frozen_paths") or []
+    if frozen:
+        changed = (
+            list(changed_paths_override)
+            if changed_paths_override is not None
+            else (git_changed_paths(outcome_project_root(state)) or [])
+        )
+        frozen_hits = frozen_path_violations(changed, frozen)
+    else:
+        frozen_hits = []
+    verified = bool(
+        verify["verified"]
+        and metric_ok
+        and not floor_unmet
+        and not (scope_enforced and violations)
+        and not frozen_hits
+    )
     iteration_count = int(goal.get("iteration_count", 0))
     max_iterations = int(goal.get("max_iterations", 1))
     next_iteration = iteration_count + 1
@@ -448,12 +554,23 @@ def perform_outcome_iteration(
         agent_record is not None and max_cost is not None and cost_spent >= float(max_cost)
     )
 
-    if scope_enforced and violations:
+    if frozen_hits:
+        status_after = "stopped"
+        next_action = (
+            "Frozen-path violation detected: the loop changed paths it must "
+            "never touch ({0}). Stop and revert them.".format(", ".join(frozen_hits[:5]))
+        )
+    elif scope_enforced and violations:
         status_after = "stopped"
         next_action = "Scope violation detected. Stop and report the out-of-scope changes."
     elif verified:
         status_after = "succeeded"
         next_action = "Outcome met. Report the evidence and stop."
+        if next_iteration == 1:
+            next_action += (
+                " Caution: the verifier passed before any recorded failed "
+                "attempt; confirm the verifier can fail."
+            )
     elif budget_exhausted:
         status_after = "failed"
         next_action = "Cost budget exhausted ({0}/{1}). Summarize the blocker and stop.".format(
@@ -472,6 +589,10 @@ def perform_outcome_iteration(
         next_action = "{0} Changed outside scope: {1}.".format(
             next_action, ", ".join(violations[:5])
         )
+    if floor_unmet and verify["verified"] and status_after == "active":
+        next_action = "Metric floor not met (score {0}, floor {1}). {2}".format(
+            metric_score, metric_floor, next_action
+        )
     record = {
         "iteration": next_iteration,
         "timestamp": now_iso(),
@@ -488,8 +609,11 @@ def perform_outcome_iteration(
             "verified": verify["verified"],
         },
         "metric": metric_record,
+        "metric_regressed": metric_regressed,
+        "metric_floor_unmet": floor_unmet,
         "verified": verified,
         "scope_violations": violations,
+        "frozen_violations": frozen_hits,
         "status_after": status_after,
         "next_action": next_action,
     }
@@ -505,7 +629,11 @@ def perform_outcome_iteration(
             goal["best_metric_score"] = metric_score
     if status_after == "failed":
         goal["stop_reason"] = "cost budget exhausted" if budget_exhausted else "iteration budget exhausted"
-    if status_after == "stopped" and scope_enforced:
+    if status_after == "stopped" and frozen_hits:
+        goal["stop_reason"] = "frozen-path violation: {0}".format(
+            ", ".join(frozen_hits[:5])
+        )
+    elif status_after == "stopped" and scope_enforced:
         goal["stop_reason"] = "scope violation: {0}".format(
             ", ".join(violations[:5])
         )
@@ -519,7 +647,13 @@ def perform_outcome_iteration(
     if metric_record is not None:
         combined_duration += metric_record["duration_seconds"]
     verification_stderr = verify["stderr_tail"]
-    if scope_enforced and violations:
+    if frozen_hits:
+        combined_exit_code = -1
+        verification_stderr = (
+            verification_stderr + ("\n" if verification_stderr else "") +
+            "(frozen-path violation: {0})".format(", ".join(frozen_hits[:5]))
+        )
+    elif scope_enforced and violations:
         combined_exit_code = -1
         verification_stderr = (
             verification_stderr + ("\n" if verification_stderr else "") +
@@ -542,8 +676,78 @@ def perform_outcome_iteration(
         "provenance": verification_provenance(state),
     }
     verification_record.update(verification_step_context(state))
-    append_jsonl(state / "verifications.jsonl", verification_record)
+    append_chained_jsonl(state / "verifications.jsonl", verification_record)
     return record
+
+
+def run_outcome_audit(state, slug, goal, timeout, notes, json_output):
+    """Re-run a finished outcome's verifier without mutating its history.
+
+    The audit loop's only job is checking that the recorded result still
+    touches reality: iteration_count and status stay untouched, the run is
+    appended flagged audit, and a red run marks the goal evidence_stale.
+    """
+    if goal.get("status") == "active":
+        fail(
+            "[FAIL] --audit re-checks a finished outcome, but {0} is still "
+            "active. Run outcome check without --audit.".format(slug)
+        )
+        return 1
+    verify = run_shell_capture(goal["verify_command"], timeout)
+    stamp = now_iso()
+    record = {
+        "iteration": int(goal.get("iteration_count", 0)),
+        "timestamp": stamp,
+        "notes": notes,
+        "audit": True,
+        "verify": {
+            "command": verify["command"],
+            "exit_code": verify["exit_code"],
+            "duration_seconds": verify["duration_seconds"],
+            "stdout_tail": verify["stdout_tail"],
+            "stderr_tail": verify["stderr_tail"],
+            "verified": verify["verified"],
+        },
+        "verified": verify["verified"],
+        "status_after": goal.get("status"),
+        "next_action": (
+            "Audit green: the recorded result still reproduces."
+            if verify["verified"]
+            else "Audit red: the recorded result no longer reproduces. "
+            "Evidence marked stale; investigate before trusting this outcome."
+        ),
+    }
+    append_jsonl(outcome_iterations_path(state, slug), record)
+    goal["evidence_stale"] = not verify["verified"]
+    goal["last_audit"] = stamp
+    goal["updated"] = stamp
+    save_outcome(state, slug, goal)
+    verification_record = {
+        "kind": "executed",
+        "claim": "Outcome {0} audit: {1}".format(slug, goal.get("success_criteria", "")),
+        "command": goal["verify_command"],
+        "exit_code": verify["exit_code"],
+        "duration_seconds": verify["duration_seconds"],
+        "stdout_tail": verify["stdout_tail"],
+        "stderr_tail": verify["stderr_tail"],
+        "verified": verify["verified"],
+        "timestamp": stamp,
+        "outcome": slug,
+        "audit": True,
+        "provenance": verification_provenance(state),
+    }
+    verification_record.update(verification_step_context(state))
+    append_chained_jsonl(state / "verifications.jsonl", verification_record)
+    if json_output:
+        print(json.dumps({"goal": goal, "record": record}, indent=2))
+    else:
+        prefix = "[OK]" if verify["verified"] else "[FAIL]"
+        print(
+            "{0} Outcome {1} audit: verify exit {2} against recorded status "
+            "{3}.".format(prefix, slug, verify["exit_code"], goal.get("status"))
+        )
+        print("next: {0}".format(record["next_action"]))
+    return 0 if verify["verified"] else 2
 
 
 def cmd_outcome_check(args, state):
@@ -554,6 +758,10 @@ def cmd_outcome_check(args, state):
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")
         return 1
+    if getattr(args, "audit", False):
+        return run_outcome_audit(
+            state, slug, goal, args.timeout, args.notes or "", args.json_output
+        )
     if goal.get("status") in ("succeeded", "failed", "stopped"):
         if args.json_output:
             print(json.dumps({"goal": goal, "record": None}, indent=2))
@@ -628,8 +836,10 @@ def cmd_outcome_run(args, state):
         return 0 if goal.get("status") == "succeeded" else 2
     escalate_after = goal.get("escalate_after")
     allowed_paths = goal.get("allowed_paths") or []
+    frozen_paths = goal.get("frozen_paths") or []
+    watch_paths = bool(allowed_paths or frozen_paths)
     scope_baseline = goal.get("scope_baseline")
-    if allowed_paths and not scope_baseline:
+    if watch_paths and not scope_baseline:
         try:
             scope_baseline = start_scope_baseline(state)
         except ScopeInspectionError as exc:
@@ -663,10 +873,13 @@ def cmd_outcome_run(args, state):
             ),
         }
         try:
-            strict_violations = (
-                self_driving_scope_violations(state, allowed_paths, scope_baseline)
-                if allowed_paths
+            changed = (
+                self_driving_changed_paths(state, scope_baseline)
+                if watch_paths
                 else []
+            )
+            strict_violations = (
+                paths_outside_scope(changed, allowed_paths) if allowed_paths else []
             )
         except ScopeInspectionError as exc:
             goal["status"] = "stopped"
@@ -683,6 +896,7 @@ def cmd_outcome_run(args, state):
             args.notes or "",
             agent_record,
             strict_violations,
+            changed,
         )
         print(
             "iteration {0}/{1}: agent exit {2}, verify {3}, status {4}".format(
@@ -693,6 +907,11 @@ def cmd_outcome_run(args, state):
                 record["status_after"],
             )
         )
+        if record.get("frozen_violations"):
+            # perform_outcome_iteration already stopped the goal and recorded
+            # the frozen-path stop reason.
+            final = "stopped"
+            break
         if record["scope_violations"]:
             goal["status"] = "stopped"
             goal["stop_reason"] = "scope violation: {0}".format(

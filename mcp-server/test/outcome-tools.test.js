@@ -8,6 +8,7 @@ import {
 function makeHarness({
   failingCommands = new Map(),
   scopeViolations = (allowedPaths) => allowedPaths.length > 0 ? ["docs/release.md"] : [],
+  changedPaths = () => [],
 } = {}) {
   const registered = [];
   const outcomes = new Map();
@@ -77,6 +78,7 @@ function makeHarness({
       }
     },
     scopeViolations,
+    changedPaths,
     mcpFrontDoorNote: " Route first.",
   });
 
@@ -211,4 +213,109 @@ test("outcome tool registrar rejects missing required deps", () => {
     () => registerOutcomeTools({ registerTool() {} }, {}),
     /requires deps\.guarded/
   );
+});
+
+function findTool(harness, name) {
+  return harness.registered.find((entry) => entry.name === name);
+}
+
+test("a second active outcome requires an explicit supersession", async () => {
+  const harness = makeHarness();
+  const outcomeStart = findTool(harness, "outcome_start");
+  await outcomeStart.handler({
+    goal: "Loop A", success: "s", verify_command: "true", name: "loop-a",
+  });
+  const refused = await outcomeStart.handler({
+    goal: "Loop B", success: "s", verify_command: "true", name: "loop-b",
+  });
+  assert.match(refused, /still active/);
+  assert.equal(harness.outcomes.has("loop-b"), false);
+
+  const superseding = await outcomeStart.handler({
+    goal: "Loop B", success: "s", verify_command: "true", name: "loop-b",
+    supersede: "loop-a targeted the wrong module",
+  });
+  assert.match(superseding, /superseded: loop-a/);
+  const old = harness.outcomes.get("loop-a");
+  assert.equal(old.status, "stopped");
+  assert.equal(old.superseded_by, "loop-b");
+  assert.match(old.stop_reason, /superseded by loop-b/);
+  assert.equal(harness.outcomes.get("loop-b").supersedes, "loop-a");
+});
+
+test("the metric floor gates success and requires a metric command", async () => {
+  const harness = makeHarness();
+  const outcomeStart = findTool(harness, "outcome_start");
+  const outcomeCheck = findTool(harness, "outcome_check");
+  const missing = await outcomeStart.handler({
+    goal: "Floored", success: "s", verify_command: "true", metric_floor: 50,
+  });
+  assert.match(missing, /requires metric_command/);
+
+  await outcomeStart.handler({
+    goal: "Floored", success: "s", verify_command: "true",
+    metric_command: "metric", metric_floor: 50, max_iterations: 3, name: "floored",
+  });
+  const low = await outcomeCheck.handler({ name: "floored" });
+  assert.match(low, /^\[FAIL\]/);
+  assert.match(low, /Metric floor not met \(score 42, floor 50\)/);
+  assert.equal(harness.outcomes.get("floored").status, "active");
+  assert.equal(harness.iterations.get("floored")[0].metric_floor_unmet, true);
+});
+
+test("frozen paths are enforced in supervised checks", async () => {
+  const harness = makeHarness({ changedPaths: () => ["tests/test_x.py", "src/ok.js"] });
+  const outcomeStart = findTool(harness, "outcome_start");
+  const outcomeCheck = findTool(harness, "outcome_check");
+  await outcomeStart.handler({
+    goal: "Frozen", success: "s", verify_command: "true",
+    frozen_paths: ["tests"], name: "frozen",
+  });
+  const checked = await outcomeCheck.handler({ name: "frozen" });
+  assert.match(checked, /Frozen-path violation detected/);
+  const goal = harness.outcomes.get("frozen");
+  assert.equal(goal.status, "stopped");
+  assert.match(goal.stop_reason, /frozen-path violation: tests\/test_x\.py/);
+  const verification = harness.verifications[harness.verifications.length - 1];
+  assert.equal(verification.exit_code, -1);
+  assert.equal(verification.verified, false);
+});
+
+test("a first-pass success carries a vacuity caution", async () => {
+  const harness = makeHarness();
+  await findTool(harness, "outcome_start").handler({
+    goal: "Instant", success: "s", verify_command: "true", name: "instant",
+  });
+  const checked = await findTool(harness, "outcome_check").handler({ name: "instant" });
+  assert.match(checked, /confirm the verifier can fail/);
+});
+
+test("audit rechecks a finished outcome without mutating its history", async () => {
+  const failingCommands = new Map();
+  const harness = makeHarness({ failingCommands });
+  const outcomeCheck = findTool(harness, "outcome_check");
+  await findTool(harness, "outcome_start").handler({
+    goal: "Audited", success: "s", verify_command: "check-flag", name: "audited",
+  });
+  const activeRefused = await outcomeCheck.handler({ name: "audited", audit: true });
+  assert.match(activeRefused, /still active/);
+  await outcomeCheck.handler({ name: "audited" });
+  assert.equal(harness.outcomes.get("audited").status, "succeeded");
+
+  failingCommands.set("check-flag", 1);
+  const red = await outcomeCheck.handler({ name: "audited", audit: true });
+  assert.match(red, /^\[FAIL\]/);
+  assert.match(red, /Audit red/);
+  const goal = harness.outcomes.get("audited");
+  assert.equal(goal.evidence_stale, true);
+  assert.equal(goal.status, "succeeded");
+  assert.equal(goal.iteration_count, 1);
+  const rows = harness.iterations.get("audited");
+  assert.equal(rows[rows.length - 1].audit, true);
+  assert.equal(rows[rows.length - 1].verified, false);
+
+  failingCommands.delete("check-flag");
+  const green = await outcomeCheck.handler({ name: "audited", audit: true });
+  assert.match(green, /Audit green/);
+  assert.equal(harness.outcomes.get("audited").evidence_stale, false);
 });

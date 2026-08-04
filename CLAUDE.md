@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: d7b65df5dbd7725a292e1987fc6f46635ab5f4658c656c0b6817a2a344b784a7 -->
+<!-- Mythify protocol-sha256: 4f24958f590a150c372751cb8d34fe00c75a299ed3795ecafbb76c88b6d58a18 -->
 
 # The Mythify Protocol
 
@@ -154,7 +154,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | Command | Purpose |
 | :--- | :--- |
 | `init` | Create `./.mythify` for this project. Safe to re-run. |
-| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash. |
+| `protocol check [PATH ...] [--json]` | Verify copied protocol files match the CLI's embedded source protocol hash, and pin the release gate manifest against its embedded digest. |
 | `status` | Orient: active plan, next pending step, state counts. |
 | `dashboard [--recent N] [--json]` | Read-only workflow dashboard: active plan, current and next step, active outcome, evidence counts, recent verification records, and recent reflections. |
 | `harness [--recent N] [--json]` | Read-only evidence harness: active steering state, evidence mix, attention items, delegated work counts, release readiness, and next control action. |
@@ -183,8 +183,8 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
 | `host-model clear [--json]` | Clear the recorded host model switch. |
-| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop with verifier, optional metric, optional agent command, iteration and cost budgets, git-enforced scope, and escalation. |
-| `outcome check [NAME] [--notes TEXT] [--timeout N] [--json]` | Run the verifier and optional metric, record the iteration, and return success, retry, or budget exhaustion. The host made the attempt. |
+| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--metric-floor N] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--frozen-paths CSV] [--supersede REASON] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop with verifier, optional metric and metric floor, optional agent command, iteration and cost budgets, git-enforced scope, an enforced frozen-path deny-list, and escalation. A second start while one loop is active requires `--supersede REASON`, which retires the old loop with recorded lineage. |
+| `outcome check [NAME] [--notes TEXT] [--audit] [--timeout N] [--json]` | Run the verifier and optional metric, record the iteration, and return success, retry, or budget exhaustion. The host made the attempt. `--audit` re-runs a finished outcome's verifier without mutating its history; a red audit marks the evidence stale. |
 | `outcome run [NAME] [--notes TEXT] [--timeout N]` | Drive a self-driving loop started with `--agent`: fire the agent, run the verifier, record evidence, and repeat until success, iteration or cost budget, scope violation, or escalation. Bounded and evidence-gated. CLI-only. |
 | `outcome status [NAME] [--json]` | Show the active or named outcome loop. |
 | `outcome results [NAME] [--json]` | Show all verifier iterations and final outcome state. |
@@ -193,7 +193,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `map ticket TITLE --type research\|prototype\|grilling\|task [--question TEXT] [--mode afk\|hitl] [--blocked-by IDS] [--verify COMMAND] [--from-fog ID]` | Add a decision ticket; the type fixes whether a human is in the loop. |
 | `map claim ID [--by WHO]` | Claim an open, unblocked ticket before any work; one decision ticket at a time, research excepted. |
 | `map verify ID [--timeout N]` | Run a task ticket's own verify command and record the evidence scoped to that ticket. |
-| `map resolve ID --answer TEXT [--gist TEXT] [--human-input TEXT] [--out-of-scope] [--fog TEXT] [--scope-out TEXT]` | Close a claimed ticket with its decision; HITL tickets require human input. |
+| `map resolve ID --answer TEXT [--gist TEXT] [--human-input TEXT] [--out-of-scope] [--fog TEXT] [--scope-out TEXT]` | Close a claimed ticket with its decision; HITL tickets require human input on every path, including `--out-of-scope`. |
 | `map fog NOTE` | Record a question that is in scope but not sharp enough to ticket. |
 | `map scope-out NOTE --reason TEXT` | Rule work past the destination out of scope; it never graduates. |
 | `map show [NAME] [--json]` / `map list [--json]` | Show the map at low resolution, or list maps. |

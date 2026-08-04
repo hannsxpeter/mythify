@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { z } from "zod";
+import { noopVerifierReason } from "./evidence-guard.js";
 
 export const MAP_TOOL_NAMES = [
   "map_create",
@@ -28,6 +29,9 @@ export const MAP_HUMAN_INPUT_MESSAGE =
   "[FAIL] Human input required: this is a HITL ticket, so the agent cannot resolve it from its own words. " +
   "Hold the conversation, then pass human_input with what the human actually decided. " +
   "Set MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy self-resolved tickets.";
+export const MAP_HUMAN_INPUT_WAIVED_WARNING =
+  "[WARN] Human-input gate waived: MYTHIFY_REQUIRE_HUMAN_INPUT=0 is set, so this HITL ticket " +
+  "resolved without the human's words. The waiver is stamped on the ticket as human_input_waived.";
 
 const FALSE_ENV_VALUES = new Set(["0", "false", "no", "off"]);
 
@@ -388,6 +392,15 @@ export function registerMapTools(server, deps) {
           "This ticket needs a human. Resolving it requires human_input; the agent must not answer its own question."
         );
       }
+      if (verifyCommand) {
+        const noopReason = noopVerifierReason(verifyCommand);
+        if (noopReason) {
+          lines.push(
+            `[WARN] Ticket verify command looks like a no-op (${noopReason}): ${verifyCommand}. ` +
+              "It will satisfy the resolution gate without checking anything."
+          );
+        }
+      }
       return lines.join("\n");
     })
   );
@@ -509,6 +522,17 @@ export function registerMapTools(server, deps) {
         return `[FAIL] Ticket ${ticketName(ticket)} is already ${ticket.status}.`;
       }
       const outOfScope = input.out_of_scope === true;
+      const humanInput = String(input.human_input || "").trim();
+      // Ruling a human's question out of scope is itself the human's call, so
+      // the HITL gate applies on every resolution path, including out_of_scope.
+      let humanInputWaived = false;
+      if (ticket.mode === "hitl" && !humanInput) {
+        if (requireHumanInputEnabled()) {
+          return MAP_HUMAN_INPUT_MESSAGE;
+        }
+        ticket.human_input_waived = true;
+        humanInputWaived = true;
+      }
       if (!outOfScope) {
         if (!ticket.claimed_by) {
           return (
@@ -519,10 +543,6 @@ export function registerMapTools(server, deps) {
         const blockers = ticketBlockers(record, ticket);
         if (blockers.length > 0) {
           return `[FAIL] Ticket ${ticketName(ticket)} is blocked by: ${blockers.map(ticketName).join(", ")}.`;
-        }
-        const humanInput = String(input.human_input || "").trim();
-        if (ticket.mode === "hitl" && !humanInput && requireHumanInputEnabled()) {
-          return MAP_HUMAN_INPUT_MESSAGE;
         }
         if (ticket.verify_command) {
           const expected = normalizedCommand(ticket.verify_command);
@@ -547,8 +567,8 @@ export function registerMapTools(server, deps) {
           }
           ticket.verified_command = evidence.command || "";
         }
-        ticket.human_input = humanInput;
       }
+      ticket.human_input = humanInput;
       const now = isoNow();
       ticket.resolution = answer;
       ticket.resolved_at = now;
@@ -598,8 +618,11 @@ export function registerMapTools(server, deps) {
       const lines = outOfScope
         ? [`[OK] Ruled ticket ${ticketName(ticket)} out of scope in map "${slug}"`, `Why: ${answer}`]
         : [`[OK] Resolved ticket ${ticketName(ticket)} in map "${slug}"`, `Answer: ${answer}`];
-      if (!outOfScope && ticket.human_input) {
+      if (ticket.human_input) {
         lines.push(`Human input: ${ticket.human_input}`);
+      }
+      if (humanInputWaived) {
+        lines.push(MAP_HUMAN_INPUT_WAIVED_WARNING);
       }
       lines.push(`Next action: ${mapNextAction(record)}`);
       return lines.join("\n");

@@ -224,3 +224,59 @@ class TestRouteMatrix(RouteCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLoopCollisionVocabulary(RouteCase):
+    def test_single_active_loop_reports_no_collision(self):
+        self.run_cli("plan", "create", "Ship the feature", "--name", "solo-plan")
+        payload = self.route("continue the work")
+        self.assertIsNone(payload["loop_collision"])
+
+    def test_concurrent_loop_families_are_named_with_a_winner(self):
+        self.run_cli("plan", "create", "Ship the feature", "--name", "collide-plan")
+        started = self.run_cli(
+            "outcome", "start", "Green suite", "--success", "tests pass",
+            "--verify", "true", "--name", "collide-outcome",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        payload = self.route("continue the work")
+        collision = payload["loop_collision"]
+        self.assertIsNotNone(collision)
+        self.assertEqual(collision["families"], ["outcome", "plan"])
+        self.assertEqual(collision["steers"], "outcome")
+        text = self.run_cli("route", "continue the work", "--triage", "never")
+        self.assertIn("Loop collision:", text.stdout)
+
+
+class TestQuestionTheReference(RouteCase):
+    def failure_packet(self):
+        result = self.run_cli("prompt", "failure", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_single_failure_does_not_question_the_reference(self):
+        self.run_cli("verify", "run", "false", "--claim", "first red")
+        packet = self.failure_packet()
+        self.assertEqual(packet["context"]["failed_command_streak"], 1)
+        self.assertNotIn("Question the reference", packet["next_prompt"])
+
+    def test_repeated_failures_route_doubt_to_a_grilling_ticket(self):
+        self.run_cli("verify", "run", "false", "--claim", "first red")
+        self.run_cli("verify", "run", "false", "--claim", "second red")
+        packet = self.failure_packet()
+        self.assertEqual(packet["context"]["failed_command_streak"], 2)
+        self.assertIn("Question the reference itself", packet["next_prompt"])
+        self.assertIn("--type grilling", packet["next_prompt"])
+        self.assertIn("never weaken the verifier", packet["next_prompt"])
+
+    def test_a_pass_between_failures_resets_the_streak(self):
+        self.run_cli("verify", "run", "false", "--claim", "old red")
+        self.run_cli("verify", "run", "false", "--claim", "older red")
+        run = self.run_cli(
+            "verify", "run",
+            "test -f README.md && false || false",
+            "--claim", "different command red",
+        )
+        self.assertEqual(run.returncode, 2)
+        packet = self.failure_packet()
+        self.assertEqual(packet["context"]["failed_command_streak"], 1)

@@ -13,6 +13,7 @@ import {
   projectRootFromState,
 } from "./view-status-core.js";
 import { godauditsSummary, godplansSummary } from "./godfiles-core.js";
+import { activeLegacyOptOuts, ledgerChainBreaks, trivialPassReason } from "./evidence-guard.js";
 
 export {
   buildFanoutTimelineView,
@@ -323,9 +324,73 @@ function evidenceAttentionFromPlan(plan) {
         detail: compactLabel(step.result, "no result recorded"),
         timestamp: step.updated_at || "",
       });
+    } else if (step.status === "completed" && step.strict_gate_waived) {
+      attention.push({
+        level: "warning",
+        source: "plan",
+        summary: `step ${step.id} completed under a waived strict gate`,
+        detail: "MYTHIFY_REQUIRE_VERIFIED_STEP=0 was active; evidence is prose-only",
+        timestamp: step.updated_at || "",
+      });
     }
   }
   return attention;
+}
+
+// Pair the exit-code anchor with a watcher for the cheap way to win it.
+// Advisory only: the record stays recorded evidence; the attention item names
+// why it proves nothing.
+function evidenceAttentionFromTrivialPasses(records, recent) {
+  const attention = [];
+  for (const record of recentTail(records, recent)) {
+    const reason = trivialPassReason(record);
+    if (reason) {
+      attention.push({
+        level: "warning",
+        source: "verification",
+        summary: `trivial pass: ${evidenceRecordLabel(record)}`,
+        detail: `${reason}; the green exit code proves nothing`,
+        timestamp: record.timestamp || "",
+      });
+    }
+  }
+  return attention;
+}
+
+// Flag chained ledger lines whose prev_sha256 no longer matches. The chain is
+// tamper evidence, not proof: a break means a line was edited, inserted, or
+// removed in place, which recorded evidence never does.
+function evidenceAttentionFromLedgerChain() {
+  let text;
+  try {
+    text = fs.readFileSync(verificationsPath(), "utf8");
+  } catch {
+    return [];
+  }
+  const breaks = ledgerChainBreaks(text);
+  if (breaks.length === 0) {
+    return [];
+  }
+  return [{
+    level: "issue",
+    source: "ledger",
+    summary: `verification ledger chain break at record ${breaks.slice(0, 5).join(", ")}`,
+    detail: "a chained record's prev_sha256 does not match the preceding line; the ledger may have been edited",
+    timestamp: "",
+  }];
+}
+
+// Name every legacy gate opt-out active in this session. The knobs stay
+// available by contract, but a frozen rule the optimizer can thaw silently is
+// no rule at all; this makes the thaw visible.
+function evidenceAttentionFromOptOuts(environ = process.env) {
+  return activeLegacyOptOuts(environ).map((item) => ({
+    level: "warning",
+    source: "session",
+    summary: `legacy opt-out active: ${item.name}`,
+    detail: item.effect,
+    timestamp: "",
+  }));
 }
 
 function evidenceAttentionFromBackground(background) {
@@ -337,6 +402,24 @@ function evidenceAttentionFromBackground(background) {
         source: "outcome",
         summary: `failed outcome: ${outcome.id || "outcome"}`,
         detail: compactLabel(outcome.goal, "outcome"),
+        timestamp: outcome.updated || outcome.created || "",
+      });
+    }
+    if (outcome.verifier_drift) {
+      attention.push({
+        level: "warning",
+        source: "outcome",
+        summary: `outcome verifier changed mid-loop: ${outcome.id || "outcome"}`,
+        detail: "iterations record different verify commands; the sensor may have been tuned",
+        timestamp: outcome.updated || outcome.created || "",
+      });
+    }
+    if (outcome.evidence_stale) {
+      attention.push({
+        level: "issue",
+        source: "outcome",
+        summary: `audit recheck failed for outcome: ${outcome.id || "outcome"}`,
+        detail: "the recorded result no longer reproduces; re-verify before trusting it",
         timestamp: outcome.updated || outcome.created || "",
       });
     }
@@ -494,10 +577,13 @@ export function buildEvidenceHarnessView(recent = 5) {
   const attention = [
     ...evidenceAttentionFromPlan(activePlan),
     ...evidenceAttentionFromVerifications(records, recent),
+    ...evidenceAttentionFromTrivialPasses(records, recent),
     ...evidenceAttentionFromBackground(background),
     ...evidenceAttentionFromGodArtifacts(godViews),
     ...evidenceAttentionFromDrift(records, recent),
     ...evidenceAttentionFromStaleExecuted(records),
+    ...evidenceAttentionFromLedgerChain(),
+    ...evidenceAttentionFromOptOuts(),
   ];
   const view = {
     state_dir: resolveStateDir(),
@@ -1118,6 +1204,16 @@ export function listFanoutSummaries() {
 export function summarizeOutcome(slug, goal) {
   const iterations = readOutcomeIterations(slug);
   const lastIteration = iterations.length > 0 ? iterations[iterations.length - 1] : null;
+  // Sensor-drift watcher: every iteration records the command it actually
+  // ran, so a verifier swapped mid-loop is visible in the durable record.
+  const commands = new Set(
+    iterations
+      .filter((item) => item && typeof item.verify === "object" && item.verify !== null)
+      .map((item) => String(item.verify.command || ""))
+  );
+  const goalCommand = String(goal.verify_command || "");
+  const verifierDrift =
+    commands.size > 0 && (commands.size > 1 || (goalCommand !== "" && !commands.has(goalCommand)));
   return {
     id: slug,
     goal: goal.goal || "",
@@ -1128,6 +1224,8 @@ export function summarizeOutcome(slug, goal) {
     created: goal.created || "",
     updated: goal.updated || "",
     last_verified: goal.last_verified,
+    verifier_drift: verifierDrift,
+    evidence_stale: Boolean(goal.evidence_stale),
     last_iteration: lastIteration,
     next_action: lastIteration ? lastIteration.next_action : "make a bounded attempt, then call outcome_check",
   };

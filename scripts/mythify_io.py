@@ -126,6 +126,49 @@ def append_jsonl(path, record):
             handle.write(json.dumps(record, allow_nan=False) + "\n")
 
 
+# The chained tail read is bounded but generous: a verification record with two
+# redacted 4000-char tails serializes well under this, so the previous line is
+# always read whole.
+JSONL_CHAIN_TAIL_BYTES = 256 * 1024
+
+
+def last_jsonl_line(path):
+    """The last non-empty raw line of PATH, or empty when the file is absent."""
+    path = Path(path)
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(max(0, size - JSONL_CHAIN_TAIL_BYTES))
+            window = handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    for line in reversed(window.splitlines()):
+        if line.strip():
+            return line
+    return ""
+
+
+def append_chained_jsonl(path, record):
+    """Append RECORD carrying the sha256 of the previous raw line.
+
+    The chain is tamper evidence, not cryptography: an edited or deleted line
+    breaks the next record's prev_sha256, so silent in-place changes become
+    visible to the chain checker. The first record carries None.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_file_lock(path):
+        last = last_jsonl_line(path)
+        record["prev_sha256"] = (
+            hashlib.sha256(last.encode("utf-8")).hexdigest() if last else None
+        )
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, allow_nan=False) + "\n")
+
+
 def write_jsonl_atomic(path, records):
     text = "".join(json.dumps(record, allow_nan=False) + "\n" for record in records)
     _write_text_atomic(path, text)
