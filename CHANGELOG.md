@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-08-06
+
+Minor release: the eval evolution loop. Mythify could measure whether the
+protocol helps but had no way to grow the harness that measures it. This
+release adds that path and builds it out of refusals, so an agent cannot
+propose, pass, and adopt its own evals.
+
 ### Added
 
 - Added the eval evolution loop, a CLI-only `eval` command family
@@ -1406,7 +1413,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.2.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.3.0...HEAD
+[5.3.0]: https://github.com/hannsxpeter/mythify/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/hannsxpeter/mythify/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/hannsxpeter/mythify/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/hannsxpeter/mythify/compare/v4.3.0...v5.0.0

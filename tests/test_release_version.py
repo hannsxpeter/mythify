@@ -61,7 +61,15 @@ class ReleaseVersionTest(unittest.TestCase):
         self.assertEqual(lock["packages"][""]["version"], version)
         self.assertIn("Current release target: `v{}`".format(version), release)
         self.assertIn("Current release target: `v{}`".format(version), roadmap)
-        self.assertIn("## [{}] - 2026-08-04".format(version), changelog)
+        # Date as a pattern, not a literal: a pinned date breaks on every
+        # release for reasons unrelated to what this test covers.
+        self.assertRegex(
+            changelog,
+            re.compile(
+                r"^## \[{}\] - \d{{4}}-\d{{2}}-\d{{2}}$".format(re.escape(version)),
+                re.MULTILINE,
+            ),
+        )
         self.assertIn("mythify-cli-{}.tar.gz".format(version), release)
         self.assertIn("mythify-mcp-{}.tgz".format(version), release)
         tag_commands = [
