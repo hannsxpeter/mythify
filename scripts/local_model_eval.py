@@ -24,6 +24,18 @@ import tempfile
 import time
 from pathlib import Path
 
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+from local_eval_policy import (  # noqa: E402
+    FANOUT_VALUE_POLICY,
+    ROLE_STRENGTH_POLICY,
+)
+from mythify_eval_scenarios import (  # noqa: E402
+    load_external_scenarios,
+    scan_scenario_file_args,
+)
+
 ENGINES = ("claude-cli", "codex-cli", "cursor-agent", "command")
 MYTHIFY_PROFILES = ("auto", "fast", "standard")
 SPEED_LEVELS = ("auto", "standard", "fast")
@@ -178,93 +190,9 @@ SCENARIOS = {
     },
 }
 
-
-FANOUT_VALUE_POLICY = [
-    {
-        "task_shape": "independent_surface_mapping",
-        "fanout_fit": "helps",
-        "decision_rule": "Use fanout when two or more self-contained code, docs, or adapter surfaces can be inspected without waiting on each other.",
-        "value_signal": "distinct worker material can be merged, then checked by one orchestrator-run verifier",
-        "cost_signal": "each task is a fresh worker call, so keep context narrow and task prompts independent",
-        "verification_boundary": "worker output is material until the orchestrator merges it and runs verify_run or outcome_check",
-    },
-    {
-        "task_shape": "parallel_research_or_comparison",
-        "fanout_fit": "helps",
-        "decision_rule": "Use fanout when independent sources, host adapters, or benchmark variants can be compared side by side.",
-        "value_signal": "parallel reads reduce wall-clock time and make disagreement visible before implementation",
-        "cost_signal": "each source or variant spends separate quota or local compute",
-        "verification_boundary": "claims still need source links, command evidence, or a merged executable check",
-    },
-    {
-        "task_shape": "single_focused_bugfix",
-        "fanout_fit": "wastes",
-        "decision_rule": "Avoid fanout for one small implementation surface with one direct verifier.",
-        "value_signal": "a single worker can make the edit and run the verifier",
-        "cost_signal": "extra workers duplicate prompt context and consume quota without independent outputs",
-        "verification_boundary": "run the local verifier once after the focused edit",
-    },
-    {
-        "task_shape": "dependent_sequence",
-        "fanout_fit": "wastes",
-        "decision_rule": "Avoid fanout when each step depends on the previous step's concrete output.",
-        "value_signal": "sequential host work preserves ordering and reduces merge confusion",
-        "cost_signal": "parallel workers would speculate, then require reconciliation work",
-        "verification_boundary": "advance one step at a time and verify each completion claim",
-    },
-]
-
-
-ROLE_STRENGTH_POLICY = [
-    {
-        "role": "session",
-        "purpose": "current conversation",
-        "default_strength": "host_selected",
-        "stronger_model_requirement": "not_applicable",
-        "stronger_model_allowed": "host_controls_current_chat",
-        "evidence_boundary": "Mythify may recommend a host model but the host applies or confirms the current chat model.",
-    },
-    {
-        "role": "triage",
-        "purpose": "problem framing",
-        "default_strength": "cheap_or_fast",
-        "stronger_model_requirement": "not_required",
-        "stronger_model_allowed": "no_default_stronger_path",
-        "evidence_boundary": "Triage is advisory material and stays cheap unless explicitly configured outside this harness.",
-    },
-    {
-        "role": "reader",
-        "purpose": "read-only material inspection",
-        "default_strength": "local_or_privacy_preferred",
-        "stronger_model_requirement": "not_required",
-        "stronger_model_allowed": "no_default_stronger_path",
-        "evidence_boundary": "Reader output is material, not verification evidence.",
-    },
-    {
-        "role": "fanout_worker",
-        "purpose": "independent subtask",
-        "default_strength": "same_or_lower",
-        "stronger_model_requirement": "not_required",
-        "stronger_model_allowed": "only_with_spawn_ceiling_allow_stronger",
-        "evidence_boundary": "Worker output is material and must be merged, then verified by commands.",
-    },
-    {
-        "role": "reviewer",
-        "purpose": "independent review",
-        "default_strength": "same_or_lower",
-        "stronger_model_requirement": "conditional_not_default",
-        "stronger_model_allowed": "reviewer_strength_allow_stronger_and_reviewer_allow_stronger",
-        "evidence_boundary": "Only reviewer tasks get the scoped stronger-model opt-in without broad worker escalation.",
-    },
-    {
-        "role": "verifier",
-        "purpose": "evidence",
-        "default_strength": "local_command",
-        "stronger_model_requirement": "not_model_based",
-        "stronger_model_allowed": "no",
-        "evidence_boundary": "Verifier evidence comes from executable commands and exit codes, not model strength.",
-    },
-]
+# Frozen before any external scenario merges in, so the auto profile and
+# collision refusals keep meaning "shipped with the harness".
+BUILTIN_SCENARIO_NAMES = tuple(SCENARIOS)
 
 
 def repo_root():
@@ -407,18 +335,30 @@ def install_mythify(workspace):
 def resolve_mythify_profile(profile, scenario_name):
     if profile != "auto":
         return profile
-    if scenario_name in SCENARIOS:
+    if scenario_name in BUILTIN_SCENARIO_NAMES:
         return "fast"
     return "standard"
 
 
+def scenario_verifier(scenario_name):
+    """The command that decides success for SCENARIO_NAME.
+
+    External scenarios may carry their own verifier, and the eval evolution
+    loop proves the baseline red with that same command. Scoring them with a
+    different command would grade work the scenario never asked for.
+    """
+    scenario = SCENARIOS.get(scenario_name) or {}
+    return scenario.get("fanout_merge_verifier") or "python3 -m unittest"
+
+
 def prompt_for(mode, scenario_name, mythify_profile="standard"):
     scenario = SCENARIOS[scenario_name]
+    verifier = scenario_verifier(scenario_name)
     base = [
         "You are in a temporary workspace containing a small Python project.",
         "Scenario: " + scenario_name + " (" + scenario["title"] + ").",
         "Your task: " + scenario["task"],
-        "Verification command: python3 -m unittest",
+        "Verification command: " + verifier,
         "After your work, report the command you ran and whether it passed.",
     ]
     if mode == "mythify":
@@ -434,8 +374,8 @@ def prompt_for(mode, scenario_name, mythify_profile="standard"):
                 [
                     "Use the Mythify fast profile for this focused task.",
                     "Do not create plan state unless the task expands into multiple dependent steps.",
-                    "Make the focused fix, then run `python3 scripts/mythify.py verify run \"python3 -m unittest\" --claim \"python3 -m unittest passes\"`.",
-                    "Do not claim completion unless `verify run \"python3 -m unittest\"` records exit 0.",
+                    "Make the focused fix, then run `python3 scripts/mythify.py verify run \"{0}\" --claim \"{0} passes\"`.".format(verifier),
+                    "Do not claim completion unless `verify run \"{0}\"` records exit 0.".format(verifier),
                 ]
             )
         else:
@@ -443,7 +383,7 @@ def prompt_for(mode, scenario_name, mythify_profile="standard"):
                 [
                     "Use the Mythify standard profile for this task.",
                     "Use `python3 scripts/mythify.py plan create`, step updates, and `verify run`.",
-                    "Do not claim completion unless `verify run \"python3 -m unittest\"` records exit 0.",
+                    "Do not claim completion unless `verify run \"{0}\"` records exit 0.".format(verifier),
                 ]
             )
     return "\n".join(base) + "\n"
@@ -623,8 +563,21 @@ def count_mythify_records(workspace, expected_command):
     }
 
 
-def verify_workspace(workspace, timeout):
-    return run_process([sys.executable, "-m", "unittest"], workspace, "", timeout, shell_env())
+def verify_workspace(workspace, timeout, scenario_name=None):
+    """Score the workspace with the scenario's own verifier.
+
+    Built-in scenarios all verify with `python3 -m unittest`, which stays the
+    default; an external scenario is judged by the command its baseline was
+    proved red against.
+    """
+    verifier = scenario_verifier(scenario_name) if scenario_name else "python3 -m unittest"
+    if verifier.strip() == "python3 -m unittest":
+        return run_process([sys.executable, "-m", "unittest"], workspace, "", timeout, shell_env())
+    # Through the shell, exactly as `eval baseline` ran it when it proved the
+    # scenario red. Splitting the string instead would score a different
+    # command than the gate approved: `cd . && python3 -m unittest` would run
+    # only `cd` and report exit 0, a verified success for work never done.
+    return run_process(verifier, workspace, "", timeout, shell_env(), shell=True)
 
 
 def run_one(mode, engine, model, speed, parent, timeout, scenario_name, iteration, mythify_profile="auto"):
@@ -636,8 +589,8 @@ def run_one(mode, engine, model, speed, parent, timeout, scenario_name, iteratio
         install_mythify(workspace)
     prompt = prompt_for(mode, scenario_name, resolved_profile or "standard")
     model_result = run_engine(engine, workspace, prompt, model, timeout, speed)
-    verification = verify_workspace(workspace, 120)
-    expected_command = scenario.get("fanout_merge_verifier", "python3 -m unittest")
+    verification = verify_workspace(workspace, 120, scenario_name)
+    expected_command = scenario_verifier(scenario_name)
     records = count_mythify_records(workspace, expected_command)
     return {
         "scenario": scenario_name,
@@ -1388,8 +1341,34 @@ def sanitize_existing_report(input_path, output_path, cost_metadata):
 
 
 def main(argv=None):
+    # External scenarios merge into the module table because the scenario
+    # helpers read it globally, so the entries are removed again on the way
+    # out: an in-process caller must not inherit another call's scenarios,
+    # which would also widen the sanitizer's fail-closed name enum.
+    builtin_snapshot = dict(SCENARIOS)
+    try:
+        return _run_main(argv)
+    finally:
+        SCENARIOS.clear()
+        SCENARIOS.update(builtin_snapshot)
+
+
+def _run_main(argv=None):
+    argv_list = list(sys.argv[1:]) if argv is None else list(argv)
+    scenario_files = scan_scenario_file_args(argv_list, os.environ)
+    if scenario_files:
+        try:
+            SCENARIOS.update(
+                load_external_scenarios(scenario_files, BUILTIN_SCENARIO_NAMES)
+            )
+        except ValueError as exc:
+            print("[FAIL] Could not load eval scenarios: {0}".format(exc), file=sys.stderr)
+            return 1
     parser = argparse.ArgumentParser(
-        description="Run a local bare-vs-Mythify model comparison using installed CLI subscriptions."
+        description="Run a local bare-vs-Mythify model comparison using installed CLI subscriptions.",
+        # The pre-argparse scan matches the exact flag, so an abbreviation
+        # argparse would accept could silently load nothing.
+        allow_abbrev=False,
     )
     parser.add_argument("--engine", choices=ENGINES, default="codex-cli")
     parser.add_argument("--model", default="", help="Model for both runs unless overridden.")
@@ -1402,10 +1381,22 @@ def main(argv=None):
         "--scenario",
         choices=tuple(SCENARIOS.keys()) + ("all",),
         default="word_count_bugfix",
-        help="Task scenario to run, or all for the built-in benchmark set.",
+        help="Task scenario to run, or all for every built-in and loaded scenario.",
     )
     parser.add_argument("--repeat", type=int, default=1, help="Run each selected scenario this many times.")
-    parser.add_argument("--list-scenarios", action="store_true", help="List built-in scenarios and exit.")
+    parser.add_argument(
+        "--scenario-file",
+        dest="scenario_file",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Load validated external scenarios, such as the adopted registry at "
+            ".mythify/evals/scenarios.json. Repeatable. MYTHIFY_EVAL_SCENARIOS "
+            "is the flagless fallback."
+        ),
+    )
+    parser.add_argument("--list-scenarios", action="store_true", help="List built-in and loaded scenarios and exit.")
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--keep-workspaces", action="store_true")
     parser.add_argument(

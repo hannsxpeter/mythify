@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from mythify_eval_parser import add_eval_parser
 from mythify_map_parser import add_map_parser
 
 
@@ -39,7 +40,7 @@ def build_parser(symbols):
             "  classify, memory, lesson, logs, reflect, summary, protocol, fanout through MCP\n"
             "\n"
             "Labs surfaces:\n"
-            "  host-model, provider probes, local model runs, host CLI workers,\n"
+            "  host-model, eval, provider probes, local model runs, host CLI workers,\n"
             "  execution probes/runs, lifecycle probes\n"
             "\n"
             "Strict evidence mode:\n"
@@ -830,6 +831,7 @@ def build_parser(symbols):
     p.set_defaults(handler=cmd_campaign_stop)
 
     add_map_parser(sub, symbols)
+    add_eval_parser(sub, symbols)
 
     p = sub.add_parser(
         "classify",

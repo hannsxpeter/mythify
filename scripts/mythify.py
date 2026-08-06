@@ -112,6 +112,17 @@ from mythify_maps import (  # noqa: E402
     map_next_action,
     open_tickets,
 )
+from mythify_evals import (  # noqa: E402
+    cmd_eval_adopt,
+    cmd_eval_baseline,
+    cmd_eval_list,
+    cmd_eval_propose,
+    cmd_eval_reject,
+    cmd_eval_scan,
+    cmd_eval_show,
+    cmd_eval_verify,
+    configure_evals_store,
+)
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
 from mythify_evidence_guard import noop_verifier_reason  # noqa: E402
 from mythify_protocol import cmd_protocol_check  # noqa: E402,F401
@@ -205,7 +216,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.2.0"
+VERSION = "5.3.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
@@ -476,6 +487,13 @@ configure_map_store(
     create_plan_record_func=lambda state, goal, name, steps, source: create_plan_record(
         state, goal, name=name, steps=steps, source=source
     ),
+    environ_map=os.environ,
+)
+configure_evals_store(
+    now_iso_func=now_iso,
+    fail_func=fail,
+    execute_verification_func=execute_recorded_verification,
+    load_lessons_func=load_lessons,
     environ_map=os.environ,
 )
 
