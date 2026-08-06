@@ -130,6 +130,53 @@ class TestLoopFit(LoopFitCase):
         self.assertIn("task names a machine-checkable done-condition", result.stdout)
         self.assertIn("Suggested next:", result.stdout)
 
+    def test_quality_loop_for_open_ended_quality_climb(self):
+        self.git_init()
+        payload = self.assess(
+            "Make the marketing site utterly perfect, at the level of Linear"
+        )
+        self.assertEqual(payload["recommendation"], "quality_loop")
+        self.assertTrue(payload["criteria"]["open_ended_quality_climb"])
+        self.assertIn("harsh critic", payload["reason"])
+        self.assertIn("blind-compares", payload["suggested_next"])
+        self.assertIn("verify claim", payload["suggested_next"])
+        self.assertIn("at the level of", payload["signals"]["quality_terms"])
+        self.assertIn("you are the brake", payload["brake"])
+
+    def test_quality_terms_with_verifier_stay_machine_gated(self):
+        # A named executable check beats climb language: never quality_loop.
+        self.git_init()
+        (self.project / "tests").mkdir()
+        payload = self.assess(
+            "Polish the dashboard until it is as good as Linear and the e2e tests pass"
+        )
+        self.assertNotEqual(payload["recommendation"], "quality_loop")
+        self.assertFalse(payload["criteria"]["open_ended_quality_climb"])
+        self.assertIsNone(payload["brake"])
+
+    def test_quality_loop_text_output_shows_brake_line(self):
+        self.git_init()
+        result = self.run_cli(
+            "loop-fit",
+            "Build a COD-style FPS at the level of Call of Duty, utterly perfect",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Loop-fit: quality_loop", result.stdout)
+        self.assertIn("open-ended quality climb toward a reference", result.stdout)
+        self.assertIn("Brake:", result.stdout)
+
+    def test_bare_build_verb_is_not_a_done_condition(self):
+        # "Build X" names work, not a check; "the build passes" names a check.
+        self.git_init()
+        imperative = self.assess(
+            "Build a COD-style FPS at the level of Call of Duty, utterly perfect"
+        )
+        self.assertEqual(imperative["recommendation"], "quality_loop")
+        self.assertFalse(imperative["criteria"]["automated_verification"])
+        outcome = self.assess("re-run until the build passes on every commit")
+        self.assertTrue(outcome["criteria"]["automated_verification"])
+        self.assertEqual(outcome["recommendation"], "loop")
+
 
 if __name__ == "__main__":
     unittest.main()

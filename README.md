@@ -197,10 +197,14 @@ recommends the next move: just answer it, make a plan, start a loop, run a
 review. It advises only. It never acts on its own.
 
 `mythify loop-fit "your task"` answers a narrower question: should this run
-hands-off, run supervised, or just get done by hand? It checks four things.
+hands-off, run supervised, or just get done by hand? It checks five things.
 Is there a real pass or fail check? Does the work repeat? Is there a repository
-to work in? Does it need human taste? Work with no objective check is never a
-loop.
+to work in? Does it need human taste? Is it an open-ended quality climb toward
+a reference, like "as good as Linear"? Work with no objective check is never a
+hands-off loop. A quality climb gets its own shape instead: builders fan out,
+one separate harsh critic judges the result blind against the reference, and
+you state the budget up front, because the bar never says done and you are the
+brake.
 
 ## Autonomous loops
 

@@ -970,6 +970,7 @@ class TestClassification(CliTestCase):
             manifest["fanout_visibility"]["default"]["visibility"],
             "summary",
         )
+        self.assertIn("at the level of", manifest["quality_climb"]["terms"])
         self.assertIn("bugfix", manifest["execution_profile"]["fast_task_types"])
         self.assertIn("standard", manifest["next_actions"])
         self.assertIn("debugging", manifest["model_triage"]["recommended_task_types"])
@@ -1000,6 +1001,33 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["model_triage"], "skip")
         self.assertEqual(payload["model_policy"]["session"]["control"], "host_selected")
         self.assertEqual(payload["model_policy"]["verifier"]["engine"], "local_command")
+
+    def test_classify_quality_climb_advisory(self):
+        climb = self.run_cli(
+            "classify",
+            "Build the landing page at the level of Linear, utterly perfect, AAA polish",
+            "--json",
+            "--triage",
+            "never",
+        )
+        self.assertEqual(climb.returncode, 0, climb.stderr)
+        payload = json.loads(climb.stdout)
+        self.assertEqual(payload["quality_climb"], "detected")
+        self.assertIn("harsh critic", payload["quality_climb_protocol"])
+        self.assertIn("brake", payload["quality_climb_protocol"])
+        text = self.run_cli(
+            "classify",
+            "Build the landing page at the level of Linear, utterly perfect, AAA polish",
+            "--triage",
+            "never",
+        )
+        self.assertIn("quality climb: detected", text.stdout)
+        plain = self.run_cli(
+            "classify", "Fix the failing parser test", "--json", "--triage", "never"
+        )
+        plain_payload = json.loads(plain.stdout)
+        self.assertEqual(plain_payload["quality_climb"], "not_detected")
+        self.assertEqual(plain_payload["quality_climb_protocol"], "")
 
     def test_classify_capability_profiles_and_bounded_escalation(self):
         direct = self.run_cli(
@@ -2682,9 +2710,15 @@ class TestPromptPackets(CliTestCase):
 
         review = self.run_cli("prompt", "review", "--json")
         self.assertEqual(review.returncode, 0, review.stderr)
+        review_prompt = json.loads(review.stdout)["next_prompt"]
+        self.assertIn("2-3 labeled approaches with tradeoffs", review_prompt)
+        # Critic protocol: blind comparison against a named reference, graded
+        # on the integrated deliverable, with verdicts kept as material.
+        self.assertIn("judge blind", review_prompt)
+        self.assertIn("integrated deliverable", review_prompt)
         self.assertIn(
-            "2-3 labeled approaches with tradeoffs",
-            json.loads(review.stdout)["next_prompt"],
+            "Critic verdicts are material, not verification evidence",
+            review_prompt,
         )
 
         # The analysis packet carries the same hard-to-reverse guidance so

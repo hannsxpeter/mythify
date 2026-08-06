@@ -22,6 +22,7 @@ function loadClassificationRules() {
     "ceremony",
     "fanout",
     "fanout_visibility",
+    "quality_climb",
     "execution_profile",
     "next_actions",
     "model_triage",
@@ -61,6 +62,7 @@ const MEDIUM_RISK_TASK_TYPES = RISK_POLICY.medium_task_types.map(String);
 const CEREMONY_POLICY = CLASSIFICATION_MANIFEST.ceremony;
 const FANOUT_POLICY = CLASSIFICATION_MANIFEST.fanout;
 const FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST.fanout_visibility;
+const QUALITY_CLIMB_POLICY = CLASSIFICATION_MANIFEST.quality_climb;
 const EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST.execution_profile;
 const NEXT_ACTIONS = CLASSIFICATION_MANIFEST.next_actions;
 const MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST.model_triage;
@@ -279,6 +281,19 @@ export function classifyTaskText(taskText) {
     fanoutReason = FANOUT_POLICY.not_recommended_reason;
   }
 
+  let qualityClimb;
+  let qualityClimbReason;
+  let qualityClimbProtocol;
+  if (containsAny(text, QUALITY_CLIMB_POLICY.terms.map(String)).length > 0) {
+    qualityClimb = "detected";
+    qualityClimbReason = QUALITY_CLIMB_POLICY.detected_reason;
+    qualityClimbProtocol = QUALITY_CLIMB_POLICY.protocol;
+  } else {
+    qualityClimb = "not_detected";
+    qualityClimbReason = QUALITY_CLIMB_POLICY.not_detected_reason;
+    qualityClimbProtocol = "";
+  }
+
   const [executionProfile, executionProfileReason] = executionProfileFor(
     taskType,
     risk,
@@ -314,6 +329,9 @@ export function classifyTaskText(taskText) {
     fanout_visibility: fanoutVisibility.visibility,
     fanout_visibility_source: fanoutVisibility.source,
     fanout_visibility_reason: fanoutVisibility.reason,
+    quality_climb: qualityClimb,
+    quality_climb_reason: qualityClimbReason,
+    quality_climb_protocol: qualityClimbProtocol,
     model_triage: modelTriage,
     model_triage_reason: modelTriageReason,
     signals: [...new Set(signals)].sort().slice(0, 10),
@@ -362,6 +380,10 @@ export function formatClassification(result) {
     `model triage: ${result.model_triage} (${result.model_triage_reason})`,
     `next: ${result.next_action}`,
   ];
+  if (result.quality_climb === "detected") {
+    lines.push(`quality climb: detected (${result.quality_climb_reason || ""})`);
+    lines.push(`quality climb protocol: ${result.quality_climb_protocol || ""}`);
+  }
   if (result.signals.length > 0) {
     lines.push(`signals: ${result.signals.join(", ")}`);
   }

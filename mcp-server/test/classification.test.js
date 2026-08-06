@@ -15,3 +15,17 @@ test("classification module is directly importable", () => {
   assert.equal(shouldRunModelTriage(payload, "auto"), true);
   assert.match(formatClassification(payload), /type: security/);
 });
+
+test("classification detects an open-ended quality climb", () => {
+  const climb = classifyTaskText(
+    "Build the landing page at the level of Linear, utterly perfect, AAA polish"
+  );
+  assert.equal(climb.quality_climb, "detected");
+  assert.match(climb.quality_climb_protocol, /harsh critic/);
+  assert.match(climb.quality_climb_protocol, /brake/);
+  assert.match(formatClassification(climb), /quality climb: detected/);
+  const plain = classifyTaskText("Fix the failing parser test");
+  assert.equal(plain.quality_climb, "not_detected");
+  assert.equal(plain.quality_climb_protocol, "");
+  assert.doesNotMatch(formatClassification(plain), /quality climb:/);
+});

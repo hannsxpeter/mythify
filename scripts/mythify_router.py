@@ -687,6 +687,9 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
         "- Review changed files and relevant surrounding code.",
         "- Lead with actionable findings, with file and line references when possible.",
         "- Separate verified issues, warnings, open questions, and test gaps.",
+        "- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.",
+        "- Grade the integrated deliverable (the running app, rendered page, or built artifact), not intermediate artifacts such as mockups, asset grids, or isolated diffs.",
+        "- Critic verdicts are material, not verification evidence: record them with verify claim and keep executed checks as the completion gate.",
         "- If fixes are requested, address findings one by one and verify the result.",
         "- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs before recommending one.",
     ])
