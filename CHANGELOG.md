@@ -54,6 +54,14 @@ budget stays mandatory, and the human stays the brake.
   evidence phrasing, and updates the `classify` and `loop-fit` quick
   reference rows.
 
+### Fixed
+
+- `eval baseline` now checks zero-test output before the green refusal, so a
+  verifier that collected no tests is reported as "Baseline unusable" on
+  every supported Python. On Python older than 3.12, unittest exits 0 when
+  it collects nothing, and the old order misreported that run as a green
+  baseline; this was the standing Python 3.9 CI failure on main.
+
 ## [5.3.0] - 2026-08-06
 
 Minor release: the eval evolution loop. Mythify could measure whether the

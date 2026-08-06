@@ -492,6 +492,18 @@ def cmd_eval_baseline(args, state):
                 )
             )
             return 1
+        # Zero-test output is checked before the green refusal: on Python
+        # older than 3.12, unittest exits 0 when it collects nothing, and a
+        # run that exercised no tests is unusable regardless of exit code.
+        output = "{0}\n{1}".format(run.stdout or "", run.stderr or "").lower()
+        for pattern in ZERO_TEST_PATTERNS:
+            if pattern in output:
+                fail(
+                    "[FAIL] Baseline unusable: {0!r} reported '{1}', so it "
+                    "exercised nothing in scenario {2!r} despite exiting "
+                    "{3}.".format(verifier, pattern, name, run.returncode)
+                )
+                return 1
         if run.returncode == 0:
             fail(
                 "[FAIL] Baseline green: {0!r} passes on the unmodified files, "
@@ -509,15 +521,6 @@ def cmd_eval_baseline(args, state):
                 )
             )
             return 1
-        output = "{0}\n{1}".format(run.stdout or "", run.stderr or "").lower()
-        for pattern in ZERO_TEST_PATTERNS:
-            if pattern in output:
-                fail(
-                    "[FAIL] Baseline unusable: {0!r} reported '{1}', so it "
-                    "exercised nothing in scenario {2!r} despite exiting "
-                    "{3}.".format(verifier, pattern, name, run.returncode)
-                )
-                return 1
         print(
             "[OK] Baseline red as required: {0!r} exits {1} on the unmodified "
             "files of scenario {2!r}.".format(verifier, run.returncode, name)
