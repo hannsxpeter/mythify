@@ -16,7 +16,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 PROTOCOL_SOURCE_SHA256 = "0232fa29d22da9d71153af6ba2108493e6584d646d3da8beca796e4fa118dd67"
-RELEASE_GATES_SHA256 = "33a394bde806a70c294aa9765e98e3aeb95dca597ab8d8cfe77d39e864c9d902"
+RELEASE_GATES_SHA256 = "9a8e04251e1cfd020cce5ab4aeeb4d97c678cdbf9bcf56499c3f1aba5e3422da"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 

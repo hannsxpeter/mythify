@@ -145,7 +145,7 @@
         "mcp-server/package.json"
       ],
       "commands": [
-        "python3 scripts/package_cli.py --check-release-tag v5.3.0"
+        "python3 scripts/package_cli.py --check-release-tag v5.4.0"
       ]
     },
     {
