@@ -195,6 +195,13 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `map scope-out NOTE --reason TEXT` | Rule work past the destination out of scope; it never graduates. |
 | `map show [NAME] [--json]` / `map list [--json]` | Show the map at low resolution, or list maps. |
 | `map promote [NAME] [--plan NAME] [--steps JSON] [--horizon N]` | Hand a clear map off to a plan carrying its decisions and scope boundary. |
+| `eval scan [--recent N] [--json]` | Read-only eval gap signals: failure reflections, failing executed verifications, repeated failing commands, and recent lessons as material for candidate scenarios. |
+| `eval propose TITLE --scenario-file PATH --rationale TEXT [--source TEXT] [--json]` | Register a validated candidate harness scenario as a proposal. Its verify command is always its own red-baseline check; a scenario verifier that can never fail or never pass is refused. |
+| `eval baseline ID [--timeout N]` | Materialize the proposal's files and run its verifier; exit 0 only when it genuinely starts red. A green baseline cannot detect the failure it claims to test, and a verifier that was not found, is not executable, or collected no tests never ran the scenario at all. |
+| `eval verify ID [--timeout N]` | Run the proposal's verify command and record the executed evidence stamped with that proposal, satisfying its adoption gate. |
+| `eval adopt ID --human-input TEXT [--json]` | Adopt a verified proposal into `.mythify/evals/scenarios.json`; requires the human's words plus a passing executed run stamped with this proposal, so another proposal's run or an unrelated run of the same command cannot stand in. |
+| `eval reject ID --reason TEXT` | Close a proposal without adopting it; the scenario name becomes available again. |
+| `eval list [--json]` / `eval show ID [--json]` | List proposals and adopted scenarios, or show one proposal in full. |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan and set it active. |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Import godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks as a plan whose steps keep each task's verify command under strict step-scoped evidence. |
 | `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step to the named or active plan, optionally with an executable verify command. |
@@ -247,6 +254,14 @@ human-in-the-loop ticket without `human_input`, a task ticket that stores a
 verify command needs a passing executed run recorded since the claim, and
 `map_promote` refuses a map that still has an open ticket or an ungraduated fog
 patch. `map verify` is CLI-only, like `plan verify`.
+The eval evolution loop (`eval scan`, `eval propose`, `eval baseline`,
+`eval verify`, `eval adopt`, `eval reject`, `eval list`, `eval show`) is
+CLI-only. It grows the local evaluation harness under the same discipline:
+proposals are material, adoption requires human input plus a passing executed
+run stamped with that proposal, and the harness loads adopted scenarios from
+`.mythify/evals/scenarios.json` only through the same fail-closed validation.
+Adopted entries carry an `adoption` block, so a scenario written into the
+registry by hand is reported as unprovenanced rather than adopted.
 `workflow_route` and CLI `route` are read-only quarterback surfaces: they
 classify the prompt, inspect active durable state and the latest executed
 verification, choose the next workflow route, return the suggested next command

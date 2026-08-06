@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the eval evolution loop, a CLI-only `eval` command family
+  (`scan`, `propose`, `baseline`, `verify`, `adopt`, `reject`, `list`,
+  `show`) that grows the local evaluation harness without an agent grading
+  its own homework. `eval scan` surfaces failure reflections, failing
+  executed verifications, repeated failing commands, and recent lessons as
+  read-only material. `eval propose` registers one validated candidate
+  scenario per proposal, refuses a scenario verifier that can never fail or
+  never pass, and fixes the proposal's verify command to its own red-baseline
+  check with no override. `eval baseline` refuses a candidate whose verifier
+  already passes on the unmodified files, and also refuses a nonzero exit that
+  means the verifier never ran (not found, not executable, collected no
+  tests, or zero-test output). `eval adopt` requires both the human's words
+  (`--human-input`, waivable only by `MYTHIFY_REQUIRE_HUMAN_INPUT=0` with a
+  stamped waiver) and a passing executed run stamped with that proposal, so
+  another proposal's run, an unrelated run of the same command, and evidence
+  renumbered by `logs compact` all behave correctly. Adopted registry entries
+  carry an `adoption` provenance block; entries written by hand are reported
+  as unprovenanced. State lives in `.mythify/evals/proposals.json` and
+  `.mythify/evals/scenarios.json`.
+- Added external scenario loading to `scripts/local_model_eval.py`:
+  `--scenario-file PATH` (repeatable, with `MYTHIFY_EVAL_SCENARIOS` as the
+  flagless fallback) loads validated scenarios beside the built-ins, so the
+  adopted registry runs through the same harness and the same
+  verifier-exit-code metric. Validation is shared with the CLI through the
+  new `scripts/mythify_eval_scenarios.py` and is fail-closed on bad names,
+  unsafe file paths, unknown keys, and collisions with built-in scenarios.
+  The auto profile stays pinned to built-in scenarios, an external scenario is
+  scored and prompted with its own verifier rather than a hardcoded one, and
+  the harness parser sets `allow_abbrev=False` so an abbreviated
+  `--scenario-fil` cannot slip past the pre-argparse scan.
+
 ## [5.2.0] - 2026-08-04
 
 Minor release: graph-engineering hardening. The exit-code anchor stays the

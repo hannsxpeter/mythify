@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 30,
+      "command_count": 31,
       "tiers": {
         "front_door": [
           "route",
@@ -40,7 +40,8 @@
           "summary"
         ],
         "labs": [
-          "host-model"
+          "host-model",
+          "eval"
         ]
       },
       "commands": [
@@ -64,6 +65,7 @@
         "campaign",
         "classify",
         "host-model",
+        "eval",
         "outcome",
         "plan",
         "step",

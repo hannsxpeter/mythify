@@ -51,6 +51,9 @@ mythify/
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
 |   |-- mythify_classification.py deterministic classification helper
+|   |-- mythify_eval_parser.py   eval evolution subcommand parser
+|   |-- mythify_eval_scenarios.py shared external scenario validation and loading
+|   |-- mythify_evals.py         eval evolution proposal store and gates
 |   |-- mythify_evidence_guard.py advisory evidence-quality guards
 |   |-- mythify_godfiles.py      godplans PLAN.mdx and godaudits AUDIT.mdx reader
 |   |-- mythify_host_model.py    host model switch record helper
@@ -79,6 +82,7 @@ mythify/
 |   |-- check_runtime_source_size.py recursive runtime size guard
 |   |-- install_user.sh          user-local CLI and MCP launcher installer
 |   |-- local_model_eval.py      local bare-vs-Mythify comparison harness
+|   |-- local_eval_policy.py     static policy tables for that harness
 |   |-- package_cli.py           builds deterministic standalone CLI tarball
 |   `-- package_skill.py         builds dist/mythify.skill from skills/mythify/
 |-- mcp-server/
@@ -140,6 +144,7 @@ mythify/
 |   |-- test_mythify.py          CLI unit and end-to-end tests (stdlib unittest)
 |   |-- test_godfiles.py         god artifact parser, plan import, routing, views
 |   |-- test_maps.py             wayfinding map gates, promotion, and surfaces
+|   |-- test_mythify_evals.py    eval evolution gates and harness loading
 |   |-- test_routes.py           workflow router decision-tree coverage
 |   |-- test_campaign_discipline.py campaign verifier gate and hygiene tests
 |   |-- test_interop.py          CLI and MCP server against the same state dir
@@ -446,10 +451,11 @@ Advanced surfaces:
 
 Labs surfaces:
 
-- Host-model state, provider probes, local model runs, host CLI workers,
-  execution substrate probes/runs, and lifecycle probes. These surfaces are
-  explicit, material-only, and adapter-facing. They should not be presented as
-  the default product path until they can perform and confirm host actions.
+- Host-model state, the eval evolution loop, provider probes, local model runs,
+  host CLI workers, execution substrate probes/runs, and lifecycle probes.
+  These surfaces are explicit, material-only, and adapter-facing. They should
+  not be presented as the default product path until they can perform and
+  confirm host actions.
 
 Public help, docs, skills, and MCP tool descriptions should present the default
 front door first, then workflow primitives, then advanced surfaces, then labs.
@@ -697,6 +703,9 @@ variable when it is set (Python `Path.home()`, Node `os.homedir()` both already 
 |-- maps/
 |   |-- active
 |   `-- <slug>.json
+|-- evals/
+|   |-- proposals.json
+|   `-- scenarios.json
 |-- reports/
 |   `-- <cursor>.json
 |-- fanout/
@@ -1100,6 +1109,14 @@ owns the public entry point and delegates cohesive command families to sibling
 | `map fog NOTE [--map NAME]` | Record an in-scope question too dim to ticket. Reopens a `clear` map to `charting`. | 0; 1 if no map |
 | `map scope-out NOTE --reason TEXT [--map NAME]` | Record work ruled past the destination. Out-of-scope work never graduates. | 0; 1 if no map |
 | `map promote [NAME] [--plan NAME] [--steps JSON] [--horizon N]` | Create a plan from a map with no open tickets and no ungraduated fog. The plan's goal is the destination and its `source` block carries `{kind: "map", map, destination, decisions, out_of_scope}`. Marks the map `promoted`, records `promoted_plan`, and clears the active map pointer. | 0; 1 if the map is unclear, missing, or already promoted |
+| `eval scan [--recent N] [--json]` | Read-only eval gap signals: failure reflections, failing executed verifications, repeated failing commands, recent lessons, open proposals, and adopted scenario names from durable state. It writes nothing and its output is material, not evidence. | 0; 1 if no workspace |
+| `eval propose TITLE --scenario-file PATH --rationale TEXT [--source TEXT] [--json]` | Validate the candidate file through `mythify_eval_scenarios` (exactly one scenario), refuse a scenario verifier that can never fail or can never pass, refuse names colliding with built-ins, open proposals, or adopted scenarios, then append the proposal. Its `verify_command` is always its own `eval baseline` check, built from the running interpreter and the CLI's resolved path; there is no override. | 0; 1 on invalid file, unusable verifier, missing rationale, or collision |
+| `eval baseline ID [--timeout N]` | Materialize the proposal's files into a scratch workspace under `.mythify/tmp/` and run its `fanout_merge_verifier`. Exit 0 only when the verifier genuinely fails on the unmodified files. A green baseline is refused, and so is a nonzero exit that means the verifier never ran: 126 not executable, 127 not found, 5 collected no tests, or output matching `ZERO_TEST_PATTERNS`. `MYTHIFY_DISABLE_RUN=1` refuses with exit 2. | 0 baseline red; 2 disabled; 1 baseline green, unusable baseline, invalid scenario, timeout, or not found |
+| `eval verify ID [--timeout N]` | Run the proposal's `verify_command` through the shared executed-verification recorder with `eval_proposal`, `eval_title`, and `eval_scenario` context. `MYTHIFY_DISABLE_RUN=1` refuses with exit 2 and no record. | 0 verified; 2 unverified or disabled; 1 if not found or not proposed |
+| `eval adopt ID --human-input TEXT [--json]` | Adopt a proposal into `.mythify/evals/scenarios.json`. Refuses without the human's words unless `MYTHIFY_REQUIRE_HUMAN_INPUT=0` stamps `human_input_waived`; refuses without a passing executed run carrying this proposal's own `eval_proposal` stamp; re-validates the stored scenario before writing it. Stamps `adopted_at`, `human_input`, and `verified_command` on the proposal and an `adoption` block on the registry entry. | 0; 1 on missing gates, invalid stored scenario, collision, or not found |
+| `eval reject ID --reason TEXT` | Close a proposal without adopting it and record the reason; the scenario name becomes available again. | 0; 1 if not found, already closed, or missing reason |
+| `eval list [--json]` | List proposals with status and scenario names, adopted registry names, and any registry entries lacking adoption provenance. | 0; 1 if no workspace |
+| `eval show ID [--json]` | Show one proposal in full: rationale, sources, verify command, human input, and state. | 0; 1 if not found |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional), "verify_command": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Convert godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks into a plan and set it active. Discovers the artifact at the project root when PATH is omitted; both present without `--source` is an error. Live tasks import in document order (superseded strikethrough tasks skipped, checked boxes import completed); each step keeps `source_id`, `verify_command`, `wave`, `phase`, plus `depends_on` and `fixes` when present. Sets `strict_context` and a `source` provenance block; re-importing the same artifact path is refused while the imported plan exists. Warns on frontmatter counter drift. Never edits the artifact. | 0; 1 on missing, ambiguous, unrecognized, or already-imported artifacts |
 | `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan, optionally with an executable `verify_command`. | 0; 1 if plan not found |
@@ -1987,6 +2004,99 @@ small scenario. It is evidence of that run only, not a general efficacy or
 speed claim. The model was not pinned, pair order was fixed, monetary cost and
 subscription quota were not measured, and the raw report is not committed.
 
+### External scenarios
+
+The harness accepts `--scenario-file PATH` (repeatable) to load validated
+external scenarios beside the built-ins, with `MYTHIFY_EVAL_SCENARIOS` as the
+flagless fallback when no flag is present. Loading happens before argparse
+builds the `--scenario` choices, so loaded names are selectable and included
+in `--scenario all`. Because that pre-scan matches the exact flag, the parser
+sets `allow_abbrev=False`; otherwise argparse would accept `--scenario-fil`
+and the scan would silently load nothing. `main` restores the built-in
+scenario table on the way out, so an in-process caller never inherits another
+call's scenarios or a widened sanitizer name enum. Scoring uses the scenario's
+own `fanout_merge_verifier` (the same command its baseline was proved red
+against) for both the workspace verdict and the prompt's stated verification
+command; built-ins all use `python3 -m unittest`, so their behavior is
+unchanged. Validation is shared with the CLI through
+`scripts/mythify_eval_scenarios.py` and is fail-closed: a bad name, a missing
+required key, an unknown key, a non-string file body, an absolute or
+traversing file path, a reserved `TASK.md` entry, or a collision with a
+built-in scenario refuses the whole load with exit 1. `BUILTIN_SCENARIO_NAMES`
+is frozen before any merge, so the auto profile keeps resolving to `fast` only
+for shipped scenarios; external scenarios resolve to `standard`. Sanitizing a
+raw report that used external scenarios requires loading the same files during
+the sanitize invocation, because the sanitizer's scenario enum comes from the
+loaded table.
+
+## Eval evolution loop
+
+The eval evolution loop is how the harness grows without an agent grading its
+own homework. It is CLI-only (`eval scan`, `eval propose`, `eval baseline`,
+`eval verify`, `eval adopt`, `eval reject`, `eval list`, `eval show`),
+implemented in `scripts/mythify_evals.py` with its parser in
+`scripts/mythify_eval_parser.py`, and stores durable state under
+`.mythify/evals/`: `proposals.json` for the proposal ledger and
+`scenarios.json` for the adopted registry the harness loads through
+`--scenario-file`.
+
+The loop applies the map discipline to harness growth:
+
+- `eval scan` is read-only material: failure reflections, failing executed
+  verifications, repeated failing commands, and recent lessons, surfaced as
+  signals for drafting candidate scenarios. It writes nothing and its output
+  never counts as evidence.
+- `eval propose` registers exactly one validated candidate scenario per
+  proposal and refuses names that collide with built-ins, open proposals, or
+  adopted scenarios. It also refuses a scenario verifier that proves nothing
+  in either direction: one that can never fail (`noop_verifier_reason`) or one
+  that can never pass (`always_red_reason`, the mirror covering `false` and
+  `exit N`). The proposal's `verify_command` is always its own red-baseline
+  check, built from the running interpreter and the CLI's resolved path so it
+  executes from any working directory. There is deliberately no override: a
+  proposal that could name its own verifier could swap in an unrelated green
+  command and adopt a scenario the baseline had already refused.
+- `eval baseline` materializes the candidate's files into a scratch workspace
+  under `.mythify/tmp/` and runs the scenario's `fanout_merge_verifier`. It
+  exits 0 only when the verifier genuinely fails. A green baseline is a
+  refusal, because an eval whose verifier already passes on the unmodified
+  files cannot detect the failure it claims to test. A nonzero exit is not
+  sufficient either: exit 126 (not executable), 127 (not found), 5 (collected
+  no tests), or output matching `ZERO_TEST_PATTERNS` means the verifier never
+  exercised the scenario, so it is refused as unusable rather than accepted as
+  red. It honors `MYTHIFY_DISABLE_RUN=1` with exit 2, like every other
+  executing surface.
+- `eval verify` runs the proposal's `verify_command` through the shared
+  executed-verification recorder with `eval_proposal`, `eval_title`, and
+  `eval_scenario` context, exit 0 verified and 2 unverified, honoring
+  `MYTHIFY_DISABLE_RUN=1` with exit 2 and no record.
+- `eval adopt` requires both gates: `--human-input` with the human's words
+  (waivable only by `MYTHIFY_REQUIRE_HUMAN_INPUT=0`, which stamps
+  `human_input_waived` instead of staying silent), and a passing executed run
+  carrying this proposal's own `eval_proposal` stamp. Scoping by proposal
+  rather than by command text or a positional cursor is what makes the gate
+  hold: only `eval verify` writes that stamp and only for an open proposal, so
+  a matching record cannot predate the proposal, cannot be another proposal's
+  evidence, cannot be an unrelated routine run of the same command, and
+  survives `logs compact`, which renumbers every positional cursor. Adoption
+  re-validates the stored scenario before writing it, so a proposals.json
+  corrupted after proposing cannot poison the registry and break every load.
+- `eval reject` closes a proposal with a recorded reason and frees the
+  scenario name.
+
+Adoption stamps an `adoption` block (proposal id, timestamp, human input,
+waiver flag, verified command) on the registry entry. Anything can be written
+into `scenarios.json` by hand, so `eval list` and `eval scan` report entries
+without that block separately as unprovenanced rather than letting a
+self-written scenario borrow the gate's credibility.
+
+`HARNESS_BUILTIN_SCENARIOS` in `mythify_evals.py` mirrors the harness's
+built-in names so propose can refuse collisions early;
+`tests/test_mythify_evals.py` pins the mirror against
+`local_model_eval.BUILTIN_SCENARIO_NAMES` so drift fails the suite. Adopted
+scenarios are still material about what to measure, not proof of anything:
+only executed harness runs and verifier exit codes count as evidence.
+
 ## Housekeeping
 
 .gitignore:
@@ -2088,6 +2198,47 @@ model accounts. The default `--mythify-profile auto` resolves built-in focused
 bugfix scenarios to `fast`, requiring executed verification evidence but no
 plan record. `--mythify-profile standard` keeps the older plan-plus-verify
 behavior and requires both plan and verification evidence.
+
+### tests/test_mythify_evals.py
+
+Stdlib `unittest` over the CLI as a subprocess, with the same scrubbed
+environment as `tests/test_maps.py`. Required coverage:
+
+- Proposal material: `eval propose` records the scenario, sources, rationale,
+  and its own `eval baseline` verify command; invalid scenarios (bad names,
+  traversal or absolute file paths, reserved `TASK.md`, non-string bodies)
+  are refused without creating state; a verifier that proves nothing in either
+  direction is refused; an empty rationale is refused; names colliding with
+  built-ins or open proposals are refused; rejection records a reason and
+  frees the name; corrupt non-dict proposal entries degrade to a clean
+  message instead of a traceback.
+- Baseline honesty: `eval baseline` exits 0 for a scenario whose verifier
+  starts red, 1 for one that starts green, and 1 for a verifier that never
+  ran (missing tool, or a run that collected no tests);
+  `MYTHIFY_DISABLE_RUN=1` blocks it with exit 2.
+- Adoption gates: adopt refuses a self-approved adoption without
+  `--human-input` and leaves the proposal open;
+  `MYTHIFY_REQUIRE_HUMAN_INPUT=0` is the explicit waiver and stamps
+  `human_input_waived` on both the proposal and the registry entry; adopt
+  refuses without evidence, refuses another proposal's run, and refuses an
+  unrelated routine run of the same command; a verified proposal survives
+  `logs compact` and still adopts; a stored scenario corrupted after proposing
+  is refused before it can poison the registry; a verified human adoption
+  writes the scenario plus its `adoption` block into `scenarios.json` and
+  stamps `adopted_at`, `human_input`, and `verified_command` on the proposal;
+  a second adoption is refused; the `eval verify` record carries
+  `eval_proposal` context; `MYTHIFY_DISABLE_RUN=1` blocks verify with exit 2
+  and no record.
+- Scan is read-only: failure reflections and failing executed verifications
+  surface as material and no eval state is created.
+- Registry provenance: a hand-written registry entry is reported as
+  unprovenanced by `eval list`, never as adopted.
+- Harness loading: the adopted registry loads beside the built-ins,
+  `MYTHIFY_EVAL_SCENARIOS` works as the flagless fallback, invalid and
+  colliding files are refused with exit 1, an abbreviated `--scenario-fil` is
+  refused rather than silently ignored, an in-process `main` call leaves the
+  built-in table unchanged, the `HARNESS_BUILTIN_SCENARIOS` mirror matches
+  `BUILTIN_SCENARIO_NAMES`, and the auto profile stays pinned to built-ins.
 
 ### tests/test_interop.py
 

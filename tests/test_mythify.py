@@ -685,6 +685,9 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_workflows.py",
         )
         for name in (
+            "mythify_eval_parser.py",
+            "mythify_eval_scenarios.py",
+            "mythify_evals.py",
             "mythify_evidence_guard.py",
             "mythify_log_compaction.py",
             "mythify_loopfit.py",
