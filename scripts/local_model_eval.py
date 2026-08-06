@@ -573,7 +573,11 @@ def verify_workspace(workspace, timeout, scenario_name=None):
     verifier = scenario_verifier(scenario_name) if scenario_name else "python3 -m unittest"
     if verifier.strip() == "python3 -m unittest":
         return run_process([sys.executable, "-m", "unittest"], workspace, "", timeout, shell_env())
-    return run_process(shlex.split(verifier), workspace, "", timeout, shell_env())
+    # Through the shell, exactly as `eval baseline` ran it when it proved the
+    # scenario red. Splitting the string instead would score a different
+    # command than the gate approved: `cd . && python3 -m unittest` would run
+    # only `cd` and report exit 0, a verified success for work never done.
+    return run_process(verifier, workspace, "", timeout, shell_env(), shell=True)
 
 
 def run_one(mode, engine, model, speed, parent, timeout, scenario_name, iteration, mythify_profile="auto"):

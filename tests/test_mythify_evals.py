@@ -526,6 +526,52 @@ class TestHarnessLoading(EvalCase):
         self.assertIn("built-in", result.stderr)
 
 
+class TestVerifierExecutionParity(unittest.TestCase):
+    """The harness must score a scenario with the command its baseline approved.
+
+    `eval baseline` runs the verifier through the shell, so the harness has to
+    as well. Splitting the string instead scores a different command: with
+    `cd . && python3 -m unittest`, only `cd` runs and its exit 0 becomes a
+    verified success for a workspace whose tests never ran.
+    """
+
+    def setUp(self):
+        self.harness = load_module("local_model_eval_parity", HARNESS)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.workspace = Path(self._tmp.name)
+        (self.workspace / "test_fails.py").write_text(
+            "\n".join(
+                [
+                    "import unittest",
+                    "",
+                    "class T(unittest.TestCase):",
+                    "    def test_red(self):",
+                    "        self.assertEqual(1, 2)",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    def score(self, verifier):
+        self.harness.SCENARIOS["parity_case"] = {
+            "title": "t",
+            "task_category": "c",
+            "task": "t",
+            "files": {"a.py": "x = 1"},
+            "fanout_merge_verifier": verifier,
+        }
+        self.addCleanup(self.harness.SCENARIOS.pop, "parity_case", None)
+        return self.harness.verify_workspace(self.workspace, 60, "parity_case")
+
+    def test_a_shell_shaped_verifier_scores_the_failing_tests(self):
+        self.assertNotEqual(self.score("cd . && python3 -m unittest")["exit_code"], 0)
+
+    def test_a_chained_verifier_is_not_mangled_into_test_names(self):
+        result = self.score("python3 -m unittest && echo done")
+        self.assertNotIn("_FailedTest", result["stderr_tail"])
+
+
 class TestBuiltinMirror(unittest.TestCase):
     def test_builtin_scenario_mirror_matches_the_harness(self):
         evals = load_module("mythify_evals_mirror", REPO_ROOT / "scripts" / "mythify_evals.py")
