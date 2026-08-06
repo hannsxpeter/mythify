@@ -597,6 +597,9 @@ function buildReviewPromptPacket({ goal = "", verifyCommand = "" } = {}) {
   lines.push("- Review changed files and relevant surrounding code.");
   lines.push("- Lead with actionable findings, with file and line references when possible.");
   lines.push("- Separate verified issues, warnings, open questions, and test gaps.");
+  lines.push("- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.");
+  lines.push("- Grade the integrated deliverable (the running app, rendered page, or built artifact), not intermediate artifacts such as mockups, asset grids, or isolated diffs.");
+  lines.push("- Critic verdicts are material, not verification evidence: record them with verify claim and keep executed checks as the completion gate.");
   lines.push("- If fixes are requested, address findings one by one and verify the result.");
   lines.push("- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs before recommending one.");
   if (verifyCommand) {

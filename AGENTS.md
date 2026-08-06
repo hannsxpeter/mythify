@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 378b26e2358676f576848c94e370128e6a89b6afded4b76e08f5c68be233aa1a -->
+<!-- Mythify protocol-sha256: 0232fa29d22da9d71153af6ba2108493e6584d646d3da8beca796e4fa118dd67 -->
 
 # The Mythify Protocol
 
@@ -97,6 +97,16 @@ Cycle PLAN, ACT, VERIFY, REFLECT, then CORRECT or ADVANCE, until the goal is met
    `python3 scripts/mythify.py outcome start "Ship feature X" --success "tests pass" --verify "python3 -m unittest discover -s tests" --max-iterations 3`
    Act once, then run `outcome check`. Continue only when it says the outcome is
    still active and the budget remains.
+   If the goal is an open-ended quality climb toward a named reference ("at
+   the level of X", "as good as Y") with no executable done-condition, do not
+   fake a verifier. Run `loop-fit` and expect `quality_loop`: state a round
+   budget in chat up front, fan out builder workers, and run one separate
+   harsh critic that blind-compares the integrated deliverable side by side
+   with the reference and says which is better. Critic verdicts are recorded
+   with `verify claim` and stay second-class; any executable check that
+   exists still gates completion through `verify run`. The reference bar
+   stays out of reach by design, so the loop has no self-stop: the stated
+   budget or the human is the brake, and saying so up front is mandatory.
    `python3 scripts/mythify.py plan create "Ship feature X" --steps '[{"title": "Write parser", "success_criteria": "unit tests pass"}]'`
    Use `--horizon 20` for a default 20-step lookahead when explicit steps are
    not supplied.
@@ -178,8 +188,8 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `campaign advance [NAME] --result TEXT` | Advance the current task through understand, design, build, judge, verify, and reflect. |
 | `campaign learn LESSON` | Record a learning that should improve later tasks. |
 | `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet for research, analysis, failure recovery, handoff, review, campaign, map, or next. |
-| `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, provider-neutral capability profile, bounded escalation, and host-aware model policy. |
-| `loop-fit TASK [--json]` | Read-only advisory: assess a task against the loop-worthiness gates (machine-checkable done-condition, recurrence, reproduction environment, human judgment) and recommend a bounded self-driving loop, a supervised loop or verifier-gated plan, or doing it directly. Runs nothing. |
+| `classify TASK [--json] [--triage never\|auto\|always] [--platform P] [--effort E] [--speed S] [--session-model M] [--model-profile P] [--failure-count N] [--spawn-ceiling C] [--reviewer-strength R]` | Identify task type, risk, ambiguity, ceremony, execution profile, verification strategy, fanout fit, fast model triage fit, open-ended quality-climb fit, provider-neutral capability profile, bounded escalation, and host-aware model policy. |
+| `loop-fit TASK [--json]` | Read-only advisory: assess a task against the loop-worthiness gates (machine-checkable done-condition, recurrence, reproduction environment, human judgment, open-ended quality climb) and recommend a bounded self-driving loop, a supervised loop or verifier-gated plan, a human-braked quality loop for open-ended quality climbs toward a reference, or doing it directly. Runs nothing. |
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
 | `host-model clear [--json]` | Clear the recorded host model switch. |
@@ -323,7 +333,8 @@ action without mutating state or treating worker output as verification
 evidence. `phase_status` groups active plan steps into
 Understand, Design, Build, Judge, and Verify using durable state only; it does
 not mutate state or treat model confidence as progress. `classify_task` mirrors CLI triage and model
-policy, including `model_profile` and nonnegative `failure_count`. The returned
+policy, including `model_profile`, nonnegative `failure_count`, and the
+open-ended quality-climb advisory. The returned
 `model_router` uses the shared capability profiles and bounded escalation rules;
 provider resolution never implies cross-provider fallback, and model review
 never becomes verification evidence. Fanout workers accept `engine`, `model`, `effort`, `speed`, and
@@ -339,6 +350,8 @@ Delegation discipline for fanout:
 - Write every task prompt to stand alone: the worker has no memory of your
   conversation. Pass files through `context_paths`, never by reference.
 - Fanout results are material, not verification. Merge them, then verify the
-  merged work with `verify run` or `verify_run`.
+  merged work with `verify run` or `verify_run`. Evidence comes from the
+  integrated deliverable; a side workstream that never lands in the
+  deliverable is waste, and grading an intermediate artifact proves nothing.
 - Each task is a fresh model call that costs real money or subscription
   quota. Do not fan out work you can do inline.

@@ -211,6 +211,7 @@ class TestCliMcpInterop(unittest.TestCase):
             "Research package identity options before publishing",
             "Release v3.6.5 after full gates pass",
             "What is the current Mythify status?",
+            "Polish the dashboard until it is as good as Linear, utterly perfect",
         ]
         compared_keys = [
             "task_type",
@@ -225,6 +226,9 @@ class TestCliMcpInterop(unittest.TestCase):
             "fanout_visibility",
             "fanout_visibility_source",
             "fanout_visibility_reason",
+            "quality_climb",
+            "quality_climb_reason",
+            "quality_climb_protocol",
             "model_triage",
             "model_triage_reason",
             "signals",
@@ -862,6 +866,31 @@ class TestCliMcpInterop(unittest.TestCase):
                 self._assert_route_parity(client, prompt)
         finally:
             client.close()
+
+    def test_cli_and_mcp_review_packet_critic_lines_match(self):
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        cli = self.run_cli("prompt", "review", "--json")
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        cli_prompt = json.loads(cli.stdout)["next_prompt"]
+        client = self.start_mcp()
+        try:
+            mcp_payload = self.ok_json(
+                self.call_tool(
+                    client, "prompt_packet", {"kind": "review", "format": "json"}
+                )
+            )
+        finally:
+            client.close()
+        mcp_prompt = mcp_payload["next_prompt"]
+        critic_lines = [
+            "- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.",
+            "- Grade the integrated deliverable (the running app, rendered page, or built artifact), not intermediate artifacts such as mockups, asset grids, or isolated diffs.",
+            "- Critic verdicts are material, not verification evidence: record them with verify claim and keep executed checks as the completion gate.",
+        ]
+        for line in critic_lines:
+            self.assertIn(line, cli_prompt)
+            self.assertIn(line, mcp_prompt)
 
     def test_cli_and_mcp_harness_reminders_match(self):
         # Item 6 parity: verification-drift and stale-executed reminders must

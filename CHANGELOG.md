@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.0] - 2026-08-06
+
+Minor release: the open-ended quality-climb advisory. Some goals have no
+executable done-condition at all, only a reference bar ("as good as
+Linear"). Mythify previously routed those to "do it directly"; this release
+gives them their own honest loop shape, adapted from the community aim-prompt
+pattern without importing its epistemology: the critic stays material, the
+budget stays mandatory, and the human stays the brake.
+
+### Added
+
+- Added an open-ended quality-climb advisory across the stack, distilled from
+  the aim-prompt pattern (fan-out builders, one separate harsh critic, blind
+  side-by-side comparison against a named reference) while keeping Mythify's
+  evidence rules intact. `classify` and `classify_task` detect quality-climb
+  language through a shared `quality_climb` section in
+  `protocol/classification-rules.json` (both copies) and return
+  `quality_climb`, `quality_climb_reason`, and `quality_climb_protocol`
+  fields identically in both runtimes, with interop parity locked by test.
+  `loop-fit` gains a fifth gate and a `quality_loop` recommendation for
+  open-ended climbs with no machine-checkable done-condition: builder
+  fan-out plus one separate harsh critic that blind-compares the integrated
+  deliverable with the named reference, critic verdicts recorded with
+  `verify claim` as second-class material, any executable check still gating
+  completion through `verify run`, and a mandatory brake line stating that
+  the loop has no self-stop, so an explicit budget or the human is the
+  brake. Quality-climb terms load from the shared manifest, so the classify
+  and loop-fit advisories cannot drift.
+
+### Changed
+
+- The review prompt packet (CLI `prompt review` and MCP `prompt_packet`) now
+  carries a critic protocol for subjective quality: name a best-in-class
+  reference, judge blind side by side, grade the integrated deliverable
+  rather than intermediate artifacts, and keep critic verdicts material
+  while executed checks stay the completion gate. Both runtimes render
+  identical lines, locked by a new interop test.
+- `loop-fit` no longer treats the bare imperative "build" as a
+  machine-checkable done-condition; only build-outcome phrases ("build
+  passes", "build succeeds", "build is green", "green build") count, so
+  "build a site at the level of X" reaches the quality-climb gate instead of
+  being misread as verifiable.
+- The protocol text adds the quality-climb loop shape to the PLAN step,
+  extends the fanout delegation discipline with integrated-deliverable
+  evidence phrasing, and updates the `classify` and `loop-fit` quick
+  reference rows.
+
 ## [5.3.0] - 2026-08-06
 
 Minor release: the eval evolution loop. Mythify could measure whether the
@@ -1413,7 +1460,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.3.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.4.0...HEAD
+[5.4.0]: https://github.com/hannsxpeter/mythify/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/hannsxpeter/mythify/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/hannsxpeter/mythify/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/hannsxpeter/mythify/compare/v5.0.0...v5.1.0

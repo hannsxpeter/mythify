@@ -8,9 +8,15 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from mythify_classification import QUALITY_CLIMB_POLICY
+
 
 LOOPFIT_VERIFY_TERMS = (
-    "test", "tests", "build", "lint", "passes", "pass", "compile", "typecheck",
+    # Bare "build" is deliberately absent: as an imperative verb ("build a
+    # site at the level of X") it names work, not a done-condition. Only
+    # build-outcome phrases count as checkable.
+    "test", "tests", "build passes", "build succeeds", "build is green",
+    "green build", "lint", "passes", "pass", "compile", "typecheck",
     "type check", "e2e", "ci", "coverage", "benchmark", "smoke", "exit 0",
     "assert", "regression", "check that", "verify",
 )
@@ -30,6 +36,11 @@ LOOPFIT_CHECK_FILES = (
     "pyproject.toml", "setup.py", "tox.ini", "pytest.ini", "package.json",
     "Makefile", "makefile", "Cargo.toml", "go.mod", "build.gradle", "pom.xml",
     "tests", "test",
+)
+LOOPFIT_QUALITY_TERMS = tuple(str(term) for term in QUALITY_CLIMB_POLICY["terms"])
+LOOPFIT_BRAKE_LINE = (
+    "This loop has no self-stop: the reference bar stays out of reach by design. "
+    "State a budget (rounds, minutes, or cost) up front, or you are the brake."
 )
 
 
@@ -69,17 +80,30 @@ def assess_loop_fit(task, is_git_repo, has_check):
     verify_hits = _loopfit_has_any(task, LOOPFIT_VERIFY_TERMS)
     recur_hits = _loopfit_has_any(task, LOOPFIT_RECUR_TERMS)
     judgment_hits = _loopfit_has_any(task, LOOPFIT_JUDGMENT_TERMS)
+    quality_hits = _loopfit_has_any(task, LOOPFIT_QUALITY_TERMS)
     automated_verification = bool(verify_hits)
     reproduction_env = bool(is_git_repo)
     recurring = bool(recur_hits)
     needs_judgment = bool(judgment_hits)
+    quality_climb = bool(quality_hits) and not automated_verification
     criteria = {
         "automated_verification": automated_verification,
         "recurring": recurring,
         "reproduction_env": reproduction_env,
         "needs_human_judgment": needs_judgment,
+        "open_ended_quality_climb": quality_climb,
     }
-    if needs_judgment and not (automated_verification and recurring):
+    if quality_climb:
+        recommendation = "quality_loop"
+        reason = (
+            "Open-ended quality climb toward a reference bar, with no "
+            "machine-checkable done-condition. A checkable loop has nothing to "
+            "stop on, but a builder fan-out with one separate harsh critic that "
+            "blind-compares the integrated deliverable side by side with the "
+            "named reference keeps quality climbing; an explicit budget or the "
+            "human is the brake."
+        )
+    elif needs_judgment and not (automated_verification and recurring):
         recommendation = "direct"
         reason = (
             "The goal leans on human judgment. Automate only the checkable parts; "
@@ -115,7 +139,17 @@ def assess_loop_fit(task, is_git_repo, has_check):
             "unattended one."
         )
     quoted = shlex.quote(str(task or "").strip() or "task")
-    if recommendation == "loop":
+    if recommendation == "quality_loop":
+        suggested = (
+            "State a round budget in chat, then fan out builder workers on {0}. "
+            "Run a separate harsh-critic pass that blind-compares the integrated "
+            "deliverable side by side with the named reference (pick one if the "
+            "task names none) and says which is better. Record critic verdicts "
+            "with verify claim (material, second-class), keep any executable "
+            "checks as verify run gates, and stop on the budget or the human "
+            "brake, never on the critic's satisfaction.".format(quoted)
+        )
+    elif recommendation == "loop":
         suggested = (
             "mythify outcome start {0} --success DEFINE "
             "--verify DEFINE_CHECK --agent DEFINE_AGENT --max-iterations 5 "
@@ -142,10 +176,12 @@ def assess_loop_fit(task, is_git_repo, has_check):
             "verify_terms": verify_hits,
             "recurring_terms": recur_hits,
             "judgment_terms": judgment_hits,
+            "quality_terms": quality_hits,
             "has_runnable_check": has_check,
             "is_git_repo": is_git_repo,
         },
         "suggested_next": suggested,
+        "brake": LOOPFIT_BRAKE_LINE if recommendation == "quality_loop" else None,
         "guardrail": (
             "loop-fit is read-only decision support; it does not run anything, "
             "start a loop, or record evidence."
@@ -164,13 +200,16 @@ def format_loop_fit(payload):
         "recurring": "work recurs / repeats",
         "reproduction_env": "reproduction environment (git repo)",
         "needs_human_judgment": "needs human judgment",
+        "open_ended_quality_climb": "open-ended quality climb toward a reference",
     }
     for key, label in labels.items():
-        mark = "[x]" if payload["criteria"][key] else "[ ]"
+        mark = "[x]" if payload["criteria"].get(key) else "[ ]"
         lines.append("  {0} {1}".format(mark, label))
     if payload["signals"].get("has_runnable_check"):
         lines.append("  (note) the repo has runnable checks")
     lines.append("Suggested next: {0}".format(payload["suggested_next"]))
+    if payload.get("brake"):
+        lines.append("Brake: {0}".format(payload["brake"]))
     lines.append("Guardrail: {0}".format(payload["guardrail"]))
     return "\n".join(lines)
 

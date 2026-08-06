@@ -178,6 +178,26 @@
       }
     ]
   },
+  "quality_climb": {
+    "terms": [
+      "at the level of",
+      "as good as",
+      "best in class",
+      "world class",
+      "top studio",
+      "studio quality",
+      "aaa",
+      "triple a",
+      "utterly perfect",
+      "pixel perfect",
+      "polish until",
+      "keep polishing",
+      "wowed"
+    ],
+    "detected_reason": "The prompt asks for an open-ended quality climb toward a reference bar, not a machine-checkable done-condition.",
+    "not_detected_reason": "No open-ended quality-climb language detected.",
+    "protocol": "Fan out builder workers, add one separate harsh critic that blind-compares the integrated deliverable side by side with the named reference, record critic verdicts as material with verify claim, keep any executable checks as verify run gates, and state an explicit budget up front: the reference bar stays out of reach by design, so the budget or the human is the brake."
+  },
   "execution_profile": {
     "direct_reason": "No protocol state is needed for a simple answer or one reversible edit.",
     "full_reason": "High-risk or heavy work needs the full plan, verify, reflect, and state loop.",

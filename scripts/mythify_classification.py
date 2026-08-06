@@ -29,6 +29,7 @@ def load_classification_rules():
         "ceremony",
         "fanout",
         "fanout_visibility",
+        "quality_climb",
         "execution_profile",
         "next_actions",
         "model_triage",
@@ -68,6 +69,7 @@ MEDIUM_RISK_TASK_TYPES = classification_tuple("risk", "medium_task_types")
 CEREMONY_POLICY = CLASSIFICATION_MANIFEST["ceremony"]
 FANOUT_POLICY = CLASSIFICATION_MANIFEST["fanout"]
 FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST["fanout_visibility"]
+QUALITY_CLIMB_POLICY = CLASSIFICATION_MANIFEST["quality_climb"]
 EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST["execution_profile"]
 NEXT_ACTIONS = CLASSIFICATION_MANIFEST["next_actions"]
 MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST["model_triage"]
@@ -267,6 +269,15 @@ def classify_task_text(task_text):
         fanout = "not_recommended"
         fanout_reason = FANOUT_POLICY["not_recommended_reason"]
 
+    if contains_any(text, tuple(str(term) for term in QUALITY_CLIMB_POLICY["terms"])):
+        quality_climb = "detected"
+        quality_climb_reason = QUALITY_CLIMB_POLICY["detected_reason"]
+        quality_climb_protocol = QUALITY_CLIMB_POLICY["protocol"]
+    else:
+        quality_climb = "not_detected"
+        quality_climb_reason = QUALITY_CLIMB_POLICY["not_detected_reason"]
+        quality_climb_protocol = ""
+
     verification = VERIFICATION_HINTS.get(task_type, VERIFICATION_HINTS["feature"])
     execution_profile, execution_profile_reason = execution_profile_for(
         task_type, risk, ceremony, ambiguity, text
@@ -300,6 +311,9 @@ def classify_task_text(task_text):
         "fanout_visibility": fanout_visibility,
         "fanout_visibility_source": fanout_visibility_source,
         "fanout_visibility_reason": fanout_visibility_reason,
+        "quality_climb": quality_climb,
+        "quality_climb_reason": quality_climb_reason,
+        "quality_climb_protocol": quality_climb_protocol,
         "model_triage": model_triage,
         "model_triage_reason": model_triage_reason,
         "signals": sorted(set(signals))[:10],
@@ -355,6 +369,13 @@ def format_classification(result):
         ),
         "next: {0}".format(result["next_action"]),
     ]
+    if result.get("quality_climb") == "detected":
+        lines.append(
+            "quality climb: detected ({0})".format(result.get("quality_climb_reason", ""))
+        )
+        lines.append(
+            "quality climb protocol: {0}".format(result.get("quality_climb_protocol", ""))
+        )
     if result["signals"]:
         lines.append("signals: {0}".format(", ".join(result["signals"])))
     policy = result.get("model_policy")
