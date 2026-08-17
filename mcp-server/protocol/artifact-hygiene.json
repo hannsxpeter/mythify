@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "adapter": "watermarks-remover",
+  "default_service_url": "http://127.0.0.1:8765",
+  "api_key_env": "WATERMARKS_SERVER_API_KEY",
+  "max_input_bytes": 67108864,
+  "evidence_status": "artifact_service_output_not_verification",
+  "endpoints": {
+    "health": "/health",
+    "capabilities": "/capabilities",
+    "inspect": "/inspect",
+    "clean": "/clean"
+  },
+  "prose_frontmatter_fields": [
+    "description",
+    "keywords",
+    "summary",
+    "title"
+  ],
+  "explicit_provenance_fields": [
+    "ai_generated",
+    "aigc",
+    "c2pa",
+    "content_credentials",
+    "created_with",
+    "digital_source_type",
+    "generator",
+    "llm",
+    "model",
+    "provenance",
+    "synthid"
+  ],
+  "heavy_backend_warnings": {
+    "pixel_backends.ctrlregen": "CtrlRegen is an external local backend whose upstream has no license. Mythify does not redistribute it.",
+    "scorers.synthid": "reverse-SynthID is an unofficial external scorer restricted to non-commercial research. Mythify does not redistribute it."
+  }
+}

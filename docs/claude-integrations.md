@@ -29,6 +29,7 @@ cp protocol/operation-registry.json /path/to/your/project/protocol/
 cp protocol/classification-rules.json /path/to/your/project/protocol/
 cp protocol/model-capabilities.json /path/to/your/project/protocol/
 cp protocol/workflow-router.json /path/to/your/project/protocol/
+cp protocol/artifact-hygiene.json /path/to/your/project/protocol/
 cd /path/to/your/project
 python3 scripts/mythify.py protocol check CLAUDE.md
 python3 scripts/mythify.py init

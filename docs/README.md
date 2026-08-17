@@ -33,6 +33,9 @@ publish checks.
   registry output.
 - [cli-to-model-runtime-migration.md](cli-to-model-runtime-migration.md): the
   migration path from drop-in CLI use to MCP and model-runtime integrations.
+- [artifact-hygiene.md](artifact-hygiene.md): optional external
+  watermarks-remover adapter, trust boundaries, finding normalization, and
+  guarded cleaning contract.
 
 ## Host setup notes
 
@@ -76,10 +79,11 @@ not broken.
   protocol variant, `scripts/mythify.py`, adjacent `scripts/mythify_*.py`
   helpers, `protocol/operation-registry.json`,
   `protocol/classification-rules.json`, `protocol/model-capabilities.json`, and
-  `protocol/workflow-router.json`.
+  `protocol/workflow-router.json`, plus `protocol/artifact-hygiene.json` when
+  the artifact adapter is installed.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
-- Keep MCP public surface claims at 47 tools: 44 core tools plus 3 fanout tools.
+- Keep MCP public surface claims at 50 tools: 47 core tools plus 3 fanout tools.
   `protocol/surface-manifest.json` is authoritative; check it before restating a
   count anywhere.
 - Keep `tool-use-contract.md` aligned with the `CLAUDE.md` and `AGENTS.md` MCP

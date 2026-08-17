@@ -12,6 +12,8 @@ const routerRootPath = path.join(repoRoot, "protocol", "workflow-router.json");
 const routerPackagePath = path.join(repoRoot, "mcp-server", "protocol", "workflow-router.json");
 const modelRootPath = path.join(repoRoot, "protocol", "model-capabilities.json");
 const modelPackagePath = path.join(repoRoot, "mcp-server", "protocol", "model-capabilities.json");
+const artifactRootPath = path.join(repoRoot, "protocol", "artifact-hygiene.json");
+const artifactPackagePath = path.join(repoRoot, "mcp-server", "protocol", "artifact-hygiene.json");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -23,6 +25,8 @@ const operationRootManifest = readJson(operationRootPath);
 const operationPackageManifest = readJson(operationPackagePath);
 const modelRootManifest = readJson(modelRootPath);
 const modelPackageManifest = readJson(modelPackagePath);
+const artifactRootManifest = readJson(artifactRootPath);
+const artifactPackageManifest = readJson(artifactPackagePath);
 
 if (JSON.stringify(rootManifest) !== JSON.stringify(packageManifest)) {
   console.error("[FAIL] Classification rules manifest drift:");
@@ -42,6 +46,22 @@ if (JSON.stringify(modelRootManifest) !== JSON.stringify(modelPackageManifest)) 
   console.error("[FAIL] Model capability manifest drift:");
   console.error("  root: " + modelRootPath);
   console.error("  package: " + modelPackagePath);
+  process.exit(1);
+}
+
+if (JSON.stringify(artifactRootManifest) !== JSON.stringify(artifactPackageManifest)) {
+  console.error("[FAIL] Artifact hygiene manifest drift:");
+  console.error("  root: " + artifactRootPath);
+  console.error("  package: " + artifactPackagePath);
+  process.exit(1);
+}
+
+if (
+  artifactRootManifest.version !== 1 ||
+  artifactRootManifest.adapter !== "watermarks-remover" ||
+  artifactRootManifest.api_key_env !== "WATERMARKS_SERVER_API_KEY"
+) {
+  console.error("[FAIL] Invalid artifact hygiene manifest header");
   process.exit(1);
 }
 
@@ -147,4 +167,4 @@ if (!rootManifest.verification_hints.feature || !rootManifest.next_actions.stand
   process.exit(1);
 }
 
-console.log("[OK] Classification, operation, workflow, and model capability manifests mirror package copies");
+console.log("[OK] Classification, operation, workflow, model capability, and artifact hygiene manifests mirror package copies");

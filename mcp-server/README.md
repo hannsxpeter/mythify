@@ -10,7 +10,7 @@ npm registry:
 mkdir mythify-mcp-runtime
 cd mythify-mcp-runtime
 npm init -y
-npm install /path/to/mythify-mcp-5.0.0.tgz
+npm install /path/to/mythify-mcp-5.5.0.tgz
 ```
 
 Configure an MCP client to run:
@@ -35,3 +35,9 @@ adapter can launch `engine: "claude-ultracode"` through `fanout_start` with
 exactly one task. The existing `fanout_status` and `fanout_results` tools
 monitor and ingest the workflow. Claude Code 2.1.203 or newer is required, and
 the final response remains material rather than verification evidence.
+
+The labs surface also includes `artifact_probe`, `artifact_inspect`, and
+`artifact_clean` for the optional external watermarks-remover service. The
+adapter defaults to loopback, requires explicit acknowledgement for remote
+uploads, keeps heuristics advisory, and requires authorization plus a separate
+output for cleaning. Its output is material and never writes Mythify state.

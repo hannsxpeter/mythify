@@ -313,11 +313,34 @@ can use `isolation: "worktree"` so each one gets its own git worktree on a fresh
 branch and cannot collide with the others. You merge the branches you want.
 
 The server shares the exact same `.mythify/` folder as the CLI, so a plan made in
-one is visible in the other. It exposes Mythify through 47 MCP tools; the full
+one is visible in the other. It exposes Mythify through 50 MCP tools; the full
 list is in [docs/design.md](docs/design.md).
 
 Fanout results are material, not proof. Merge the work, then verify the merged
 result the same way as anything else.
+
+## Inspecting owned artifacts for watermark signals
+
+Mythify can use
+[`watermarks-remover`](https://github.com/guillaumemeyer/watermarks-remover)
+through an optional external service. The integration probes service health and
+capabilities, separates deterministic findings from heuristic advisory signals,
+and can clean an owned or authorized artifact to a separate output file.
+
+```bash
+mythify artifact probe
+mythify artifact inspect ./document.pdf
+mythify artifact clean ./document.pdf \
+  --output ./document.cleaned.pdf \
+  --confirm-authorized
+```
+
+Loopback is the default trust boundary. Remote use needs explicit service and
+data-upload acknowledgements. Cleaning refuses in-place and symbolic-link
+outputs, inspects the returned bytes before writing atomically, and never counts
+service output as Mythify verification evidence. See
+[docs/artifact-hygiene.md](docs/artifact-hygiene.md) for the service contract,
+false-positive policy, licensing boundaries, and residual risks.
 
 ## Feeling native in chat
 
@@ -349,6 +372,7 @@ The everyday commands:
 | `outcome start GOAL --success ... --verify ...` | Start a verifier-backed loop. Add `--agent` to self-drive. |
 | `outcome run` | Drive a self-driving loop to success or a bounded stop. |
 | `memory set/get`, `lesson add/list` | Persist facts, decisions, and lessons. |
+| `artifact probe`, `artifact inspect`, `artifact clean` | Use the optional external artifact-hygiene adapter. Direct results are material, not verification evidence. |
 | `status`, `report`, `summary` | Orient, narrate progress, and wrap up. |
 
 There is more underneath: campaigns, research, dashboards, model policy, trace

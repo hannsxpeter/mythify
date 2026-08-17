@@ -157,6 +157,7 @@ function main() {
     registeredTools([
       "mcp-server/src/index.js",
       "mcp-server/src/adapter-tools.js",
+      "mcp-server/src/artifact-tools.js",
       "mcp-server/src/view-tools.js",
       "mcp-server/src/map-tools.js",
       "mcp-server/src/memory-tools.js",
@@ -252,7 +253,7 @@ function main() {
   );
   requireMatches(
     "docs/design.md",
-    /`init`, `protocol check`, `trace` analysis commands, `classify`, and\s+`loop-fit` do not require a workspace\. `route` treats the workspace as optional/,
+    /`init`, `protocol check`, `trace` analysis commands, `classify`, `loop-fit`,\s+and `artifact` do not require a workspace\. `route` treats the workspace as optional/,
     "workspace-free command list and optional route workspace"
   );
   requireMatches(

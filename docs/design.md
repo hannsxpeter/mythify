@@ -42,6 +42,7 @@ mythify/
 |-- .cursorrules                 generated from protocol/PROTOCOL.md
 |-- protocol/
 |   |-- PROTOCOL.md              canonical protocol source
+|   |-- artifact-hygiene.json    shared external artifact adapter contract
 |   |-- classification-rules.json deterministic classifier keywords
 |   |-- model-capabilities.json  shared model profile and provider mappings
 |   |-- operation-registry.json  shared operation metadata
@@ -50,6 +51,8 @@ mythify/
 |   `-- surface-manifest.json    shared public surface metadata
 |-- scripts/
 |   |-- mythify.py               zero-dependency CLI orchestrator
+|   |-- mythify_artifact_parser.py artifact hygiene subcommand parser
+|   |-- mythify_artifacts.py     guarded external artifact service adapter
 |   |-- mythify_classification.py deterministic classification helper
 |   |-- mythify_eval_parser.py   eval evolution subcommand parser
 |   |-- mythify_eval_scenarios.py shared external scenario validation and loading
@@ -91,6 +94,8 @@ mythify/
 |   |-- client-configs/
 |   |-- src/capability-registry.js
 |   |-- src/classification.js
+|   |-- src/artifact-hygiene.js  guarded external artifact service adapter
+|   |-- src/artifact-tools.js    artifact hygiene MCP registrations
 |   |-- src/evidence-guard.js    JS mirror of mythify_evidence_guard.py
 |   |-- src/execution-adapter.js
 |   |-- src/fanout.js
@@ -109,6 +114,7 @@ mythify/
 |   |-- src/provider-defaults.js
 |   |-- src/surface-manifest.js
 |   |-- src/verification-provenance.js
+|   |-- protocol/artifact-hygiene.json package copy of artifact adapter policy
 |   |-- protocol/classification-rules.json package copy of classifier keywords
 |   |-- protocol/model-capabilities.json package copy of model profile policy
 |   |-- protocol/operation-registry.json package copy of operation metadata
@@ -181,7 +187,9 @@ Evidence for the decision:
 - The shared registries are working where the duplicated facts are narrow:
   `protocol/operation-registry.json` owns memory operation metadata, and
   `protocol/classification-rules.json` owns deterministic classifier keyword
-  metadata. `protocol/workflow-router.json` owns route ids, prompt mapping,
+  metadata. `protocol/artifact-hygiene.json` owns the external artifact adapter
+  trust, size, endpoint, finding, and licensing policy.
+  `protocol/workflow-router.json` owns route ids, prompt mapping,
   and output field metadata. `mcp-server/src/capability-registry.js` owns host,
   provider, execution, and lifecycle capability metadata.
 - Drift is still easy to create in prose and copied surface metadata. The
@@ -335,7 +343,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 44 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 47 core plus 3 fanout count
   split.
 - Front door, workflow, advanced, and labs tier membership for the CLI and MCP
   surfaces.
@@ -370,7 +378,8 @@ Rules:
   has already caused drift.
 - Python and Node tests must cover any newly added terms that affect public
   classification behavior.
-- `mcp-server/protocol/classification-rules.json`,
+- `mcp-server/protocol/artifact-hygiene.json`,
+  `mcp-server/protocol/classification-rules.json`,
   `mcp-server/protocol/model-capabilities.json`,
   `mcp-server/protocol/operation-registry.json`,
   `mcp-server/protocol/workflow-router.json`, and
@@ -451,7 +460,7 @@ Advanced surfaces:
 
 Labs surfaces:
 
-- Host-model state, the eval evolution loop, provider probes, local model runs,
+- Host-model state, artifact hygiene, the eval evolution loop, provider probes, local model runs,
   host CLI workers, execution substrate probes/runs, and lifecycle probes.
   These surfaces are explicit, material-only, and adapter-facing. They should
   not be presented as the default product path until they can perform and
@@ -1137,6 +1146,9 @@ owns the public entry point and delegates cohesive command families to sibling
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|unknown\|codex-desktop\|codex-cli\|claude-desktop\|claude-code\|cursor-desktop\|cursor-agent] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--model-profile auto\|utility\|balanced\|strong\|max\|fast\|standard\|frontier] [--failure-count N] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, open-ended quality-climb advisory, capability-profile router, host-aware model policy, signals, and next action. `--failure-count` accepts a nonnegative executed-verifier failure count and cannot escalate beyond `strong`; `max` must be explicit. `--triage auto` runs one utility model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
 | `loop-fit TASK [--json]` | Read-only loop-fit advisory. Assess a task against ordered gates: is there a machine-checkable done-condition, does the work recur, is there a reproduction environment (git repo), does it need human judgment, is it an open-ended quality climb toward a reference. Recommend `quality_loop` (builder fan-out plus one separate harsh critic blind-comparing the integrated deliverable with the named reference, budget or human brake mandatory, brake line included), `loop` (bounded `outcome run`), `supervised` (verifier-gated plan or `outcome check`), or `direct`, with the criteria, matched signals, and a suggested next command. Quality-climb terms come from the shared classification manifest, so `classify` and `loop-fit` cannot drift. Runs nothing, records no evidence, and needs no `.mythify` workspace. | 0 |
+| `artifact probe [--service-url URL] [--api-key-env ENV] [--expected-version VERSION] [--allow-remote] [--timeout N] [--json]` | Probe the optional watermarks-remover service at `/health` and `/capabilities`. Loopback is the default trust boundary. Returns version, capabilities, licensing warnings, and material-only evidence fields without creating `.mythify` state. | 0 if available; 2 if blocked or unavailable |
+| `artifact inspect PATH [--allow-finding TEXT] [--no-default-allowlist] [service options]` | Inspect one size-capped local artifact without changing it. Normalizes deterministic, heuristic, allowed, and advisory findings while retaining the raw service report. Remote uploads require both `--allow-remote` and `--acknowledge-data-upload`. | 0 if no actionable deterministic finding; 1 if actionable; 2 on adapter or input failure |
+| `artifact clean PATH --output OUTPUT --confirm-authorized [--overwrite] [--keep-non-ai-metadata] [--nfkc] [--aggressive-homoglyphs] [inspection and service options]` | Clean an owned or authorized artifact through the service. Requires a separate non-symlink output, refuses an existing output unless `--overwrite` is set, inspects before cleaning, validates returned base64, re-inspects returned bytes, then writes atomically. If normalization leaves no actionable deterministic finding, skip `/clean` and write a byte-identical output after the second inspection. Never exposes in-place cleaning or records service output as verification evidence. | 0 if the output has no actionable residual; 1 if written with actionable residuals; 2 if blocked or invalid |
 | `summary` | Full session report: plans and progress, memory count, project and global lesson counts, verification stats (executed passed, executed failed, attested count), reflection count. | 0 |
 
 Implementation notes:
@@ -1144,8 +1156,8 @@ Implementation notes:
 - `verify run` executes the command through the shell, streams stdout and stderr
   to temporary files, enforces timeout and output-size caps, and redacts common
   secret patterns before persisting or printing output tails.
-- `init`, `protocol check`, `trace` analysis commands, `classify`, and
-  `loop-fit` do not require a workspace. `route` treats the workspace as optional
+- `init`, `protocol check`, `trace` analysis commands, `classify`, `loop-fit`,
+  and `artifact` do not require a workspace. `route` treats the workspace as optional
   and uses durable state when it is present. Other commands require a resolvable
   state directory, or `MYTHIFY_DIR`, which is created on demand.
 - `--help` output for the top level and each subcommand must be accurate.
@@ -1154,15 +1166,15 @@ Implementation notes:
 
 Node 20+, ESM (`"type": "module"`). Runtime dependencies use
 `@modelcontextprotocol/server` (current 2.x) and `zod` (4.x). The v1 SDK is
-retained as a test-only dependency for legacy 2025 protocol coverage. package.json:
-name `mythify-mcp`, version `5.4.0`,
+retained as a test-only dependency for legacy 2025 protocol coverage.
+package.json: name `mythify-mcp`, version `5.5.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 47 tools: the 44 core tools below plus the 3 fanout tools defined in the
+Exactly 50 tools: the 47 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -1170,6 +1182,9 @@ does AND when to use it, since descriptions drive tool selection.
 | :--- | :--- | :--- |
 | `classify_task` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, utility model triage fit, open-ended quality-climb advisory, capability-profile router, host-aware model policy, signals, and next action. `failure_count` supports bounded escalation through `strong`; `max` must be explicit. With `triage: auto`, run one utility local model only when the deterministic gate recommends it. |
 | `host_model_switch` | `{action?: enum(switch, status, clear), platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), target_model?: string, current_model?: string, thinking?: enum(auto, low, medium, high, xhigh, max), speed?: enum(auto, standard, fast), reason?: string, format?: enum(text, json)}` | Record, show, or clear a requested host chat model switch. `switch` writes `.mythify/host-model.json`, returns platform-specific switch guidance, registry-backed `host_capability`, `switch_result`, `host_confirmation`, and `adapter_proof_scan`, and makes later `classify_task` and `fanout_start` calls use the recorded target as the session model when no explicit or env session model is supplied. It does not claim to mutate or confirm the current host chat unless a future host integration exposes that capability and confirms the result. |
+| `artifact_probe` | `{service_url?: string, api_key_env?: string, expected_version?: string, allow_remote?: boolean, timeout_seconds?: number, format?: enum(text, json)}` | Probe the optional watermarks-remover service for health, version, capabilities, and heavy-backend licensing warnings. Loopback is the default trust boundary. Returns material-only output and writes no Mythify state. |
+| `artifact_inspect` | `{artifact_path: string, allow_findings?: string[], use_default_allowlist?: boolean, acknowledge_data_upload?: boolean, service_url?: string, api_key_env?: string, expected_version?: string, allow_remote?: boolean, timeout_seconds?: number, format?: enum(text, json)}` | Inspect one local artifact without changing it. Separates deterministic findings from heuristic advice, retains raw reports, and downgrades known prose-frontmatter false positives by default. A remote service requires both remote opt-in and data-upload acknowledgement. Returns material-only output. |
+| `artifact_clean` | `{artifact_path: string, output_path: string, confirm_authorized: boolean, overwrite?: boolean, keep_non_ai_metadata?: boolean, nfkc?: boolean, aggressive_homoglyphs?: boolean, allow_findings?: string[], use_default_allowlist?: boolean, acknowledge_data_upload?: boolean, service options, format?: enum(text, json)}` | Clean one owned or authorized artifact to a separate output. Refuses symbolic-link and implicit overwrite targets, inspects before cleaning, validates service bytes, re-inspects before an atomic write, and reports residual findings. When no actionable deterministic finding remains after normalization, it writes a byte-identical output without calling `/clean`. Returns material-only output and never writes Mythify state. |
 | `provider_probe` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), base_url?: string, model?: string, check?: enum(models, chat, both), api_key_env?: string, timeout_seconds?: number, prompt?: string, format?: enum(text, json)}` | Probe an OpenAI-compatible provider by calling `/v1/models` and, when requested, `/v1/chat/completions`. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `api_key_env` is restricted to the fixed allowlist containing `MYTHIFY_OPENAI_COMPAT_API_KEY`; arbitrary process variables are rejected before any request. `provider: "ollama"` defaults to `MYTHIFY_OLLAMA_BASE_URL` or `http://localhost:11434/v1`; `provider: "lm-studio"` defaults to `MYTHIFY_LM_STUDIO_BASE_URL` or `http://localhost:1234/v1`; `provider: "llama-cpp"` defaults to `MYTHIFY_LLAMA_CPP_BASE_URL` or `http://localhost:8080/v1`; `provider: "vllm"` defaults to `MYTHIFY_VLLM_BASE_URL` or `http://localhost:8000/v1`. Local profiles use provider-specific model env vars and no auth header by default. Returns provider availability, model presence, chat response tail, and `material_not_evidence: true`. It does not write state, spawn workers, or count as verification evidence. |
 | `local_model_run` | `{provider?: enum(generic-openai-compatible, ollama, lm-studio, llama-cpp, vllm), role?: enum(reader, triage), base_url?: string, model?: string, prompt: string, api_key_env?: string, timeout_seconds?: number, max_tokens?: number, format?: enum(text, json)}` | Run a role-limited prompt against a localhost OpenAI-compatible provider. Generic defaults: `MYTHIFY_OPENAI_COMPAT_BASE_URL`, `MYTHIFY_OPENAI_COMPAT_MODEL`, and `MYTHIFY_OPENAI_COMPAT_API_KEY`. `api_key_env` uses the same fixed allowlist as `provider_probe`. `provider: "ollama"`, `provider: "lm-studio"`, `provider: "llama-cpp"`, and `provider: "vllm"` default to local profiles. The base URL must be `localhost`, `127.0.0.1`, `::1`, or `0.0.0.0`. Returns model output with `material_not_evidence: true`, `evidence_status: "model_output_not_verification"`, `writes_state: false`, and `verification_recorded: false`. It does not edit files, run commands, write state, or count model output as verification evidence. |
 | `host_cli_probe` | `{host?: enum(kimi-code, opencode, antigravity), bin?: string, timeout_seconds?: number, format?: enum(text, json)}` | Probe Kimi Code, OpenCode, or Antigravity CLI availability by running only version and help commands. Explicit `bin` basenames must match the selected host family. Defaults to `MYTHIFY_KIMI_BIN`, `MYTHIFY_OPENCODE_BIN`, or `MYTHIFY_ANTIGRAVITY_BIN`, then PATH and common install paths. Returns binary resolution, feature evidence, proof statuses for current-chat apply, current-chat confirm, worker model override, and thinking override, plus `material_not_evidence: true`. It does not execute a prompt, write state, spawn workers, or count as verification evidence. Antigravity MCP setup guidance lives in `docs/antigravity-mcp-setup.md`; the probe does not install or mutate MCP config. |
@@ -1727,7 +1742,7 @@ that already requires outside judgment.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the manifest tool names (set equality), the 44 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
+1. `tools/list` returns exactly the manifest tool names (set equality), the 47 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
    execution profile `direct`, and a command-backed fast triage result when
@@ -1774,7 +1789,7 @@ Required structure:
 6. Memory and lessons: what to store, when to recall (before architectural decisions,
    at session start), project vs global lessons.
 7. Command quick reference matching the CLI table exactly.
-8. A short MCP note listing the 38 tool names for clients using the server instead
+8. A short MCP note listing the 50 tool names for clients using the server instead
    of the CLI, with delegation discipline for the fanout tools.
 
 ### Protocol handshake
@@ -2423,7 +2438,7 @@ Platform mapping:
   `gpt-5.6-sol-high-fast` when that id is available. If no matching encoded
   id is found, Mythify leaves the requested model unchanged.
 
-### Tools (3, total 47)
+### Tools (3, total 50)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
@@ -2620,7 +2635,7 @@ or upgrade provider output into evidence.
 ### Smoke coverage (mcp-server/test/, runs in CI with no network)
 
 Using the `command` engine with a deterministic local template and stub local
-CLI binaries: 47-tool set equality; a 3-task command job runs to completion
+CLI binaries: 50-tool set equality; a 3-task command job runs to completion
 and `fanout_results` returns the outputs; `context_paths` content demonstrably
 reaches the worker prompt; the kill switch refuses; the depth guard refuses; a
 failing command produces a failed task with captured stderr; job.json matches
