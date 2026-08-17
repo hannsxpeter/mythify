@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 31,
+      "command_count": 32,
       "tiers": {
         "front_door": [
           "route",
@@ -41,6 +41,7 @@
         ],
         "labs": [
           "host-model",
+          "artifact",
           "eval"
         ]
       },
@@ -65,6 +66,7 @@
         "campaign",
         "classify",
         "host-model",
+        "artifact",
         "eval",
         "outcome",
         "plan",
@@ -79,9 +81,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 44,
+      "core_tool_count": 47,
       "fanout_tool_count": 3,
-      "total_tools": 47,
+      "total_tools": 50,
       "tiers": {
         "front_door": [
           "workflow_route",
@@ -130,6 +132,9 @@
         ],
         "labs": [
           "host_model_switch",
+          "artifact_probe",
+          "artifact_inspect",
+          "artifact_clean",
           "provider_probe",
           "local_model_run",
           "host_cli_probe",
@@ -142,6 +147,9 @@
       "core_tools": [
         "classify_task",
         "host_model_switch",
+        "artifact_probe",
+        "artifact_inspect",
+        "artifact_clean",
         "provider_probe",
         "local_model_run",
         "host_cli_probe",

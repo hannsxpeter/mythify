@@ -17,6 +17,7 @@ STANDALONE_DOCS = (
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
+    "docs/artifact-hygiene.md",
     "docs/claude-integrations.md",
     "docs/design.md",
     "docs/desktop-tool-calls.md",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from mythify_artifact_parser import add_artifact_parser
 from mythify_eval_parser import add_eval_parser
 from mythify_map_parser import add_map_parser
 
@@ -40,7 +41,7 @@ def build_parser(symbols):
             "  classify, memory, lesson, logs, reflect, summary, protocol, fanout through MCP\n"
             "\n"
             "Labs surfaces:\n"
-            "  host-model, eval, provider probes, local model runs, host CLI workers,\n"
+            "  host-model, artifact, eval, provider probes, local model runs, host CLI workers,\n"
             "  execution probes/runs, lifecycle probes\n"
             "\n"
             "Strict evidence mode:\n"
@@ -1034,6 +1035,15 @@ def build_parser(symbols):
     )
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_host_model_clear)
+
+    add_artifact_parser(
+        sub,
+        default_service_url=DEFAULT_SERVICE_URL,
+        default_api_key_env=ARTIFACT_API_KEY_ENV,
+        probe_handler=cmd_artifact_probe,
+        inspect_handler=cmd_artifact_inspect,
+        clean_handler=cmd_artifact_clean,
+    )
 
     outcome = sub.add_parser(
         "outcome",

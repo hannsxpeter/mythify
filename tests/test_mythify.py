@@ -45,6 +45,7 @@ SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
 MODEL_CAPABILITIES = REPO_ROOT / "protocol" / "model-capabilities.json"
 WORKFLOW_ROUTER = REPO_ROOT / "protocol" / "workflow-router.json"
+ARTIFACT_HYGIENE = REPO_ROOT / "protocol" / "artifact-hygiene.json"
 
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
@@ -685,6 +686,8 @@ class TestProtocolHandshake(CliTestCase):
             self.project / "scripts" / "mythify_workflows.py",
         )
         for name in (
+            "mythify_artifact_parser.py",
+            "mythify_artifacts.py",
             "mythify_eval_parser.py",
             "mythify_eval_scenarios.py",
             "mythify_evals.py",
@@ -717,6 +720,10 @@ class TestProtocolHandshake(CliTestCase):
         shutil.copy2(
             WORKFLOW_ROUTER,
             self.project / "protocol" / "workflow-router.json",
+        )
+        shutil.copy2(
+            ARTIFACT_HYGIENE,
+            self.project / "protocol" / "artifact-hygiene.json",
         )
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)

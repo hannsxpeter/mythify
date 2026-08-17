@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.5.0] - 2026-08-17
+
+Minor release: guarded artifact hygiene and the MCP 2026 protocol. Mythify can
+now use the watermarks-remover project through an external service without
+vendoring its cleaners, research models, or heavy backends. The adapter keeps
+service output material-only and places explicit trust and mutation boundaries
+around artifact inspection and cleaning.
+
+### Added
+
+- Added `artifact probe`, `artifact inspect`, and `artifact clean` to the CLI,
+  plus the matching `artifact_probe`, `artifact_inspect`, and `artifact_clean`
+  MCP tools. The integration probes health and capabilities, supports exact
+  version pinning, defaults to loopback, refuses redirects, restricts bearer
+  auth to `WATERMARKS_SERVER_API_KEY`, caps inputs and responses, and requires
+  separate remote-service and data-upload acknowledgements.
+- Added deterministic and heuristic finding normalization while preserving the
+  raw service report. Stylometry remains advisory. Ordinary prose frontmatter
+  value matches on `description`, `title`, `summary`, and `keywords` are
+  downgraded by default, while provenance keys and suspicious Unicode remain
+  actionable. Callers can add exact allowlist entries or disable the built-in
+  allowlist.
+- Added guarded cleaning for owned or authorized artifacts. Cleaning requires
+  explicit authorization and a separate output path, refuses symbolic links
+  and implicit overwrites, inspects before cleaning, validates returned base64,
+  re-inspects the returned bytes, and writes atomically. If normalization leaves
+  no actionable deterministic finding, it writes a byte-identical output
+  without calling `/clean`, which prevents allowed-only prose metadata from
+  being removed. In-place cleaning is not exposed.
+- Added the shared `protocol/artifact-hygiene.json` contract and its packaged
+  mirror, focused CLI and MCP tests, live service compatibility validation, and
+  user, protocol, architecture, integration, packaging, and release docs.
+
+### Changed
+
+- Updated the MCP server to support the stateless `2026-07-28` protocol while
+  retaining legacy `2025-03-26` client compatibility in the test suite.
+- Expanded the public surface to 32 top-level CLI commands and 50 MCP tools,
+  consisting of 47 core tools and 3 fanout tools.
+- Artifact service output explicitly reports
+  `artifact_service_output_not_verification`, writes no Mythify state, and
+  counts as evidence only when a caller records an executed command through
+  `verify run` or `verify_run`.
+
+### Security
+
+- Remote artifact services are denied by default, embedded URL credentials,
+  query strings, fragments, and redirects are refused, and remote artifact
+  uploads require a separate acknowledgement.
+- Cleaning cannot target the input, a symbolic link, or an existing output
+  without explicit overwrite intent. Returned bytes are size-capped and must
+  pass a second inspection before the atomic destination write.
+
 ## [5.4.0] - 2026-08-06
 
 Minor release: the open-ended quality-climb advisory. Some goals have no
@@ -1468,7 +1521,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.4.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.5.0...HEAD
+[5.5.0]: https://github.com/hannsxpeter/mythify/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/hannsxpeter/mythify/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/hannsxpeter/mythify/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/hannsxpeter/mythify/compare/v5.1.0...v5.2.0

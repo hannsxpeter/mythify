@@ -190,6 +190,9 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `host-model switch MODEL [--platform P] [--current-model M] [--thinking E] [--speed S] [--reason TEXT] [--json]` | Record a requested host chat model switch in `.mythify/host-model.json`, including host capability, switch result, host confirmation, and adapter proof scan fields; the host still owns the actual current chat model. |
 | `host-model status [--json]` | Show the recorded host model switch, host confirmation status, and adapter proof scan. |
 | `host-model clear [--json]` | Clear the recorded host model switch. |
+| `artifact probe [--service-url URL] [--expected-version VERSION] [--allow-remote] [--json]` | Probe an optional external watermarks-remover service for health, version, capabilities, and licensing warnings without writing Mythify state. |
+| `artifact inspect PATH [--allow-finding TEXT] [--no-default-allowlist] [service options]` | Inspect one artifact without changing it. Remote uploads require explicit remote and data-upload acknowledgements. Direct results are material, not verification evidence. |
+| `artifact clean PATH --output OUTPUT --confirm-authorized [--overwrite] [clean, inspection, and service options]` | Clean an owned or authorized artifact to a separate output. Refuse in-place and symbolic-link targets, re-inspect before an atomic write, and skip `/clean` with a byte-identical output when no actionable deterministic finding remains. Direct results are material, not verification evidence. |
 | `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND] [--metric-floor N] [--agent COMMAND] [--max-iterations N] [--max-cost N] [--escalate-after N] [--allowed-paths CSV] [--frozen-paths CSV] [--supersede REASON] [--visibility MODE] [--name NAME] [--json]` | Start an outcome loop with verifier, optional metric and metric floor, optional agent command, iteration and cost budgets, git-enforced scope, an enforced frozen-path deny-list, and escalation. A second start while one loop is active requires `--supersede REASON`, which retires the old loop with recorded lineage. |
 | `outcome check [NAME] [--notes TEXT] [--audit] [--timeout N] [--json]` | Run the verifier and optional metric, record the iteration, and return success, retry, or budget exhaustion. The host made the attempt. `--audit` re-runs a finished outcome's verifier without mutating its history; a red audit marks the evidence stale. |
 | `outcome run [NAME] [--notes TEXT] [--timeout N]` | Drive a self-driving loop started with `--agent`: fire the agent, run the verifier, record evidence, and repeat until success, iteration or cost budget, scope violation, or escalation. Bounded and evidence-gated. CLI-only. |
@@ -236,8 +239,8 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 47 tools: `classify_task`, `host_model_switch`,
-`provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
+through exactly 50 tools: `classify_task`, `host_model_switch`,
+`artifact_probe`, `artifact_inspect`, `artifact_clean`, `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
 `outcome_results`, `outcome_stop`, `memory_store`, `memory_recall`,
@@ -292,7 +295,17 @@ Outcome loops are host-supervised and stored in `.mythify/outcomes/`: make a
 bounded attempt, call `outcome_check`, then report success, retry, or stop.
 `host_model_switch` records intended host chat changes, host confirmation
 fields, and adapter proof scan fields, but does not mutate or confirm the host
-unless it exposes that capability. `provider_probe` can probe a configured
+unless it exposes that capability. `artifact_probe`, `artifact_inspect`, and
+`artifact_clean` use an optional external watermarks-remover service without
+vendoring its cleaners or research backends. Loopback is the default trust
+boundary; remote uploads require explicit acknowledgements. Inspection keeps
+heuristics advisory and downgrades known prose-frontmatter false positives.
+Cleaning requires authorization and a separate non-symlink output, re-inspects
+returned bytes, then writes atomically. When normalization leaves no actionable
+deterministic finding, cleaning skips `/clean` and writes a byte-identical
+output after the second inspection. Adapter results write no Mythify state
+and remain material until a caller records an executed command through
+`verify_run`. `provider_probe` can probe a configured
 OpenAI-compatible provider. `local_model_run` can run reader or triage prompts
 against a localhost OpenAI-compatible provider, writing no state and returning
 model output as material, not verification evidence. `host_cli_probe` can probe

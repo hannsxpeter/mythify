@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 44 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 47 tools in total. On-disk formats are
+// reflections) as 47 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 50 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -13,10 +13,11 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { redactSensitiveOutput } from "./redact.js";
 import { registerAdapterTools } from "./adapter-tools.js";
+import { registerArtifactTools } from "./artifact-tools.js";
 import { registerViewTools } from "./view-tools.js";
 import { registerWorkflowTools } from "./workflow-tools.js";
 import {
@@ -1177,6 +1178,7 @@ function guarded(handler) {
   };
 }
 
+function createServer() {
 const server = new McpServer({ name: "mythify-mcp", version: VERSION });
 
 const MCP_FRONT_DOOR_NOTE =
@@ -1214,6 +1216,11 @@ registerAdapterTools(server, {
   readHostModelState,
   clearHostModelState,
   writeHostModelState: (record) => writeJsonAtomic(hostModelPath(), record),
+  resolveStateDir,
+});
+
+registerArtifactTools(server, {
+  guarded,
   resolveStateDir,
 });
 
@@ -1441,13 +1448,15 @@ registerFanoutTools(server, {
   guarded,
 });
 
+return server;
+}
+
 // ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await serveStdio(createServer);
 }
 
 main().catch((err) => {

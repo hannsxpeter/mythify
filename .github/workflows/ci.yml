@@ -103,25 +103,76 @@ jobs:
           cd "$MCP_DIR"
           node --input-type=module <<'NODE'
           import assert from "node:assert/strict";
+          import { spawn } from "node:child_process";
           import fs from "node:fs";
           import os from "node:os";
           import path from "node:path";
-          import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-          import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
           const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-ci-install-"));
-          const transport = new StdioClientTransport({
-            command: process.env.RUNNER_TEMP + "/mythify-install/bin/mythify-mcp",
+          const server = spawn(process.env.RUNNER_TEMP + "/mythify-install/bin/mythify-mcp", [], {
             env: { ...process.env, MYTHIFY_DIR: stateDir },
+            stdio: ["pipe", "pipe", "pipe"],
           });
-          const client = new Client({ name: "mythify-ci-install", version: "1.0.0" });
-          await client.connect(transport);
+          const closed = new Promise((resolve) => server.once("close", resolve));
+          let buffered = "";
+          let stderr = "";
+          const messages = [];
+          server.stdout.setEncoding("utf8");
+          server.stderr.setEncoding("utf8");
+          server.stderr.on("data", (chunk) => {
+            stderr += chunk;
+          });
+          server.stdout.on("data", (chunk) => {
+            buffered += chunk;
+            for (;;) {
+              const newline = buffered.indexOf("\n");
+              if (newline < 0) break;
+              const line = buffered.slice(0, newline).trim();
+              buffered = buffered.slice(newline + 1);
+              if (line) messages.push(JSON.parse(line));
+            }
+          });
+
+          function send(message) {
+            server.stdin.write(`${JSON.stringify(message)}\n`);
+          }
+
+          function responseFor(id) {
+            return new Promise((resolve, reject) => {
+              const deadline = Date.now() + 5000;
+              const poll = () => {
+                const index = messages.findIndex((message) => message.id === id);
+                if (index >= 0) return resolve(messages.splice(index, 1)[0]);
+                if (Date.now() >= deadline) {
+                  return reject(new Error(`timed out waiting for response ${id}: ${stderr}`));
+                }
+                setTimeout(poll, 10);
+              };
+              poll();
+            });
+          }
+
           try {
-            const listed = await client.listTools();
+            send({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-11-25",
+                capabilities: {},
+                clientInfo: { name: "mythify-ci-install", version: "1.0.0" },
+              },
+            });
+            const initialized = await responseFor(1);
+            assert.equal(initialized.result.protocolVersion, "2025-11-25");
+            send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
+            send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+            const listed = await responseFor(2);
             const manifest = JSON.parse(fs.readFileSync("protocol/surface-manifest.json", "utf8"));
-            assert.equal(listed.tools.length, manifest.surfaces.mcp.total_tools);
+            assert.equal(listed.result.tools.length, manifest.surfaces.mcp.total_tools);
           } finally {
-            await client.close();
+            server.kill();
+            await closed;
           }
           NODE
       - name: ASCII rules

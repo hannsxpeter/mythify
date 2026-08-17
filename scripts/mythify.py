@@ -28,6 +28,13 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from mythify_parser import build_parser as build_cli_parser  # noqa: E402
+from mythify_artifacts import (  # noqa: E402
+    ARTIFACT_API_KEY_ENV,
+    DEFAULT_SERVICE_URL,
+    cmd_artifact_clean,
+    cmd_artifact_inspect,
+    cmd_artifact_probe,
+)
 from mythify_classification import (  # noqa: E402
     classify_task_text,
     format_classification,
@@ -216,7 +223,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.4.0"
+VERSION = "5.5.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )

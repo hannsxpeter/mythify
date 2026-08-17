@@ -216,6 +216,9 @@ Most turns should start with `route`, not the full table below.
 | `host-model switch MODEL [--platform P]` | Record a requested host chat model switch for model policy. |
 | `host-model status` | Show the recorded host model switch. |
 | `host-model clear` | Clear the recorded host model switch. |
+| `artifact probe [service options]` | Probe the optional external artifact-hygiene service. |
+| `artifact inspect PATH [inspection and service options]` | Inspect an artifact without changing it. Direct output is material, not verification evidence. |
+| `artifact clean PATH --output OUTPUT --confirm-authorized [clean and service options]` | Clean an owned or authorized artifact to a separate output after post-clean inspection. |
 | `research start QUESTION [--name NAME]` | Start source-backed research. |
 | `research add-source TITLE [--url URL]` | Add a research source. |
 | `research add-claim CLAIM --evidence TEXT` | Add a source-backed claim. |
@@ -254,9 +257,15 @@ research, analysis, failure, handoff, review, campaign, or next-prompt packets.
 Same state directory, same file formats, full
 interop with the CLI.
 
-Treat host-model state, provider probes, local model runs, host CLI workers,
-execution substrate tools, and lifecycle probes as labs surfaces. They are
+Treat host-model state, artifact hygiene, provider probes, local model runs,
+host CLI workers, execution substrate tools, and lifecycle probes as labs surfaces. They are
 available when explicitly useful, but they are not the default Mythify path.
+
+The artifact hygiene surface uses an optional external watermarks-remover
+service. Keep loopback as the default, require explicit acknowledgements for
+remote uploads, and require `--confirm-authorized` plus a separate output for
+cleaning. Treat deterministic findings as actionable, stylometry as advisory,
+and service output as material until an executed verifier records it.
 
 `classify_task` returns `model_policy.session.recommendation` so hosts can map
 the prompt to chat settings before work begins. Direct low-risk prompts use a
