@@ -13,8 +13,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { redactSensitiveOutput } from "./redact.js";
 import { registerAdapterTools } from "./adapter-tools.js";
 import { registerViewTools } from "./view-tools.js";
@@ -1177,6 +1177,7 @@ function guarded(handler) {
   };
 }
 
+function createServer() {
 const server = new McpServer({ name: "mythify-mcp", version: VERSION });
 
 const MCP_FRONT_DOOR_NOTE =
@@ -1441,13 +1442,15 @@ registerFanoutTools(server, {
   guarded,
 });
 
+return server;
+}
+
 // ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await serveStdio(createServer);
 }
 
 main().catch((err) => {

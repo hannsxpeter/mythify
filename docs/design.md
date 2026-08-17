@@ -1152,8 +1152,10 @@ Implementation notes:
 
 ## MCP server: mcp-server/
 
-Node 20+, ESM (`"type": "module"`). Dependencies: `@modelcontextprotocol/sdk`
-(current 1.x) and `zod` (4.x). package.json: name `mythify-mcp`, version `5.4.0`,
+Node 20+, ESM (`"type": "module"`). Runtime dependencies use
+`@modelcontextprotocol/server` (current 2.x) and `zod` (4.x). The v1 SDK is
+retained as a test-only dependency for legacy 2025 protocol coverage. package.json:
+name `mythify-mcp`, version `5.4.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
