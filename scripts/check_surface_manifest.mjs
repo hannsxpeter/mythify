@@ -254,22 +254,22 @@ function main() {
   );
   requireMatches(
     "docs/design.md",
-    /\| `plan create GOAL \[--steps JSON\][^\n]+\| Create plan[^\n]+"verify_command": str \(optional\)/,
+    /\| `plan create GOAL \[--steps JSON\] \[--horizon N\] \[--name NAME\] \[--archetype direct\\\|rpi\\\|design-heavy\] \[--design NAME\] \[--parent KIND:ID\]` \|[^\n]+`verify_command`/,
     "CLI plan create verify_command schema"
   );
   requireMatches(
     "docs/design.md",
-    /\| `plan add-step TITLE \[--criteria TEXT\] \[--verify COMMAND\] \[--plan NAME\]`/,
+    /\| `plan add-step TITLE \[--criteria TEXT\] \[--verify COMMAND\] \[--phase PHASE\] \[--vertical-slice JSON\] \[--plan NAME\]`/,
     "CLI plan add-step verify command"
   );
   requireMatches(
     "docs/design.md",
-    /\| `plan_create` \| `\{[^\n]+steps\?: \[\{title: string, success_criteria\?: string, verify_command\?: string\}\]/,
+    /\| `plan_create` \| `\{[^\n]+steps\?: \[\{title: string, success_criteria\?: string, verify_command\?: string, phase\?: enum, vertical_slice\?: object\}\][^\n]+archetype\?: enum\(direct, rpi, design-heavy\)[^\n]+parents\?: \[\{kind: string, id: string\}\]/,
     "MCP plan_create verify_command schema"
   );
   requireMatches(
     "docs/design.md",
-    /\| `plan_add_step` \| `\{title: string, success_criteria\?: string, verify_command\?: string, plan\?: string\}`/,
+    /\| `plan_add_step` \| `\{title: string, success_criteria\?: string, verify_command\?: string, phase\?: enum, vertical_slice\?: object, plan\?: string\}`/,
     "MCP plan_add_step verify_command schema"
   );
   requireMatches(
