@@ -55,6 +55,20 @@ now_iso = _missing_dependency
 slugify = _missing_dependency
 
 
+def inspect_lineage(_state, _lineage):
+    """Preserve direct-import compatibility until the runtime injects lineage IO."""
+    return {
+        "status": "unknown",
+        "parents": [],
+        "precedence": [
+            "live_code_current_behavior",
+            "approved_design_desired_behavior",
+            "latest_linked_plan_implementation_order",
+            "executed_verification_completion",
+        ],
+    }
+
+
 def fail(message):
     print(message, file=sys.stderr)
 
@@ -74,12 +88,14 @@ def configure_views(
     timestamp_after_func=None,
     now_iso_func=None,
     slugify_func=None,
+    inspect_lineage_func=None,
     fail_func=None,
     mythify_version=None,
 ):
     global get_active_slug, load_plan, plan_progress, next_pending_step
     global load_memory, load_lessons, global_lessons_dir, list_plan_slugs
     global format_step_line, timestamp_sort_key, timestamp_after, now_iso, slugify
+    global inspect_lineage
     global fail
     if get_active_slug_func is not None:
         get_active_slug = get_active_slug_func
@@ -107,6 +123,8 @@ def configure_views(
         now_iso = now_iso_func
     if slugify_func is not None:
         slugify = slugify_func
+    if inspect_lineage_func is not None:
+        inspect_lineage = inspect_lineage_func
     if fail_func is not None:
         fail = fail_func
     configure_status_views(
@@ -153,6 +171,7 @@ def build_dashboard(state, recent=3):
                 "current_step": current_in_progress_step(plan),
                 "next_pending_step": next_pending_step(plan),
                 "steps": plan.get("steps", []),
+                "lineage": inspect_lineage(state, plan.get("lineage")),
             }
     active_outcome_slug = get_active_outcome_slug(state)
     active_outcome = None
@@ -209,6 +228,7 @@ def format_dashboard(dashboard):
             )
         )
         lines.append("Goal: {0}".format(plan.get("goal", "")))
+        lines.append("Lineage: {0}".format(plan["lineage"]["status"]))
         current = plan.get("current_step")
         if current:
             lines.append("Current step: {0}".format(format_step_line(current, "").strip()))

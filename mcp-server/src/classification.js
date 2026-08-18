@@ -24,6 +24,7 @@ function loadClassificationRules() {
     "fanout_visibility",
     "quality_climb",
     "execution_profile",
+    "plan_archetype",
     "next_actions",
     "model_triage",
     "verification_hints",
@@ -64,6 +65,7 @@ const FANOUT_POLICY = CLASSIFICATION_MANIFEST.fanout;
 const FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST.fanout_visibility;
 const QUALITY_CLIMB_POLICY = CLASSIFICATION_MANIFEST.quality_climb;
 const EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST.execution_profile;
+const PLAN_ARCHETYPE_POLICY = CLASSIFICATION_MANIFEST.plan_archetype;
 const NEXT_ACTIONS = CLASSIFICATION_MANIFEST.next_actions;
 const MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST.model_triage;
 const VERIFICATION_HINTS = CLASSIFICATION_MANIFEST.verification_hints;
@@ -208,6 +210,19 @@ function executionProfileFor(taskType, risk, ceremony, ambiguity, text) {
   ];
 }
 
+function planArchetypeFor(taskType, executionProfile, text) {
+  if (PLAN_ARCHETYPE_POLICY.direct_execution_profiles.map(String).includes(executionProfile)) {
+    return ["direct", PLAN_ARCHETYPE_POLICY.direct_reason];
+  }
+  if (
+    PLAN_ARCHETYPE_POLICY.design_heavy_task_types.map(String).includes(taskType) ||
+    containsAny(text, PLAN_ARCHETYPE_POLICY.design_heavy_terms).length > 0
+  ) {
+    return ["design-heavy", PLAN_ARCHETYPE_POLICY.design_heavy_reason];
+  }
+  return ["rpi", PLAN_ARCHETYPE_POLICY.rpi_reason];
+}
+
 export function classifyTaskText(taskText) {
   const text = String(taskText || "").toLowerCase().split(/\s+/).join(" ");
   const words = text.replaceAll("/", " ").replaceAll("_", " ").split(/\s+/).filter(Boolean);
@@ -301,6 +316,7 @@ export function classifyTaskText(taskText) {
     ambiguity,
     text
   );
+  const [planArchetype, planArchetypeReason] = planArchetypeFor(taskType, executionProfile, text);
 
   let nextAction;
   if (executionProfile === "direct") {
@@ -323,6 +339,8 @@ export function classifyTaskText(taskText) {
     ceremony,
     execution_profile: executionProfile,
     execution_profile_reason: executionProfileReason,
+    plan_archetype: planArchetype,
+    plan_archetype_reason: planArchetypeReason,
     verification: VERIFICATION_HINTS[taskType] || VERIFICATION_HINTS.feature,
     fanout,
     fanout_reason: fanoutReason,
@@ -374,6 +392,7 @@ export function formatClassification(result) {
     `ambiguity: ${result.ambiguity}`,
     `ceremony: ${result.ceremony}`,
     `execution profile: ${result.execution_profile} (${result.execution_profile_reason})`,
+    `plan archetype: ${result.plan_archetype} (${result.plan_archetype_reason})`,
     `verification: ${result.verification}`,
     `fanout: ${result.fanout} (${result.fanout_reason})`,
     `fanout visibility: ${result.fanout_visibility || "summary"} (${result.fanout_visibility_reason || "Summary visibility is the default."})`,

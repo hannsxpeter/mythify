@@ -55,6 +55,8 @@
       "sources": [
         "protocol/surface-manifest.json",
         "mcp-server/protocol/surface-manifest.json",
+        "protocol/tool-profiles.json",
+        "mcp-server/protocol/tool-profiles.json",
         "scripts/check_surface_manifest.mjs"
       ],
       "commands": [
@@ -147,7 +149,7 @@
         "mcp-server/package.json"
       ],
       "commands": [
-        "python3 scripts/package_cli.py --check-release-tag v5.5.0"
+        "python3 scripts/package_cli.py --check-release-tag v5.6.0"
       ]
     },
     {

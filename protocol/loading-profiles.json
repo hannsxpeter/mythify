@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "default_profile": "full",
+  "profiles": {
+    "full": {
+      "description": "Complete canonical protocol for hosts without proven progressive disclosure.",
+      "requires": [],
+      "sections": ["*"]
+    },
+    "thin": {
+      "description": "Safety, routing, proportional ceremony, and verification bootstrap for hosts that can load skills and references.",
+      "requires": ["skill_loading", "reference_loading"],
+      "sections": [
+        "Core rules (always active)",
+        "Proportional ceremony",
+        "Verification doctrine"
+      ]
+    }
+  }
+}

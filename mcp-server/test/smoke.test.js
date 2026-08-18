@@ -586,8 +586,21 @@ test("mythify MCP server smoke test", async (t) => {
         assert.match(payload.guardrail, /not verification evidence/);
         if (route === "plan") {
           assert.match(payload.next_command, /--horizon 20/);
+          assert.equal(payload.plan_archetype, "rpi");
+          assert.match(payload.next_command, /--archetype rpi/);
+          assert.equal(payload.maintainability_review.recommended, false);
         }
       }
+      const designHeavyText = textOf(
+        await client.callTool({
+          name: "workflow_route",
+          arguments: { task: "migrate the public API schema across runtimes", format: "json" },
+        })
+      );
+      const designHeavy = JSON.parse(designHeavyText.replace(/^\[OK\] /, ""));
+      assert.equal(designHeavy.plan_archetype, "design-heavy");
+      assert.equal(designHeavy.maintainability_review.recommended, true);
+      assert.equal(designHeavy.maintainability_review.evidence_status, "material_not_verification");
       const ultracodeText = textOf(
         await client.callTool({
           name: "workflow_route",
@@ -1411,7 +1424,7 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.deepEqual(
         Object.keys(plan).sort(),
-        ["created", "goal", "last_updated", "name", "steps"],
+        ["archetype", "created", "goal", "last_updated", "name", "steps"],
         "plan file has the exact contract fields"
       );
       assert.equal(plan.name, "smoke-goal");
@@ -2063,6 +2076,9 @@ test("MCP verify_run records output cap as shared verifier failure", async () =>
     );
     assert.equal(record.exit_code, -1);
     assert.equal(record.verified, false);
+    assert.equal(record.artifacts.stdout.truncated, true);
+    assert.equal(record.artifacts.stderr.truncated, false);
+    assert.ok(record.artifacts.stdout.source_bytes > record.artifacts.stdout.bytes);
     assert.match(record.stderr_tail, /output exceeded 1024 bytes/);
   } finally {
     await client.close();

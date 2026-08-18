@@ -15,6 +15,46 @@ export const PLAN_TOOL_NAMES = [
 ];
 
 const STEP_STATUSES = ["pending", "in_progress", "completed", "failed", "skipped"];
+const PLAN_ARCHETYPES = ["direct", "rpi", "design-heavy"];
+const PLAN_PHASES = ["understand", "product", "system", "program", "build", "judge", "verify"];
+const VERTICAL_SLICE_SCHEMA = z.object({
+  result: z.string().min(1).describe("Named observable result of the slice."),
+  files: z.array(z.string()).optional().describe("Files expected to change."),
+  automated_checks: z.array(z.string()).optional().describe("Executable checks for the slice."),
+  manual_checks: z.array(z.string()).optional().describe("Manual observations for the slice."),
+});
+
+function planStepExtensions(step, archetype) {
+  const phase = String(step.phase || "").trim();
+  const vertical = step.vertical_slice || null;
+  if (phase && !PLAN_PHASES.includes(phase)) {
+    throw new Error(`phase must be one of: ${PLAN_PHASES.join(", ")}`);
+  }
+  if (vertical) {
+    const automated = Array.isArray(vertical.automated_checks) ? vertical.automated_checks.filter(Boolean) : [];
+    const manual = Array.isArray(vertical.manual_checks) ? vertical.manual_checks.filter(Boolean) : [];
+    if (!String(vertical.result || "").trim()) {
+      throw new Error("vertical_slice.result is required");
+    }
+    if (automated.length === 0 && manual.length === 0) {
+      throw new Error("vertical_slice needs at least one automated or manual check");
+    }
+  }
+  if (archetype === "design-heavy" && phase === "build" && !vertical) {
+    throw new Error("design-heavy build steps require vertical_slice");
+  }
+  return {
+    ...(phase ? { phase } : {}),
+    ...(vertical ? {
+      vertical_slice: {
+        result: String(vertical.result).trim(),
+        files: Array.isArray(vertical.files) ? vertical.files.filter(Boolean) : [],
+        automated_checks: Array.isArray(vertical.automated_checks) ? vertical.automated_checks.filter(Boolean) : [],
+        manual_checks: Array.isArray(vertical.manual_checks) ? vertical.manual_checks.filter(Boolean) : [],
+      },
+    } : {}),
+  };
+}
 
 // Advisory pairing for the exit-code anchor: name the cheap way to win.
 function noopVerifierWarning(stepId, verifyCommand) {
@@ -59,6 +99,10 @@ export function registerPlanTools(server, deps) {
   const evidenceMovedSinceRun = requireDep(deps, "evidenceMovedSinceRun");
   const currentProvenance = requireDep(deps, "currentProvenance");
   const frontDoorNote = typeof deps.mcpFrontDoorNote === "string" ? deps.mcpFrontDoorNote : "";
+  const captureLineage = requireDep(deps, "captureLineage");
+  const resolveStateDir = requireDep(deps, "resolveStateDir");
+  const isoNowForLineage = isoNow;
+  const parentSchema = z.object({ kind: z.string(), id: z.string() });
 
   server.registerTool(
     "plan_create",
@@ -80,6 +124,8 @@ export function registerPlanTools(server, deps) {
                 .string()
                 .optional()
                 .describe("Executable proof of the step's done-condition; run it with the CLI plan verify."),
+              phase: z.enum(PLAN_PHASES).optional().describe("Explicit workflow phase."),
+              vertical_slice: VERTICAL_SLICE_SCHEMA.optional().describe("Observable vertical result and checks."),
             })
           )
           .optional()
@@ -91,9 +137,12 @@ export function registerPlanTools(server, deps) {
           .max(MAX_PLAN_HORIZON)
           .optional()
           .describe("Create N default lookahead steps when steps is omitted."),
+        archetype: z.enum(PLAN_ARCHETYPES).optional().describe("direct, rpi, or design-heavy. Defaults to direct."),
+        design: z.string().optional().describe("Approved design record this plan implements."),
+        parents: z.array(parentSchema).optional().describe("Typed parent artifacts captured at creation."),
       },
     },
-    guarded(({ goal, name, steps, horizon }) => {
+    guarded(({ goal, name, steps, horizon, archetype = "direct", design, parents }) => {
       if (steps !== undefined && horizon !== undefined) {
         return "[FAIL] horizon can only be used when steps is omitted.";
       }
@@ -113,7 +162,9 @@ export function registerPlanTools(server, deps) {
         slugify(name !== undefined && name !== null && String(name).trim() !== "" ? name : goal) || "plan";
       const slug = uniquePlanSlug(base);
       const now = isoNow();
-      const planSteps = inputSteps.map((s, i) => {
+      let planSteps;
+      try {
+        planSteps = inputSteps.map((s, i) => {
         const step = {
           id: i + 1,
           title: s.title,
@@ -125,15 +176,27 @@ export function registerPlanTools(server, deps) {
         if (verifyCommand) {
           step.verify_command = verifyCommand;
         }
+        Object.assign(step, planStepExtensions(s, archetype));
         return step;
-      });
+        });
+      } catch (error) {
+        return `[FAIL] Invalid plan step: ${error.message}.`;
+      }
       const plan = {
         name: slug,
         goal,
         steps: planSteps,
         created: now,
         last_updated: now,
+        archetype,
       };
+      if (design) {
+        plan.design = design;
+      }
+      if (parents && parents.length > 0) {
+        try { plan.lineage = captureLineage(resolveStateDir(), parents, isoNowForLineage); }
+        catch (error) { return `[FAIL] Invalid lineage: ${error.message}.`; }
+      }
       writeJsonAtomic(planPath(slug), plan);
       setActiveSlug(slug);
       const lines = [
@@ -171,10 +234,12 @@ export function registerPlanTools(server, deps) {
           .string()
           .optional()
           .describe("Executable proof of the step's done-condition; run it with the CLI plan verify."),
+        phase: z.enum(PLAN_PHASES).optional().describe("Explicit workflow phase."),
+        vertical_slice: VERTICAL_SLICE_SCHEMA.optional().describe("Observable vertical result and checks."),
         plan: z.string().optional().describe("Plan name; omit to use the active plan."),
       },
     },
-    guarded(({ title, success_criteria, verify_command, plan: planName }) => {
+    guarded(({ title, success_criteria, verify_command, phase, vertical_slice, plan: planName }) => {
       const resolved = resolvePlan(planName);
       if (resolved.error) {
         return resolved.error;
@@ -194,6 +259,14 @@ export function registerPlanTools(server, deps) {
       const verifyCommand = String(verify_command || "").trim();
       if (verifyCommand) {
         step.verify_command = verifyCommand;
+      }
+      try {
+        Object.assign(
+          step,
+          planStepExtensions({ phase, vertical_slice }, plan.archetype || "direct")
+        );
+      } catch (error) {
+        return `[FAIL] Invalid plan step: ${error.message}.`;
       }
       plan.steps.push(step);
       savePlan(slug, plan);

@@ -764,6 +764,7 @@ def format_evidence_harness_view(view):
                 view["control_points"]["open_plan_steps"],
             )
         )
+        lines.append("Active plan lineage: {0}".format(plan["lineage"]["status"]))
     else:
         lines.append("Active plan: none")
     outcome = view.get("active_outcome")
@@ -1140,6 +1141,17 @@ PHASE_STATUS_ICONS = {
 def phase_id_for_step(step):
     explicit = step.get("phase", "")
     if explicit:
+        explicit_map = {
+            "understand": "understand",
+            "product": "design",
+            "system": "design",
+            "program": "design",
+            "build": "build",
+            "judge": "judge",
+            "verify": "verify",
+        }
+        if explicit in explicit_map:
+            return explicit_map[explicit]
         for phase in PHASE_CONFIG:
             if _contains_any(explicit, phase["keywords"]):
                 return phase["id"]

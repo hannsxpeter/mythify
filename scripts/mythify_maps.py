@@ -64,6 +64,7 @@ find_existing_slug_by_name = _missing_dependency
 execute_verification = _missing_dependency
 build_default_plan_steps = _missing_dependency
 create_plan_record = _missing_dependency
+attach_plan_lineage = _missing_dependency
 environ = None
 
 
@@ -80,10 +81,11 @@ def configure_map_store(
     execute_verification_func=None,
     build_default_plan_steps_func=None,
     create_plan_record_func=None,
+    attach_plan_lineage_func=None,
     environ_map=None,
 ):
     global now_iso, slugify, fail, find_existing_slug_by_name, execute_verification
-    global build_default_plan_steps, create_plan_record, environ
+    global build_default_plan_steps, create_plan_record, attach_plan_lineage, environ
     if now_iso_func is not None:
         now_iso = now_iso_func
     if slugify_func is not None:
@@ -98,6 +100,8 @@ def configure_map_store(
         build_default_plan_steps = build_default_plan_steps_func
     if create_plan_record_func is not None:
         create_plan_record = create_plan_record_func
+    if attach_plan_lineage_func is not None:
+        attach_plan_lineage = attach_plan_lineage_func
     if environ_map is not None:
         environ = environ_map
 
@@ -882,6 +886,7 @@ def cmd_map_promote(args, state):
     record["status"] = "promoted"
     record["promoted_plan"] = plan_slug
     save_map(state, slug, record)
+    attach_plan_lineage(state, plan_slug, ["map:" + slug])
     clear_active_map_slug(state, slug)
     print("[OK] Promoted map {0} to plan {1}".format(slug, plan_slug))
     print("Destination: {0}".format(record.get("destination", "")))

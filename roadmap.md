@@ -11,8 +11,8 @@ The completed roadmap now lives at
 
 ## Current Release State
 
-- Current release target: `v5.5.0`.
-- Release gate: pending for `v5.5.0` until the final commit's exact commands
+- Current release target: `v5.6.0`.
+- Release gate: pending for `v5.6.0` until the final commit's exact commands
   in `protocol/release-gates.json` have fresh executed evidence.
 - Packaging targets: GitHub release assets for `dist/mythify.skill`, the
   standalone CLI tarball, the MCP npm tarball, and `SHA256SUMS`.

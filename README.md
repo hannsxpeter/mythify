@@ -313,8 +313,9 @@ can use `isolation: "worktree"` so each one gets its own git worktree on a fresh
 branch and cannot collide with the others. You merge the branches you want.
 
 The server shares the exact same `.mythify/` folder as the CLI, so a plan made in
-one is visible in the other. It exposes Mythify through 50 MCP tools; the full
-list is in [docs/design.md](docs/design.md).
+one is visible in the other. It exposes Mythify through 60 MCP tools by default,
+or a smaller capability profile selected with `MYTHIFY_MCP_TOOL_PROFILE`. The
+full list and profile budgets are in [docs/design.md](docs/design.md).
 
 Fanout results are material, not proof. Merge the work, then verify the merged
 result the same way as anything else.
@@ -363,12 +364,16 @@ The everyday commands:
 | `map ticket TITLE --type ...` | Add a decision ticket: research, prototype, grilling, or task. |
 | `map claim ID` / `map resolve ID --answer ...` | Take one ticket, then close it with its decision. |
 | `map promote` | Hand a settled map to a plan, decisions and scope included. |
-| `plan create GOAL [--steps JSON]` | Create a plan. Steps may include `verify_command`. |
-| `plan add-step TITLE [--verify CMD]` | Add a step, optionally with its check. |
+| `plan create GOAL [--steps JSON] [--archetype ...]` | Create a plan. Steps may include an explicit phase, vertical slice, and `verify_command`. |
+| `plan add-step TITLE [--phase ...] [--vertical-slice JSON] [--verify CMD]` | Add a step with optional phase, vertical result, and check. |
 | `plan verify ID` | Run a step's own check and record scoped evidence. |
 | `plan import [--source godplans\|godaudits]` | Import a PLAN.mdx or AUDIT.mdx as a plan. |
 | `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing exit-0 verify matching any stored command. |
 | `verify run "CMD" [--claim ...]` | Run a command and record the exit code as evidence. |
+| `design create`, `design alternative`, `design approve` | Record product, system, program, and bounded interface decisions as material. |
+| `lineage attach`, `lineage status` | Capture typed parent revisions and inspect staleness. |
+| `review create`, `review show` | Record structured material-only maintainability judgment. |
+| `workspace show` | Validate merged shared and local multi-repository configuration. |
 | `outcome start GOAL --success ... --verify ...` | Start a verifier-backed loop. Add `--agent` to self-drive. |
 | `outcome run` | Drive a self-driving loop to success or a bounded stop. |
 | `memory set/get`, `lesson add/list` | Persist facts, decisions, and lessons. |
@@ -443,6 +448,7 @@ drop-in rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
 - [docs/start-here.md](docs/start-here.md): the shortest path to using Mythify.
 - [docs/design.md](docs/design.md): the complete design and command reference.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the reproducible smoke run and its limits.
+- [docs/humanlayer-integration-research.md](docs/humanlayer-integration-research.md): source-backed HumanLayer repository and philosophy study behind the v5.6 quality controls.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.
 

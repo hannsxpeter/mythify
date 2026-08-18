@@ -13,10 +13,17 @@ import json
 import sys
 from pathlib import Path
 
+from mythify_protocol_profiles import (
+    PROFILE_BODY_PREFIX,
+    PROFILE_PREFIX,
+    load_profile_manifest,
+    render_profile_body,
+)
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-PROTOCOL_SOURCE_SHA256 = "2a72efe61eb380da7611417b8cf052067b4ccff7b91dc2d4dfd718a9b28358d8"
-RELEASE_GATES_SHA256 = "a909ee97eb3a99514db45455409a05432b97b981b075b30fd99e12fb7f975f8c"
+PROTOCOL_SOURCE_SHA256 = "7b8ed674d2928bf2653841cf6293750f31b41c54075ebca691681720dd3575d5"
+RELEASE_GATES_SHA256 = "b3d8ef2b65f2233850b9969d22e1c783e2d4a8cbf63773873f395d7c33ed499a"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 
@@ -41,6 +48,21 @@ def extract_protocol_copy_hash(text):
         if stripped.startswith(PROTOCOL_HASH_PREFIX) and stripped.endswith("-->"):
             return stripped[len(PROTOCOL_HASH_PREFIX):-3].strip()
     return None
+
+
+def extract_header_value(text, prefix):
+    for line in text.splitlines()[:10]:
+        stripped = line.strip()
+        if stripped.startswith(prefix) and stripped.endswith("-->"):
+            return stripped[len(prefix):-3].strip()
+    return None
+
+
+def extract_protocol_body(text):
+    marker = "\n\n"
+    if marker not in text:
+        return ""
+    return text.split(marker, 1)[1]
 
 
 def source_protocol_path():
@@ -106,6 +128,25 @@ def protocol_copy_check(path):
         result["status"] = "missing_header"
     elif actual != PROTOCOL_SOURCE_SHA256:
         result["status"] = "drift"
+    else:
+        profile = extract_header_value(text, PROFILE_PREFIX)
+        body_digest = extract_header_value(text, PROFILE_BODY_PREFIX)
+        result["profile"] = profile or "legacy_full"
+        result["body_digest"] = body_digest
+        if profile is not None:
+            try:
+                manifest = load_profile_manifest(REPO_ROOT)
+                source = source_protocol_path().read_text(encoding="utf-8")
+                expected_body = render_profile_body(source, profile, manifest)
+            except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                result["status"] = "invalid_profile"
+            else:
+                expected_body_digest = sha256_text(expected_body)
+                result["expected_body_digest"] = expected_body_digest
+                actual_body_digest = sha256_text(extract_protocol_body(text))
+                result["actual_body_digest"] = actual_body_digest
+                if body_digest != expected_body_digest or actual_body_digest != expected_body_digest:
+                    result["status"] = "body_drift"
     return result
 
 
@@ -118,6 +159,13 @@ def format_protocol_check_failure(result):
         return (
             "[FAIL] Protocol handshake missing from {0}. Regenerate with "
             "scripts/build_variants.py or copy a current protocol variant."
+        ).format(path)
+    if status == "invalid_profile":
+        return "[FAIL] Invalid protocol loading profile in {0}.".format(path)
+    if status == "body_drift":
+        return (
+            "[FAIL] Protocol profile body drift in {0}. Regenerate with "
+            "scripts/build_variants.py."
         ).format(path)
     if status == "drift" and result.get("kind") == "release_gates":
         return (

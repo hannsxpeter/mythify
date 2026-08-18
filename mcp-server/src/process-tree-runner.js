@@ -7,7 +7,11 @@ const maxOutputBytes = Number(config.max_output_bytes);
 const tailBytes = 8192;
 let stdoutTail = Buffer.alloc(0);
 let stderrTail = Buffer.alloc(0);
+const stdoutFull = [];
+const stderrFull = [];
 let outputBytes = 0;
+let stdoutSourceBytes = 0;
+let stderrSourceBytes = 0;
 let timedOut = false;
 let outputLimitExceeded = false;
 let containmentFailed = false;
@@ -32,6 +36,10 @@ function finish(payload) {
   process.stdout.write(JSON.stringify({
     stdout: stdoutTail.toString("utf8"),
     stderr: stderrTail.toString("utf8"),
+    stdout_full: Buffer.concat(stdoutFull).toString("utf8"),
+    stderr_full: Buffer.concat(stderrFull).toString("utf8"),
+    stdout_source_bytes: stdoutSourceBytes,
+    stderr_source_bytes: stderrSourceBytes,
     timed_out: timedOut,
     output_limit_exceeded: outputLimitExceeded,
     containment_failed: containmentFailed,
@@ -52,11 +60,17 @@ const timer = setTimeout(() => {
 }, Math.max(1, Math.round(Number(config.timeout_seconds) * 1000)));
 
 function capture(channel, chunk) {
+  const remaining = Math.max(0, maxOutputBytes - outputBytes);
+  const retained = remaining > 0 ? chunk.subarray(0, remaining) : Buffer.alloc(0);
   outputBytes += chunk.length;
   if (channel === "stdout") {
+    stdoutSourceBytes += chunk.length;
     stdoutTail = appendTail(stdoutTail, chunk);
+    if (retained.length > 0) stdoutFull.push(retained);
   } else {
+    stderrSourceBytes += chunk.length;
     stderrTail = appendTail(stderrTail, chunk);
+    if (retained.length > 0) stderrFull.push(retained);
   }
   if (!outputLimitExceeded && outputBytes > maxOutputBytes) {
     outputLimitExceeded = true;

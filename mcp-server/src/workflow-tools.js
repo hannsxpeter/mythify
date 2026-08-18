@@ -565,7 +565,35 @@ function routeHas(text, terms) {
   return containsAny(text, terms).length > 0;
 }
 
-function routeCommandFor(route, task, stateView) {
+function routePlanArchetype(route, classification) {
+  const archetype = classification?.plan_archetype || "direct";
+  return route === "plan" && archetype === "direct" ? "rpi" : archetype;
+}
+
+function maintainabilityReviewPacket(route, classification) {
+  const archetype = routePlanArchetype(route, classification);
+  const recommended = archetype === "design-heavy" || classification?.task_type === "refactor";
+  return {
+    recommended,
+    reason: recommended
+      ? "The route changes an expensive seam or emphasizes maintainability."
+      : "The route does not require advisory maintainability judgment.",
+    command: recommended
+      ? "mythify review create --status pass --path CHANGED_PATH --interface-depth NOTE --locality NOTE --seam-count NOTE --deletion-cost NOTE --invalid-state-exclusion NOTE --test-validity NOTE"
+      : null,
+    dimensions: [
+      "interface_depth",
+      "locality",
+      "seam_count",
+      "deletion_cost",
+      "invalid_state_exclusion",
+      "test_validity",
+    ],
+    evidence_status: "material_not_verification",
+  };
+}
+
+function routeCommandFor(route, task, stateView, classification = {}) {
   const quotedTask = shellQuote(task);
   const packet = WORKFLOW_ROUTE_PROMPTS[route] || "next";
   if (route === "failure") {
@@ -612,7 +640,10 @@ function routeCommandFor(route, task, stateView) {
     if (godArtifactHasOpenTasks(stateView.godplans_plan)) {
       return "mythify plan import --source godplans";
     }
-    return `mythify plan create ${quotedTask} --horizon ${routePlanHorizon()}`;
+    return (
+      `mythify plan create ${quotedTask} --horizon ${routePlanHorizon()} ` +
+      `--archetype ${routePlanArchetype(route, classification)}`
+    );
   }
   if (route === "prompt") {
     return `mythify prompt ${packet}`;
@@ -707,6 +738,7 @@ function workflowRouteEvidence(route, stateView, classification) {
       task_type: classification.task_type,
       risk: classification.risk,
       execution_profile: classification.execution_profile,
+      plan_archetype: routePlanArchetype(route, classification),
     },
   ];
   if (stateView.latest_executed_verification) {
@@ -846,13 +878,15 @@ function buildWorkflowRoute(task, classification) {
     input: String(task || ""),
     classification,
     state: stateView,
-    next_command: routeCommandFor(route, task, stateView),
+    next_command: routeCommandFor(route, task, stateView, classification),
     prompt_packet: {
       kind: packetKind,
       command: `mythify prompt ${packetKind}`,
     },
     execution_adapter: executionAdapter,
     verification_strategy: classification.verification || "",
+    plan_archetype: routePlanArchetype(route, classification),
+    maintainability_review: maintainabilityReviewPacket(route, classification),
     chat_policy: {
       executor: "initiating_host",
       surface: "chat",
@@ -879,6 +913,7 @@ function formatWorkflowRoute(payload) {
     `Next command: ${payload.next_command || ""}`,
     `Prompt packet: ${payload.prompt_packet?.kind || ""} (${payload.prompt_packet?.command || ""})`,
     `Verification strategy: ${payload.verification_strategy || ""}`,
+    `Maintainability review: ${payload.maintainability_review?.recommended ? "recommended" : "optional"}`,
   ];
   if (payload.loop_collision) {
     lines.push(`Loop collision: ${payload.loop_collision.note || ""}`);

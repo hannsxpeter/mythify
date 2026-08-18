@@ -61,6 +61,20 @@ class TestRouteMatrix(RouteCase):
         self.assertEqual(payload["route"], "plan")
         self.assertIn("plan create", payload["next_command"])
         self.assertIn("--horizon 20", payload["next_command"])
+        self.assertEqual(payload["plan_archetype"], "rpi")
+        self.assertIn("--archetype rpi", payload["next_command"])
+        self.assertFalse(payload["maintainability_review"]["recommended"])
+
+    def test_expensive_interface_selects_design_heavy_plan(self):
+        payload = self.route("Migrate the public API schema across runtimes")
+        self.assertEqual(payload["route"], "plan")
+        self.assertEqual(payload["plan_archetype"], "design-heavy")
+        self.assertIn("--archetype design-heavy", payload["next_command"])
+        self.assertTrue(payload["maintainability_review"]["recommended"])
+        self.assertEqual(
+            payload["maintainability_review"]["evidence_status"],
+            "material_not_verification",
+        )
 
     def test_research(self):
         payload = self.route("Research the latest options for the wire format")

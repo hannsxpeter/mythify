@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.6.0] - 2026-08-17
+
+Minor release: HumanLayer-inspired code quality controls. Mythify now preserves
+more diagnostic context, makes design intent and artifact relationships durable,
+and lets MCP hosts expose only the capability surface they need while keeping
+the full backward-compatible default.
+
+### Added
+
+- Added generated `full` and `thin` protocol loading profiles with pinned body
+  hashes, installer selection, deterministic instruction-footprint reporting,
+  and a fail-closed full fallback.
+- Added direct, RPI, and design-heavy plan archetypes, explicit product, system,
+  and program design phases, verified vertical-slice contracts, and durable
+  design alternatives with approval records.
+- Added bounded, redacted stdout and stderr artifacts for shared verifier runs
+  in both runtimes. Compact output remains the default, failures point to
+  retained artifacts, common test summaries add a display-only test count, and
+  log compaction removes retired artifacts.
+- Added typed lineage for research, maps, designs, plans, outcomes, and executed
+  verifications, including current, stale, missing, and unknown parent states
+  surfaced in ordinary dashboard, harness, and summary views.
+- Added structured maintainability review records for interface depth, locality,
+  seam count, deletion cost, invalid-state exclusion, and test validity. These
+  records stay material-only and cannot satisfy executable completion gates.
+  Design-heavy and refactor routes return an advisory review packet, and
+  recurring concrete findings produce executable eval-scenario candidates.
+- Added MCP tool profiles selected through `MYTHIFY_MCP_TOOL_PROFILE`: `core`,
+  `workflow`, `execution`, `quality`, `lifecycle`, and the default `full` profile.
+  `tool_profile_status` reports exact registered tool and description-byte
+  budgets without making a quality claim.
+- Added shared `.mythify/workspace.json` and private
+  `.mythify/workspace.local.json` configuration. Local repository paths can be
+  adapted without weakening shared authorization, frozen paths, or worktree
+  isolation, and both CLI and MCP inspection remain read-only.
+- Added the source-backed HumanLayer integration study at
+  `docs/humanlayer-integration-research.md`.
+
+### Changed
+
+- Expanded the public surface to 36 top-level CLI commands and 60 MCP tools,
+  consisting of 57 core tools and 3 fanout tools.
+- Split verification command handlers and workspace logic into focused modules
+  so all first-party runtime files remain within the source-size guard.
+
+### Security
+
+- Verification artifacts are size-capped and redacted before persistence.
+- MCP profile selection validates every tool against the canonical surface and
+  refuses unknown profiles.
+- Workspace paths must exist inside the project root, identify Git checkouts,
+  and preserve shared isolation and authorization constraints.
+
 ## [5.5.0] - 2026-08-17
 
 Minor release: guarded artifact hygiene and the MCP 2026 protocol. Mythify can
@@ -1521,7 +1574,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.5.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.6.0...HEAD
+[5.6.0]: https://github.com/hannsxpeter/mythify/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/hannsxpeter/mythify/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/hannsxpeter/mythify/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/hannsxpeter/mythify/compare/v5.2.0...v5.3.0

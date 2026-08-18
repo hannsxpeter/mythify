@@ -58,6 +58,7 @@ function makeHarness({ verified = true } = {}) {
       lessons.push({ title, detail, tags, scope });
       return `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.json`;
     },
+    captureLineage: () => null,
   });
 
   return { registered, verifications, reflections, lessons, runs };

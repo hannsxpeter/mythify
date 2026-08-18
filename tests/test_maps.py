@@ -447,6 +447,9 @@ class TestPromote(MapCase):
         self.assertEqual(
             plan["source"]["out_of_scope"][0]["note"], "rewriting the invoice renderer"
         )
+        self.assertEqual(plan["lineage"]["parents"][0]["kind"], "map")
+        lineage = self.ok("lineage", "status", "plan", "billing-build", "--json")
+        self.assertEqual(json.loads(lineage.stdout)["status"], "current")
         self.assertEqual(len(plan["steps"]), 2)
         show = self.ok("plan", "show", "billing-build").stdout
         self.assertIn("Source: map billing", show)

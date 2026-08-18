@@ -513,6 +513,18 @@ export const PHASE_STATUS_ICONS = {
 export function phaseIdForStep(step) {
   const explicit = step.phase || "";
   if (explicit) {
+    const explicitMap = {
+      understand: "understand",
+      product: "design",
+      system: "design",
+      program: "design",
+      build: "build",
+      judge: "judge",
+      verify: "verify",
+    };
+    if (explicitMap[explicit]) {
+      return explicitMap[explicit];
+    }
     for (const phase of PHASE_CONFIG) {
       if (containsAny(explicit, phase.keywords).length > 0) {
         return phase.id;

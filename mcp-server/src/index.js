@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 47 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 50 tools in total. On-disk formats are
+// reflections) as 57 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 60 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -55,6 +55,15 @@ import {
 } from "./verification-provenance.js";
 import { registerVerificationTools } from "./verification-tools.js";
 import { registerFanoutTools } from "./fanout.js";
+import { registerDesignTools } from "./design-tools.js";
+import { captureLineage, inspectLineage, registerLineageTools } from "./lineage-tools.js";
+import { registerQualityTools } from "./quality-tools.js";
+import { registerWorkspaceTools } from "./workspace-tools.js";
+import {
+  createProfiledRegistrar,
+  registerToolProfileStatus,
+  resolveToolProfile,
+} from "./tool-profiles.js";
 
 const PACKAGE_JSON = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const VERSION = PACKAGE_JSON.version;
@@ -721,6 +730,7 @@ function createPlanRecord({ goal, name, steps, source }) {
     steps: planSteps,
     created: now,
     last_updated: now,
+    archetype: "direct",
   };
   if (source !== undefined && source !== null) {
     plan.source = source;
@@ -728,6 +738,15 @@ function createPlanRecord({ goal, name, steps, source }) {
   writeJsonAtomic(planPath(slug), plan);
   setActiveSlug(slug);
   return slug;
+}
+
+function attachPlanLineage(slug, parents) {
+  const plan = readJsonRecover(planPath(slug), () => null);
+  if (plan === null) {
+    throw new Error(`plan not found while attaching lineage: ${slug}`);
+  }
+  plan.lineage = captureLineage(resolveStateDir(), parents, isoNow);
+  writeJsonAtomic(planPath(slug), plan);
 }
 
 function verificationStepContext() {
@@ -925,7 +944,27 @@ function uniqueOutcomeSlug(base) {
   }
 }
 
-function runShellCapture(command, timeoutSeconds) {
+function persistVerificationArtifacts(artifactDir, stdoutText, stderrText, sourceSizes) {
+  ensureDir(artifactDir);
+  const artifacts = {};
+  for (const [channel, raw] of [["stdout", stdoutText], ["stderr", stderrText]]) {
+    const redacted = redactSensitiveOutput(String(raw || ""));
+    const destination = path.join(artifactDir, `${channel}.txt`);
+    writeTextAtomic(destination, redacted);
+    const bytes = Buffer.from(redacted, "utf8");
+    artifacts[channel] = {
+      path: destination,
+      bytes: bytes.length,
+      source_bytes: sourceSizes[channel],
+      sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      truncated: sourceSizes[channel] > Buffer.byteLength(String(raw || ""), "utf8"),
+      redacted: redacted !== String(raw || ""),
+    };
+  }
+  return artifacts;
+}
+
+function runShellCapture(command, timeoutSeconds, artifactDir = null) {
   const maxOutputBytes = verifyMaxOutputBytes();
   const startedAt = process.hrtime.bigint();
   const runnerPath = fileURLToPath(new URL("./process-tree-runner.js", import.meta.url));
@@ -937,7 +976,7 @@ function runShellCapture(command, timeoutSeconds) {
     }),
     encoding: "utf8",
     timeout: Math.round(timeoutSeconds * 1000) + 5000,
-    maxBuffer: 1024 * 1024,
+    maxBuffer: maxOutputBytes * 3 + 1024 * 1024,
   });
   const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
   let run;
@@ -954,6 +993,10 @@ function runShellCapture(command, timeoutSeconds) {
       error: wrapper.error ? wrapper.error.message : "process-tree runner returned invalid output",
     };
   }
+  const rawStdoutFull = String(run.stdout_full ?? run.stdout ?? "");
+  const rawStderrFull = String(run.stderr_full ?? run.stderr ?? "");
+  const stdoutFull = redactSensitiveOutput(rawStdoutFull);
+  const stderrFull = redactSensitiveOutput(rawStderrFull);
   let stdoutTail = redactSensitiveOutput(tail(run.stdout));
   let stderrTail = redactSensitiveOutput(tail(run.stderr));
   const timedOut = run.timed_out === true;
@@ -987,7 +1030,7 @@ function runShellCapture(command, timeoutSeconds) {
       (stderrTail ? "\n" : "") +
       "(process-tree containment could not be confirmed; the parent was killed)";
   }
-  return {
+  const result = {
     command,
     exit_code: exitCode,
     duration_seconds: Number(durationSeconds.toFixed(3)),
@@ -996,7 +1039,25 @@ function runShellCapture(command, timeoutSeconds) {
     verified,
     timed_out: timedOut,
     output_limit_exceeded: outputLimitExceeded,
+    stdout_full: stdoutFull,
+    stderr_full: stderrFull,
   };
+  if (artifactDir) {
+    try {
+      result.artifacts = persistVerificationArtifacts(
+        artifactDir,
+        rawStdoutFull,
+        rawStderrFull,
+        {
+          stdout: Number(run.stdout_source_bytes ?? Buffer.byteLength(rawStdoutFull, "utf8")),
+          stderr: Number(run.stderr_source_bytes ?? Buffer.byteLength(rawStderrFull, "utf8")),
+        }
+      );
+    } catch (error) {
+      result.artifact_error = redactSensitiveOutput(error.message);
+    }
+  }
+  return result;
 }
 
 function parseMetricScore(output) {
@@ -1179,7 +1240,9 @@ function guarded(handler) {
 }
 
 function createServer() {
-const server = new McpServer({ name: "mythify-mcp", version: VERSION });
+const rawServer = new McpServer({ name: "mythify-mcp", version: VERSION });
+const toolProfile = resolveToolProfile();
+const server = createProfiledRegistrar(rawServer, toolProfile);
 
 const MCP_FRONT_DOOR_NOTE =
   " For broad or ambiguous user prompts, call workflow_route first; use this tool directly only after workflow_route selects this workflow or the user explicitly asks for this primitive.";
@@ -1253,6 +1316,7 @@ configureViewCore({
   outcomeGoalPath,
   outcomeIterationsPath,
   readOutcomeIterations,
+  inspectLineage,
 });
 
 registerViewTools(server, {
@@ -1319,7 +1383,40 @@ registerPlanTools(server, {
   readActiveSlug,
   evidenceMovedSinceRun,
   currentProvenance: () => currentVerificationProvenanceForStateDir(resolveStateDir()),
+  captureLineage,
+  resolveStateDir,
   mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
+});
+
+registerDesignTools(server, {
+  guarded,
+  resolveStateDir,
+  slugify,
+  isoNow,
+  writeJsonAtomic,
+  writeTextAtomic,
+  readJsonRecover,
+  captureLineage,
+});
+
+registerLineageTools(server, {
+  guarded,
+  resolveStateDir,
+  writeJsonAtomic,
+  isoNow,
+});
+
+registerQualityTools(server, {
+  guarded,
+  resolveStateDir,
+  slugify,
+  isoNow,
+  writeJsonAtomic,
+});
+
+registerWorkspaceTools(server, {
+  guarded,
+  resolveStateDir,
 });
 
 // ---------------------------------------------------------------------------
@@ -1340,6 +1437,7 @@ registerMapTools(server, {
   readJsonl,
   verificationsPath,
   createPlanRecord,
+  attachPlanLineage,
   buildDefaultPlanSteps,
   mcpFrontDoorNote: MCP_FRONT_DOOR_NOTE,
 });
@@ -1432,6 +1530,7 @@ registerVerificationTools(server, {
   verificationsPath,
   reflectionsPath,
   recordLesson,
+  captureLineage,
 });
 
 // ---------------------------------------------------------------------------
@@ -1448,7 +1547,9 @@ registerFanoutTools(server, {
   guarded,
 });
 
-return server;
+registerToolProfileStatus(server, { guarded, selection: toolProfile });
+
+return rawServer;
 }
 
 // ---------------------------------------------------------------------------
