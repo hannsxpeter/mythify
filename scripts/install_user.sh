@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--skip-mcp] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--install-chat-hook] [--hook-root PATH] [--uninstall]
+Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--protocol-profile auto|full|thin] [--skip-mcp] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--install-chat-hook] [--hook-root PATH] [--uninstall]
 
 Installs a versioned, self-contained Mythify CLI runtime and user-local
 launchers. Mythify chat skills are installed for both runtimes: invoke them
@@ -12,6 +12,7 @@ with $skill in Codex and /skill in Claude Code.
 Options:
   --prefix PATH               Install launchers under PATH/bin. Default: $HOME/.local
   --project PATH              Initialize Mythify state for that project and print MCP setup.
+  --protocol-profile PROFILE Install the full protocol or thin progressive-disclosure bootstrap. Default: auto, which fails closed to full.
   --skip-mcp                  Install only the mythify CLI wrapper.
   --skip-skills               Do not install Mythify chat skills (Codex or Claude).
   --skills-root PATH          Install Codex chat skills under PATH. Default: $CODEX_HOME/skills or $HOME/.codex/skills
@@ -131,6 +132,13 @@ install_cli_runtime() {
     cp "$module" "$cli_stage/scripts/$(basename "$module")"
   done
   cp -R "$repo_root/protocol" "$cli_stage/protocol"
+  if [ "$protocol_profile" = "thin" ]; then
+    cp "$repo_root/protocol/variants/AGENTS.md.thin" "$cli_stage/protocol/ACTIVE.md"
+  elif [ -f "$repo_root/AGENTS.md" ]; then
+    cp "$repo_root/AGENTS.md" "$cli_stage/protocol/ACTIVE.md"
+  else
+    cp "$repo_root/protocol/PROTOCOL.md" "$cli_stage/protocol/ACTIVE.md"
+  fi
   chmod 755 "$cli_stage/scripts/mythify.py"
   chmod 755 "$cli_stage/scripts/install_user.sh"
   chmod 755 "$cli_stage/scripts/mythify_chat_report_hook.sh"
@@ -166,7 +174,8 @@ write_ownership_manifest() {
     "$skip_claude_skills" \
     "$install_chat_hook" \
     "$mythify_skill_names" \
-    "$project_dir" <<'PY'
+    "$project_dir" \
+    "$protocol_profile" <<'PY'
 import hashlib
 import json
 import os
@@ -194,6 +203,7 @@ skip_mcp, skip_skills, skip_claude, install_hook = (
 )
 skill_names = sys.argv[11].split()
 project_dir = Path(os.path.abspath(sys.argv[12])) if sys.argv[12] else None
+protocol_profile = sys.argv[13]
 token = secrets.token_hex(16)
 
 files = [prefix / "bin" / "mythify", prefix / "bin" / "mythify-uninstall"]
@@ -226,6 +236,7 @@ manifest = {
         "skip_skills": skip_skills,
         "skip_claude_skills": skip_claude,
         "install_chat_hook": install_hook,
+        "protocol_profile": protocol_profile,
     },
     "files": {str(path.resolve()): digest(path) for path in files},
     "directories": [str(path.resolve()) for path in directories],
@@ -501,6 +512,8 @@ skip_claude_skills=0
 install_chat_hook=0
 uninstall=0
 data_root=""
+protocol_profile_requested="${MYTHIFY_PROTOCOL_PROFILE:-auto}"
+protocol_profile="full"
 mythify_skill_names="mythify mythify-work mythify-route mythify-verify"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 skills_root="${MYTHIFY_SKILLS_ROOT:-$codex_home/skills}"
@@ -518,6 +531,11 @@ while [ "$#" -gt 0 ]; do
     --project)
       [ "$#" -ge 2 ] || fail "--project requires a path"
       project="$2"
+      shift 2
+      ;;
+    --protocol-profile)
+      [ "$#" -ge 2 ] || fail "--protocol-profile requires auto, full, or thin"
+      protocol_profile_requested="$2"
       shift 2
       ;;
     --skip-mcp)
@@ -576,6 +594,11 @@ bin_dir="$prefix/bin"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 require_command python3
 python_bin=$(command -v python3)
+case "$protocol_profile_requested" in
+  auto|full) protocol_profile="full" ;;
+  thin) protocol_profile="thin" ;;
+  *) fail "--protocol-profile must be auto, full, or thin" ;;
+esac
 
 if [ "$uninstall" -eq 1 ]; then
   if [ -n "$data_root" ]; then
@@ -622,7 +645,8 @@ if [ "$uninstall" -eq 1 ]; then
     "$skip_mcp" \
     "$skip_skills" \
     "$skip_claude_skills" \
-    "$install_chat_hook" <<'PY'
+    "$install_chat_hook" \
+    "$protocol_profile" <<'PY'
 import hashlib
 import json
 import os
@@ -652,6 +676,7 @@ hook_root = Path(sys.argv[6]).resolve()
 skip_mcp, skip_skills, skip_claude, install_hook = (
     value == "1" for value in sys.argv[7:11]
 )
+protocol_profile = sys.argv[11]
 
 if not manifest_path.is_file() or manifest_path.is_symlink():
     fail("is missing or unsafe: {}".format(manifest_path))
@@ -670,6 +695,7 @@ config = {
     "skip_skills": skip_skills,
     "skip_claude_skills": skip_claude,
     "install_chat_hook": install_hook,
+    "protocol_profile": protocol_profile,
 }
 if manifest.get("schema") != 1 or manifest.get("config") != config:
     fail("does not match this uninstall request")
@@ -820,7 +846,8 @@ set -- \
   --prefix "$prefix" \
   --skills-root "$skills_root" \
   --claude-skills-root "$claude_skills_root" \
-  --hook-root "$hook_root"
+  --hook-root "$hook_root" \
+  --protocol-profile "$protocol_profile"
 if [ "$skip_mcp" -eq 1 ]; then
   set -- "$@" --skip-mcp
 fi
@@ -840,6 +867,7 @@ write_exec_launcher "$bin_dir/mythify-uninstall" "$@"
 
 printf '%s\n' "[OK] Installed mythify CLI: $bin_dir/mythify"
 printf '%s\n' "[OK] Installed CLI runtime: $cli_dir"
+printf '%s\n' "[OK] Installed protocol loading profile: $protocol_profile ($cli_dir/protocol/ACTIVE.md)"
 printf '%s\n' "[OK] Installed uninstaller: $bin_dir/mythify-uninstall"
 
 if [ "$install_chat_hook" -eq 1 ]; then

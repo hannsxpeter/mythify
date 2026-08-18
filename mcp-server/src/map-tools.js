@@ -218,6 +218,7 @@ export function registerMapTools(server, deps) {
   const readJsonl = requireDep(deps, "readJsonl");
   const verificationsPath = requireDep(deps, "verificationsPath");
   const createPlanRecord = requireDep(deps, "createPlanRecord");
+  const attachPlanLineage = requireDep(deps, "attachPlanLineage");
   const buildDefaultPlanSteps = requireDep(deps, "buildDefaultPlanSteps");
   const frontDoorNote = typeof deps.mcpFrontDoorNote === "string" ? deps.mcpFrontDoorNote : "";
 
@@ -726,6 +727,7 @@ export function registerMapTools(server, deps) {
       record.status = "promoted";
       record.promoted_plan = planSlug;
       saveMap(slug, record);
+      attachPlanLineage(planSlug, [{ kind: "map", id: slug }]);
       clearActiveMapSlug(slug);
       const lines = [
         `[OK] Promoted map "${slug}" to plan "${planSlug}"`,

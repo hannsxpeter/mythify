@@ -587,6 +587,7 @@ class TestReadOnlyViews(unittest.TestCase):
         dashboard = mythify.build_dashboard(state, recent=1)
         self.assertEqual(dashboard["active_plan"]["slug"], "views-module")
         self.assertEqual(dashboard["active_plan"]["current_step"]["title"], "Verify views")
+        self.assertEqual(dashboard["active_plan"]["lineage"]["status"], "unknown")
         self.assertEqual(dashboard["verification_summary"]["executed_passed"], 1)
 
         phase = mythify.build_phase_view(state, recent=1)
@@ -620,6 +621,14 @@ class TestProtocolHandshake(CliTestCase):
         (self.project / "scripts").mkdir()
         (self.project / "protocol").mkdir()
         shutil.copy2(REPO_ROOT / "AGENTS.md", self.project / "AGENTS.md")
+        shutil.copy2(
+            REPO_ROOT / "protocol" / "PROTOCOL.md",
+            self.project / "protocol" / "PROTOCOL.md",
+        )
+        shutil.copy2(
+            REPO_ROOT / "protocol" / "loading-profiles.json",
+            self.project / "protocol" / "loading-profiles.json",
+        )
         shutil.copy2(CLI, self.project / "scripts" / "mythify.py")
         shutil.copy2(
             PY_CLASSIFICATION,
@@ -688,18 +697,24 @@ class TestProtocolHandshake(CliTestCase):
         for name in (
             "mythify_artifact_parser.py",
             "mythify_artifacts.py",
+            "mythify_designs.py",
             "mythify_eval_parser.py",
             "mythify_eval_scenarios.py",
             "mythify_evals.py",
             "mythify_evidence_guard.py",
             "mythify_log_compaction.py",
+            "mythify_lineage.py",
             "mythify_loopfit.py",
             "mythify_map_parser.py",
             "mythify_maps.py",
             "mythify_plan_import.py",
             "mythify_protocol.py",
+            "mythify_protocol_profiles.py",
             "mythify_provenance.py",
+            "mythify_quality.py",
             "mythify_runtime_helpers.py",
+            "mythify_verification_commands.py",
+            "mythify_workspace.py",
         ):
             shutil.copy2(
                 REPO_ROOT / "scripts" / name,
@@ -1881,7 +1896,24 @@ class TestClassification(CliTestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["task_type"], "bugfix")
         self.assertEqual(payload["execution_profile"], "fast")
+        self.assertEqual(payload["plan_archetype"], "direct")
         self.assertIn("fast profile", payload["next_action"])
+
+    def test_classify_selects_design_heavy_and_rpi_plan_archetypes(self):
+        design_heavy = self.run_cli(
+            "classify",
+            "migrate the public API schema across runtimes",
+            "--json",
+        )
+        self.assertEqual(design_heavy.returncode, 0, design_heavy.stderr)
+        self.assertEqual(json.loads(design_heavy.stdout)["plan_archetype"], "design-heavy")
+        planned = self.run_cli(
+            "classify",
+            "implement a new export feature across modules with validation integration tests documentation and error handling",
+            "--json",
+        )
+        self.assertEqual(planned.returncode, 0, planned.stderr)
+        self.assertEqual(json.loads(planned.stdout)["plan_archetype"], "rpi")
 
     def test_classify_auto_triage_skips_when_gate_skips(self):
         result = self.run_cli("classify", "what does this project do?", "--json", "--triage", "auto")
@@ -3927,7 +3959,7 @@ class TestVerify(CliTestCase):
             {"kind", "claim", "command", "exit_code", "duration_seconds",
              "stdout_tail", "stderr_tail", "verified", "timestamp", "plan",
              "step_id", "step_title", "step_status", "provenance",
-             "prev_sha256"},
+             "prev_sha256", "id", "artifacts"},
         )
         self.assertEqual(record["kind"], "executed")
         self.assertEqual(record["claim"], "exit zero works")
@@ -3938,6 +3970,8 @@ class TestVerify(CliTestCase):
         self.assertIsNone(record["step_id"])
         self.assertIsNone(record["step_title"])
         self.assertIsNone(record["step_status"])
+        self.assertTrue(record["id"].startswith("v-"))
+        self.assertEqual(set(record["artifacts"]), {"stdout", "stderr"})
         self.assertEqual(
             sorted(record["provenance"]),
             ["git_commit", "mythify_version", "worktree_clean"],

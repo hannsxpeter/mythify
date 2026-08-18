@@ -31,6 +31,7 @@ def load_classification_rules():
         "fanout_visibility",
         "quality_climb",
         "execution_profile",
+        "plan_archetype",
         "next_actions",
         "model_triage",
         "verification_hints",
@@ -71,6 +72,7 @@ FANOUT_POLICY = CLASSIFICATION_MANIFEST["fanout"]
 FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST["fanout_visibility"]
 QUALITY_CLIMB_POLICY = CLASSIFICATION_MANIFEST["quality_climb"]
 EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST["execution_profile"]
+PLAN_ARCHETYPE_POLICY = CLASSIFICATION_MANIFEST["plan_archetype"]
 NEXT_ACTIONS = CLASSIFICATION_MANIFEST["next_actions"]
 MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST["model_triage"]
 VERIFICATION_HINTS = CLASSIFICATION_MANIFEST["verification_hints"]
@@ -214,6 +216,22 @@ def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
     )
 
 
+def plan_archetype_for(task_type, execution_profile, text):
+    direct_profiles = tuple(
+        str(item) for item in PLAN_ARCHETYPE_POLICY["direct_execution_profiles"]
+    )
+    design_types = tuple(
+        str(item) for item in PLAN_ARCHETYPE_POLICY["design_heavy_task_types"]
+    )
+    if execution_profile in direct_profiles:
+        return "direct", PLAN_ARCHETYPE_POLICY["direct_reason"]
+    if task_type in design_types or contains_any(
+        text, tuple(str(term) for term in PLAN_ARCHETYPE_POLICY["design_heavy_terms"])
+    ):
+        return "design-heavy", PLAN_ARCHETYPE_POLICY["design_heavy_reason"]
+    return "rpi", PLAN_ARCHETYPE_POLICY["rpi_reason"]
+
+
 def classify_task_text(task_text):
     text = " ".join(str(task_text or "").lower().split())
     words = [word for word in text.replace("/", " ").replace("_", " ").split() if word]
@@ -282,6 +300,9 @@ def classify_task_text(task_text):
     execution_profile, execution_profile_reason = execution_profile_for(
         task_type, risk, ceremony, ambiguity, text
     )
+    plan_archetype, plan_archetype_reason = plan_archetype_for(
+        task_type, execution_profile, text
+    )
     if execution_profile == "direct":
         next_action = NEXT_ACTIONS["direct"]
     elif execution_profile == "fast":
@@ -305,6 +326,8 @@ def classify_task_text(task_text):
         "ceremony": ceremony,
         "execution_profile": execution_profile,
         "execution_profile_reason": execution_profile_reason,
+        "plan_archetype": plan_archetype,
+        "plan_archetype_reason": plan_archetype_reason,
         "verification": verification,
         "fanout": fanout,
         "fanout_reason": fanout_reason,
@@ -357,6 +380,9 @@ def format_classification(result):
         "ceremony: {0}".format(result["ceremony"]),
         "execution profile: {0} ({1})".format(
             result["execution_profile"], result["execution_profile_reason"]
+        ),
+        "plan archetype: {0} ({1})".format(
+            result["plan_archetype"], result["plan_archetype_reason"]
         ),
         "verification: {0}".format(result["verification"]),
         "fanout: {0} ({1})".format(result["fanout"], result["fanout_reason"]),

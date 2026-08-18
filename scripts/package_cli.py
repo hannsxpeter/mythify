@@ -23,6 +23,7 @@ STANDALONE_DOCS = (
     "docs/desktop-tool-calls.md",
     "docs/start-here.md",
     "docs/research-report.md",
+    "docs/humanlayer-integration-research.md",
     "docs/evidence/codex-word-count-2026-07-13.json",
     "docs/evidence/efficacy-reproduction.md",
 )

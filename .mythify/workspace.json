@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "task_isolation": "worktree",
+  "frozen_paths": [],
+  "authorization": {
+    "destructive_actions_require_approval": true,
+    "external_writes_require_explicit_scope": true
+  },
+  "repositories": [
+    {
+      "id": "mythify",
+      "path": ".",
+      "primary": true,
+      "allowed_paths": ["."]
+    }
+  ]
+}

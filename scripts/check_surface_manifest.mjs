@@ -13,6 +13,13 @@ const PACKAGE_MANIFEST_PATH = path.join(
   "protocol",
   "surface-manifest.json"
 );
+const TOOL_PROFILES_PATH = path.join(REPO_ROOT, "protocol", "tool-profiles.json");
+const PACKAGE_TOOL_PROFILES_PATH = path.join(
+  REPO_ROOT,
+  "mcp-server",
+  "protocol",
+  "tool-profiles.json"
+);
 const RELEASE_GATES_PATH = path.join(REPO_ROOT, "protocol", "release-gates.json");
 const PACKAGE_RELEASE_GATES_PATH = path.join(
   REPO_ROOT,
@@ -119,6 +126,11 @@ function main() {
   if (JSON.stringify(manifest) !== JSON.stringify(packageManifest)) {
     fail("Surface manifest package mirror drifted");
   }
+  const toolProfiles = JSON.parse(fs.readFileSync(TOOL_PROFILES_PATH, "utf8"));
+  const packageToolProfiles = JSON.parse(fs.readFileSync(PACKAGE_TOOL_PROFILES_PATH, "utf8"));
+  if (JSON.stringify(toolProfiles) !== JSON.stringify(packageToolProfiles)) {
+    fail("Tool profile package mirror drifted");
+  }
   const releaseGates = JSON.parse(fs.readFileSync(RELEASE_GATES_PATH, "utf8"));
   const packageReleaseGates = JSON.parse(
     fs.readFileSync(PACKAGE_RELEASE_GATES_PATH, "utf8")
@@ -145,6 +157,15 @@ function main() {
 
   requireUnique("CLI commands", cli.commands);
   requireUnique("MCP tools", allTools);
+  const canonicalTools = new Set(allTools);
+  requireEqual("MCP tool profile default", toolProfiles.default_profile, "full");
+  for (const [profileName, profile] of Object.entries(toolProfiles.profiles || {})) {
+    for (const tool of profile.tools || []) {
+      if (!canonicalTools.has(tool)) {
+        fail("MCP tool profile " + profileName + " references unknown tool: " + tool);
+      }
+    }
+  }
   requireEqual("CLI command count", cli.commands.length, cli.command_count);
   requireEqual("MCP core tool count", coreTools.length, mcp.core_tool_count);
   requireEqual("MCP fanout tool count", fanoutTools.length, mcp.fanout_tool_count);
@@ -165,6 +186,11 @@ function main() {
       "mcp-server/src/outcome-tools.js",
       "mcp-server/src/verification-tools.js",
       "mcp-server/src/workflow-tools.js",
+      "mcp-server/src/design-tools.js",
+      "mcp-server/src/lineage-tools.js",
+      "mcp-server/src/quality-tools.js",
+      "mcp-server/src/tool-profiles.js",
+      "mcp-server/src/workspace-tools.js",
     ]),
     coreTools
   );

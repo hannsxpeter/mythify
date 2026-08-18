@@ -51,6 +51,10 @@ function makeHarness() {
       plans.push({ goal, name, steps, source });
       return name;
     },
+    attachPlanLineage: (slug, parents) => {
+      const plan = plans.find((candidate) => candidate.name === slug);
+      plan.lineage = { parents };
+    },
     buildDefaultPlanSteps: (horizon) =>
       Array.from({ length: horizon }, (_, index) => ({ title: `default step ${index + 1}` })),
     mcpFrontDoorNote: " Route first.",
@@ -322,6 +326,7 @@ test("map_promote refuses an unclear map and carries decisions into the plan", a
   assert.equal(plan.source.kind, "map");
   assert.equal(plan.source.decisions[0].gist, "one maintenance window");
   assert.equal(plan.source.out_of_scope[0].note, "rewriting the invoice renderer");
+  assert.deepEqual(plan.lineage.parents, [{ kind: "map", id: "billing" }]);
   assert.equal(harness.activeMap, null);
   assert.match(await harness.call("map_promote", { map: "billing" }), /already promoted/);
 });

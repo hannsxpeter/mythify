@@ -89,6 +89,7 @@ function resolveOutcome(name) { return requireDep("resolveOutcome")(name); }
 function outcomeGoalPath(slug) { return requireDep("outcomeGoalPath")(slug); }
 function outcomeIterationsPath(slug) { return requireDep("outcomeIterationsPath")(slug); }
 function readOutcomeIterations(slug) { return requireDep("readOutcomeIterations")(slug); }
+function inspectArtifactLineage(lineage) { return requireDep("inspectLineage")(resolveStateDir(), lineage); }
 
 export function currentInProgressStep(plan) {
   return (plan.steps || []).find((step) => step.status === "in_progress") || null;
@@ -124,6 +125,7 @@ export function buildWorkflowDashboard(recent = 3) {
         current_step: currentInProgressStep(plan),
         next_pending_step: steps.find((step) => step.status === "pending") || null,
         steps,
+        lineage: inspectArtifactLineage(plan.lineage),
       };
     }
   }
@@ -180,6 +182,7 @@ export function formatWorkflowDashboard(dashboard) {
   if (plan) {
     lines.push(`Active plan: ${plan.slug} (${plan.completed_steps}/${plan.total_steps} completed)`);
     lines.push(`Goal: ${plan.goal}`);
+    lines.push(`Lineage: ${plan.lineage.status}`);
     if (plan.current_step) {
       lines.push(`Current step: ${stepLine(plan.current_step)}`);
     }
@@ -635,6 +638,7 @@ export function formatEvidenceHarnessView(view) {
       `Active plan: ${plan.slug} (${plan.completed_steps}/${plan.total_steps} completed, ` +
         `${view.control_points.open_plan_steps} open steps)`
     );
+    lines.push(`Active plan lineage: ${plan.lineage.status}`);
   } else {
     lines.push("Active plan: none");
   }

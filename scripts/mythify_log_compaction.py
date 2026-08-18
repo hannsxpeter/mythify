@@ -1,6 +1,7 @@
 """Durable JSONL log compaction for the Mythify CLI."""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def compact_jsonl_log_locked(state, log_name, keep, dry_run):
         "removed_records": 0,
         "archived": False,
         "archive_path": None,
+        "removed_artifacts": 0,
     }
     if not path.exists():
         return result
@@ -60,6 +62,10 @@ def compact_jsonl_log_locked(state, log_name, keep, dry_run):
     archive_path = compact_archive_path(state, log_name)
     result["archive_path"] = str(archive_path)
     if dry_run:
+        if log_name == "verifications.jsonl":
+            result["removed_artifacts"] = len(
+                _artifact_dirs_for_records(state, records[:removed])
+            )
         return result
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     _write_text_atomic(archive_path, raw_text)
@@ -68,9 +74,33 @@ def compact_jsonl_log_locked(state, log_name, keep, dry_run):
     # through a different serializer would break every retained link.
     kept_lines = parseable_raw_lines(raw_text)[-keep:]
     _write_text_atomic(path, "".join(line + "\n" for line in kept_lines))
+    if log_name == "verifications.jsonl":
+        artifact_dirs = _artifact_dirs_for_records(state, records[:removed])
+        for directory in artifact_dirs:
+            shutil.rmtree(directory)
+        result["removed_artifacts"] = len(artifact_dirs)
     result["status"] = "compacted"
     result["archived"] = True
     return result
+
+
+def _artifact_dirs_for_records(state, records):
+    root = (Path(state) / "verification-artifacts").resolve()
+    directories = set()
+    for record in records:
+        artifacts = record.get("artifacts") or {}
+        for item in artifacts.values():
+            relative = item.get("path") if isinstance(item, dict) else None
+            if not relative:
+                continue
+            candidate = (Path(state) / relative).resolve().parent
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                continue
+            if candidate.is_dir():
+                directories.add(candidate)
+    return sorted(directories)
 
 
 def parseable_raw_lines(raw_text):

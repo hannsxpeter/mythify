@@ -27,6 +27,140 @@ same state directory.
 - Exception: `docs/research-report.md` is preserved legacy content, copied verbatim,
   and is exempt from these character rules.
 
+## HumanLayer-inspired quality controls
+
+The quality-control program adapts the useful constraints identified in
+`docs/humanlayer-integration-research.md` without importing HumanLayer as a runtime
+dependency. The design keeps Mythify's deterministic evidence spine authoritative:
+model output, reviews, alternatives, and delegated work remain material until an
+executable verifier records a passing result.
+
+### Protocol loading profiles
+
+The canonical protocol remains `protocol/PROTOCOL.md`. Generated host instructions
+support two profiles:
+
+- `full` copies the complete canonical protocol and is the compatibility fallback.
+- `thin` contains the absolute writing and safety rules, proportional ceremony,
+  routing and verification doctrine, plus checked pointers to the packaged Mythify
+  skill and full protocol reference.
+
+`protocol/loading-profiles.json` owns the profile names, host capability requirements,
+and minimum retained sections. `scripts/build_variants.py` generates both profiles,
+records the canonical protocol digest in each output, and keeps the root host files on
+the full profile unless installation has positive proof that a host can load referenced
+skills. The installer accepts an explicit profile and otherwise fails closed to `full`.
+Protocol checks validate the source digest and profile metadata. The local comparison
+harness reports the byte and word cost of each generated profile so a shorter file is
+never accepted without behavior evaluation.
+
+### Design workflow and vertical slice contracts
+
+Plans may declare one of three archetypes: `direct`, `rpi`, or `design-heavy`. The
+default remains `direct` for backward compatibility. A plan step may store an explicit
+phase from `understand`, `product`, `system`, `program`, `build`, `judge`, or `verify`.
+Read-only phase views prefer the stored phase and fall back to title inference for old
+plans.
+
+A design record is durable material under `.mythify/designs/`. It stores the problem,
+current state, desired state, non-goals, product decisions, system decisions, program
+decisions, alternatives, parent artifact references, and approval state. Design records
+do not verify implementation.
+
+For `design-heavy` plans, build steps may store a `vertical_slice` object with a named
+observable result, affected files, automated checks, and manual checks. At least one
+automated or manual check is required. The contract is optional for other archetypes.
+CLI and MCP adapters share the same fields and preserve unknown fields when updating a
+plan.
+
+### Verification artifact retention
+
+Every executed verifier may retain bounded, redacted stdout and stderr under
+`.mythify/verification-artifacts/<verification-id>/`. The verification record stores
+relative artifact paths, byte counts, content digests, truncation flags, and redaction
+status. Compact output remains the default: successful runs print one status line and
+failed runs print bounded tails plus artifact locations. Common unittest, TAP, pytest,
+and Jest summaries may add a display-only `test_count` to the record and compact line.
+The process exit code remains the only pass or fail authority. Full output is displayed
+only when explicitly requested.
+
+Artifacts are written atomically after redaction. Existing timeout, output-size, and
+process-tree containment rules remain authoritative. `logs compact` removes artifact
+directories associated with archived verification records after writing the archive.
+Old verification records without artifact metadata remain valid.
+
+### Artifact lineage
+
+Research, map, design, plan, outcome, and verification records may carry a `lineage`
+object containing typed parent references. Each reference stores artifact kind, id,
+revision digest, and observed update timestamp. Creating a child captures current parent
+metadata. Read-only views compare the captured metadata with live parents and report
+`current`, `stale`, `missing`, or `unknown` without rewriting either artifact.
+The workflow dashboard, evidence harness, and session summary surface the active plan's
+lineage state so stale design intent is visible during ordinary work.
+
+Precedence is explicit:
+
+1. Live code and executable observations own current behavior.
+2. The latest approved design owns desired behavior.
+3. The latest plan linked to that design owns implementation order.
+4. Executed verification owns completion status.
+
+Lineage warnings are advisory unless a command explicitly declares a fresh-parent gate.
+Legacy records without lineage remain readable and report `unknown` rather than stale.
+
+### Advisory maintainability and design alternatives
+
+Maintainability reviews are material records under `.mythify/reviews/`. A review cites
+the changed paths and evaluates interface depth, locality, seam count, deletion cost,
+invalid-state exclusion, test validity, and concrete maintenance risks. The record may
+be `pass`, `warn`, or `fail`, but it never sets `verified` and never satisfies a plan or
+release gate.
+
+Read-only routing returns a structured maintainability review packet. It is recommended
+for `design-heavy` archetypes and refactor tasks, and optional otherwise. The packet
+names the review dimensions, supplies the CLI command shape, and labels its evidence as
+`material_not_verification`.
+
+When the same normalized finding detail recurs across warning or failing reviews, the
+new review records an `eval_scenario_candidates` entry and sets
+`eval_proposal_recommended`. This is a prompt to write a fail-pass scenario through the
+existing eval proposal workflow. It does not adopt a scenario or upgrade review
+judgment into executable evidence.
+
+Design alternatives are bounded material records attached to a design. They are allowed
+for public APIs, persistence boundaries, cross-runtime contracts, and other expensive
+seams. Each alternative records an interface shape, expected call sites, locality,
+migration cost, deletion cost, and reversal evidence. A comparison needs at least two
+materially different alternatives and one selected option. It must not create multiple
+full implementations.
+
+### MCP capability profiles and tool budgets
+
+`protocol/tool-profiles.json` groups the MCP surface into `core`, `workflow`,
+`execution`, `quality`, `lifecycle`, and `full` profiles. The default server behavior
+remains `full`. A host may select a smaller profile through explicit configuration, and
+the server validates every selected tool against `protocol/surface-manifest.json` before
+registration. Unknown profiles fail closed.
+
+The registry reports tool counts and a deterministic description-byte estimate for
+each profile. This is a context-budget metric, not a quality claim. Profile selection
+never changes authorization, mutation, evidence, or state contracts. The CLI remains
+complete regardless of MCP profile.
+
+### Shared and local workspace configuration
+
+Multi-repository configuration uses `.mythify/workspace.json` for shared settings and
+`.mythify/workspace.local.json` for uncommitted local overrides. The local file may
+override scalar settings and repository paths by repository id. It may not weaken
+frozen paths, authorization, or task isolation declared by the shared file.
+
+Each repository entry has an id, path, optional primary marker, and optional allowed
+paths. Paths resolve relative to the project root, must exist, and must not escape the
+configured workspace root. At most one repository may be primary. Read-only inspection
+returns the merged configuration and source provenance without creating worktrees or
+mutating repositories.
+
 ## Repository layout (contract-bearing files)
 
 This tree names the public contract files and load-bearing runtime boundaries.
@@ -47,6 +181,8 @@ mythify/
 |   |-- model-capabilities.json  shared model profile and provider mappings
 |   |-- operation-registry.json  shared operation metadata
 |   |-- release-gates.json       exact-command release readiness gates
+|   |-- loading-profiles.json    generated full and thin instruction profiles
+|   |-- tool-profiles.json       MCP capability profile membership
 |   |-- workflow-router.json     shared workflow route metadata
 |   `-- surface-manifest.json    shared public surface metadata
 |-- scripts/
@@ -54,6 +190,7 @@ mythify/
 |   |-- mythify_artifact_parser.py artifact hygiene subcommand parser
 |   |-- mythify_artifacts.py     guarded external artifact service adapter
 |   |-- mythify_classification.py deterministic classification helper
+|   |-- mythify_designs.py       durable design records and plan archetypes
 |   |-- mythify_eval_parser.py   eval evolution subcommand parser
 |   |-- mythify_eval_scenarios.py shared external scenario validation and loading
 |   |-- mythify_evals.py         eval evolution proposal store and gates
@@ -62,6 +199,7 @@ mythify/
 |   |-- mythify_host_model.py    host model switch record helper
 |   |-- mythify_io.py            durable IO helper
 |   |-- mythify_log_compaction.py verification-log compaction helper
+|   |-- mythify_lineage.py       typed artifact parent revisions
 |   |-- mythify_loopfit.py       loop-worthiness analysis helper
 |   |-- mythify_map_parser.py    wayfinding map subcommand parser
 |   |-- mythify_maps.py          wayfinding decision map store and gates
@@ -72,12 +210,16 @@ mythify/
 |   |-- mythify_parser.py        CLI argument parser construction
 |   |-- mythify_plan_import.py   godplans and godaudits plan import helper
 |   |-- mythify_protocol.py      protocol handshake and frozen-manifest checks
+|   |-- mythify_protocol_profiles.py instruction profile rendering
 |   |-- mythify_provenance.py    verification provenance helper
+|   |-- mythify_quality.py       material-only maintainability reviews
 |   |-- mythify_router.py        prompt packet and workflow route helper
 |   |-- mythify_runtime_helpers.py shared CLI runtime helpers
 |   |-- mythify_trace.py         trace analysis and playbook helper
 |   |-- mythify_views.py         read-only dashboard and progress helper
 |   |-- mythify_views_status.py  readiness and status view helper
+|   |-- mythify_verification_commands.py verification and reflection CLI handlers
+|   |-- mythify_workspace.py     shared and local workspace validation
 |   |-- mythify_workflows.py     research and campaign workflow helper
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
 |   |-- build_registry_docs.mjs  generates registry-backed docs
@@ -104,6 +246,11 @@ mythify/
 |   |-- src/host-model.js
 |   |-- src/host-cli.js
 |   |-- src/index.js
+|   |-- src/design-tools.js      durable design workflow registrations
+|   |-- src/lineage-tools.js     typed lineage registrations
+|   |-- src/quality-tools.js     maintainability review registrations
+|   |-- src/tool-profiles.js     selective capability registration and budgets
+|   |-- src/workspace-tools.js   read-only workspace configuration inspection
 |   |-- src/lifecycle-adapter.js
 |   |-- src/map-tools.js         wayfinding map tools and shared map helpers
 |   |-- src/model-policy.js
@@ -343,7 +490,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 47 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 57 core plus 3 fanout count
   split.
 - Front door, workflow, advanced, and labs tier membership for the CLI and MCP
   surfaces.
@@ -1126,14 +1273,23 @@ owns the public entry point and delegates cohesive command families to sibling
 | `eval reject ID --reason TEXT` | Close a proposal without adopting it and record the reason; the scenario name becomes available again. | 0; 1 if not found, already closed, or missing reason |
 | `eval list [--json]` | List proposals with status and scenario names, adopted registry names, and any registry entries lacking adoption provenance. | 0; 1 if no workspace |
 | `eval show ID [--json]` | Show one proposal in full: rationale, sources, verify command, human input, and state. | 0; 1 if not found |
-| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create plan, set it active. `--steps` is a JSON array of `{"title": str, "success_criteria": str (optional), "verify_command": str (optional)}`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Without any of those, create an empty plan and suggest `plan add-step`. Invalid JSON: `[FAIL]`, exit 1. | 0 |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME] [--archetype direct\|rpi\|design-heavy] [--design NAME] [--parent KIND:ID]` | Create plan, set it active, and optionally capture a design name and current typed parent revisions. `--steps` is a JSON array whose entries may include `title`, `success_criteria`, `verify_command`, `phase`, and `vertical_slice`. `--horizon N` creates N default lookahead steps when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` sets the direct plan default. Design-heavy build steps require a `vertical_slice` with a result and at least one automated or manual check. Without steps or a horizon, create an empty plan and suggest `plan add-step`. | 0; 1 on invalid JSON, lineage, archetype, phase, or vertical slice |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Convert godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks into a plan and set it active. Discovers the artifact at the project root when PATH is omitted; both present without `--source` is an error. Live tasks import in document order (superseded strikethrough tasks skipped, checked boxes import completed); each step keeps `source_id`, `verify_command`, `wave`, `phase`, plus `depends_on` and `fixes` when present. Sets `strict_context` and a `source` provenance block; re-importing the same artifact path is refused while the imported plan exists. Warns on frontmatter counter drift. Never edits the artifact. | 0; 1 on missing, ambiguous, unrecognized, or already-imported artifacts |
-| `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan, optionally with an executable `verify_command`. | 0; 1 if plan not found |
+| `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--phase PHASE] [--vertical-slice JSON] [--plan NAME]` | Append a step (id = max + 1) to the named or active plan, optionally with an explicit phase, vertical slice, and executable `verify_command`. Design-heavy build steps require the vertical slice. | 0; 1 if the plan is missing or the step shape is invalid |
 | `plan verify ID [--plan NAME] [--timeout N]` | Run the step's `verify_command`, mark the step in progress, and record the executed verification scoped to that step so the strict-evidence gate is satisfied. CLI-only. | 0 verified; 2 command failed; 1 usage error |
 | `plan list` | List plans with active marker and per-plan progress, plus archived count. | 0 |
 | `plan show [NAME]` | Full detail of the named or active plan. | 0; 1 if not found |
 | `plan switch NAME` | Set the active plan pointer. | 0; 1 if not found |
 | `plan archive [NAME]` | Move plan file to `plans/archive/`; clear the active pointer if it pointed there. On filename conflict in archive, append a timestamp. | 0; 1 if plan not found |
+| `design create TITLE --problem TEXT [design fields] [--parent KIND:ID]` | Create and activate a durable product, system, and program design record. Design material is not verification evidence. | 0; 1 on duplicate or invalid lineage |
+| `design alternative TITLE --interface TEXT --call-sites TEXT --locality TEXT --migration-cost TEXT --deletion-cost TEXT --reversal-evidence TEXT [--select] [--name NAME]` | Add a materially distinct, bounded interface alternative with call-site and reversibility evidence. | 0; 1 if the design is missing or the interface duplicates an existing alternative |
+| `design approve [NAME] --note TEXT` | Approve a design. When alternatives exist, at least two and one selected alternative are required. Approval remains material-only. | 0; 1 if the comparison is incomplete |
+| `design show [NAME] [--json]` | Show the active or named design without mutation. | 0; 1 if missing |
+| `lineage attach KIND ID --parent KIND:ID` | Capture current parent revisions on a mutable artifact. Verification lineage is supplied at execution time. | 0; 1 on missing or unsupported artifacts |
+| `lineage status KIND ID [--json]` | Report current, stale, missing, or unknown parents using live artifact revisions. | 0; 1 if the artifact is missing |
+| `review create --status pass\|warn\|fail --path PATH [dimension fields] [--finding PATH:LINE:DETAIL]` | Record structured maintainability judgment for changed seams. The record is material-only and cannot satisfy strict completion. | 0; 1 on incomplete dimensions or invalid findings |
+| `review show NAME [--json]` | Show one maintainability review without mutation. | 0; 1 if missing |
+| `workspace show [--json]` | Merge and validate shared `.mythify/workspace.json` with private `.mythify/workspace.local.json`; show paths and source provenance without creating worktrees or mutating repositories. | 0; 1 on invalid or unsafe configuration |
 | `step ID STATUS [RESULT] [--plan NAME]` | Update step status. STATUS must be one of the five enum values, otherwise `[FAIL]`, exit 1. `completed` and `failed` REQUIRE the RESULT argument (evidence or failure description); without it print `[FAIL] Evidence required: pass a RESULT describing what proves this status.` and exit 1. By default, `completed` ALSO requires an executed verification with `verified: true`, `exit_code: 0`, and a timestamp after the step began. When the step stores `verify_command`, the record's normalized command must match. Otherwise print the verified-evidence refusal and exit 1 without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. After updating, print the next pending step. | 0 |
 | `memory set KEY VALUE [--category C]` | Category one of fact, decision, discovery, state; default fact. | 0 |
 | `memory get [QUERY] [--category C]` | Case-insensitive substring match over keys and values; optional category filter. | 0 |
@@ -1141,7 +1297,7 @@ owns the public entry point and delegates cohesive command families to sibling
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson in the project store, or the global store with `--global`. | 0 |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | Default scope all; label each lesson `(project)` or `(global)`; `--tag` filters. | 0 |
 | `logs compact [--keep N] [--dry-run] [--json]` | Archive raw top-level verification and reflection logs, then keep the most recent valid records in active logs. Default keep is 1000. `--dry-run` writes nothing. | 0; 1 if keep is invalid |
-| `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute COMMAND through the shell, capture exit code, duration, and redacted output tails, append an executed record, print the verdict. Default timeout 300 seconds. If `MYTHIFY_DISABLE_RUN=1`, refuse: execute nothing, record nothing, print `[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed and nothing was recorded. Unset it to enable execution, or use verify claim to record a self-reported attestation.` and exit 2 (the unverified code, so callers branching on verify run treat a disabled run as not verified). | 0 if verified, 2 if unverified or disabled |
+| `verify run COMMAND [--claim TEXT] [--parent KIND:ID] [--output compact\|full] [--timeout N]` | Execute COMMAND through the shell, append an executed record, and persist bounded redacted stdout and stderr artifacts with byte counts, hashes, and truncation metadata. Compact is the default; common test summaries may add a display-only count, and failures print tails and artifact paths. If `MYTHIFY_DISABLE_RUN=1`, execute and record nothing. | 0 if verified, 2 if unverified or disabled |
 | `verify claim CLAIM EVIDENCE` | Append an attested record and print the `[WARN] ATTESTED` line. | 0 |
 | `reflect [JSON]` or `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a structured reflection. Required keys: action, outcome (enum success, partial, failure), observation, next. A provided lesson is auto-recorded as a project lesson tagged `auto-reflected`. JSON positional takes precedence over flags. Missing keys or bad outcome: `[FAIL]`, exit 1. | 0 |
 | `classify TASK [--json] [--triage never\|auto\|always] [--platform auto\|unknown\|codex-desktop\|codex-cli\|claude-desktop\|claude-code\|cursor-desktop\|cursor-agent] [--effort auto\|low\|medium\|high] [--speed auto\|standard\|fast] [--session-model MODEL] [--model-profile auto\|utility\|balanced\|strong\|max\|fast\|standard\|frontier] [--failure-count N] [--spawn-ceiling auto\|lower_only\|same_or_lower\|allow_stronger] [--reviewer-strength auto\|same_or_lower\|allow_stronger]` | Classify a task before planning. Returns task type, risk, ambiguity, ceremony level, execution profile, verification strategy, fanout recommendation, fast model triage fit, open-ended quality-climb advisory, capability-profile router, host-aware model policy, signals, and next action. `--failure-count` accepts a nonnegative executed-verifier failure count and cannot escalate beyond `strong`; `max` must be explicit. `--triage auto` runs one utility model only when the gate is recommended or required. Does not require `.mythify` state unless the selected local model command does. | 0 |
@@ -1167,14 +1323,14 @@ Implementation notes:
 Node 20+, ESM (`"type": "module"`). Runtime dependencies use
 `@modelcontextprotocol/server` (current 2.x) and `zod` (4.x). The v1 SDK is
 retained as a test-only dependency for legacy 2025 protocol coverage.
-package.json: name `mythify-mcp`, version `5.5.0`,
+package.json: name `mythify-mcp`, version `5.6.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 50 tools: the 47 core tools below plus the 3 fanout tools defined in the
+Exactly 60 tools: the 57 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -1203,7 +1359,7 @@ does AND when to use it, since descriptions drive tool selection.
 | `phase_status` | `{recent?: number, format?: enum(text, json)}` | Show a read-only Understand, Design, Build, Judge, Verify phase view of active plan steps and durable evidence counts. It must not mutate state and must not report model confidence as progress. |
 | `campaign_next_prompt` | `{name?: string, format?: enum(text, json)}` | Render a chat-ready next prompt for the active or named campaign's current task and phase. It must not mutate state, run checks, advance a phase, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and advances the campaign with evidence. |
 | `prompt_packet` | `{kind?: enum(research, analysis, failure, handoff, review, campaign, next), name?: string, goal?: string, verify_command?: string, format?: enum(text, json)}` | Render a chat-ready prompt packet for research to implementation, analysis to plan, failure recovery, handoff, review, campaign, or the next useful workflow move. It must not mutate state, run checks, advance work, or treat prompt output as verification evidence. Hosts may display or inject the returned prompt, then the host agent does the work and records evidence. |
-| `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text, capability-profile policy, and durable state. It returns `route`, `reason`, `loop_collision` (the active loop families and which one steers, or null), `next_command`, `prompt_packet`, `verification_strategy`, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
+| `workflow_route` | `{task: string, format?: enum(text, json), triage?: enum(never, auto, always), triage_engine?: enum(claude-cli, codex-cli, cursor-agent, command), triage_model?: string, triage_timeout_seconds?: number, platform?: enum(auto, unknown, codex-desktop, codex-cli, claude-desktop, claude-code, cursor-desktop, cursor-agent), effort?: enum(auto, low, medium, high), speed?: enum(auto, standard, fast), session_model?: string, model_profile?: enum(auto, utility, balanced, strong, max, fast, standard, frontier), failure_count?: nonnegative integer, spawn_ceiling?: enum(auto, lower_only, same_or_lower, allow_stronger), reviewer_strength?: enum(auto, same_or_lower, allow_stronger)}` | Choose the next workflow route from prompt text, capability-profile policy, and durable state. It returns `route`, `reason`, `loop_collision` (the active loop families and which one steers, or null), `next_command`, `prompt_packet`, `verification_strategy`, `plan_archetype`, a material-only `maintainability_review` packet, `chat_policy`, `pause_rules`, `state_writes`, and `evidence`. It must not mutate state, run checks, advance work, or move execution out of the initiating host unless the user explicitly asks. |
 | `outcome_start` | `{goal: string, success: string, verify_command: string, metric_command?: string, metric_floor?: number, max_iterations?: number, allowed_paths?: string[], frozen_paths?: string[], supersede?: string, visibility?: enum(auto, quiet, summary, verbose, threaded), name?: string, format?: enum(text, json)}` | Start a supervised outcome loop and set it active. The host agent acts between checks; Mythify records the verifier, metric, budget, and visibility policy. `allowed_paths` supplies advisory Git scope reporting to supervised checks. CLI `outcome run` enforces it against a clean Git baseline and stops on violations or inspection failures. The self-driving `outcome run` loop, `--agent`, `--max-cost`, and `--escalate-after` are CLI-only, like `plan verify` and `plan import`. |
 | `outcome_check` | `{name?: string, notes?: string, audit?: boolean, timeout_seconds?: number, format?: enum(text, json)}` | Run the verifier and optional metric for the active or named outcome, append an iteration, append executed verification evidence, and return success, retry, or budget-exhausted guidance. `audit: true` re-runs a finished outcome's verifier without mutating its history and sets `evidence_stale` from the result. If `MYTHIFY_DISABLE_RUN=1`, refuse and record nothing. |
 | `outcome_status` | `{name?: string, format?: enum(text, json)}` | Show active or named outcome status, verifier, metric, iteration budget, and next action. |
@@ -1227,6 +1383,16 @@ does AND when to use it, since descriptions drive tool selection.
 | `verify_run` | `{command: string, claim?: string, timeout_seconds?: number = 300}` | Execute through the shell, record an executed verification, return the verdict with output tails. If env `MYTHIFY_DISABLE_RUN=1`, refuse with an explanation and record nothing. |
 | `verify_claim` | `{claim: string, evidence: string}` | Record an attested entry, return the `[WARN] ATTESTED` line. |
 | `reflect` | `{action_taken: string, outcome: enum(success, partial, failure), observation: string, root_cause?: string, next_action: string, lesson?: string}` | Append reflection; auto-record lesson if provided (project scope, tag `auto-reflected`). Note: jsonl field names follow the file format (`action`, `next`), not the tool parameter names. |
+| `design_create` | `{title: string, problem: string, current_state?: string, desired_state?: string, non_goals?: string, product_decisions?: string, system_decisions?: string, program_decisions?: string, name?: string, parents?: [{kind: string, id: string}]}` | Create and activate a durable design record. Material-only. |
+| `design_add_alternative` | `{title: string, interface: string, call_sites: string, locality: string, migration_cost: string, deletion_cost: string, reversal_evidence: string, select?: boolean, design?: string}` | Add one distinct, reversible interface alternative. |
+| `design_approve` | `{design?: string, note: string}` | Approve a design only after any alternative comparison has at least two choices and one selection. |
+| `design_status` | `{design?: string, format?: enum(text, json)}` | Show the active or named design without mutation. |
+| `lineage_attach` | `{kind: enum(research, map, design, plan, outcome), id: string, parents: [{kind: enum(research, map, design, plan, outcome, verification), id: string}]}` | Capture live parent revisions on a mutable artifact. |
+| `lineage_status` | `{kind: enum(research, map, design, plan, outcome, verification), id: string, format?: enum(text, json)}` | Inspect current, stale, missing, or unknown typed lineage. |
+| `maintainability_review_create` | `{status: enum(pass, warn, fail), changed_paths: string[], interface_depth: string, locality: string, seam_count: string, deletion_cost: string, invalid_state_exclusion: string, test_validity: string, findings?: [{path: string, line: positive integer, detail: string}], name?: string}` | Record structured changed-seam judgment as material, never executable proof. |
+| `maintainability_review_status` | `{review: string, format?: enum(text, json)}` | Show a maintainability review without mutation. |
+| `tool_profile_status` | `{}` | Report the selected MCP profile, available profiles, registered tool count, exact description-byte budget, and `quality_claim: "none"`. |
+| `workspace_status` | `{format?: enum(text, json)}` | Validate and report merged shared and private workspace configuration and source hashes without mutation. |
 
 All tool results are text content prefixed with `[OK]`, `[FAIL]`, or `[WARN]`.
 Handlers never throw on bad state; they return explanatory text.
@@ -1742,7 +1908,7 @@ that already requires outside judgment.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` returns exactly the manifest tool names (set equality), the 47 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
+1. `tools/list` enforces 60-tool set equality against the manifest: the 57 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
    execution profile `direct`, and a command-backed fast triage result when
@@ -2438,7 +2604,7 @@ Platform mapping:
   `gpt-5.6-sol-high-fast` when that id is available. If no matching encoded
   id is found, Mythify leaves the requested model unchanged.
 
-### Tools (3, total 50)
+### Tools (3, total 60)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
@@ -2635,7 +2801,7 @@ or upgrade provider output into evidence.
 ### Smoke coverage (mcp-server/test/, runs in CI with no network)
 
 Using the `command` engine with a deterministic local template and stub local
-CLI binaries: 50-tool set equality; a 3-task command job runs to completion
+CLI binaries: 60-tool set equality; a 3-task command job runs to completion
 and `fanout_results` returns the outputs; `context_paths` content demonstrably
 reaches the worker prompt; the kill switch refuses; the depth guard refuses; a
 failing command produces a failed task with captured stderr; job.json matches

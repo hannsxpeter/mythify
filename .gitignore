@@ -1,5 +1,6 @@
 .DS_Store
-.mythify/
+.mythify/*
+!.mythify/workspace.json
 .mcp.json
 __pycache__/
 *.pyc

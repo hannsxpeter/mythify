@@ -895,7 +895,44 @@ def route_has(text, terms):
     return bool(_contains_any(text, terms))
 
 
-def route_command_for(route, task, state_view):
+def route_plan_archetype(route, classification):
+    archetype = (classification or {}).get("plan_archetype", "direct")
+    if route == "plan" and archetype == "direct":
+        return "rpi"
+    return archetype
+
+
+def maintainability_review_packet(route, classification):
+    task_type = (classification or {}).get("task_type")
+    archetype = route_plan_archetype(route, classification)
+    recommended = archetype == "design-heavy" or task_type == "refactor"
+    return {
+        "recommended": recommended,
+        "reason": (
+            "The route changes an expensive seam or emphasizes maintainability."
+            if recommended
+            else "The route does not require advisory maintainability judgment."
+        ),
+        "command": (
+            "mythify review create --status pass --path CHANGED_PATH "
+            "--interface-depth NOTE --locality NOTE --seam-count NOTE "
+            "--deletion-cost NOTE --invalid-state-exclusion NOTE --test-validity NOTE"
+            if recommended
+            else None
+        ),
+        "dimensions": [
+            "interface_depth",
+            "locality",
+            "seam_count",
+            "deletion_cost",
+            "invalid_state_exclusion",
+            "test_validity",
+        ],
+        "evidence_status": "material_not_verification",
+    }
+
+
+def route_command_for(route, task, state_view, classification=None):
     quoted_task = shlex.quote(str(task or "").strip() or "task")
     packet = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
     if route == "failure":
@@ -932,9 +969,11 @@ def route_command_for(route, task, state_view):
     if route == "plan":
         if god_artifact_has_open_tasks(state_view.get("godplans_plan")):
             return "mythify plan import --source godplans"
-        return "mythify plan create {0} --horizon {1}".format(
+        archetype = route_plan_archetype(route, classification)
+        return "mythify plan create {0} --horizon {1} --archetype {2}".format(
             quoted_task,
             route_plan_horizon(),
+            archetype,
         )
     if route == "prompt":
         return "mythify prompt {0}".format(packet)
@@ -1015,6 +1054,7 @@ def workflow_route_evidence(route, state_view, classification):
             "task_type": classification.get("task_type"),
             "risk": classification.get("risk"),
             "execution_profile": classification.get("execution_profile"),
+            "plan_archetype": route_plan_archetype(route, classification),
         },
     ]
     latest = state_view.get("latest_executed_verification")
@@ -1192,13 +1232,15 @@ def build_workflow_route(task, state, classification):
         "input": str(task or ""),
         "classification": classification,
         "state": state_view,
-        "next_command": route_command_for(route, task, state_view),
+        "next_command": route_command_for(route, task, state_view, classification),
         "prompt_packet": {
             "kind": packet_kind,
             "command": "mythify prompt {0}".format(packet_kind),
         },
         "execution_adapter": execution_adapter,
         "verification_strategy": classification.get("verification", ""),
+        "plan_archetype": route_plan_archetype(route, classification),
+        "maintainability_review": maintainability_review_packet(route, classification),
         "chat_policy": {
             "executor": "initiating_host",
             "surface": "chat",
@@ -1228,6 +1270,11 @@ def format_workflow_route(payload):
             payload.get("prompt_packet", {}).get("command", ""),
         ),
         "Verification strategy: {0}".format(payload.get("verification_strategy", "")),
+        "Maintainability review: {0}".format(
+            "recommended"
+            if payload.get("maintainability_review", {}).get("recommended")
+            else "optional"
+        ),
     ]
     collision = payload.get("loop_collision")
     if collision:

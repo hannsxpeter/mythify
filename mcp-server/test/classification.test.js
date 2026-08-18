@@ -12,8 +12,18 @@ test("classification module is directly importable", () => {
   assert.equal(payload.risk, "high");
   assert.equal(payload.ceremony, "full");
   assert.equal(payload.execution_profile, "full");
+  assert.equal(payload.plan_archetype, "rpi");
   assert.equal(shouldRunModelTriage(payload, "auto"), true);
   assert.match(formatClassification(payload), /type: security/);
+});
+
+test("classification selects plan archetypes by reversibility", () => {
+  assert.equal(classifyTaskText("fix the focused failing parser test").plan_archetype, "direct");
+  assert.equal(
+    classifyTaskText("implement a new export feature across modules with validation integration tests documentation and error handling").plan_archetype,
+    "rpi"
+  );
+  assert.equal(classifyTaskText("migrate the public API schema across runtimes").plan_archetype, "design-heavy");
 });
 
 test("classification detects an open-ended quality climb", () => {

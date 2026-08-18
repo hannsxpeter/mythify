@@ -2,7 +2,7 @@
   "version": 1,
   "surfaces": {
     "cli": {
-      "command_count": 32,
+      "command_count": 36,
       "tiers": {
         "front_door": [
           "route",
@@ -17,7 +17,10 @@
           "campaign",
           "map",
           "research",
-          "prompt"
+          "prompt",
+          "design",
+          "lineage",
+          "workspace"
         ],
         "advanced": [
           "init",
@@ -37,7 +40,8 @@
           "lesson",
           "logs",
           "reflect",
-          "summary"
+          "summary",
+          "review"
         ],
         "labs": [
           "host-model",
@@ -77,13 +81,17 @@
         "verify",
         "reflect",
         "summary",
-        "loop-fit"
+        "loop-fit",
+        "design",
+        "lineage",
+        "review",
+        "workspace"
       ]
     },
     "mcp": {
-      "core_tool_count": 47,
+      "core_tool_count": 57,
       "fanout_tool_count": 3,
-      "total_tools": 50,
+      "total_tools": 60,
       "tiers": {
         "front_door": [
           "workflow_route",
@@ -108,7 +116,14 @@
           "outcome_results",
           "outcome_stop",
           "campaign_next_prompt",
-          "prompt_packet"
+          "prompt_packet",
+          "design_create",
+          "design_add_alternative",
+          "design_approve",
+          "design_status",
+          "lineage_attach",
+          "lineage_status",
+          "workspace_status"
         ],
         "advanced": [
           "classify_task",
@@ -128,7 +143,10 @@
           "reflect",
           "fanout_start",
           "fanout_status",
-          "fanout_results"
+          "fanout_results",
+          "maintainability_review_create",
+          "maintainability_review_status",
+          "tool_profile_status"
         ],
         "labs": [
           "host_model_switch",
@@ -191,7 +209,17 @@
         "outcome_stop",
         "verify_run",
         "verify_claim",
-        "reflect"
+        "reflect",
+        "design_create",
+        "design_add_alternative",
+        "design_approve",
+        "design_status",
+        "lineage_attach",
+        "lineage_status",
+        "maintainability_review_create",
+        "maintainability_review_status",
+        "tool_profile_status",
+        "workspace_status"
       ],
       "fanout_tools": [
         "fanout_start",

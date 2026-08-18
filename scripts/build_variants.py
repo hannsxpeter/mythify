@@ -15,11 +15,15 @@ import re
 import sys
 from pathlib import Path
 
+from mythify_protocol_profiles import load_profile_manifest, render_profile_body
+
 HEADER = (
     "<!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. "
     "Edit the source, then rebuild. -->"
 )
 HASH_HEADER = "<!-- Mythify protocol-sha256: {0} -->"
+PROFILE_HEADER = "<!-- Mythify protocol-profile: {0} -->"
+PROFILE_BODY_HEADER = "<!-- Mythify protocol-body-sha256: {0} -->"
 CLI_HASH_PATTERN = re.compile(r'^PROTOCOL_SOURCE_SHA256 = "[0-9a-f]{64}"$', re.M)
 
 TARGETS = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
@@ -50,12 +54,44 @@ def main():
         return 1
     body = source.read_text(encoding="utf-8")
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    content = HEADER + "\n" + HASH_HEADER.format(digest) + "\n\n" + body
+    manifest = load_profile_manifest(repo_root)
     written = []
     for name in TARGETS:
         target = repo_root / name
+        profile_body = render_profile_body(body, "full", manifest)
+        body_digest = hashlib.sha256(profile_body.encode("utf-8")).hexdigest()
+        content = (
+            HEADER
+            + "\n"
+            + HASH_HEADER.format(digest)
+            + "\n"
+            + PROFILE_HEADER.format("full")
+            + "\n"
+            + PROFILE_BODY_HEADER.format(body_digest)
+            + "\n\n"
+            + profile_body
+        )
         target.write_text(content, encoding="utf-8")
         written.append(name)
+    variants_dir = repo_root / "protocol" / "variants"
+    variants_dir.mkdir(parents=True, exist_ok=True)
+    thin_body = render_profile_body(body, "thin", manifest)
+    thin_digest = hashlib.sha256(thin_body.encode("utf-8")).hexdigest()
+    thin_content = (
+        HEADER
+        + "\n"
+        + HASH_HEADER.format(digest)
+        + "\n"
+        + PROFILE_HEADER.format("thin")
+        + "\n"
+        + PROFILE_BODY_HEADER.format(thin_digest)
+        + "\n\n"
+        + thin_body
+    )
+    for name in TARGETS:
+        target = variants_dir / (name + ".thin")
+        target.write_text(thin_content, encoding="utf-8")
+        written.append(str(target.relative_to(repo_root)))
     if not sync_cli_hash_constant(repo_root, digest):
         return 1
     print("[OK] Wrote " + ", ".join(written) + " from protocol/PROTOCOL.md")

@@ -24,6 +24,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from mythify_protocol_profiles import load_profile_manifest, profile_metrics
+
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -404,6 +406,18 @@ def comparison_conditions():
             "protocol_files": ["AGENTS.md", "scripts/mythify.py", "protocol/*.json"],
             "required_external_verifier": "python3 -m unittest",
         },
+    }
+
+
+def instruction_footprint():
+    root = repo_root()
+    protocol_text = (root / "protocol" / "PROTOCOL.md").read_text(encoding="utf-8")
+    manifest = load_profile_manifest(root)
+    return {
+        "kind": "protocol_loading_profile_footprint",
+        "profiles": profile_metrics(protocol_text, manifest),
+        "measurement": "deterministic source bytes, whitespace words, and lines",
+        "quality_claim": "none",
     }
 
 
@@ -1240,6 +1254,7 @@ def build_sanitized_summary(report):
             "completed_paired_trials": completed_pairs,
         },
         "conditions": comparison_conditions(),
+        "instruction_footprint": instruction_footprint(),
         "summary": summary,
         "verified_task_success": verified_task_success_effect(summary),
         "false_completion_claims": false_completion_claims_effect(runs),
@@ -1520,6 +1535,7 @@ def _run_main(argv=None):
                 "bare_speed": bare_speed,
                 "mythify_speed": mythify_speed,
             },
+            "instruction_footprint": instruction_footprint(),
             "local_model_benefit": local_model_benefit_effect(runs, scenario_names),
             "fanout_value": fanout_value_effect(summary, runs, scenario_names),
             "role_strength": role_strength_effect(summary, runs),

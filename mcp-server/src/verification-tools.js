@@ -1,5 +1,6 @@
 import { z } from "zod";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import { currentVerificationProvenanceForStateDir } from "./verification-provenance.js";
 
@@ -17,6 +18,22 @@ function requireDep(deps, name) {
   return value;
 }
 
+const TEST_COUNT_PATTERNS = [
+  /^Ran\s+(\d+)\s+tests?\b/gm,
+  /^#\s*tests\s+(\d+)\s*$/gm,
+  /(?:^|\s)(\d+)\s+passed(?:\s|,|$)/gm,
+  /^Tests:\s+.*?\b(\d+)\s+total\b/gm,
+];
+
+function extractTestCount(...texts) {
+  const combined = texts.map((text) => String(text || "")).join("\n");
+  for (const pattern of TEST_COUNT_PATTERNS) {
+    const matches = [...combined.matchAll(pattern)];
+    if (matches.length > 0) return Number.parseInt(matches.at(-1)[1], 10);
+  }
+  return null;
+}
+
 export function registerVerificationTools(server, deps) {
   const guarded = requireDep(deps, "guarded");
   const runShellCapture = requireDep(deps, "runShellCapture");
@@ -26,6 +43,7 @@ export function registerVerificationTools(server, deps) {
   const verificationsPath = requireDep(deps, "verificationsPath");
   const reflectionsPath = requireDep(deps, "reflectionsPath");
   const recordLesson = requireDep(deps, "recordLesson");
+  const captureLineage = requireDep(deps, "captureLineage");
 
   server.registerTool(
     "verify_run",
@@ -42,9 +60,11 @@ export function registerVerificationTools(server, deps) {
           .positive()
           .default(300)
           .describe("Kill the command after this many seconds. Defaults to 300."),
+        output: z.enum(["compact", "full"]).optional().describe("Compact verdict or retained full output."),
+        parents: z.array(z.object({ kind: z.string(), id: z.string() })).optional().describe("Typed parent artifacts captured with this run."),
       },
     },
-    guarded(({ command, claim, timeout_seconds }) => {
+    guarded(({ command, claim, timeout_seconds, output = "compact", parents }) => {
       if (process.env.MYTHIFY_DISABLE_RUN === "1") {
         return (
           "[FAIL] verify_run is disabled: the server environment sets MYTHIFY_DISABLE_RUN=1. " +
@@ -53,12 +73,21 @@ export function registerVerificationTools(server, deps) {
         );
       }
       const timeoutSeconds = timeout_seconds || 300;
-      const run = runShellCapture(command, timeoutSeconds);
+      let lineage = null;
+      if (parents && parents.length > 0) {
+        try { lineage = captureLineage(path.dirname(verificationsPath()), parents, isoNow); }
+        catch (error) { return `[FAIL] Invalid lineage: ${error.message}.`; }
+      }
+      const verificationId = `v-${isoNow().replace(/[^0-9]/g, "").slice(0, 17)}-${crypto.randomUUID().slice(0, 12)}`;
+      const stateDir = path.dirname(verificationsPath());
+      const artifactDir = path.join(stateDir, "verification-artifacts", verificationId);
+      const run = runShellCapture(command, timeoutSeconds, artifactDir);
       const stdoutTail = run.stdout_tail;
       const stderrTail = run.stderr_tail;
       const exitCode = run.exit_code;
       const verified = run.verified;
       const record = {
+        id: verificationId,
         kind: "executed",
         claim: claim !== undefined && claim !== null ? claim : null,
         command,
@@ -73,11 +102,29 @@ export function registerVerificationTools(server, deps) {
         ),
         ...verificationStepContext(),
       };
+      if (run.artifacts) {
+        record.artifacts = Object.fromEntries(
+          Object.entries(run.artifacts).map(([channel, item]) => [
+            channel,
+            { ...item, path: path.relative(stateDir, item.path) },
+          ])
+        );
+      }
+      if (run.artifact_error) record.artifact_error = run.artifact_error;
+      const testCount = extractTestCount(run.stdout_full, run.stderr_full, stdoutTail, stderrTail);
+      if (testCount !== null) record.test_count = testCount;
+      if (lineage) record.lineage = lineage;
       appendJsonl(verificationsPath(), record);
       const label = record.claim !== null ? record.claim : command;
-      const timing = `(exit ${exitCode}, ${run.duration_seconds.toFixed(2)}s)`;
+      const countLabel = Number.isInteger(record.test_count) ? `, ${record.test_count} tests` : "";
+      const timing = `(exit ${exitCode}, ${run.duration_seconds.toFixed(2)}s${countLabel})`;
       if (verified) {
-        return `[OK] VERIFIED: ${label} ${timing}`;
+        const lines = [`[OK] VERIFIED: ${label} ${timing}`];
+        if (output === "full") {
+          lines.push("--- stdout (full artifact) ---", run.stdout_full || "");
+          lines.push("--- stderr (full artifact) ---", run.stderr_full || "");
+        }
+        return lines.join("\n");
       }
       const lines = [`[FAIL] UNVERIFIED: ${label} ${timing}`];
       if (stdoutTail !== "") {
@@ -87,6 +134,12 @@ export function registerVerificationTools(server, deps) {
       if (stderrTail !== "") {
         lines.push("--- stderr (tail) ---");
         lines.push(stderrTail);
+      }
+      const artifactPaths = Object.values(record.artifacts || {}).map((item) => item.path);
+      if (artifactPaths.length > 0) lines.push(`Artifacts: ${artifactPaths.join(", ")}`);
+      if (output === "full") {
+        lines.push("--- stdout (full artifact) ---", run.stdout_full || "");
+        lines.push("--- stderr (full artifact) ---", run.stderr_full || "");
       }
       return lines.join("\n");
     })

@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "default_profile": "full",
+  "selection_env": "MYTHIFY_MCP_TOOL_PROFILE",
+  "profiles": {
+    "core": {
+      "description": "Routing, status, reporting, and executable verification.",
+      "tools": [
+        "workflow_route",
+        "workflow_status",
+        "work_report",
+        "verify_run",
+        "tool_profile_status"
+      ]
+    },
+    "workflow": {
+      "description": "Core controls plus plans, maps, outcomes, designs, lineage, and prompt packets.",
+      "includes": ["core"],
+      "tools": [
+        "plan_create",
+        "plan_add_step",
+        "plan_update_step",
+        "plan_status",
+        "map_create",
+        "map_add_ticket",
+        "map_claim",
+        "map_resolve",
+        "map_status",
+        "map_promote",
+        "outcome_start",
+        "outcome_check",
+        "outcome_status",
+        "outcome_results",
+        "outcome_stop",
+        "campaign_next_prompt",
+        "prompt_packet",
+        "design_create",
+        "design_add_alternative",
+        "design_approve",
+        "design_status",
+        "lineage_attach",
+        "lineage_status",
+        "workspace_status"
+      ]
+    },
+    "execution": {
+      "description": "Core controls plus execution, evidence, fanout, and lifecycle adapters.",
+      "includes": ["core"],
+      "tools": [
+        "verification_history",
+        "verify_claim",
+        "reflect",
+        "background_status",
+        "evidence_harness",
+        "outcome_progress",
+        "release_readiness",
+        "fanout_timeline",
+        "phase_status",
+        "fanout_start",
+        "fanout_status",
+        "fanout_results",
+        "provider_probe",
+        "local_model_run",
+        "host_cli_probe",
+        "host_cli_run",
+        "execution_probe",
+        "execution_run",
+        "lifecycle_probe"
+      ]
+    },
+    "quality": {
+      "description": "Core controls plus design, lineage, review, and evidence inspection.",
+      "includes": ["core"],
+      "tools": [
+        "verification_history",
+        "verify_claim",
+        "reflect",
+        "design_create",
+        "design_add_alternative",
+        "design_approve",
+        "design_status",
+        "lineage_attach",
+        "lineage_status",
+        "maintainability_review_create",
+        "maintainability_review_status"
+      ]
+    },
+    "lifecycle": {
+      "description": "Core controls plus host, artifact, provider, execution, and lifecycle integrations.",
+      "includes": ["core"],
+      "tools": [
+        "classify_task",
+        "host_model_switch",
+        "artifact_probe",
+        "artifact_inspect",
+        "artifact_clean",
+        "provider_probe",
+        "local_model_run",
+        "host_cli_probe",
+        "host_cli_run",
+        "execution_probe",
+        "execution_run",
+        "lifecycle_probe"
+      ]
+    },
+    "full": {
+      "description": "Every tool in the canonical surface manifest.",
+      "all_tools": true
+    }
+  }
+}

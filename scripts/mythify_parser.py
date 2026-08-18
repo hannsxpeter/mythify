@@ -5,6 +5,11 @@ from __future__ import annotations
 import argparse
 
 from mythify_artifact_parser import add_artifact_parser
+from mythify_designs import add_design_parser
+from mythify_lineage import add_lineage_parser
+from mythify_quality import add_quality_parser
+from mythify_workspace import add_workspace_parser
+from mythify_verification_commands import add_verification_parsers
 from mythify_eval_parser import add_eval_parser
 from mythify_map_parser import add_map_parser
 
@@ -832,6 +837,10 @@ def build_parser(symbols):
     p.set_defaults(handler=cmd_campaign_stop)
 
     add_map_parser(sub, symbols)
+    add_design_parser(sub, symbols)
+    add_lineage_parser(sub, symbols)
+    add_quality_parser(sub, symbols)
+    add_workspace_parser(sub, symbols)
     add_eval_parser(sub, symbols)
 
     p = sub.add_parser(
@@ -1252,6 +1261,14 @@ def build_parser(symbols):
         ),
     )
     p.add_argument("--name", help="Plan name; defaults to a slug of the goal.")
+    p.add_argument(
+        "--archetype",
+        choices=PLAN_ARCHETYPES,
+        default="direct",
+        help="Plan shape: direct, rpi, or design-heavy. Defaults to direct.",
+    )
+    p.add_argument("--design", help="Approved design record this plan implements.")
+    p.add_argument("--parent", action="append", default=[], help="Parent artifact kind:id. Repeat as needed.")
     p.set_defaults(handler=cmd_plan_create)
 
     p = plan_sub.add_parser(
@@ -1291,6 +1308,11 @@ def build_parser(symbols):
     )
     p.add_argument("title", help="Step title.")
     p.add_argument("--criteria", help="Success criteria for the step.")
+    p.add_argument("--phase", choices=PLAN_PHASES, help="Explicit workflow phase.")
+    p.add_argument(
+        "--vertical-slice",
+        help="JSON object with result, files, automated_checks, and manual_checks.",
+    )
     p.add_argument(
         "--verify",
         help="Executable command that proves the step is done; run it with plan verify.",
@@ -1492,70 +1514,7 @@ def build_parser(symbols):
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_logs_compact)
 
-    verify = sub.add_parser(
-        "verify",
-        help="Verification: run a command (executed) or record a claim (attested).",
-        description="Verification: run a command (executed) or record a claim (attested).",
-    )
-    verify_sub = verify.add_subparsers(dest="verify_command", metavar="ACTION", required=True)
-
-    p = verify_sub.add_parser(
-        "run",
-        help="Execute COMMAND through the shell and record an executed verification.",
-        description=(
-            "Execute COMMAND through the shell, capture exit code, duration, and "
-            "output tails, append an executed verification record, and print the "
-            "verdict. Exits 0 if verified (exit code 0), 2 if unverified."
-        ),
-    )
-    p.add_argument("command", help="Shell command to execute.")
-    p.add_argument("--claim", help="What this command verifies.")
-    p.add_argument(
-        "--timeout",
-        type=float,
-        default=DEFAULT_VERIFY_TIMEOUT,
-        metavar="N",
-        help="Timeout in seconds (default: 300).",
-    )
-    p.set_defaults(handler=cmd_verify_run)
-
-    p = verify_sub.add_parser(
-        "claim",
-        help="Record a self-reported (attested) verification; never counts as verified.",
-        description=(
-            "Append an attested verification record and print the [WARN] ATTESTED "
-            "line. Attested entries are never marked verified."
-        ),
-    )
-    p.add_argument("claim", help="The claim being attested.")
-    p.add_argument("evidence", help="Why you believe the claim holds.")
-    p.set_defaults(handler=cmd_verify_claim)
-
-    p = sub.add_parser(
-        "reflect",
-        help="Record a structured reflection (JSON object or flags).",
-        description=(
-            "Record a structured reflection. Required keys: action, outcome "
-            "(success, partial, failure), observation, next. A provided lesson is "
-            "auto-recorded as a project lesson tagged auto-reflected. The JSON "
-            "positional takes precedence over flags."
-        ),
-    )
-    p.add_argument(
-        "json",
-        nargs="?",
-        help=(
-            "Reflection as a JSON object with keys action, outcome, observation, "
-            "next, and optional root_cause and lesson."
-        ),
-    )
-    p.add_argument("--action", help="What was attempted.")
-    p.add_argument("--outcome", help="One of: success, partial, failure.")
-    p.add_argument("--observation", help="What actually happened.")
-    p.add_argument("--next", help="The next action to take.")
-    p.add_argument("--root-cause", dest="root_cause", help="Root cause, if known.")
-    p.add_argument("--lesson", help="Lesson to auto-record as a project lesson.")
-    p.set_defaults(handler=cmd_reflect)
+    add_verification_parsers(sub, symbols)
 
     p = sub.add_parser(
         "summary",

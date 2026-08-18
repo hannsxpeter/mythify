@@ -228,6 +228,32 @@
       "regression"
     ]
   },
+  "plan_archetype": {
+    "direct_execution_profiles": [
+      "direct",
+      "fast"
+    ],
+    "design_heavy_task_types": [
+      "design",
+      "migration"
+    ],
+    "design_heavy_terms": [
+      "architecture",
+      "public api",
+      "interface",
+      "schema",
+      "migration",
+      "persistence",
+      "cross runtime",
+      "cross-runtime",
+      "protocol",
+      "hard to reverse",
+      "breaking change"
+    ],
+    "direct_reason": "Focused direct or fast work does not need a separate design runway.",
+    "rpi_reason": "Planned work benefits from an explicit research, plan, and implementation shape.",
+    "design_heavy_reason": "The task affects an expensive interface, migration, protocol, or hard-to-reverse boundary."
+  },
   "next_actions": {
     "direct": "Answer directly or make the single reversible edit; no plan is required.",
     "fast": "Use the fast profile: skip plan state, make the focused change, and run verify run before completion.",

@@ -12,6 +12,7 @@ MYTHIFY_DIR environment variable (created on demand). Global lessons live in
 """
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -132,6 +134,33 @@ from mythify_evals import (  # noqa: E402
 )
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
 from mythify_evidence_guard import noop_verifier_reason  # noqa: E402
+from mythify_designs import (  # noqa: E402
+    PLAN_ARCHETYPES,
+    PLAN_PHASES,
+    cmd_design_add_alternative,
+    cmd_design_approve,
+    cmd_design_create,
+    cmd_design_show,
+    configure_design_store,
+    plan_step_extensions,
+)
+from mythify_lineage import (  # noqa: E402
+    capture_lineage,
+    cmd_lineage_attach,
+    cmd_lineage_status,
+    configure_lineage_store,
+    inspect_lineage,
+)
+from mythify_quality import (  # noqa: E402
+    REVIEW_STATUSES,
+    cmd_quality_review_create,
+    cmd_quality_review_show,
+    configure_quality_store,
+)
+from mythify_verification_commands import (  # noqa: E402
+    configure_verification_commands,
+    extract_test_count,
+)
 from mythify_protocol import cmd_protocol_check  # noqa: E402,F401
 from mythify_provenance import (  # noqa: E402
     current_verification_provenance,
@@ -223,7 +252,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.5.0"
+VERSION = "5.6.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
@@ -295,6 +324,9 @@ def ensure_layout(state):
     (state / "campaigns").mkdir(parents=True, exist_ok=True)
     (state / "maps").mkdir(parents=True, exist_ok=True)
     (state / "reports").mkdir(parents=True, exist_ok=True)
+    (state / "designs").mkdir(parents=True, exist_ok=True)
+    (state / "reviews").mkdir(parents=True, exist_ok=True)
+    (state / "verification-artifacts").mkdir(parents=True, exist_ok=True)
     (state / "logs" / "archive").mkdir(parents=True, exist_ok=True)
 
 
@@ -347,6 +379,30 @@ configure_host_model_store(
     resolve_state_dir_func=resolve_state_dir,
     now_iso_func=now_iso,
     classify_model_tier_func=classify_model_tier,
+    fail_func=fail,
+)
+configure_design_store(
+    now_iso_func=now_iso,
+    slugify_func=slugify,
+    write_json_atomic_func=write_json_atomic,
+    write_text_atomic_func=_write_text_atomic,
+    read_json_func=read_json,
+    fail_func=fail,
+    capture_lineage_func=capture_lineage,
+)
+configure_lineage_store(
+    now_iso_func=now_iso,
+    slugify_func=slugify,
+    read_json_func=read_json,
+    read_jsonl_func=read_jsonl,
+    write_json_atomic_func=write_json_atomic,
+    fail_func=fail,
+)
+configure_quality_store(
+    now_iso_func=now_iso,
+    slugify_func=slugify,
+    write_json_atomic_func=write_json_atomic,
+    read_json_func=read_json,
     fail_func=fail,
 )
 
@@ -440,7 +496,9 @@ def target_plan_slug(state, name):
     return get_active_slug(state)
 
 
-def execute_recorded_verification(state, command, claim, timeout=None, context=None):
+def execute_recorded_verification(
+    state, command, claim, timeout=None, context=None, parents=None
+):
     """Run COMMAND, append an executed verification record, return the record.
 
     When ``context`` (a plan/step_id/step_title/step_status dict) is given it is
@@ -448,8 +506,16 @@ def execute_recorded_verification(state, command, claim, timeout=None, context=N
     is auto-detected. An explicit context lets ``plan verify`` scope evidence to
     a specific step of any plan, not just the active one.
     """
-    run = run_shell_capture(command, timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT)
+    lineage = capture_lineage(state, parents) if parents else None
+    verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
+    artifact_dir = state / "verification-artifacts" / verification_id
+    run = run_shell_capture(
+        command,
+        timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
+        artifact_dir=artifact_dir,
+    )
     record = {
+        "id": verification_id,
         "kind": "executed",
         "claim": claim,
         "command": command,
@@ -461,9 +527,45 @@ def execute_recorded_verification(state, command, claim, timeout=None, context=N
         "timestamp": now_iso(),
         "provenance": current_verification_provenance(VERSION, state=state),
     }
+    artifacts = run.get("artifacts")
+    if isinstance(artifacts, dict):
+        normalized = {}
+        for channel, item in artifacts.items():
+            if not isinstance(item, dict):
+                continue
+            entry = dict(item)
+            try:
+                entry["path"] = str(Path(entry["path"]).relative_to(state))
+            except (KeyError, ValueError):
+                continue
+            normalized[channel] = entry
+        record["artifacts"] = normalized
+    if run.get("artifact_error"):
+        record["artifact_error"] = run["artifact_error"]
+    artifact_texts = []
+    for item in (run.get("artifacts") or {}).values():
+        try:
+            artifact_texts.append(Path(item["path"]).read_text(encoding="utf-8"))
+        except (KeyError, OSError):
+            pass
+    test_count = extract_test_count(
+        run.get("stdout_tail", ""), run.get("stderr_tail", ""), *artifact_texts
+    )
+    if test_count is not None:
+        record["test_count"] = test_count
+    if lineage is not None:
+        record["lineage"] = lineage
     record.update(context if context is not None else verification_step_context(state))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
+
+
+def attach_plan_lineage(state, slug, parents):
+    plan = load_plan(state, slug)
+    if plan is None:
+        raise ValueError("plan not found while attaching lineage: " + slug)
+    plan["lineage"] = capture_lineage(state, parents)
+    save_plan(state, slug, plan)
 
 
 configure_workflow_stores(
@@ -494,6 +596,7 @@ configure_map_store(
     create_plan_record_func=lambda state, goal, name, steps, source: create_plan_record(
         state, goal, name=name, steps=steps, source=source
     ),
+    attach_plan_lineage_func=attach_plan_lineage,
     environ_map=os.environ,
 )
 configure_evals_store(
@@ -746,7 +849,15 @@ def cmd_plan_create(args, state):
             return 1
         if horizon is not None:
             steps_input = build_default_plan_steps(horizon)
-    slug, error = create_plan_record(state, args.goal, args.name, steps_input)
+    slug, error = create_plan_record(
+        state,
+        args.goal,
+        args.name,
+        steps_input,
+        archetype=args.archetype,
+        design=args.design,
+        parents=args.parent,
+    )
     if error:
         fail(error)
         return 1
@@ -758,15 +869,24 @@ def cmd_plan_create(args, state):
     return 0
 
 
-def create_plan_record(state, goal, name=None, steps=None, source=None):
+def create_plan_record(
+    state, goal, name=None, steps=None, source=None, archetype="direct", design=None,
+    parents=None
+):
     """Write a new plan, set it active, and return (slug, error_message).
 
     Shared by `plan create` and `map promote`, so a promoted map produces the
     same plan shape as a hand-written one, plus a `source` provenance block.
     """
+    if archetype not in PLAN_ARCHETYPES:
+        return None, "[FAIL] Invalid plan archetype: {0}.".format(archetype)
     for item in steps or []:
         if not isinstance(item, dict) or not item.get("title"):
             return None, "[FAIL] Invalid steps: every step needs a non-empty \"title\"."
+        try:
+            plan_step_extensions(item, archetype)
+        except ValueError as exc:
+            return None, "[FAIL] Invalid step {0}: {1}.".format(item.get("title"), exc)
     base = slugify(name if name else goal) or "plan"
     slug = base
     suffix = 2
@@ -787,6 +907,7 @@ def create_plan_record(state, goal, name=None, steps=None, source=None):
         if verify_command:
             step["verify_command"] = verify_command
             warn_noop_verifier(step["id"], verify_command)
+        step.update(plan_step_extensions(item, archetype))
         plan_steps.append(step)
     plan = {
         "name": slug,
@@ -794,7 +915,15 @@ def create_plan_record(state, goal, name=None, steps=None, source=None):
         "steps": plan_steps,
         "created": stamp,
         "last_updated": stamp,
+        "archetype": archetype,
     }
+    if design:
+        plan["design"] = str(design)
+    if parents:
+        try:
+            plan["lineage"] = capture_lineage(state, parents)
+        except ValueError as exc:
+            return None, "[FAIL] Invalid lineage: {0}.".format(exc)
     if source is not None:
         plan["source"] = source
     save_plan(state, slug, plan)
@@ -838,6 +967,19 @@ def cmd_plan_add_step(args, state):
     if verify_command:
         step["verify_command"] = verify_command
         warn_noop_verifier(new_id, verify_command)
+    try:
+        step.update(
+            plan_step_extensions(
+                {
+                    "phase": getattr(args, "phase", None),
+                    "vertical_slice": getattr(args, "vertical_slice", None),
+                },
+                plan.get("archetype", "direct"),
+            )
+        )
+    except ValueError as exc:
+        fail("[FAIL] Invalid step: {0}.".format(exc))
+        return 1
     plan["steps"].append(step)
     plan["last_updated"] = now_iso()
     save_plan(state, slug, plan)
@@ -1166,6 +1308,35 @@ def _file_size(path):
         return 0
 
 
+def _persist_capture_artifacts(stdout_path, stderr_path, artifact_dir, max_output_bytes):
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    remaining = max_output_bytes
+    results = {}
+    for channel, source in (("stdout", stdout_path), ("stderr", stderr_path)):
+        source_size = _file_size(source)
+        try:
+            with source.open("rb") as handle:
+                raw = handle.read(max(0, remaining))
+        except OSError:
+            raw = b""
+        remaining = max(0, remaining - len(raw))
+        decoded = raw.decode("utf-8", errors="replace")
+        redacted = redact_sensitive_output(decoded)
+        destination = artifact_dir / (channel + ".txt")
+        _write_text_atomic(destination, redacted)
+        encoded = redacted.encode("utf-8")
+        results[channel] = {
+            "path": str(destination),
+            "bytes": len(encoded),
+            "source_bytes": source_size,
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+            "truncated": source_size > len(raw),
+            "redacted": redacted != decoded,
+        }
+    return results
+
+
 def verify_max_output_bytes():
     raw = os.environ.get("MYTHIFY_VERIFY_MAX_OUTPUT_BYTES", "").strip()
     if not raw:
@@ -1213,7 +1384,7 @@ def terminate_process_tree(process):
     return False
 
 
-def run_shell_capture(command, timeout, max_output_bytes=None):
+def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None):
     max_output_bytes = (
         verify_max_output_bytes() if max_output_bytes is None else max_output_bytes
     )
@@ -1223,6 +1394,8 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
     containment_failed = False
     spawn_error = None
     exit_code = None
+    artifacts = None
+    artifact_error = None
     with tempfile.TemporaryDirectory(prefix="mythify-capture-") as tempdir:
         stdout_path = Path(tempdir) / "stdout"
         stderr_path = Path(tempdir) / "stderr"
@@ -1262,6 +1435,13 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
         stdout_tail = _read_file_tail_text(stdout_path, redactor=redact_sensitive_output)
         stderr_tail = _read_file_tail_text(stderr_path, redactor=redact_sensitive_output)
         total_size = _file_size(stdout_path) + _file_size(stderr_path)
+        if artifact_dir is not None:
+            try:
+                artifacts = _persist_capture_artifacts(
+                    stdout_path, stderr_path, artifact_dir, max_output_bytes
+                )
+            except OSError as exc:
+                artifact_error = redact_sensitive_output(str(exc))
     duration = (datetime.now(timezone.utc) - started).total_seconds()
     if (
         not timed_out
@@ -1298,7 +1478,7 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
             stderr_tail,
             "(process-tree containment could not be confirmed; the parent was killed)",
         )
-    return {
+    result = {
         "command": command,
         "exit_code": exit_code,
         "duration_seconds": round(duration, 3),
@@ -1309,6 +1489,11 @@ def run_shell_capture(command, timeout, max_output_bytes=None):
         "output_limit_exceeded": output_limit_exceeded,
         "containment_failed": containment_failed,
     }
+    if artifacts is not None:
+        result["artifacts"] = artifacts
+    if artifact_error is not None:
+        result["artifact_error"] = artifact_error
+    return result
 
 
 configure_outcome_loops(
@@ -1323,115 +1508,17 @@ configure_outcome_loops(
     fail_func=fail,
 )
 
-
-def cmd_verify_run(args, state):
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
-        fail(VERIFY_RUN_DISABLED_MESSAGE)
-        return 2
-    record = execute_recorded_verification(state, args.command, args.claim, args.timeout)
-    exit_code = record["exit_code"]
-    stdout_tail = record["stdout_tail"]
-    stderr_tail = record["stderr_tail"]
-    label = args.claim or args.command
-    if record["verified"]:
-        print(
-            "[OK] VERIFIED: {0} (exit {1}, {2:.2f}s)".format(
-                label,
-                exit_code,
-                record["duration_seconds"],
-            )
-        )
-        return 0
-    print(
-        "[FAIL] UNVERIFIED: {0} (exit {1}, {2:.2f}s)".format(
-            label,
-            exit_code,
-            record["duration_seconds"],
-        )
-    )
-    if stdout_tail:
-        print("--- stdout (tail) ---")
-        print(stdout_tail)
-    if stderr_tail:
-        print("--- stderr (tail) ---")
-        print(stderr_tail)
-    return 2
-
-
-def cmd_verify_claim(args, state):
-    record = {
-        "kind": "attested",
-        "claim": args.claim,
-        "evidence": args.evidence,
-        "verified": None,
-        "timestamp": now_iso(),
-    }
-    record.update(verification_step_context(state))
-    append_chained_jsonl(state / "verifications.jsonl", record)
-    print(
-        "[WARN] ATTESTED: {0} (self-reported, not machine-checked; "
-        "prefer verify run)".format(args.claim)
-    )
-    return 0
-
-
-def cmd_reflect(args, state):
-    if args.json:
-        try:
-            payload = json.loads(args.json)
-        except ValueError:
-            fail("[FAIL] Invalid JSON for reflect: pass a single JSON object.")
-            return 1
-        if not isinstance(payload, dict):
-            fail("[FAIL] Invalid reflect payload: expected a JSON object.")
-            return 1
-    else:
-        payload = {}
-        if args.action is not None:
-            payload["action"] = args.action
-        if args.outcome is not None:
-            payload["outcome"] = args.outcome
-        if args.observation is not None:
-            payload["observation"] = args.observation
-        if args.next is not None:
-            payload["next"] = args.next
-        if args.root_cause is not None:
-            payload["root_cause"] = args.root_cause
-        if args.lesson is not None:
-            payload["lesson"] = args.lesson
-    missing = [
-        key for key in ("action", "outcome", "observation", "next")
-        if not payload.get(key)
-    ]
-    if missing:
-        fail("[FAIL] Missing required reflection keys: {0}.".format(", ".join(missing)))
-        return 1
-    if payload["outcome"] not in REFLECT_OUTCOMES:
-        fail(
-            "[FAIL] Invalid outcome: {0}. Use one of: {1}.".format(
-                payload["outcome"], ", ".join(REFLECT_OUTCOMES)
-            )
-        )
-        return 1
-    lesson = payload.get("lesson") or None
-    record = {
-        "action": str(payload["action"]),
-        "outcome": payload["outcome"],
-        "observation": str(payload["observation"]),
-        "root_cause": str(payload["root_cause"]) if payload.get("root_cause") else None,
-        "next": str(payload["next"]),
-        "lesson": str(lesson) if lesson else None,
-        "timestamp": now_iso(),
-    }
-    append_jsonl(state / "reflections.jsonl", record)
-    print("[OK] Reflection recorded ({0}).".format(record["outcome"]))
-    if record["lesson"]:
-        detail = "Auto-recorded from a reflection (outcome: {0}). Action: {1}".format(
-            record["outcome"], record["action"]
-        )
-        write_lesson(state / "lessons", record["lesson"], detail, ["auto-reflected"])
-        print("[OK] Lesson recorded (project): {0}".format(record["lesson"]))
-    return 0
+configure_verification_commands(
+    disabled_message=VERIFY_RUN_DISABLED_MESSAGE,
+    execute_recorded_verification_func=execute_recorded_verification,
+    fail_func=fail,
+    now_iso_func=now_iso,
+    verification_step_context_func=verification_step_context,
+    append_chained_jsonl_func=append_chained_jsonl,
+    append_jsonl_func=append_jsonl,
+    reflect_outcomes=REFLECT_OUTCOMES,
+    write_lesson_func=write_lesson,
+)
 
 
 def cmd_summary(args, state):
@@ -1452,6 +1539,8 @@ def cmd_summary(args, state):
                 slug, label, done, total, plan.get("goal", "")
             )
         )
+        lineage = inspect_lineage(state, plan.get("lineage"))
+        print("    lineage: {0}".format(lineage["status"]))
     print("Archived plans: {0}".format(count_archived(state)))
     memory = load_memory(state)
     print("Memory entries: {0}".format(len(memory["entries"])))
@@ -1487,6 +1576,7 @@ configure_views(
     timestamp_after_func=timestamp_after,
     now_iso_func=now_iso,
     slugify_func=slugify,
+    inspect_lineage_func=inspect_lineage,
     fail_func=fail,
     mythify_version=VERSION,
 )

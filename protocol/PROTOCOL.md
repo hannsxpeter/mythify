@@ -215,14 +215,20 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `eval adopt ID --human-input TEXT [--json]` | Adopt a verified proposal into `.mythify/evals/scenarios.json`; requires the human's words plus a passing executed run stamped with this proposal, so another proposal's run or an unrelated run of the same command cannot stand in. |
 | `eval reject ID --reason TEXT` | Close a proposal without adopting it; the scenario name becomes available again. |
 | `eval list [--json]` / `eval show ID [--json]` | List proposals and adopted scenarios, or show one proposal in full. |
-| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan and set it active. |
+| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME] [--archetype direct\|rpi\|design-heavy] [--design NAME] [--parent KIND:ID]` | Create a plan and set it active, optionally linked to a design and typed parents. Design-heavy build steps require a vertical slice. |
 | `plan import [PATH] [--source godplans\|godaudits] [--name NAME]` | Import godplans PLAN.mdx or godaudits AUDIT.mdx checkbox tasks as a plan whose steps keep each task's verify command under strict step-scoped evidence. |
-| `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]` | Append a step to the named or active plan, optionally with an executable verify command. |
+| `plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--phase PHASE] [--vertical-slice JSON] [--plan NAME]` | Append a step to the named or active plan, optionally with an explicit phase, vertical result, and executable verify command. |
 | `plan verify ID [--plan NAME] [--timeout N]` | Run a step's own verify command and record the evidence scoped to that step, satisfying the strict-evidence gate. |
 | `plan list` | List plans with active marker and progress. |
 | `plan show [NAME]` | Full detail of the named or active plan. |
 | `plan switch NAME` | Set the active plan pointer. |
 | `plan archive [NAME]` | Move a finished plan to the archive. |
+| `design create TITLE --problem TEXT [design fields] [--parent KIND:ID]` | Create and activate durable product, system, and program design material. |
+| `design alternative TITLE --interface TEXT --call-sites TEXT --locality TEXT --migration-cost TEXT --deletion-cost TEXT --reversal-evidence TEXT [--select] [--name NAME]` | Add a bounded, reversible interface alternative. |
+| `design approve [NAME] --note TEXT` / `design show [NAME] [--json]` | Approve or inspect material-only design records. |
+| `lineage attach KIND ID --parent KIND:ID` / `lineage status KIND ID [--json]` | Capture parent revisions or inspect current, stale, missing, and unknown lineage. |
+| `review create --status pass\|warn\|fail --path PATH [dimension fields] [--finding PATH:LINE:DETAIL]` / `review show NAME [--json]` | Record or inspect material-only maintainability judgment. |
+| `workspace show [--json]` | Validate merged shared and private workspace configuration without mutation. |
 | `step ID STATUS [RESULT] [--plan NAME]` | Update a step; `completed` and `failed` require RESULT evidence, and `completed` requires a passing exit-0 `verify run` matching any stored `verify_command` by default. |
 | `memory set KEY VALUE [--category C]` | Store or overwrite a memory entry. |
 | `memory get [QUERY] [--category C]` | Substring search over keys and values. |
@@ -230,7 +236,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a project lesson, or a global one. |
 | `lesson list [--tag TAG] [--scope project\|global\|all]` | List lessons, labeled by scope. |
 | `logs compact [--keep N] [--dry-run] [--json]` | Archive raw verification and reflection logs, then keep recent active records. |
-| `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute a check and record the verdict. Exit 0 verified, 2 unverified. |
+| `verify run COMMAND [--claim TEXT] [--parent KIND:ID] [--output compact\|full] [--timeout N]` | Execute a check, retain bounded redacted output artifacts, record a display-only test count when recognized, and record the exit-code verdict. Exit 0 verified, 2 unverified. |
 | `verify claim CLAIM EVIDENCE` | Record a self-attested claim, marked as such. |
 | `reflect [JSON]` | Record a structured reflection from a JSON object. |
 | `reflect --action A --outcome O --observation OBS --next N [--root-cause R] [--lesson L]` | Record a reflection from flags; a `--lesson` is auto-saved as a project lesson. |
@@ -239,7 +245,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 50 tools: `classify_task`, `host_model_switch`,
+through exactly 60 tools: `classify_task`, `host_model_switch`,
 `artifact_probe`, `artifact_inspect`, `artifact_clean`, `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
@@ -250,11 +256,26 @@ through exactly 50 tools: `classify_task`, `host_model_switch`,
 `workflow_status`,
 `verification_history`, `work_report`, `background_status`, `evidence_harness`, `outcome_progress`,
 `release_readiness`, `fanout_timeline`, `phase_status`, `campaign_next_prompt`,
-`prompt_packet`, `workflow_route`, `verify_run`, `verify_claim`, `reflect`, plus the parallel delegation tools `fanout_start`,
+`prompt_packet`, `workflow_route`, `verify_run`, `verify_claim`, `reflect`,
+`design_create`, `design_add_alternative`, `design_approve`, `design_status`,
+`lineage_attach`, `lineage_status`, `maintainability_review_create`,
+`maintainability_review_status`, `tool_profile_status`, `workspace_status`, plus the parallel delegation tools `fanout_start`,
 `fanout_status`, and `fanout_results`. Same
 state directory, same file formats, same evidence rules:
 `verify_run` and `outcome_check` execute and record; `verify_claim` only attests;
 `plan_update_step` refuses `completed` or `failed` without a `result`.
+`MYTHIFY_MCP_TOOL_PROFILE` selects `core`, `workflow`, `execution`, `quality`,
+`lifecycle`, or the backward-compatible `full` default. Every selected tool is
+validated against `protocol/surface-manifest.json`; unknown profiles fail closed.
+`tool_profile_status` reports registered tool and description-byte budgets with
+`quality_claim: "none"`. Profile selection never changes authorization or evidence.
+`design_*`, `lineage_*`, and `maintainability_review_*` keep design judgment and
+artifact relationships durable while remaining material-only. `workspace_status`
+merges `.mythify/workspace.json` and `.mythify/workspace.local.json` without
+creating worktrees or mutating repositories, and local settings may not weaken
+shared frozen paths, authorization, or task isolation.
+Executed `verify_run` records retain bounded redacted stdout and stderr artifacts
+under `.mythify/verification-artifacts/`; compact output remains the default.
 `campaign_next_prompt` and CLI `campaign prompt` render read-only host prompt
 material for the current campaign task and phase; they do not mutate state, run
 checks, advance tasks, or turn prompt output into verification evidence.
@@ -278,7 +299,8 @@ registry by hand is reported as unprovenanced rather than adopted.
 `workflow_route` and CLI `route` are read-only quarterback surfaces: they
 classify the prompt, inspect active durable state and the latest executed
 verification, choose the next workflow route, return the suggested next command
-and prompt packet, and keep the initiating host chat as the executor unless the
+and prompt packet, the plan archetype, and a material-only maintainability review
+advisory, and keep the initiating host chat as the executor unless the
 user explicitly hands work elsewhere. For independently parallel candidates,
 they also return a native `claude-ultracode` adapter contract. An MCP host can
 launch exactly one Claude dynamic workflow with `fanout_start`, monitor it with

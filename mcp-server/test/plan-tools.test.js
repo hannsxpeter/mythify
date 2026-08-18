@@ -71,6 +71,8 @@ function makeHarness(overrides = {}) {
     readActiveSlug: () => active,
     evidenceMovedSinceRun: () => null,
     currentProvenance: () => ({}),
+    captureLineage: () => null,
+    resolveStateDir: () => "/state",
     mcpFrontDoorNote: " Route first.",
     ...overrides,
   });
