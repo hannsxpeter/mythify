@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.8.0] - 2026-08-19
+
+Minor release: executable blast-radius safety cases. Mythify can now record the
+one fact a change depends on, separate confirmed, cleared, and unproven risks,
+and bind proof to the exact reviewed worktree instead of accepting a persuasive
+writeup or a later dirty state.
+
+### Added
+
+- Added `review blast-radius`, `review prove`, and type-aware `review show`
+  commands. A safety case records changed paths, one safety fact, proof depth,
+  structured risk likelihood and impact, cleared checks, and the cheapest
+  pre-merge verifier.
+- Added matching `blast_radius_review_create`,
+  `blast_radius_review_prove`, and `blast_radius_review_status` MCP tools with
+  the same immutable review and evidence-linking contract.
+- Added typed `review` lineage so executed verification records point to the
+  exact immutable safety-case revision they prove.
+- Added `provenance.worktree_digest`, a SHA-256 fingerprint over the tracked
+  binary diff and untracked file hashes. Dirty-to-dirty source movement now has
+  a concrete identity in both runtimes.
+- Added cross-runtime tests that create a dirty safety case through the CLI,
+  prove it through MCP, and confirm that both runtimes use the same fingerprint
+  without mutating the parent review.
+- Added `docs/blast-radius.md` with the safety-case workflow, proof ladder,
+  schema, evidence boundary, and attribution to the MIT-licensed pstack
+  `blast-radius` skill.
+
+### Changed
+
+- Review routing now recognizes `blast radius`, `what could this break`, and
+  small-diff distrust prompts. Review packets direct agents past symbol search
+  into lifecycle timing, wire formats, storage, flags, pinned dependencies,
+  local patches, and cross-language consumers.
+- Review packets now require one explicit safety fact, proof depth 1-5, honest
+  confirmed, cleared, and unproven dispositions, and the cheapest executable
+  check before merge. Proof below executed depth 4 remains unproven.
+- Expanded the public MCP surface to 63 tools: 60 core tools and 3 fanout tools.
+
+### Security
+
+- Blast-radius proof refuses stale change fingerprints and honors
+  `MYTHIFY_DISABLE_RUN=1` before executing a command.
+- Proof output uses the existing bounded, redacted verification runner, and a
+  passing command that changes reviewed source is refused.
+- Safety-case files remain immutable. Proof status is derived from append-only
+  verification records with exact review lineage and source provenance.
+
 ## [5.7.0] - 2026-08-19
 
 Minor release: concrete user-facing prose with an honest evidence boundary.
@@ -1609,7 +1657,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...HEAD
+[5.8.0]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/hannsxpeter/mythify/compare/v5.6.0...v5.7.0
 [5.6.0]: https://github.com/hannsxpeter/mythify/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/hannsxpeter/mythify/compare/v5.4.0...v5.5.0

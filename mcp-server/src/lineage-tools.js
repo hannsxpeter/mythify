@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 
 
-export const ARTIFACT_KINDS = ["research", "map", "design", "plan", "outcome", "verification"];
+export const ARTIFACT_KINDS = ["research", "map", "design", "plan", "outcome", "review", "verification"];
 export const LINEAGE_TOOL_NAMES = ["lineage_attach", "lineage_status"];
 export const PRECEDENCE = [
   "live_code_current_behavior",
@@ -31,6 +31,7 @@ function artifactPath(stateDir, kind, id) {
   if (kind === "design") return path.join(stateDir, "designs", `${artifactId}.json`);
   if (kind === "plan") return path.join(stateDir, "plans", `${artifactId}.json`);
   if (kind === "outcome") return path.join(stateDir, "outcomes", artifactId, "goal.json");
+  if (kind === "review") return path.join(stateDir, "reviews", `${artifactId}.json`);
   return path.join(stateDir, "verifications.jsonl");
 }
 
@@ -52,7 +53,7 @@ function artifactRecord(stateDir, kind, id) {
 }
 
 
-function revisionDigest(record) {
+export function revisionDigest(record) {
   const canonicalize = (value) => {
     if (Array.isArray(value)) return value.map(canonicalize);
     if (value && typeof value === "object") {

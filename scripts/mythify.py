@@ -150,10 +150,13 @@ from mythify_lineage import (  # noqa: E402
     cmd_lineage_status,
     configure_lineage_store,
     inspect_lineage,
+    revision_digest,
 )
 from mythify_quality import (  # noqa: E402
     REVIEW_STATUSES,
+    cmd_blast_radius_review_create,
     cmd_quality_review_create,
+    cmd_quality_review_prove,
     cmd_quality_review_show,
     configure_quality_store,
 )
@@ -252,7 +255,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.7.0"
+VERSION = "5.8.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
@@ -398,15 +401,6 @@ configure_lineage_store(
     write_json_atomic_func=write_json_atomic,
     fail_func=fail,
 )
-configure_quality_store(
-    now_iso_func=now_iso,
-    slugify_func=slugify,
-    write_json_atomic_func=write_json_atomic,
-    read_json_func=read_json,
-    fail_func=fail,
-)
-
-
 # ---------------------------------------------------------------------------
 # Plan store
 # ---------------------------------------------------------------------------
@@ -558,6 +552,20 @@ def execute_recorded_verification(
     record.update(context if context is not None else verification_step_context(state))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
+
+
+configure_quality_store(
+    now_iso_func=now_iso,
+    slugify_func=slugify,
+    write_json_atomic_func=write_json_atomic,
+    read_json_func=read_json,
+    read_jsonl_func=read_jsonl,
+    execute_verification_func=execute_recorded_verification,
+    current_provenance_func=lambda state: current_verification_provenance(VERSION, state=state),
+    revision_digest_func=revision_digest,
+    fail_func=fail,
+    environ_map=os.environ,
+)
 
 
 def attach_plan_lineage(state, slug, parents):

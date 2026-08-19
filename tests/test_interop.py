@@ -318,6 +318,78 @@ class TestCliMcpInterop(unittest.TestCase):
         self.assertIsNone(cli_record["provenance"]["git_commit"])
         self.assertTrue(cli_record["provenance"]["mythify_version"])
 
+    def test_cli_review_and_mcp_proof_share_exact_dirty_change_fingerprint(self):
+        init = self.run_cli("init")
+        self.assertEqual(init.returncode, 0, init.stderr)
+        subprocess.run(["git", "init", "-q"], cwd=self.project, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "mythify@example.invalid"],
+            cwd=self.project,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Mythify Test"],
+            cwd=self.project,
+            check=True,
+        )
+        tracked = self.project / "tracked.txt"
+        tracked.write_text("baseline\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore", "tracked.txt"], cwd=self.project, check=True)
+        subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.project, check=True)
+        tracked.write_text("dirty tracked content\n", encoding="utf-8")
+        (self.project / "untracked.txt").write_text("dirty untracked content\n", encoding="utf-8")
+
+        risk = json.dumps({
+            "failure_mode": "the consumer rejects the changed payload",
+            "path": "tracked.txt",
+            "line": 1,
+            "likelihood": "medium",
+            "impact": "high",
+            "disposition": "unproven",
+            "check": "true",
+        })
+        created = self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--path", "untracked.txt", "--safety-fact", "both runtimes bind proof to the same dirty change",
+            "--proof-depth", "2", "--risk", risk, "--merge-command", "true",
+            "--name", "shared-dirty-change",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        review_path = self.project / ".mythify" / "reviews" / "shared-dirty-change.json"
+        stored_before = review_path.read_bytes()
+        cli_before = self.run_cli("review", "show", "shared-dirty-change", "--json")
+        self.assertEqual(cli_before.returncode, 0, cli_before.stderr)
+        cli_view = json.loads(cli_before.stdout)
+
+        client = self.start_mcp()
+        try:
+            mcp_view = json.loads(self.call_tool(
+                client,
+                "blast_radius_review_status",
+                {"review": "shared-dirty-change", "format": "json"},
+            ))
+            self.assertEqual(cli_view["change_fingerprint"], mcp_view["change_fingerprint"])
+            proved = self.call_tool(
+                client,
+                "blast_radius_review_prove",
+                {"review": "shared-dirty-change"},
+            )
+            self.assertIn("[OK] VERIFIED", proved)
+        finally:
+            client.close()
+
+        self.assertEqual(review_path.read_bytes(), stored_before)
+        cli_after = self.run_cli("review", "show", "shared-dirty-change", "--json")
+        self.assertEqual(cli_after.returncode, 0, cli_after.stderr)
+        proved_view = json.loads(cli_after.stdout)
+        self.assertEqual(proved_view["safety_fact"]["status"], "proven")
+        self.assertEqual(proved_view["safety_fact"]["proof_depth"], 4)
+        proof = self.read_jsonl("verifications.jsonl")[-1]
+        self.assertEqual(
+            proof["provenance"]["worktree_digest"],
+            proved_view["change_fingerprint"]["worktree_digest"],
+        )
+
     def test_p_must_02_cli_and_mcp_readiness_freshness_decisions_match(self):
         init = self.run_cli("init")
         self.assertEqual(init.returncode, 0, init.stderr)
@@ -856,6 +928,8 @@ class TestCliMcpInterop(unittest.TestCase):
             "Research the latest wire format options",         # research
             "what is the current pricing for the API",          # research (freshness)
             "Audit this module for risks",                     # review
+            "blast radius of this change",                     # review
+            "what could this break",                           # review
             "Iterate until the unit tests pass",               # outcome
             "One shot this project, ship it",                  # campaign
             "Give me the next prompt packet",                  # prompt
@@ -884,6 +958,10 @@ class TestCliMcpInterop(unittest.TestCase):
             client.close()
         mcp_prompt = mcp_payload["next_prompt"]
         critic_lines = [
+            "- State the one safety fact the change depends on and report its proof depth from 1 to 5; anything below executed depth 4 stays unproven.",
+            "- Continue past symbol search into lifecycle timing, teardown, wire formats, database columns, feature flags, pinned dependencies, local patches, and downstream or cross-language consumers where relevant.",
+            "- Separate confirmed, cleared, and unproven risks. A search that finds no caller is evidence, but never invent a caller or API.",
+            "- For broad or wide changes, run independent runtime-lifecycle, data-contract, and dependency-config passes, merge their findings, then verify the integrated result.",
             "- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.",
             "- Grade the integrated deliverable (the running app, rendered page, or built artifact), not intermediate artifacts such as mockups, asset grids, or isolated diffs.",
             "- Critic verdicts are material, not verification evidence: record them with verify claim and keep executed checks as the completion gate.",

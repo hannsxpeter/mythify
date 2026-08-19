@@ -137,9 +137,15 @@ class TestRouteMatrix(RouteCase):
             self.assertEqual(json.loads(result.stdout)["task_type"], "research", task)
 
     def test_review(self):
-        payload = self.route("Audit this module and find the risks")
-        self.assertEqual(payload["route"], "review")
-        self.assertIn("prompt review", payload["next_command"])
+        for task in (
+            "Audit this module and find the risks",
+            "blast radius of this change",
+            "what could this break",
+            "review a small diff I do not trust",
+        ):
+            payload = self.route(task)
+            self.assertEqual(payload["route"], "review", task)
+            self.assertIn("prompt review", payload["next_command"], task)
 
     def test_outcome(self):
         payload = self.route("Iterate until the unit tests pass")

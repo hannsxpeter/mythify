@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
 const PACKAGE_JSON = JSON.parse(
@@ -36,10 +37,42 @@ export function gitWorktreeClean(root) {
   return String(result.stdout || "").trim() === "";
 }
 
+export function gitWorktreeDigest(root) {
+  const options = {
+    cwd: root,
+    encoding: null,
+    timeout: 30000,
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  };
+  const diff = spawnSync("git", ["diff", "--binary", "--no-ext-diff", "HEAD", "--"], options);
+  const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], options);
+  if (diff.error || diff.status !== 0 || untracked.error || untracked.status !== 0) return null;
+  const digest = crypto.createHash("sha256");
+  digest.update(Buffer.from("tracked\0", "utf8"));
+  digest.update(diff.stdout || Buffer.alloc(0));
+  const paths = Buffer.from(untracked.stdout || Buffer.alloc(0))
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean)
+    .sort();
+  for (const filePath of paths) {
+    const blob = spawnSync("git", ["hash-object", "--no-filters", "--", filePath], options);
+    if (blob.error || blob.status !== 0) return null;
+    digest.update(Buffer.from("untracked\0", "utf8"));
+    digest.update(Buffer.from(filePath, "utf8"));
+    digest.update(Buffer.from("\0", "utf8"));
+    digest.update(Buffer.from(blob.stdout || Buffer.alloc(0)).toString("utf8").trim());
+    digest.update(Buffer.from("\0", "utf8"));
+  }
+  return digest.digest("hex");
+}
+
 export function currentVerificationProvenance(root = process.cwd()) {
   return {
     git_commit: gitCommit(root),
     worktree_clean: gitWorktreeClean(root),
+    worktree_digest: gitWorktreeDigest(root),
     mythify_version: PACKAGE_JSON.version,
   };
 }
@@ -104,6 +137,13 @@ export function evidenceMovedSinceRun(record, current) {
   }
   if (provenance.worktree_clean === true && current.worktree_clean === false) {
     return "worktree_changed_since_run";
+  }
+  if (
+    provenance.worktree_digest &&
+    current.worktree_digest &&
+    provenance.worktree_digest !== current.worktree_digest
+  ) {
+    return "worktree_digest_changed_since_run";
   }
   return null;
 }

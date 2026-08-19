@@ -89,9 +89,9 @@
       ]
     },
     "mcp": {
-      "core_tool_count": 57,
+      "core_tool_count": 60,
       "fanout_tool_count": 3,
-      "total_tools": 60,
+      "total_tools": 63,
       "tiers": {
         "front_door": [
           "workflow_route",
@@ -146,6 +146,9 @@
           "fanout_results",
           "maintainability_review_create",
           "maintainability_review_status",
+          "blast_radius_review_create",
+          "blast_radius_review_prove",
+          "blast_radius_review_status",
           "tool_profile_status"
         ],
         "labs": [
@@ -218,6 +221,9 @@
         "lineage_status",
         "maintainability_review_create",
         "maintainability_review_status",
+        "blast_radius_review_create",
+        "blast_radius_review_prove",
+        "blast_radius_review_status",
         "tool_profile_status",
         "workspace_status"
       ],

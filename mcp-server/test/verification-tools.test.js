@@ -85,6 +85,7 @@ test("verification tool registrar wires verify and reflection handlers", async (
     "git_commit",
     "mythify_version",
     "worktree_clean",
+    "worktree_digest",
   ]);
   assert.equal(verifications[0].provenance.mythify_version, PACKAGE_VERSION);
 

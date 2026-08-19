@@ -314,7 +314,7 @@ function main() {
   );
   requireIncludes(
     "docs/design.md",
-    '"provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "mythify_version": "semver string"}'
+    '"provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "worktree_digest": "sha256 string or null", "mythify_version": "semver string"}'
   );
   requireIncludes("docs/design.md", "scripts/package_cli.py");
   requireIncludes("docs/design.md", "mythify-uninstall");
