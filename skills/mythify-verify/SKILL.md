@@ -46,3 +46,6 @@ Turn a claim into executed evidence and show the result in chat.
 Do not say "done", "fixed", "green", or "released" unless an executed
 verification supports the claim. If no executable verifier exists, use
 `mythify verify claim` and label it as attested, not verified.
+
+When reporting the verdict, remove boilerplate and vague confidence language.
+Name the command, exit code, observed result, and remaining uncertainty.

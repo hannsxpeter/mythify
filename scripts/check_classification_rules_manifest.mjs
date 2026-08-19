@@ -14,6 +14,8 @@ const modelRootPath = path.join(repoRoot, "protocol", "model-capabilities.json")
 const modelPackagePath = path.join(repoRoot, "mcp-server", "protocol", "model-capabilities.json");
 const artifactRootPath = path.join(repoRoot, "protocol", "artifact-hygiene.json");
 const artifactPackagePath = path.join(repoRoot, "mcp-server", "protocol", "artifact-hygiene.json");
+const proseRootPath = path.join(repoRoot, "protocol", "prose-quality.json");
+const prosePackagePath = path.join(repoRoot, "mcp-server", "protocol", "prose-quality.json");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -27,6 +29,8 @@ const modelRootManifest = readJson(modelRootPath);
 const modelPackageManifest = readJson(modelPackagePath);
 const artifactRootManifest = readJson(artifactRootPath);
 const artifactPackageManifest = readJson(artifactPackagePath);
+const proseRootManifest = readJson(proseRootPath);
+const prosePackageManifest = readJson(prosePackagePath);
 
 if (JSON.stringify(rootManifest) !== JSON.stringify(packageManifest)) {
   console.error("[FAIL] Classification rules manifest drift:");
@@ -62,6 +66,22 @@ if (
   artifactRootManifest.api_key_env !== "WATERMARKS_SERVER_API_KEY"
 ) {
   console.error("[FAIL] Invalid artifact hygiene manifest header");
+  process.exit(1);
+}
+
+if (JSON.stringify(proseRootManifest) !== JSON.stringify(prosePackageManifest)) {
+  console.error("[FAIL] Prose quality manifest drift:");
+  console.error("  root: " + proseRootPath);
+  console.error("  package: " + prosePackagePath);
+  process.exit(1);
+}
+
+if (
+  proseRootManifest.schema_version !== 1 ||
+  proseRootManifest.name !== "prose-quality" ||
+  !Array.isArray(proseRootManifest.mechanical_rules?.forbidden_phrases)
+) {
+  console.error("[FAIL] Invalid prose quality manifest header");
   process.exit(1);
 }
 
@@ -167,4 +187,4 @@ if (!rootManifest.verification_hints.feature || !rootManifest.next_actions.stand
   process.exit(1);
 }
 
-console.log("[OK] Classification, operation, workflow, model capability, and artifact hygiene manifests mirror package copies");
+console.log("[OK] Classification, operation, workflow, model capability, artifact hygiene, and prose quality manifests mirror package copies");

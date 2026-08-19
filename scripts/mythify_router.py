@@ -56,6 +56,7 @@ PROMPT_PACKET_GUARDRAIL = (
     "Prompt packet output is steering material for the host agent, not verification evidence. "
     "The host must do the work, run checks when available, report issues in chat, and record evidence."
 )
+PROSE_QUALITY_INSTRUCTION = "Before delivering user-facing prose, remove boilerplate and vague claims; name the actor, action, evidence, or measurement, and preserve exact technical terms."
 WORKFLOW_ROUTE_IDS = tuple(str(route["id"]) for route in WORKFLOW_ROUTER["routes"])
 WORKFLOW_ROUTE_PROMPTS = {
     str(route["id"]): str(route.get("prompt_packet", "next"))
@@ -287,6 +288,22 @@ def prompt_git_context():
     return git_state, lines
 
 
+def add_prose_quality_instruction(payload):
+    if payload.get("error") or not payload.get("next_prompt"):
+        return payload
+    instruction = "- " + PROSE_QUALITY_INSTRUCTION
+    prompt = payload["next_prompt"]
+    if instruction in prompt:
+        return payload
+    marker = "\nGuardrail:"
+    index = prompt.rfind(marker)
+    if index < 0:
+        payload["next_prompt"] = prompt.rstrip() + "\n" + instruction
+    else:
+        payload["next_prompt"] = prompt[:index] + "\n" + instruction + prompt[index:]
+    return payload
+
+
 def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
     if kind == "next":
         selected = select_next_prompt_packet_kind(state)
@@ -312,7 +329,7 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
         if record is None:
             return {"error": "[FAIL] Campaign not found. Start one with: campaign start GOAL"}
         campaign_payload = build_campaign_prompt_payload(slug, record)
-        return {
+        return add_prose_quality_instruction({
             "kind": "campaign",
             "selected_kind": "campaign",
             "title": "Campaign prompt packet",
@@ -320,19 +337,19 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
             "context": campaign_payload,
             "next_prompt": campaign_payload.get("next_prompt", ""),
             "guardrail": PROMPT_PACKET_GUARDRAIL,
-        }
+        })
     if kind == "research":
-        return build_research_prompt_packet(state, name=name, goal=goal, verify_command=verify_command)
+        return add_prose_quality_instruction(build_research_prompt_packet(state, name=name, goal=goal, verify_command=verify_command))
     if kind == "analysis":
-        return build_analysis_prompt_packet(state, goal=goal, verify_command=verify_command)
+        return add_prose_quality_instruction(build_analysis_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "failure":
-        return build_failure_prompt_packet(state, verify_command=verify_command)
+        return add_prose_quality_instruction(build_failure_prompt_packet(state, verify_command=verify_command))
     if kind == "handoff":
-        return build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command)
+        return add_prose_quality_instruction(build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "review":
-        return build_review_prompt_packet(state, goal=goal, verify_command=verify_command)
+        return add_prose_quality_instruction(build_review_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "map":
-        return build_map_prompt_packet(state, name=name, goal=goal)
+        return add_prose_quality_instruction(build_map_prompt_packet(state, name=name, goal=goal))
     return {"error": "[FAIL] Unknown prompt packet kind: {0}".format(kind)}
 
 

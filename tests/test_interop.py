@@ -887,6 +887,7 @@ class TestCliMcpInterop(unittest.TestCase):
             "- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.",
             "- Grade the integrated deliverable (the running app, rendered page, or built artifact), not intermediate artifacts such as mockups, asset grids, or isolated diffs.",
             "- Critic verdicts are material, not verification evidence: record them with verify claim and keep executed checks as the completion gate.",
+            "- Before delivering user-facing prose, remove boilerplate and vague claims; name the actor, action, evidence, or measurement, and preserve exact technical terms.",
         ]
         for line in critic_lines:
             self.assertIn(line, cli_prompt)

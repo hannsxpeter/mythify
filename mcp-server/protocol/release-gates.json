@@ -72,6 +72,8 @@
         "mcp-server/protocol/classification-rules.json",
         "protocol/artifact-hygiene.json",
         "mcp-server/protocol/artifact-hygiene.json",
+        "protocol/prose-quality.json",
+        "mcp-server/protocol/prose-quality.json",
         "protocol/model-capabilities.json",
         "mcp-server/protocol/model-capabilities.json",
         "scripts/check_classification_rules_manifest.mjs"
@@ -90,6 +92,21 @@
       ],
       "commands": [
         "node scripts/build_registry_docs.mjs --check"
+      ]
+    },
+    {
+      "id": "prose_quality",
+      "label": "Mechanical prose quality check",
+      "required": true,
+      "sources": [
+        "protocol/prose-quality.json",
+        "scripts/check_prose_quality.py",
+        "skills/mythify/references/communication-quality.md",
+        "docs/prose-quality.md",
+        "tests/test_prose_quality.py"
+      ],
+      "commands": [
+        "python3 scripts/check_prose_quality.py"
       ]
     },
     {
@@ -149,7 +166,7 @@
         "mcp-server/package.json"
       ],
       "commands": [
-        "python3 scripts/package_cli.py --check-release-tag v5.6.0"
+        "python3 scripts/package_cli.py --check-release-tag v5.7.0"
       ]
     },
     {

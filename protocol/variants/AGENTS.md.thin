@@ -1,7 +1,7 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 7b8ed674d2928bf2653841cf6293750f31b41c54075ebca691681720dd3575d5 -->
+<!-- Mythify protocol-sha256: 5b226eaee44548c0411985e8ed87e64a23f784a22bc587b4fcd28292c6639f44 -->
 <!-- Mythify protocol-profile: thin -->
-<!-- Mythify protocol-body-sha256: 027b070718b926c06ba0c75142e308d53e10958821457bf1f2aea60706e965ce -->
+<!-- Mythify protocol-body-sha256: f5b3e72cb5f4ca1b211123259acea161e788fd44d6108e69d1a5687b211a1283 -->
 
 # The Mythify Protocol
 
@@ -34,6 +34,10 @@ The full protocol remains authoritative when this bootstrap omits detail.
    the step started. If the step stores `verify_command`, the recorded command
    must match it.
    Use `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only as an explicit legacy opt-out.
+9. Write concrete prose. In user-facing writing, remove boilerplate and vague
+   claims. Name the actor, action, evidence, measurement, or instruction.
+   Preserve exact technical terms, quotations, logs, commands, and legal text.
+   Mechanical prose checks do not prove voice, originality, or authorship.
 
 ## Proportional ceremony
 

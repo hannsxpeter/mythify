@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.7.0] - 2026-08-19
+
+Minor release: concrete user-facing prose with an honest evidence boundary.
+Mythify now tightens final responses, documentation, and generated prompt
+packets while keeping subjective writing judgment separate from executable
+verification.
+
+### Added
+
+- Added a packaged communication-quality reference for chat responses,
+  documentation, research summaries, release notes, pull request text, commit
+  messages, and prompt-writing tasks. The pass removes boilerplate, vague
+  claims, promotional language, and filler while preserving precise domain
+  terms, quotations, logs, commands, and legal text.
+- Added `protocol/prose-quality.json` and
+  `scripts/check_prose_quality.py`. The dependency-free checker scans maintained
+  Markdown for configured dash characters, decorative symbols, and canned
+  phrases. It reports only mechanical findings and explicitly makes no claim
+  about voice, originality, or human authorship.
+- Added focused clean and negative fixtures plus tests for manifest scope,
+  skill packaging, CLI behavior, Unicode rules, prompt-runtime parity, and
+  release-gate wiring.
+- Added `docs/prose-quality.md` with the rewrite process, check contract,
+  evidence boundary, and attribution to the MIT-licensed pstack `unslop` skill.
+
+### Changed
+
+- Every CLI and MCP workflow prompt packet now carries the same compact
+  instruction to name actors, actions, evidence, or measurements and preserve
+  exact technical terms.
+- The canonical protocol and focused chat skills now apply the rewrite pass to
+  final user-facing output.
+- The release gate and tag-triggered workflow now run the mechanical prose
+  check before packaging and publication.
+
 ## [5.6.0] - 2026-08-17
 
 Minor release: HumanLayer-inspired code quality controls. Mythify now preserves
@@ -1574,7 +1609,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at [docs/research-report.md](docs/research-report.md).
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.6.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...HEAD
+[5.7.0]: https://github.com/hannsxpeter/mythify/compare/v5.6.0...v5.7.0
 [5.6.0]: https://github.com/hannsxpeter/mythify/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/hannsxpeter/mythify/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/hannsxpeter/mythify/compare/v5.3.0...v5.4.0

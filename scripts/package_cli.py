@@ -24,6 +24,7 @@ STANDALONE_DOCS = (
     "docs/start-here.md",
     "docs/research-report.md",
     "docs/humanlayer-integration-research.md",
+    "docs/prose-quality.md",
     "docs/evidence/codex-word-count-2026-07-13.json",
     "docs/evidence/efficacy-reproduction.md",
 )
@@ -66,6 +67,7 @@ def artifact_files(repo_root):
         repo_root / "scripts" / "install_user.sh",
         repo_root / "scripts" / "mythify.py",
         repo_root / "scripts" / "mythify_chat_report_hook.sh",
+        repo_root / "scripts" / "check_prose_quality.py",
     }
     files.update(repo_root / relative for relative in STANDALONE_DOCS)
     files.update(repo_root / relative for relative in STANDALONE_ASSETS)

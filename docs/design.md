@@ -27,6 +27,28 @@ same state directory.
 - Exception: `docs/research-report.md` is preserved legacy content, copied verbatim,
   and is exempt from these character rules.
 
+## Communication-quality layer
+
+User-facing chat, documentation, research summaries, release notes, pull request
+text, commit messages, and prompt packets receive a final advisory rewrite pass.
+The pass removes boilerplate and vague claims, names the actor, action, evidence,
+measurement, or instruction, and preserves precise domain terms and exact text
+when fidelity matters. The packaged contract lives at
+`skills/mythify/references/communication-quality.md`.
+
+`scripts/check_prose_quality.py` reads `protocol/prose-quality.json` and checks a
+bounded set of unambiguous patterns across maintained Markdown. The checker has
+no model dependency and returns 0 for no configured finding, 1 for configured
+findings, and 2 when inspection cannot run. Historical archives and committed
+evaluation evidence are excluded by default. Focused fixtures cover clean prose,
+stock phrases, prohibited dash characters, and decorative symbols.
+
+The checker proves only that its configured mechanical patterns are absent.
+Voice, originality, authorship, and contextual style remain material judgment.
+This split prevents a prose review from satisfying an executable completion gate.
+The guidance selectively adapts the MIT-licensed pstack `unslop` process without
+adopting blanket vocabulary bans that would erase precise Mythify terms.
+
 ## HumanLayer-inspired quality controls
 
 The quality-control program adapts the useful constraints identified in
@@ -223,6 +245,7 @@ mythify/
 |   |-- mythify_workflows.py     research and campaign workflow helper
 |   |-- build_variants.py        generates CLAUDE.md, AGENTS.md, .cursorrules
 |   |-- build_registry_docs.mjs  generates registry-backed docs
+|   |-- check_prose_quality.py   checks unambiguous user-facing prose rules
 |   |-- check_surface_manifest.mjs checks public surface metadata drift
 |   |-- check_runtime_source_size.py recursive runtime size guard
 |   |-- install_user.sh          user-local CLI and MCP launcher installer
@@ -266,6 +289,7 @@ mythify/
 |   |-- protocol/model-capabilities.json package copy of model profile policy
 |   |-- protocol/operation-registry.json package copy of operation metadata
 |   |-- protocol/release-gates.json package copy of readiness gates
+|   |-- protocol/prose-quality.json package copy of prose check policy
 |   |-- protocol/workflow-router.json package copy of route metadata
 |   |-- protocol/surface-manifest.json package copy of public surface metadata
 |   |-- test/capability-registry.test.js
@@ -710,8 +734,9 @@ The release readiness view is a read-only release-review surface:
   paths, and exact normalized commands. The source manifest and packaged MCP
   mirror must be identical. Current gates cover Python, Node, CLI and MCP
   interoperability, distribution artifacts, public surface and runtime
-  manifests, generated registry docs, runtime source size, protocol variants,
-  whitespace, dependency audit, release tag binding, and flat release assets.
+  manifests, generated registry docs, mechanical prose quality, runtime source
+  size, protocol variants, whitespace, dependency audit, release tag binding,
+  and flat release assets.
 - Evidence boundary: the view only summarizes recorded executed verifier
   records whose normalized `command` exactly matches a manifest command.
   Claims and output text never select a gate. A passing record satisfies a
@@ -1323,7 +1348,7 @@ Implementation notes:
 Node 20+, ESM (`"type": "module"`). Runtime dependencies use
 `@modelcontextprotocol/server` (current 2.x) and `zod` (4.x). The v1 SDK is
 retained as a test-only dependency for legacy 2025 protocol coverage.
-package.json: name `mythify-mcp`, version `5.6.0`,
+package.json: name `mythify-mcp`, version `5.7.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
@@ -2023,9 +2048,12 @@ References, each under 100 lines, v2 semantics throughout:
 - `references/memory-system.md`: memory categories, project vs global lessons,
   read-before-decide discipline.
 - `references/meta-prompts.md`: the injectable behavioral constraints (act over ask,
-  lead with outcome, grounding, bounded autonomy, anti-overengineering, persistence).
+  lead with outcome, grounding, bounded autonomy, anti-overengineering, persistence,
+  and concrete prose).
 - `references/chat-experience.md`: report cadence and visible-progress rules for
   chat hosts.
+- `references/communication-quality.md`: the final user-facing rewrite pass,
+  exceptions for exact text, mechanical scope, and judgment boundary.
 - `references/godplans-godaudits.mdx`: the godplans and godaudits bridge
   contract (plan import mapping, strict step context, artifact ownership, MDX
   safety rules). GFM-safe MDX, kept `.mdx` to match the artifacts it documents.

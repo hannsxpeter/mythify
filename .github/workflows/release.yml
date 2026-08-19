@@ -46,6 +46,7 @@ jobs:
       - name: Check generated docs and runtime size
         run: |
           node scripts/build_registry_docs.mjs --check
+          python3 scripts/check_prose_quality.py
           python3 scripts/check_runtime_source_size.py
       - name: Check protocol variants and whitespace
         run: |

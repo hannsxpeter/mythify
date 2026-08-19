@@ -54,3 +54,8 @@ Before the final response, run a final chat report or equivalent MCP
 `work_report`. The final answer should lead with the verified outcome, then
 issue status, then evidence. It should not require the user to inspect
 `.mythify/` to know what happened.
+
+Apply the rewrite pass in `communication-quality.md` before sending. Remove
+boilerplate and vague claims, name the actor and evidence, preserve exact
+technical terms, and delete sentences that could describe another project
+unchanged. The pass improves communication; it is not verification evidence.
