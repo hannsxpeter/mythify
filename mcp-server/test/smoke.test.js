@@ -566,6 +566,8 @@ test("mythify MCP server smoke test", async (t) => {
         ["what does Mythify do?", "direct", "analysis"],
         ["research latest agent routing patterns", "research", "research"],
         ["audit this project for issues", "review", "review"],
+        ["blast radius of this change", "review", "review"],
+        ["what could this break", "review", "review"],
         ["address all issues in one go", "campaign", "campaign"],
         ["keep fixing until tests pass and verify command is green", "outcome", "handoff"],
         ["implement the router feature", "plan", "analysis"],
@@ -1084,7 +1086,7 @@ test("mythify MCP server smoke test", async (t) => {
         })
       );
       assert.match(reviewText, /Review prompt packet/);
-      assert.match(reviewText, /Review changed files/);
+      assert.match(reviewText, /Read the diff, the changed symbols/);
       assert.match(reviewText, /preserve exact technical terms/);
 
       const campaignText = textOf(

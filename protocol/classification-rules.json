@@ -305,7 +305,7 @@
     "frontend_ui": "Run build/lint plus browser or screenshot checks for affected views.",
     "benchmark": "Run the benchmark harness and record JSON output, pass rates, evidence rates, and durations.",
     "research": "Cite sources and record a verify claim only when no executable check exists.",
-    "review": "Read diffs/files and report findings with file and line references; tests are supporting evidence.",
+    "review": "Find the change's safety fact, inspect beyond symbol search, separate confirmed, cleared, and unproven risks, and execute the cheapest focused proof when practical.",
     "debugging": "Reproduce the failure first, then run the failing check again after the fix.",
     "bugfix": "Run the failing or targeted regression test, then the nearest broader suite.",
     "test_generation": "Run the added tests and confirm they fail before the fix when practical.",
@@ -426,7 +426,11 @@
         "evaluate",
         "evaluation",
         "assess",
-        "assessment"
+        "assessment",
+        "blast radius",
+        "what could this break",
+        "small diff i do not trust",
+        "small diff i don't trust"
       ]
     },
     {

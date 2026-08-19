@@ -82,7 +82,8 @@ ROUTE_RESEARCH_TERMS = (
 )
 ROUTE_REVIEW_TERMS = (
     "audit", "review", "assess", "evaluate", "find issues", "code review",
-    "risks", "risk sweep",
+    "risks", "risk sweep", "blast radius", "what could this break",
+    "small diff i do not trust", "small diff i don't trust",
 )
 ROUTE_RESUME_TERMS = (
     "continue", "resume", "next", "keep going", "pick up", "carry on",
@@ -701,7 +702,14 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
     lines.extend([
         "",
         "Instructions:",
-        "- Review changed files and relevant surrounding code.",
+        "- Read the diff, the changed symbols, and the behavior that changed outside the visible diff.",
+        "- State the one safety fact the change depends on and report its proof depth from 1 to 5; anything below executed depth 4 stays unproven.",
+        "- Continue past symbol search into lifecycle timing, teardown, wire formats, database columns, feature flags, pinned dependencies, local patches, and downstream or cross-language consumers where relevant.",
+        "- Give each risk a concrete failure mode, file and line, likelihood, impact, disposition, and cheapest check.",
+        "- Separate confirmed, cleared, and unproven risks. A search that finds no caller is evidence, but never invent a caller or API.",
+        "- Prove the safety fact with the smallest script, test, or running-app reproduction that exercises the shipped code. If proof is not cheap, mark it unproven.",
+        "- For broad or wide changes, run independent runtime-lifecycle, data-contract, and dependency-config passes, merge their findings, then verify the integrated result.",
+        "- Before merge, name the cheapest executable repro that catches the real bug.",
         "- Lead with actionable findings, with file and line references when possible.",
         "- Separate verified issues, warnings, open questions, and test gaps.",
         "- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.",

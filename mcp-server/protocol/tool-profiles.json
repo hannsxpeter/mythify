@@ -82,7 +82,10 @@
         "lineage_attach",
         "lineage_status",
         "maintainability_review_create",
-        "maintainability_review_status"
+        "maintainability_review_status",
+        "blast_radius_review_create",
+        "blast_radius_review_prove",
+        "blast_radius_review_status"
       ]
     },
     "lifecycle": {

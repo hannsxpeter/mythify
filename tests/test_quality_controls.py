@@ -38,6 +38,15 @@ class QualityControlTests(unittest.TestCase):
             "--name", "seam-review",
         )
 
+    def init_git_repo(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.email", "mythify@example.invalid"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.name", "Mythify Test"], cwd=self.root, check=True)
+        (self.root / ".gitignore").write_text(".mythify/\n", encoding="utf-8")
+        (self.root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore", "tracked.txt"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.root, check=True)
+
     def test_maintainability_review_is_structured_and_material_only(self):
         created = self.run_cli(*self.review_args())
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -90,6 +99,138 @@ class QualityControlTests(unittest.TestCase):
         result = self.run_cli(*args)
         self.assertEqual(result.returncode, 1)
         self.assertIn("non-empty assessment", result.stderr)
+
+    def test_blast_radius_review_links_executed_proof_without_mutating_parent(self):
+        self.init_git_repo()
+        risk = json.dumps({
+            "failure_mode": "downstream parser rejects the payload",
+            "path": "tracked.txt",
+            "line": 1,
+            "likelihood": "medium",
+            "impact": "high",
+            "disposition": "confirmed",
+            "check": "true",
+        })
+        cleared = json.dumps({
+            "failure_mode": "unrelated cache entry is removed",
+            "path": "tracked.txt",
+            "line": 1,
+            "likelihood": "low",
+            "impact": "low",
+        })
+        created = self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--safety-fact", "the changed payload remains parseable", "--proof-depth", "2",
+            "--risk", risk, "--cleared", cleared, "--merge-command", "true",
+            "--name", "payload-safety",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        review_path = self.state / "reviews" / "payload-safety.json"
+        stored_before = json.loads(review_path.read_text(encoding="utf-8"))
+        self.assertEqual(stored_before["safety_fact"]["status"], "unproven")
+        self.assertEqual(stored_before["safety_fact"]["proof_depth"], 2)
+        self.assertEqual(stored_before["risks"][1]["disposition"], "cleared")
+        self.assertEqual(len(stored_before["change_fingerprint"]["worktree_digest"]), 64)
+
+        proved = self.run_cli("review", "prove", "payload-safety")
+        self.assertEqual(proved.returncode, 0, proved.stderr)
+        shown = self.run_cli("review", "show", "payload-safety", "--json")
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        view = json.loads(shown.stdout)
+        self.assertEqual(view["change_freshness"]["status"], "current")
+        self.assertEqual(view["safety_fact"]["status"], "proven")
+        self.assertEqual(view["safety_fact"]["proof_depth"], 4)
+        self.assertTrue(view["safety_fact"]["verification_id"].startswith("v-"))
+        self.assertTrue(view["merge_gate"]["verified"])
+
+        stored_after = json.loads(review_path.read_text(encoding="utf-8"))
+        self.assertEqual(stored_after, stored_before)
+        lineage = self.run_cli(
+            "lineage", "status", "verification", view["safety_fact"]["verification_id"], "--json"
+        )
+        self.assertEqual(lineage.returncode, 0, lineage.stderr)
+        self.assertEqual(json.loads(lineage.stdout)["status"], "current")
+
+    def test_blast_radius_review_refuses_stale_dirty_to_dirty_proof(self):
+        self.init_git_repo()
+        tracked = self.root / "tracked.txt"
+        tracked.write_text("first dirty state\n", encoding="utf-8")
+        created = self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--safety-fact", "the dirty change remains safe", "--merge-command", "true",
+            "--name", "dirty-safety",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        tracked.write_text("second dirty state\n", encoding="utf-8")
+        proved = self.run_cli("review", "prove", "dirty-safety")
+        self.assertEqual(proved.returncode, 1)
+        self.assertIn("worktree_digest_mismatch", proved.stderr)
+        shown = self.run_cli("review", "show", "dirty-safety", "--json")
+        view = json.loads(shown.stdout)
+        self.assertEqual(view["change_freshness"]["status"], "stale")
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+
+    def test_failed_blast_radius_proof_stays_unproven_at_executed_depth(self):
+        self.init_git_repo()
+        created = self.run_cli(
+            "review", "blast-radius", "--status", "fail", "--path", "tracked.txt",
+            "--safety-fact", "the failing behavior is safe", "--merge-command", "false",
+            "--name", "failed-safety",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        proved = self.run_cli("review", "prove", "failed-safety")
+        self.assertEqual(proved.returncode, 2)
+        shown = self.run_cli("review", "show", "failed-safety", "--json")
+        view = json.loads(shown.stdout)
+        self.assertEqual(view["safety_fact"]["proof_depth"], 4)
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+        self.assertFalse(view["merge_gate"]["verified"])
+
+    def test_blast_radius_review_rejects_claimed_execution_and_invalid_risk(self):
+        self.init_git_repo()
+        depth = self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--safety-fact", "claimed execution", "--proof-depth", "4", "--name", "too-deep",
+        )
+        self.assertEqual(depth.returncode, 2)
+        self.assertIn("invalid choice", depth.stderr)
+        invalid = self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--safety-fact", "risk data is valid", "--risk",
+            json.dumps({
+                "failure_mode": " ", "path": "tracked.txt", "line": 1,
+                "likelihood": "medium", "impact": "high",
+            }),
+            "--name", "invalid-risk",
+        )
+        self.assertEqual(invalid.returncode, 1)
+        self.assertIn("risk is missing: failure_mode", invalid.stderr)
+
+    def test_blast_radius_proof_cannot_move_source_or_bypass_disabled_run(self):
+        self.init_git_repo()
+        created = self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--safety-fact", "the reviewed source is unchanged", "--merge-command", "true",
+            "--name", "source-safety",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        mutating_command = (
+            "python3 -c \"from pathlib import Path; "
+            "Path('tracked.txt').write_text('mutated\\n', encoding='utf-8')\""
+        )
+        moved = self.run_cli(
+            "review", "prove", "source-safety", "--command", mutating_command
+        )
+        self.assertEqual(moved.returncode, 2)
+        self.assertIn("changed the reviewed source", moved.stderr)
+        view = json.loads(self.run_cli("review", "show", "source-safety", "--json").stdout)
+        self.assertEqual(view["change_freshness"]["status"], "stale")
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+
+        self.env["MYTHIFY_DISABLE_RUN"] = "1"
+        disabled = self.run_cli("review", "prove", "source-safety")
+        self.assertEqual(disabled.returncode, 2)
+        self.assertIn("MYTHIFY_DISABLE_RUN=1", disabled.stderr)
 
     def test_design_comparison_requires_two_distinct_interfaces_and_selection(self):
         self.assertEqual(

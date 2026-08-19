@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -47,11 +48,50 @@ def git_worktree_clean(root):
     return not bool(result.stdout.strip())
 
 
+def git_worktree_digest(root):
+    """Hash tracked changes plus untracked file content for exact-change proof."""
+    environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    try:
+        diff = subprocess.run(
+            ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"],
+            cwd=str(root), capture_output=True, timeout=30, env=environment,
+        )
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=str(root), capture_output=True, timeout=30, env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if diff.returncode != 0 or untracked.returncode != 0:
+        return None
+    digest = hashlib.sha256()
+    digest.update(b"tracked\0")
+    digest.update(diff.stdout)
+    for raw_path in sorted(item for item in untracked.stdout.split(b"\0") if item):
+        file_path = os.fsdecode(raw_path)
+        try:
+            blob = subprocess.run(
+                ["git", "hash-object", "--no-filters", "--", file_path],
+                cwd=str(root), capture_output=True, timeout=30, env=environment,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if blob.returncode != 0:
+            return None
+        digest.update(b"untracked\0")
+        digest.update(raw_path)
+        digest.update(b"\0")
+        digest.update(blob.stdout.strip())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def current_verification_provenance(version, state=None, root=None):
     project_root = Path(root) if root is not None else project_root_for_state(state)
     return {
         "git_commit": git_commit(project_root),
         "worktree_clean": git_worktree_clean(project_root),
+        "worktree_digest": git_worktree_digest(project_root),
         "mythify_version": str(version),
     }
 
@@ -73,6 +113,10 @@ def evidence_moved_since_run(record, current):
         return "git_commit_changed_since_run"
     if provenance.get("worktree_clean") is True and current.get("worktree_clean") is False:
         return "worktree_changed_since_run"
+    record_digest = provenance.get("worktree_digest")
+    current_digest = current.get("worktree_digest")
+    if record_digest and current_digest and record_digest != current_digest:
+        return "worktree_digest_changed_since_run"
     return None
 
 

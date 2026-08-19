@@ -113,7 +113,7 @@ Old verification records without artifact metadata remain valid.
 
 ### Artifact lineage
 
-Research, map, design, plan, outcome, and verification records may carry a `lineage`
+Research, map, design, plan, outcome, review, and verification records may carry a `lineage`
 object containing typed parent references. Each reference stores artifact kind, id,
 revision digest, and observed update timestamp. Creating a child captures current parent
 metadata. Read-only views compare the captured metadata with live parents and report
@@ -149,6 +149,23 @@ new review records an `eval_scenario_candidates` entry and sets
 `eval_proposal_recommended`. This is a prompt to write a fail-pass scenario through the
 existing eval proposal workflow. It does not adopt a scenario or upgrade review
 judgment into executable evidence.
+
+Blast-radius reviews share the `.mythify/reviews/` store but use kind
+`blast_radius_review`. Their immutable record contains changed paths, the Git
+commit and exact worktree digest, one safety fact, a claimed proof depth from 1
+to 3, structured risks, and a merge-gate command. Risk rows require a concrete
+failure mode, path, positive line, low, medium, or high likelihood, low, medium,
+or high impact, and a confirmed, cleared, or unproven disposition.
+
+`review prove` and `blast_radius_review_prove` first compare the live commit and
+worktree digest with the review. A match permits the shared bounded, redacted
+runner to append an executed verification whose typed parent is the exact
+review revision. The review file remains unchanged. Read-only status derives
+depth 4 for ordinary execution or depth 5 for a runtime reproduction only from
+matching lineage, matching source provenance, exit code 0, and `verified: true`.
+A failed proof reaches executed depth but remains unproven. A passing command
+that changes the reviewed source is refused, and `MYTHIFY_DISABLE_RUN=1`
+prevents execution.
 
 Design alternatives are bounded material records attached to a design. They are allowed
 for public APIs, persistence boundaries, cross-runtime contracts, and other expensive
@@ -234,7 +251,7 @@ mythify/
 |   |-- mythify_protocol.py      protocol handshake and frozen-manifest checks
 |   |-- mythify_protocol_profiles.py instruction profile rendering
 |   |-- mythify_provenance.py    verification provenance helper
-|   |-- mythify_quality.py       material-only maintainability reviews
+|   |-- mythify_quality.py       maintainability and blast-radius reviews
 |   |-- mythify_router.py        prompt packet and workflow route helper
 |   |-- mythify_runtime_helpers.py shared CLI runtime helpers
 |   |-- mythify_trace.py         trace analysis and playbook helper
@@ -271,7 +288,7 @@ mythify/
 |   |-- src/index.js
 |   |-- src/design-tools.js      durable design workflow registrations
 |   |-- src/lineage-tools.js     typed lineage registrations
-|   |-- src/quality-tools.js     maintainability review registrations
+|   |-- src/quality-tools.js     maintainability and blast-radius registrations
 |   |-- src/tool-profiles.js     selective capability registration and budgets
 |   |-- src/workspace-tools.js   read-only workspace configuration inspection
 |   |-- src/lifecycle-adapter.js
@@ -514,7 +531,7 @@ runtime registrations.
 Current scope:
 
 - Top-level CLI command names and command count.
-- MCP core tool names, fanout tool names, and the 57 core plus 3 fanout count
+- MCP core tool names, fanout tool names, and the 60 core plus 3 fanout count
   split.
 - Front door, workflow, advanced, and labs tier membership for the CLI and MCP
   surfaces.
@@ -742,7 +759,9 @@ The release readiness view is a read-only release-review surface:
   Claims and output text never select a gate. A passing record satisfies a
   gate only when `verified` is true, `exit_code` is zero, and its
   `provenance.git_commit`, `provenance.worktree_clean`, and
-  `provenance.mythify_version` match the clean current checkout. Legacy records
+  `provenance.mythify_version` match the clean current checkout. The recorded
+  `provenance.worktree_digest` fingerprints tracked changes and untracked file
+  hashes so other strict gates can detect dirty-to-dirty movement. Legacy records
   without provenance stay readable but report freshness `legacy`, gate status
   `stale`, and do not satisfy release readiness. Missing rows stay missing,
   failed rows stay failed, and attested claims do not satisfy release gates.
@@ -1167,7 +1186,7 @@ then `.json`. This makes same-title lessons collision-free.
 verifications.jsonl, one JSON object per line. Two kinds:
 
 ```json
-{"kind": "executed", "claim": "str or null", "command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "timestamp": "ISO-8601", "provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "mythify_version": "semver string"}, "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null", "prev_sha256": "hex string or null"}
+{"kind": "executed", "claim": "str or null", "command": "str", "exit_code": 0, "duration_seconds": 0.03, "stdout_tail": "str", "stderr_tail": "str", "verified": true, "timestamp": "ISO-8601", "provenance": {"git_commit": "hex string or null", "worktree_clean": "boolean or null", "worktree_digest": "sha256 string or null", "mythify_version": "semver string"}, "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null", "prev_sha256": "hex string or null"}
 {"kind": "attested", "claim": "str", "evidence": "str", "verified": null, "timestamp": "ISO-8601", "plan": "slug or null", "step_id": 1, "step_title": "str or null", "step_status": "in_progress or null", "prev_sha256": "hex string or null"}
 ```
 
@@ -1187,7 +1206,10 @@ provenance and active step context. `provenance.mythify_version` is always the
 runtime version; `provenance.git_commit` is the project `HEAD` or `null` when
 Git provenance is unavailable; `provenance.worktree_clean` reports whether
 Git found no tracked or untracked changes, or is `null` when Git inspection is
-unavailable. If an active plan exists and exactly the first
+unavailable; `provenance.worktree_digest` is a SHA-256 over the tracked binary
+diff plus untracked paths and Git object hashes, or `null` when Git inspection
+is unavailable. Source contents are not persisted in the provenance record. If
+an active plan exists and exactly the first
 currently `in_progress` step can be found, record `plan`, `step_id`,
 `step_title`, and `step_status`. If no active plan or in-progress step exists,
 write those fields with `null`. Readers must tolerate older verification
@@ -1313,7 +1335,9 @@ owns the public entry point and delegates cohesive command families to sibling
 | `lineage attach KIND ID --parent KIND:ID` | Capture current parent revisions on a mutable artifact. Verification lineage is supplied at execution time. | 0; 1 on missing or unsupported artifacts |
 | `lineage status KIND ID [--json]` | Report current, stale, missing, or unknown parents using live artifact revisions. | 0; 1 if the artifact is missing |
 | `review create --status pass\|warn\|fail --path PATH [dimension fields] [--finding PATH:LINE:DETAIL]` | Record structured maintainability judgment for changed seams. The record is material-only and cannot satisfy strict completion. | 0; 1 on incomplete dimensions or invalid findings |
-| `review show NAME [--json]` | Show one maintainability review without mutation. | 0; 1 if missing |
+| `review blast-radius --status pass\|warn\|fail --path PATH --safety-fact TEXT [--proof-depth 1\|2\|3] [--risk JSON] [--cleared JSON] [--merge-command COMMAND] [--name NAME]` | Record an immutable exact-change safety case. Each risk names a failure mode, file and line, likelihood, impact, disposition, and optional check. The safety fact stays unproven at creation. | 0; 1 on duplicate, invalid risk data, or unavailable state |
+| `review prove NAME [--command COMMAND] [--claim TEXT] [--mode executed\|runtime] [--timeout N]` | Refuse stale source, run the stored or supplied command through the shared verifier, and append executed evidence parented to the immutable review. `MYTHIFY_DISABLE_RUN=1` refuses execution. | 0 when proof passes against unchanged source; 1 on invalid or stale review; 2 when disabled, failed, or source-moving |
+| `review show NAME [--json]` | Show a maintainability review or blast-radius safety case without mutation. Blast-radius status derives depth 4 or 5 only from matching review lineage and exact-change executed evidence. | 0; 1 if missing |
 | `workspace show [--json]` | Merge and validate shared `.mythify/workspace.json` with private `.mythify/workspace.local.json`; show paths and source provenance without creating worktrees or mutating repositories. | 0; 1 on invalid or unsafe configuration |
 | `step ID STATUS [RESULT] [--plan NAME]` | Update step status. STATUS must be one of the five enum values, otherwise `[FAIL]`, exit 1. `completed` and `failed` REQUIRE the RESULT argument (evidence or failure description); without it print `[FAIL] Evidence required: pass a RESULT describing what proves this status.` and exit 1. By default, `completed` ALSO requires an executed verification with `verified: true`, `exit_code: 0`, and a timestamp after the step began. When the step stores `verify_command`, the record's normalized command must match. Otherwise print the verified-evidence refusal and exit 1 without modifying the plan. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` to opt out. After updating, print the next pending step. | 0 |
 | `memory set KEY VALUE [--category C]` | Category one of fact, decision, discovery, state; default fact. | 0 |
@@ -1348,14 +1372,14 @@ Implementation notes:
 Node 20+, ESM (`"type": "module"`). Runtime dependencies use
 `@modelcontextprotocol/server` (current 2.x) and `zod` (4.x). The v1 SDK is
 retained as a test-only dependency for legacy 2025 protocol coverage.
-package.json: name `mythify-mcp`, version `5.7.0`,
+package.json: name `mythify-mcp`, version `5.8.0`,
 scripts `{"start": "node src/index.js", "test": "node --test test/*.test.js"}`
 (the glob form, because modern Node treats a bare directory argument to --test as
 a literal file and fails), engines node >= 20. Use the registration API that the
 installed SDK version supports (prefer `registerTool`); verify against the
 installed package, not from memory.
 
-Exactly 60 tools: the 57 core tools below plus the 3 fanout tools defined in the
+Exactly 63 tools: the 60 core tools below plus the 3 fanout tools defined in the
 "Fanout: parallel delegation" section. Tool descriptions must state what the tool
 does AND when to use it, since descriptions drive tool selection.
 
@@ -1412,10 +1436,13 @@ does AND when to use it, since descriptions drive tool selection.
 | `design_add_alternative` | `{title: string, interface: string, call_sites: string, locality: string, migration_cost: string, deletion_cost: string, reversal_evidence: string, select?: boolean, design?: string}` | Add one distinct, reversible interface alternative. |
 | `design_approve` | `{design?: string, note: string}` | Approve a design only after any alternative comparison has at least two choices and one selection. |
 | `design_status` | `{design?: string, format?: enum(text, json)}` | Show the active or named design without mutation. |
-| `lineage_attach` | `{kind: enum(research, map, design, plan, outcome), id: string, parents: [{kind: enum(research, map, design, plan, outcome, verification), id: string}]}` | Capture live parent revisions on a mutable artifact. |
-| `lineage_status` | `{kind: enum(research, map, design, plan, outcome, verification), id: string, format?: enum(text, json)}` | Inspect current, stale, missing, or unknown typed lineage. |
+| `lineage_attach` | `{kind: enum(research, map, design, plan, outcome, review), id: string, parents: [{kind: enum(research, map, design, plan, outcome, review, verification), id: string}]}` | Capture live parent revisions on a mutable artifact. |
+| `lineage_status` | `{kind: enum(research, map, design, plan, outcome, review, verification), id: string, format?: enum(text, json)}` | Inspect current, stale, missing, or unknown typed lineage. |
 | `maintainability_review_create` | `{status: enum(pass, warn, fail), changed_paths: string[], interface_depth: string, locality: string, seam_count: string, deletion_cost: string, invalid_state_exclusion: string, test_validity: string, findings?: [{path: string, line: positive integer, detail: string}], name?: string}` | Record structured changed-seam judgment as material, never executable proof. |
 | `maintainability_review_status` | `{review: string, format?: enum(text, json)}` | Show a maintainability review without mutation. |
+| `blast_radius_review_create` | `{status: enum(pass, warn, fail), changed_paths: string[], safety_fact: string, proof_depth?: integer 1-3, risks?: [{failure_mode: string, path: string, line: positive integer, likelihood: enum(low, medium, high), impact: enum(low, medium, high), disposition?: enum(confirmed, cleared, unproven), check?: string, evidence_id?: string}], merge_command?: string, name?: string}` | Record one immutable material-only safety case and its exact Git commit plus worktree digest. Claimed proof depth cannot exceed 3. |
+| `blast_radius_review_prove` | `{review: string, command?: string, claim?: string, proof_mode?: enum(executed, runtime), timeout_seconds?: positive number}` | Refuse stale source or disabled execution, run the stored or supplied command through the bounded redacted runner, and append verification parented to the exact review revision. A passing source-moving command remains unproven. |
+| `blast_radius_review_status` | `{review: string, format?: enum(text, json)}` | Show confirmed, cleared, and unproven risks plus exact-change freshness. Derive proof depth 4 or 5 only from matching executed evidence without editing the review. |
 | `tool_profile_status` | `{}` | Report the selected MCP profile, available profiles, registered tool count, exact description-byte budget, and `quality_claim: "none"`. |
 | `workspace_status` | `{format?: enum(text, json)}` | Validate and report merged shared and private workspace configuration and source hashes without mutation. |
 
@@ -1933,7 +1960,7 @@ that already requires outside judgment.
 Uses `node:test` and the SDK `Client` with `StdioClientTransport`, spawning the
 server with `MYTHIFY_DIR` and `HOME` pointed at fresh temp directories. Assertions:
 
-1. `tools/list` enforces 60-tool set equality against the manifest: the 57 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
+1. `tools/list` enforces 63-tool set equality against the manifest: the 60 core tools plus `fanout_start`, `fanout_status`, `fanout_results`.
 2. `classify_task` returns a benchmark classification in text form with
    execution profile `full`, a question classification in JSON form with
    execution profile `direct`, and a command-backed fast triage result when
@@ -2632,7 +2659,7 @@ Platform mapping:
   `gpt-5.6-sol-high-fast` when that id is available. If no matching encoded
   id is found, Mythify leaves the requested model unchanged.
 
-### Tools (3, total 60)
+### Tools (3, total 63)
 
 | Tool | Input schema | Behavior |
 | :--- | :--- | :--- |
@@ -2829,7 +2856,7 @@ or upgrade provider output into evidence.
 ### Smoke coverage (mcp-server/test/, runs in CI with no network)
 
 Using the `command` engine with a deterministic local template and stub local
-CLI binaries: 60-tool set equality; a 3-task command job runs to completion
+CLI binaries: 63-tool set equality; a 3-task command job runs to completion
 and `fanout_results` returns the outputs; `context_paths` content demonstrably
 reaches the worker prompt; the kill switch refuses; the depth guard refuses; a
 failing command produces a failed task with captured stderr; job.json matches

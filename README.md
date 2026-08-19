@@ -313,7 +313,7 @@ can use `isolation: "worktree"` so each one gets its own git worktree on a fresh
 branch and cannot collide with the others. You merge the branches you want.
 
 The server shares the exact same `.mythify/` folder as the CLI, so a plan made in
-one is visible in the other. It exposes Mythify through 60 MCP tools by default,
+one is visible in the other. It exposes Mythify through 63 MCP tools by default,
 or a smaller capability profile selected with `MYTHIFY_MCP_TOOL_PROFILE`. The
 full list and profile budgets are in [docs/design.md](docs/design.md).
 
@@ -361,6 +361,31 @@ canned phrases. It does not score voice, originality, or human authorship. See
 [docs/prose-quality.md](docs/prose-quality.md) for the rewrite process, check
 scope, evidence boundary, and source attribution.
 
+## Proving what a change could break
+
+Use a blast-radius safety case when the dangerous behavior sits outside the
+visible diff. The review records one safety fact, an exact source fingerprint,
+confirmed, cleared, and unproven risks, and the cheapest command that would
+catch the real failure before merge.
+
+```bash
+mythify review blast-radius \
+  --status warn \
+  --path src/cache.py \
+  --safety-fact "eviction removes only expired entries" \
+  --risk '{"failure_mode":"live entries are removed","path":"src/cache.py","line":42,"likelihood":"low","impact":"high","disposition":"unproven","check":"python3 -m unittest tests.test_cache"}' \
+  --merge-command "python3 -m unittest tests.test_cache" \
+  --name cache-eviction
+mythify review prove cache-eviction
+mythify review show cache-eviction
+```
+
+The review itself stays material-only. `review prove` runs real code, appends
+verification parented to the immutable review, and raises proof depth to 4 or
+5 only when the reviewed worktree still matches exactly. See
+[docs/blast-radius.md](docs/blast-radius.md) for the proof ladder, data model,
+MCP tools, security boundary, and source attribution.
+
 ## Feeling native in chat
 
 Three chat skills make Mythify feel like a built-in command inside your agent:
@@ -391,6 +416,7 @@ The everyday commands:
 | `design create`, `design alternative`, `design approve` | Record product, system, program, and bounded interface decisions as material. |
 | `lineage attach`, `lineage status` | Capture typed parent revisions and inspect staleness. |
 | `review create`, `review show` | Record structured material-only maintainability judgment. |
+| `review blast-radius`, `review prove` | Record one exact-change safety case, then link executed proof without mutating it. |
 | `workspace show` | Validate merged shared and local multi-repository configuration. |
 | `outcome start GOAL --success ... --verify ...` | Start a verifier-backed loop. Add `--agent` to self-drive. |
 | `outcome run` | Drive a self-driving loop to success or a bounded stop. |

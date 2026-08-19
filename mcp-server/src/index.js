@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Mythify MCP server
 // Exposes the Mythify state model (memory, plans, lessons, verifications,
-// reflections) as 57 core MCP tools over stdio, plus the 3 fanout tools for
-// parallel delegation (src/fanout.js), 60 tools in total. On-disk formats are
+// reflections) as 60 core MCP tools over stdio, plus the 3 fanout tools for
+// parallel delegation (src/fanout.js), 63 tools in total. On-disk formats are
 // shared with the Python CLI (scripts/mythify.py); both implementations must
 // interoperate on the same .mythify state directory. Fanout is MCP-only; the
 // CLI deliberately does not implement it.
@@ -1412,6 +1412,10 @@ registerQualityTools(server, {
   slugify,
   isoNow,
   writeJsonAtomic,
+  runShellCapture,
+  appendJsonl: appendJsonlChained,
+  verificationsPath,
+  captureLineage,
 });
 
 registerWorkspaceTools(server, {

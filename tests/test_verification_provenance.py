@@ -86,10 +86,10 @@ class VerificationProvenanceTest(unittest.TestCase):
 
         record = self.latest_record()
         version = self.run_cli("--version").stdout.strip().removeprefix("Mythify v")
-        self.assertEqual(
-            record["provenance"],
-            {"git_commit": commit, "worktree_clean": True, "mythify_version": version},
-        )
+        self.assertEqual(record["provenance"]["git_commit"], commit)
+        self.assertTrue(record["provenance"]["worktree_clean"])
+        self.assertEqual(len(record["provenance"]["worktree_digest"]), 64)
+        self.assertEqual(record["provenance"]["mythify_version"], version)
 
     def test_p_must_02_non_git_execution_keeps_version_provenance(self):
         self.assertEqual(self.run_cli("init").returncode, 0)
@@ -101,6 +101,7 @@ class VerificationProvenanceTest(unittest.TestCase):
             {
                 "git_commit": None,
                 "worktree_clean": None,
+                "worktree_digest": None,
                 "mythify_version": self.run_cli("--version").stdout.strip().removeprefix("Mythify v"),
             },
         )
@@ -184,6 +185,13 @@ class VerificationProvenanceTest(unittest.TestCase):
                 {"provenance": {"git_commit": "same", "worktree_clean": False}},
                 {"git_commit": "same", "worktree_clean": False},
             )
+        )
+        self.assertEqual(
+            evidence_moved_since_run(
+                {"provenance": {"git_commit": "same", "worktree_clean": False, "worktree_digest": "one"}},
+                {"git_commit": "same", "worktree_clean": False, "worktree_digest": "two"},
+            ),
+            "worktree_digest_changed_since_run",
         )
         # Off-git runs carry no commit and never claim movement.
         self.assertIsNone(

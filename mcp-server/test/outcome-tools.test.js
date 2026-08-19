@@ -132,6 +132,7 @@ test("outcome tool registrar wires outcome loop handlers", async () => {
     "git_commit",
     "mythify_version",
     "worktree_clean",
+    "worktree_digest",
   ]);
   assert.match(verifications[0].provenance.mythify_version, /^\d+\.\d+\.\d+$/);
   assert.ok(

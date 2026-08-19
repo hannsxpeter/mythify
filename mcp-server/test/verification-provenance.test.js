@@ -32,6 +32,13 @@ test("evidenceMovedSinceRun names only visible movement", () => {
     ),
     null
   );
+  assert.equal(
+    evidenceMovedSinceRun(
+      { provenance: { git_commit: "same", worktree_clean: false, worktree_digest: "one" } },
+      { git_commit: "same", worktree_clean: false, worktree_digest: "two" }
+    ),
+    "worktree_digest_changed_since_run"
+  );
   // Off-git runs carry no commit and never claim movement.
   assert.equal(
     evidenceMovedSinceRun(

@@ -607,7 +607,14 @@ function buildReviewPromptPacket({ goal = "", verifyCommand = "" } = {}) {
   }
   lines.push("");
   lines.push("Instructions:");
-  lines.push("- Review changed files and relevant surrounding code.");
+  lines.push("- Read the diff, the changed symbols, and the behavior that changed outside the visible diff.");
+  lines.push("- State the one safety fact the change depends on and report its proof depth from 1 to 5; anything below executed depth 4 stays unproven.");
+  lines.push("- Continue past symbol search into lifecycle timing, teardown, wire formats, database columns, feature flags, pinned dependencies, local patches, and downstream or cross-language consumers where relevant.");
+  lines.push("- Give each risk a concrete failure mode, file and line, likelihood, impact, disposition, and cheapest check.");
+  lines.push("- Separate confirmed, cleared, and unproven risks. A search that finds no caller is evidence, but never invent a caller or API.");
+  lines.push("- Prove the safety fact with the smallest script, test, or running-app reproduction that exercises the shipped code. If proof is not cheap, mark it unproven.");
+  lines.push("- For broad or wide changes, run independent runtime-lifecycle, data-contract, and dependency-config passes, merge their findings, then verify the integrated result.");
+  lines.push("- Before merge, name the cheapest executable repro that catches the real bug.");
   lines.push("- Lead with actionable findings, with file and line references when possible.");
   lines.push("- Separate verified issues, warnings, open questions, and test gaps.");
   lines.push("- For subjective quality (design, UX, prose, feel), name a best-in-class reference and judge blind: put both side by side unlabeled and say which is better and why.");

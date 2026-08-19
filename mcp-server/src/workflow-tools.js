@@ -69,7 +69,8 @@ const ROUTE_RESEARCH_TERMS = [
 ];
 const ROUTE_REVIEW_TERMS = [
   "audit", "review", "assess", "evaluate", "find issues", "code review",
-  "risks", "risk sweep",
+  "risks", "risk sweep", "blast radius", "what could this break",
+  "small diff i do not trust", "small diff i don't trust",
 ];
 const ROUTE_RESUME_TERMS = [
   "continue", "resume", "next", "keep going", "pick up", "carry on",

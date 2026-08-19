@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "5.7.0"
+VERSION = "5.8.0"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(surface, package_surface)
         self.assertEqual(profiles, package_profiles)
         self.assertEqual(surface["surfaces"]["cli"]["command_count"], 36)
-        self.assertEqual(surface["surfaces"]["mcp"]["total_tools"], 60)
+        self.assertEqual(surface["surfaces"]["mcp"]["total_tools"], 63)
         self.assertEqual(profiles["default_profile"], "full")
 
     def test_release_gate_digest_and_tag_are_pinned(self):
@@ -51,6 +51,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
         self.assertIn("docs/prose-quality.md", self.text("README.md"))
         self.assertIn("docs/prose-quality.md", self.text("scripts/package_cli.py"))
+        self.assertIn("docs/blast-radius.md", self.text("README.md"))
+        self.assertIn("docs/blast-radius.md", self.text("scripts/package_cli.py"))
 
 
 if __name__ == "__main__":

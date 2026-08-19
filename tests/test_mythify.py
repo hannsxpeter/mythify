@@ -2709,7 +2709,7 @@ class TestPromptPackets(CliTestCase):
                 "review",
                 "review",
                 "Review prompt packet",
-                "Review changed files",
+                "Read the diff, the changed symbols",
             ),
             (
                 ("prompt", "campaign", "--json"),
@@ -3653,7 +3653,7 @@ class TestOutcome(CliTestCase):
         self.assertIsNone(verification["step_id"])
         self.assertEqual(
             sorted(verification["provenance"]),
-            ["git_commit", "mythify_version", "worktree_clean"],
+            ["git_commit", "mythify_version", "worktree_clean", "worktree_digest"],
         )
         self.assertIsNone(verification["provenance"]["git_commit"])
         self.assertRegex(
@@ -3978,7 +3978,7 @@ class TestVerify(CliTestCase):
         self.assertEqual(set(record["artifacts"]), {"stdout", "stderr"})
         self.assertEqual(
             sorted(record["provenance"]),
-            ["git_commit", "mythify_version", "worktree_clean"],
+            ["git_commit", "mythify_version", "worktree_clean", "worktree_digest"],
         )
 
     def test_run_without_disable_var_unchanged_passing(self):

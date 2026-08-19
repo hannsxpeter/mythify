@@ -42,7 +42,7 @@ test("full is the default and includes the complete canonical surface", () => {
   const selection = resolveToolProfile({});
   assert.equal(selection.selected, "full");
   assert.equal(selection.allowed.size, selection.full_tool_count);
-  assert.equal(selection.full_tool_count, 60);
+  assert.equal(selection.full_tool_count, 63);
 });
 
 test("unknown profiles fail closed", () => {

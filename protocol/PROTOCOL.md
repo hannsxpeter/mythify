@@ -232,6 +232,8 @@ Reorient any time with `status`. Report the whole session with `summary`.
 | `design approve [NAME] --note TEXT` / `design show [NAME] [--json]` | Approve or inspect material-only design records. |
 | `lineage attach KIND ID --parent KIND:ID` / `lineage status KIND ID [--json]` | Capture parent revisions or inspect current, stale, missing, and unknown lineage. |
 | `review create --status pass\|warn\|fail --path PATH [dimension fields] [--finding PATH:LINE:DETAIL]` / `review show NAME [--json]` | Record or inspect material-only maintainability judgment. |
+| `review blast-radius --status pass\|warn\|fail --path PATH --safety-fact TEXT [--proof-depth 1\|2\|3] [--risk JSON] [--cleared JSON] [--merge-command COMMAND] [--name NAME]` | Record an immutable exact-change safety case with structured confirmed, cleared, and unproven risks. |
+| `review prove NAME [--command COMMAND] [--claim TEXT] [--mode executed\|runtime] [--timeout N]` | Run proof against the exact reviewed worktree and append verification parented to the review. |
 | `workspace show [--json]` | Validate merged shared and private workspace configuration without mutation. |
 | `step ID STATUS [RESULT] [--plan NAME]` | Update a step; `completed` and `failed` require RESULT evidence, and `completed` requires a passing exit-0 `verify run` matching any stored `verify_command` by default. |
 | `memory set KEY VALUE [--category C]` | Store or overwrite a memory entry. |
@@ -249,7 +251,7 @@ Reorient any time with `status`. Report the whole session with `summary`.
 ## MCP note
 
 Clients using the Mythify MCP server instead of the CLI get the same contract
-through exactly 60 tools: `classify_task`, `host_model_switch`,
+through exactly 63 tools: `classify_task`, `host_model_switch`,
 `artifact_probe`, `artifact_inspect`, `artifact_clean`, `provider_probe`, `local_model_run`, `host_cli_probe`, `host_cli_run`,
 `execution_probe`, `execution_run`, `lifecycle_probe`, `outcome_start`, `outcome_check`,
 `outcome_status`,
@@ -263,7 +265,9 @@ through exactly 60 tools: `classify_task`, `host_model_switch`,
 `prompt_packet`, `workflow_route`, `verify_run`, `verify_claim`, `reflect`,
 `design_create`, `design_add_alternative`, `design_approve`, `design_status`,
 `lineage_attach`, `lineage_status`, `maintainability_review_create`,
-`maintainability_review_status`, `tool_profile_status`, `workspace_status`, plus the parallel delegation tools `fanout_start`,
+`maintainability_review_status`, `blast_radius_review_create`,
+`blast_radius_review_prove`, `blast_radius_review_status`,
+`tool_profile_status`, `workspace_status`, plus the parallel delegation tools `fanout_start`,
 `fanout_status`, and `fanout_results`. Same
 state directory, same file formats, same evidence rules:
 `verify_run` and `outcome_check` execute and record; `verify_claim` only attests;
@@ -274,12 +278,19 @@ validated against `protocol/surface-manifest.json`; unknown profiles fail closed
 `tool_profile_status` reports registered tool and description-byte budgets with
 `quality_claim: "none"`. Profile selection never changes authorization or evidence.
 `design_*`, `lineage_*`, and `maintainability_review_*` keep design judgment and
-artifact relationships durable while remaining material-only. `workspace_status`
+artifact relationships durable while remaining material-only.
+`blast_radius_review_create` records an immutable material-only safety case;
+`blast_radius_review_prove` runs the shared redacted verifier only when the
+current commit and `worktree_digest` still match, then parents that evidence to
+the review revision. `blast_radius_review_status` derives proof depth 4 or 5
+from matching executed evidence instead of mutating the review. `workspace_status`
 merges `.mythify/workspace.json` and `.mythify/workspace.local.json` without
 creating worktrees or mutating repositories, and local settings may not weaken
 shared frozen paths, authorization, or task isolation.
 Executed `verify_run` records retain bounded redacted stdout and stderr artifacts
 under `.mythify/verification-artifacts/`; compact output remains the default.
+Their provenance includes `worktree_digest`, an exact fingerprint of tracked
+changes and untracked file hashes, so dirty-to-dirty source movement is visible.
 `campaign_next_prompt` and CLI `campaign prompt` render read-only host prompt
 material for the current campaign task and phase; they do not mutate state, run
 checks, advance tasks, or turn prompt output into verification evidence.

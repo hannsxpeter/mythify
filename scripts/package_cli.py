@@ -25,6 +25,7 @@ STANDALONE_DOCS = (
     "docs/research-report.md",
     "docs/humanlayer-integration-research.md",
     "docs/prose-quality.md",
+    "docs/blast-radius.md",
     "docs/evidence/codex-word-count-2026-07-13.json",
     "docs/evidence/efficacy-reproduction.md",
 )

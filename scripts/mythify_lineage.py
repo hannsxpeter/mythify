@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-ARTIFACT_KINDS = ("research", "map", "design", "plan", "outcome", "verification")
+ARTIFACT_KINDS = ("research", "map", "design", "plan", "outcome", "review", "verification")
 PRECEDENCE = (
     "live_code_current_behavior",
     "approved_design_desired_behavior",
@@ -55,6 +55,8 @@ def artifact_path(state, kind, artifact_id):
         return state / "plans" / (artifact_id + ".json")
     if kind == "outcome":
         return state / "outcomes" / artifact_id / "goal.json"
+    if kind == "review":
+        return state / "reviews" / (artifact_id + ".json")
     return state / "verifications.jsonl"
 
 

@@ -83,7 +83,7 @@ not broken.
   the artifact adapter is installed.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
-- Keep MCP public surface claims at 60 tools: 57 core tools plus 3 fanout tools.
+- Keep MCP public surface claims at 63 tools: 60 core tools plus 3 fanout tools.
   `protocol/surface-manifest.json` is authoritative; check it before restating a
   count anywhere.
 - Keep `tool-use-contract.md` aligned with the `CLAUDE.md` and `AGENTS.md` MCP
