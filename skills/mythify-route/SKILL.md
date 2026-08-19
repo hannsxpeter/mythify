@@ -51,4 +51,6 @@ the ledger.
 ## Output Rule
 
 The user should not have to inspect `.mythify/` to know the route. Bring the
-router's decision and next action into the transcript.
+router's decision and next action into the transcript. Remove boilerplate and
+vague claims, name the constraint that drove the route, and preserve exact
+command and domain terms.

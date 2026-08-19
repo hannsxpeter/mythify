@@ -2727,6 +2727,10 @@ class TestPromptPackets(CliTestCase):
             self.assertEqual(payload["selected_kind"], selected)
             self.assertEqual(payload["title"], title)
             self.assertIn(expected, payload["next_prompt"])
+            self.assertIn(
+                "Before delivering user-facing prose, remove boilerplate and vague claims",
+                payload["next_prompt"],
+            )
             self.assertIn("not verification evidence", payload["guardrail"])
         self.assertEqual(before, self.state_snapshot(state))
 
@@ -4762,7 +4766,7 @@ class TestStatusAndSummary(CliTestCase):
         payload = json.loads(json_result.stdout)
         self.assertEqual(payload["status"], "needs_evidence")
         self.assertEqual(payload["counts"]["passed"], 0)
-        self.assertEqual(payload["counts"]["missing"], 13)
+        self.assertEqual(payload["counts"]["missing"], 14)
         self.assertEqual(payload["counts"]["stale"], 0)
         self.assertIsNone(payload["current_provenance"]["git_commit"])
         self.assertRegex(

@@ -23,6 +23,7 @@ export const PROMPT_PACKET_KINDS = [
 export const PROMPT_PACKET_GUARDRAIL =
   "Prompt packet output is steering material for the host agent, not verification evidence. " +
   "The host must do the work, run checks when available, report issues in chat, and record evidence.";
+export const PROSE_QUALITY_INSTRUCTION = "Before delivering user-facing prose, remove boilerplate and vague claims; name the actor, action, evidence, or measurement, and preserve exact technical terms.";
 
 // Same dependency-injection shape workflow-tools.js uses: the packet builders
 // read durable state through helpers the server wires in at registration time.
@@ -60,6 +61,18 @@ function getActiveResearchSlug() { return requireDep("getActiveResearchSlug")();
 function getActiveMapSlug() { return requireDep("getActiveMapSlug")(); }
 function campaignNextAction(record) { return requireDep("campaignNextAction")(record); }
 function buildCampaignPromptPayload(slug, record) { return requireDep("buildCampaignPromptPayload")(slug, record); }
+
+function addProseQualityInstruction(payload) {
+  if (payload?.error || !payload?.next_prompt) return payload;
+  const instruction = `- ${PROSE_QUALITY_INSTRUCTION}`;
+  if (payload.next_prompt.includes(instruction)) return payload;
+  const marker = "\nGuardrail:";
+  const index = payload.next_prompt.lastIndexOf(marker);
+  payload.next_prompt = index < 0
+    ? `${payload.next_prompt.trimEnd()}\n${instruction}`
+    : `${payload.next_prompt.slice(0, index)}\n${instruction}${payload.next_prompt.slice(index)}`;
+  return payload;
+}
 
 export function activePlanPacketContext() {
   const slug = readActiveSlug();
@@ -186,7 +199,7 @@ export function buildPromptPacket(kind, { name = "", goal = "", verifyCommand = 
       return { error: "[FAIL] Campaign not found. Start one with: campaign start GOAL" };
     }
     const campaignPayload = buildCampaignPromptPayload(slug, record);
-    return {
+    return addProseQualityInstruction({
       kind: "campaign",
       selected_kind: "campaign",
       title: "Campaign prompt packet",
@@ -194,25 +207,25 @@ export function buildPromptPacket(kind, { name = "", goal = "", verifyCommand = 
       context: campaignPayload,
       next_prompt: campaignPayload.next_prompt || "",
       guardrail: PROMPT_PACKET_GUARDRAIL,
-    };
+    });
   }
   if (kind === "research") {
-    return buildResearchPromptPacket({ name, goal, verifyCommand });
+    return addProseQualityInstruction(buildResearchPromptPacket({ name, goal, verifyCommand }));
   }
   if (kind === "analysis") {
-    return buildAnalysisPromptPacket({ goal, verifyCommand });
+    return addProseQualityInstruction(buildAnalysisPromptPacket({ goal, verifyCommand }));
   }
   if (kind === "failure") {
-    return buildFailurePromptPacket({ verifyCommand });
+    return addProseQualityInstruction(buildFailurePromptPacket({ verifyCommand }));
   }
   if (kind === "handoff") {
-    return buildHandoffPromptPacket({ goal, verifyCommand });
+    return addProseQualityInstruction(buildHandoffPromptPacket({ goal, verifyCommand }));
   }
   if (kind === "review") {
-    return buildReviewPromptPacket({ goal, verifyCommand });
+    return addProseQualityInstruction(buildReviewPromptPacket({ goal, verifyCommand }));
   }
   if (kind === "map") {
-    return buildMapPromptPacket({ name, goal });
+    return addProseQualityInstruction(buildMapPromptPacket({ name, goal }));
   }
   return { error: `[FAIL] Unknown prompt packet kind: ${kind}` };
 }
@@ -656,4 +669,3 @@ export function formatPromptPacket(payload) {
   lines.push(`Guardrail: ${payload.guardrail || PROMPT_PACKET_GUARDRAIL}`);
   return lines.join("\n");
 }
-

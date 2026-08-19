@@ -343,6 +343,24 @@ service output as Mythify verification evidence. See
 [docs/artifact-hygiene.md](docs/artifact-hygiene.md) for the service contract,
 false-positive policy, licensing boundaries, and residual risks.
 
+## Writing that names the work
+
+The packaged Mythify skill applies a final rewrite pass to user-facing prose.
+It removes boilerplate and vague claims, asks for the actor and evidence, and
+keeps exact technical terms when they carry real meaning. CLI and MCP prompt
+packets include the same compact instruction.
+
+The repository also runs a narrow mechanical check:
+
+```bash
+python3 scripts/check_prose_quality.py
+```
+
+That command rejects only configured characters, decorative symbols, and
+canned phrases. It does not score voice, originality, or human authorship. See
+[docs/prose-quality.md](docs/prose-quality.md) for the rewrite process, check
+scope, evidence boundary, and source attribution.
+
 ## Feeling native in chat
 
 Three chat skills make Mythify feel like a built-in command inside your agent:
@@ -449,6 +467,7 @@ drop-in rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
 - [docs/design.md](docs/design.md): the complete design and command reference.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the reproducible smoke run and its limits.
 - [docs/humanlayer-integration-research.md](docs/humanlayer-integration-research.md): source-backed HumanLayer repository and philosophy study behind the v5.6 quality controls.
+- [docs/prose-quality.md](docs/prose-quality.md): the user-facing rewrite pass and mechanical prose check.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.
 

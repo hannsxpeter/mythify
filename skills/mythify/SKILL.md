@@ -191,6 +191,11 @@ Read `references/meta-prompts.md` when writing prompts or instructions for
 subagents, when unsure whether to pause for the user, or when scoping how
 much to build.
 
+Read `references/communication-quality.md` before a final response or when
+writing documentation, research summaries, release notes, pull request text,
+commit messages, or prompts. Its rewrite pass is advisory. Mechanical prose
+checks prove only their configured patterns, not voice or authorship.
+
 ## Command quick reference
 
 Most turns should start with `route`, not the full table below.

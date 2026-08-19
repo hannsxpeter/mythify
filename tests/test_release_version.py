@@ -93,6 +93,7 @@ class ReleaseVersionTest(unittest.TestCase):
             "node scripts/check_surface_manifest.mjs",
             "node scripts/check_classification_rules_manifest.mjs",
             "node scripts/build_registry_docs.mjs --check",
+            "python3 scripts/check_prose_quality.py",
             "python3 scripts/check_runtime_source_size.py",
             "python3 scripts/mythify.py protocol check CLAUDE.md AGENTS.md .cursorrules",
             "git diff --check",

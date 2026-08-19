@@ -33,6 +33,10 @@ per project to create the `.mythify/` state directory.
    the step started. If the step stores `verify_command`, the recorded command
    must match it.
    Use `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only as an explicit legacy opt-out.
+9. Write concrete prose. In user-facing writing, remove boilerplate and vague
+   claims. Name the actor, action, evidence, measurement, or instruction.
+   Preserve exact technical terms, quotations, logs, commands, and legal text.
+   Mechanical prose checks do not prove voice, originality, or authorship.
 
 ## Proportional ceremony
 

@@ -1045,6 +1045,7 @@ test("mythify MCP server smoke test", async (t) => {
       assert.ok(researchText.startsWith("[OK] Prompt packet research: research"), `prompt_packet reports [OK]: ${researchText}`);
       assert.match(researchText, /Decision: Implement one shared prompt packet contract\./);
       assert.match(researchText, /not verification evidence/);
+      assert.match(researchText, /Before delivering user-facing prose, remove boilerplate and vague claims/);
 
       const failureJson = textOf(
         await client.callTool({
@@ -1084,6 +1085,7 @@ test("mythify MCP server smoke test", async (t) => {
       );
       assert.match(reviewText, /Review prompt packet/);
       assert.match(reviewText, /Review changed files/);
+      assert.match(reviewText, /preserve exact technical terms/);
 
       const campaignText = textOf(
         await client.callTool({
@@ -1225,7 +1227,7 @@ test("mythify MCP server smoke test", async (t) => {
         text,
         /Current provenance: commit=(?:[0-9a-f]+|unavailable); version=\d+\.\d+\.\d+/
       );
-      assert.match(text, /Recorded gates: 13 total; 0 passed, 0 failed, 13 missing, 0 stale/);
+      assert.match(text, /Recorded gates: 14 total; 0 passed, 0 failed, 14 missing, 0 stale/);
       assert.match(text, /Python test suite: missing/);
       assert.match(text, /Node MCP suite: missing/);
       assert.match(text, /Project git: \[(?:x|!|~)\] (?:clean|dirty|unknown)/);
@@ -1240,7 +1242,7 @@ test("mythify MCP server smoke test", async (t) => {
       );
       const parsed = JSON.parse(jsonText.replace(/^\[OK\] /, ""));
       assert.equal(parsed.counts.passed, 0);
-      assert.equal(parsed.counts.missing, 13);
+      assert.equal(parsed.counts.missing, 14);
       assert.equal(parsed.counts.stale, 0);
       assert.match(parsed.current_provenance.mythify_version, /^\d+\.\d+\.\d+$/);
       assert.ok(["clean", "dirty", "unknown"].includes(parsed.project_state.git.status));

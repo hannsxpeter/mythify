@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "name": "prose-quality",
+  "purpose": "Keep Mythify user-facing prose concrete without treating subjective style as executable proof.",
+  "source": {
+    "name": "pstack unslop",
+    "url": "https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md",
+    "license": "MIT",
+    "adaptation": "Selective principles only. Mythify preserves precise domain terms, exact text, and contextual style choices."
+  },
+  "default_paths": [
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "docs",
+    "skills",
+    "protocol/PROTOCOL.md"
+  ],
+  "excluded_paths": [
+    "docs/archive",
+    "docs/evidence",
+    "docs/research-report.md"
+  ],
+  "mechanical_rules": {
+    "forbidden_characters": [
+      {
+        "value": "\u2013",
+        "name": "en dash"
+      },
+      {
+        "value": "\u2014",
+        "name": "em dash"
+      }
+    ],
+    "emoji_ranges": [
+      [
+        "2600",
+        "27BF"
+      ],
+      [
+        "1F000",
+        "1FAFF"
+      ]
+    ],
+    "forbidden_phrases": [
+      "I hope this helps",
+      "Of course!",
+      "Certainly!",
+      "Great question!",
+      "You're absolutely right",
+      "Found the smoking gun",
+      "In order to",
+      "Due to the fact that",
+      "It is important to note that",
+      "The future looks bright"
+    ]
+  },
+  "advisory_rules": [
+    "Delete generic claims that could describe another project unchanged.",
+    "Name the actor, action, evidence, measurement, or instruction.",
+    "Remove puffery, promotional language, vague attribution, filler, and stacked hedging.",
+    "Prefer active voice and split sentences that force the reader to backtrack.",
+    "Preserve precise domain terms, exact quotations, logs, commands, legal text, and generated output.",
+    "Restore natural rhythm and an appropriate point of view after tightening."
+  ],
+  "evidence_status": "mechanical_check_only_subjective_judgment_is_material"
+}

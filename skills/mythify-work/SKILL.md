@@ -53,6 +53,9 @@ happening, what passed, what failed, and what comes next.
 
 11. Before the final answer, run one final report. Lead with Attention items.
     If there are none, say no new issues were reported in the final window.
+12. Apply the communication-quality rewrite pass from the packaged Mythify
+    reference before sending user-facing prose: remove boilerplate and vague
+    claims, name the actor and evidence, and preserve exact technical terms.
 
 ## Visible Update Shape
 

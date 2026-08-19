@@ -25,6 +25,7 @@ class McpPackageTest(unittest.TestCase):
         self.assertIn("LICENSE", names)
         self.assertIn("src/index.js", names)
         self.assertIn("protocol/release-gates.json", names)
+        self.assertIn("protocol/prose-quality.json", names)
         self.assertFalse(any(name.startswith("test/") for name in names))
 
     def test_node_floor_matches_public_docs(self):
@@ -84,6 +85,7 @@ class McpPackageTest(unittest.TestCase):
             self.assertTrue((package_root / "README.md").is_file())
             self.assertTrue((package_root / "LICENSE").is_file())
             self.assertTrue((package_root / "protocol" / "release-gates.json").is_file())
+            self.assertTrue((package_root / "protocol" / "prose-quality.json").is_file())
             self.assertFalse((package_root / "test").exists())
 
 

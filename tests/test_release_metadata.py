@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "5.6.0"
+VERSION = "5.7.0"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(package["version"], VERSION)
         self.assertEqual(lock["version"], VERSION)
         self.assertIn("`v{0}`".format(VERSION), self.text("roadmap.md"))
-        self.assertIn("## [{0}] - 2026-08-17".format(VERSION), self.text("CHANGELOG.md"))
+        self.assertIn("## [{0}] - 2026-08-19".format(VERSION), self.text("CHANGELOG.md"))
 
     def test_public_surface_and_profile_mirrors_agree(self):
         surface = json.loads(self.text("protocol/surface-manifest.json"))
@@ -49,6 +49,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("mythify-mcp-{0}.tgz".format(VERSION), release)
         self.assertIn("docs/humanlayer-integration-research.md", self.text("README.md"))
         self.assertIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
+        self.assertIn("docs/prose-quality.md", self.text("README.md"))
+        self.assertIn("docs/prose-quality.md", self.text("scripts/package_cli.py"))
 
 
 if __name__ == "__main__":
