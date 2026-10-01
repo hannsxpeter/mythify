@@ -8,6 +8,7 @@ warnings. Every view reads durable state only; none reruns checks.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -314,11 +315,46 @@ def report_cursor_path(state, cursor):
 
 
 def report_event_sort_key(event):
+    # Log events in the same second keep their append order (seq); plan and
+    # step events, which carry no seq, keep ordering by key.
     return (
         timestamp_sort_key(event.get("timestamp", "")),
         event.get("order", 0),
+        event.get("seq", 0),
         event.get("key", ""),
     )
+
+
+def record_event_key(prefix, record):
+    """A key that names RECORD itself, not its position in a filtered read.
+
+    Executed verifications carry an id; other records (attested claims,
+    reflections) are keyed by a digest of their content, which includes the
+    chained prev_sha256 when present. Neither depends on which subset of the
+    log a report happened to read, so a cursor key never drifts onto another
+    record.
+    """
+    ident = record.get("id")
+    if isinstance(ident, str) and ident:
+        return "{0}:{1}".format(prefix, ident)
+    payload = json.dumps(record, sort_keys=True, separators=(",", ":"), default=str)
+    return "{0}:sha256:{1}".format(prefix, hashlib.sha256(payload.encode("utf-8")).hexdigest())
+
+
+def unique_event_keys(events):
+    """Suffix repeated keys (byte-identical records) with their occurrence."""
+    counts = {}
+    for event in events:
+        key = event.get("key", "")
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] > 1:
+            event["key"] = "{0}#{1}".format(key, counts[key])
+    return events
+
+
+def event_instant(event):
+    """The event's timestamp as a comparable instant (sort key minus raw text)."""
+    return timestamp_sort_key(event.get("timestamp", ""))[:2]
 
 
 def compact_report_detail(text):
@@ -406,7 +442,7 @@ def build_report_events(state, log_lower_bound=""):
                 }
             )
     verifications = read_jsonl_since(state / "verifications.jsonl", log_lower_bound)
-    for index, record in enumerate(verifications, start=1):
+    for seq, record in enumerate(verifications):
         kind = record.get("kind", "unknown")
         if kind == "executed":
             passed = record.get("verified") is True
@@ -426,7 +462,8 @@ def build_report_events(state, log_lower_bound=""):
             verified = None
         events.append(
             {
-                "key": "verification:{0}:{1}".format(index, record.get("timestamp", "")),
+                "key": record_event_key("verification", record),
+                "seq": seq,
                 "timestamp": record.get("timestamp", ""),
                 "order": 30,
                 "kind": "verification_" + verification_verdict(record),
@@ -438,14 +475,15 @@ def build_report_events(state, log_lower_bound=""):
             }
         )
     reflections = read_jsonl_since(state / "reflections.jsonl", log_lower_bound)
-    for index, record in enumerate(reflections, start=1):
+    for seq, record in enumerate(reflections):
         summary = "Reflection {0}: {1}".format(
             record.get("outcome", "unknown"),
             compact_report_detail(record.get("action", "action")),
         )
         events.append(
             {
-                "key": "reflection:{0}:{1}".format(index, record.get("timestamp", "")),
+                "key": record_event_key("reflection", record),
+                "seq": seq,
                 "timestamp": record.get("timestamp", ""),
                 "order": 40,
                 "kind": "reflection_" + str(record.get("outcome", "unknown")),
@@ -456,13 +494,34 @@ def build_report_events(state, log_lower_bound=""):
                 "verified": None,
             }
         )
-    return sorted(events, key=report_event_sort_key)
+    events = sorted(unique_event_keys(events), key=report_event_sort_key)
+    for event in events:
+        # seq is a read position, good for ordering but not for identity.
+        event.pop("seq", None)
+    return events
 
 
 def events_after_marker(events, marker):
+    """Events the cursor has not shown yet.
+
+    A cursor stores the latest event plus every event key it had seen at that
+    instant (seen_keys). Anything later is new, and anything at the same
+    instant is new unless its key was seen, so a record landing in the same
+    second as the cursor is neither dropped nor replayed, whatever its sort
+    position. Cursors written before seen_keys existed use the legacy rule.
+    """
     last_event = marker.get("last_event") if isinstance(marker, dict) else None
     if not isinstance(last_event, dict):
         return events
+    seen_keys = marker.get("seen_keys")
+    if isinstance(seen_keys, list):
+        seen = {str(key) for key in seen_keys}
+        last_instant = event_instant(last_event)
+        return [
+            event for event in events
+            if event_instant(event) > last_instant
+            or (event_instant(event) == last_instant and event.get("key") not in seen)
+        ]
     last_key = last_event.get("key")
     if last_key:
         for index, event in enumerate(events):
@@ -517,15 +576,24 @@ def build_work_report(
     attention_events = attention_candidates[-DEFAULT_REPORT_ATTENTION:]
     attention_omitted = max(0, len(attention_candidates) - len(attention_events))
     if mark or not peek:
-        last_event = all_events[-1] if all_events else marker.get("last_event")
-        write_json_atomic(
-            marker_path,
-            {
-                "cursor": cursor_name,
-                "updated_at": now_iso(),
-                "last_event": last_event,
-            },
-        )
+        if all_events:
+            last_event = all_events[-1]
+            last_instant = event_instant(last_event)
+            seen_keys = [
+                event.get("key", "") for event in all_events
+                if event_instant(event) == last_instant
+            ]
+        else:
+            last_event = marker.get("last_event")
+            seen_keys = marker.get("seen_keys")
+        payload = {
+            "cursor": cursor_name,
+            "updated_at": now_iso(),
+            "last_event": last_event,
+        }
+        if isinstance(seen_keys, list):
+            payload["seen_keys"] = seen_keys
+        write_json_atomic(marker_path, payload)
     return {
         "state_dir": str(state),
         "cursor": cursor_name,

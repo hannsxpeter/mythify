@@ -9,7 +9,8 @@ command by argument list, except `mcp` itself.
 
 Tool results carry the command's stdout, then its stderr when non-empty, then
 a final `exit_code: N` line. Exit 2 is a recorded unverified verdict and is a
-valid result; exit 1, usage errors, and timeouts set isError.
+valid result; every other nonzero exit (1 refusal, 64 usage error, 124
+timeout) sets isError.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import argparse
 import json
 import os
 import queue
-import re
 import signal
 import subprocess
 import sys
@@ -45,7 +45,6 @@ TIMEOUT_EXIT_CODE = 124
 UNVERIFIED_EXIT_CODE = 2
 ESCAPE_HATCH_TOOL = "mythify"
 REFUSED_COMMANDS = ("mcp",)
-USAGE_ERROR_PATTERN = re.compile(r"^mythify\.py(?: [^\n:]+)?: error: ", re.MULTILINE)
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -115,10 +114,10 @@ INSTRUCTIONS = (
     "directory. Each tool runs one Mythify CLI command in the project root and "
     "returns its output followed by an exit_code line. Exit 0 is success. Exit "
     "2 is a recorded unverified verdict, not a tool error. Exit 1 is a refusal "
-    "or failure. Run verify_run before any completion claim: step with status "
-    "completed is refused until a passing verify run is recorded since the step "
-    "started. Use the mythify tool with an args array for commands that have no "
-    "typed tool."
+    "or failure; exit 64 is a usage error. Run verify_run before any "
+    "completion claim: step with status completed is refused until a passing "
+    "verify run is recorded since the step started. Use the mythify tool with "
+    "an args array for commands that have no typed tool."
 )
 
 
@@ -393,8 +392,15 @@ def build_argv(call_spec, arguments):
                 options.extend(_option_tokens(spec["flag"], _as_text(item)))
         elif kind == "option":
             if spec["multiple"]:
+                items = [_as_text(item) for item in _as_list(value)]
+                if any(item.startswith("-") for item in items):
+                    # A multi-value option cannot use the --flag=value form, and
+                    # argparse would read a leading "-" item as a new option.
+                    raise ToolInputError(
+                        "Argument {0!r} items cannot start with '-'.".format(spec["key"])
+                    )
                 options.append(spec["flag"])
-                options.extend(_as_text(item) for item in _as_list(value))
+                options.extend(items)
             else:
                 options.extend(_option_tokens(spec["flag"], _as_text(value)))
         elif spec["multiple"]:
@@ -402,7 +408,10 @@ def build_argv(call_spec, arguments):
         else:
             positionals.append(_as_text(value))
     argv = list(call_spec["path"]) + options
-    if any(item.startswith("-") for item in positionals):
+    if positionals:
+        # Options come first, then "--", so a multi-value option (nargs +, *,
+        # or N) can never swallow a positional, and a positional that starts
+        # with "-" is never read as an option.
         argv.append("--")
     return argv + positionals
 
@@ -449,12 +458,13 @@ def call_timeout():
     return value if value > 0 else DEFAULT_CALL_TIMEOUT
 
 
-def is_error_exit(code, stderr):
-    if code == 0:
-        return False
-    if code == UNVERIFIED_EXIT_CODE:
-        return bool(USAGE_ERROR_PATTERN.search(stderr or ""))
-    return True
+def is_error_exit(code):
+    """Exit 0 and exit 2 (unverified verdict) are results; all else is an error.
+
+    The CLI reports usage errors with exit 64, so exit 2 never needs a stderr
+    heuristic to tell a verdict from a usage error.
+    """
+    return code not in (0, UNVERIFIED_EXIT_CODE)
 
 
 def format_result(stdout, stderr, code, is_error):
@@ -694,7 +704,7 @@ class McpServer:
             err = (err.rstrip("\n") + "\n" + notice) if err.strip() else notice
             return format_result(out, err, TIMEOUT_EXIT_CODE, True)
         code = process.returncode
-        return format_result(out, err, code, is_error_exit(code, err))
+        return format_result(out, err, code, is_error_exit(code))
 
 
 def _response(request_id, result):

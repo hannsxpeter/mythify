@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from mythify_lineage import add_lineage_parser
 from mythify_quality import add_quality_parser
@@ -10,10 +11,26 @@ from mythify_verification_commands import add_verification_parsers
 from mythify_map_parser import add_map_parser
 from mythify_mcp import serve as serve_mcp
 
+# EX_USAGE from sysexits.h. Exit 2 is the recorded "unverified" verdict, so a
+# usage error must never share it.
+USAGE_EXIT_CODE = 64
+
+
+class MythifyArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser whose usage errors exit 64 instead of argparse's 2.
+
+    Subparsers inherit the class (add_subparsers defaults parser_class to the
+    parent's type), so every command level reports usage errors the same way.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(USAGE_EXIT_CODE, "{0}: error: {1}\n".format(self.prog, message))
+
 
 def build_parser(symbols):
     globals().update(symbols)
-    parser = argparse.ArgumentParser(
+    parser = MythifyArgumentParser(
         prog="mythify.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(

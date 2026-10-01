@@ -17,7 +17,14 @@ import json
 import sys
 
 from mythify_evidence_guard import noop_verifier_reason
-from mythify_io import _write_text_atomic, read_json, read_jsonl, write_json_atomic
+from mythify_io import (
+    _write_text_atomic,
+    jsonl_append_anchor,
+    read_json,
+    read_jsonl,
+    read_jsonl_after_marker,
+    write_json_atomic,
+)
 
 MAP_TICKET_TYPES = ("research", "prototype", "grilling", "task")
 MAP_TICKET_MODES = ("afk", "hitl")
@@ -249,16 +256,22 @@ def normalized_command(text):
 def passing_ticket_verification(state, ticket):
     """A passing executed run recorded since the ticket was claimed.
 
-    The cursor is the append position of verifications.jsonl at claim time, so
-    evidence recorded before the ticket was claimed can never be reused.
+    The anchor marks the end of verifications.jsonl at claim time by line hash,
+    so evidence recorded before the ticket was claimed can never be reused, and
+    `logs compact` cannot move the marker. Tickets claimed before 6.0 carry an
+    integer verification_cursor, which is still honored.
     """
     expected = normalized_command(ticket.get("verify_command"))
     if not expected:
         return None
-    cursor = ticket.get("verification_cursor")
-    records = read_jsonl(state / "verifications.jsonl")
-    if isinstance(cursor, int) and cursor >= 0:
-        records = records[cursor:]
+    records = read_jsonl_after_marker(
+        state / "verifications.jsonl",
+        anchor=ticket.get("verification_anchor"),
+        legacy_cursor=ticket.get("verification_cursor"),
+        lower_bound=ticket.get("claimed_at") or "",
+    )
+    if records is None:
+        records = read_jsonl(state / "verifications.jsonl")
     for record in records:
         if (
             record.get("kind") == "executed"
@@ -607,7 +620,8 @@ def cmd_map_claim(args, state):
             return 1
     ticket["claimed_by"] = claimant
     ticket["claimed_at"] = now_iso()
-    ticket["verification_cursor"] = len(read_jsonl(state / "verifications.jsonl"))
+    ticket["verification_anchor"] = jsonl_append_anchor(state / "verifications.jsonl")
+    ticket.pop("verification_cursor", None)
     save_map(state, slug, record)
     print("[OK] Claimed ticket {0} for {1}".format(ticket_name(ticket), claimant))
     print("Question: {0}".format(ticket.get("question", "")))

@@ -77,7 +77,7 @@ class ArtifactLineageTests(unittest.TestCase):
         self.create_parent_map()
         for kind in ("design", "research"):
             refused = self.run_cli("lineage", "status", kind, "anything")
-            self.assertEqual(refused.returncode, 2, kind)
+            self.assertEqual(refused.returncode, 64, kind)
             self.assertIn("invalid choice", refused.stderr)
         legacy = self.state / "plans" / "legacy-child.json"
         legacy.write_text(json.dumps({

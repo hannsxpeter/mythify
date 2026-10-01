@@ -5,6 +5,8 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
+from mythify_evidence_guard import noop_verifier_reason
+
 
 REVIEW_STATUSES = ("pass", "warn", "fail")
 RISK_LEVELS = ("low", "medium", "high")
@@ -137,6 +139,20 @@ def _review_proof_records(state, record):
     return rows
 
 
+def _normalized_command(text):
+    return " ".join(str(text or "").split())
+
+
+def _proof_passed(proof):
+    # A no-op command (true, exit 0, a bare echo) cannot fail, so it proves
+    # nothing even when an older version recorded it as a pass.
+    return (
+        proof.get("verified") is True
+        and proof.get("exit_code") == 0
+        and noop_verifier_reason(proof.get("command")) is None
+    )
+
+
 def blast_review_view(state, record):
     view = deepcopy(record)
     freshness = _change_freshness(state, record)
@@ -148,12 +164,24 @@ def blast_review_view(state, record):
         depth = 5 if proof.get("proof_mode") == "runtime" else 4
         safety["proof_depth"] = depth
         safety["verification_id"] = proof.get("id")
-        if proof.get("verified") is True and proof.get("exit_code") == 0:
+        if _proof_passed(proof):
             safety["status"] = "proven" if freshness["status"] == "current" else "stale"
         else:
             safety["status"] = "unproven"
-        merge_gate["verification_id"] = proof.get("id")
-        merge_gate["verified"] = proof.get("verified") is True and proof.get("exit_code") == 0
+    # Only a run of the recorded merge-gate command verifies the merge gate; a
+    # proof run with a different --command is evidence for the safety fact only.
+    gate_command = _normalized_command(merge_gate.get("command"))
+    gate_proofs = [
+        item for item in proofs
+        if gate_command and _normalized_command(item.get("command")) == gate_command
+    ]
+    if gate_proofs:
+        gate_proof = gate_proofs[-1]
+        merge_gate["verification_id"] = gate_proof.get("id")
+        merge_gate["verified"] = _proof_passed(gate_proof)
+    elif proof:
+        merge_gate["verification_id"] = None
+        merge_gate["verified"] = False
     view["safety_fact"] = safety
     view["merge_gate"] = merge_gate
     view["change_freshness"] = freshness
@@ -201,6 +229,14 @@ def cmd_blast_radius_review_create(args, state):
     }
     _write_json_atomic(_review_path(state, slug), record)
     print("[OK] Blast-radius review: {0} ({1}, safety fact unproven)".format(slug, args.status))
+    noop_reason = noop_verifier_reason(record["merge_gate"]["command"])
+    if noop_reason:
+        _fail(
+            "[WARN] Merge-gate command looks like a no-op ({0}): {1}. review "
+            "prove refuses it; record a command that can fail.".format(
+                noop_reason, record["merge_gate"]["command"]
+            )
+        )
     return 0
 
 
@@ -222,10 +258,20 @@ def cmd_quality_review_prove(args, state):
             freshness["status"], freshness["reason"]
         ))
         return 1
-    command = str(args.command or (record.get("merge_gate") or {}).get("command") or "").strip()
+    gate_command = str((record.get("merge_gate") or {}).get("command") or "").strip()
+    command = str(args.command or gate_command).strip()
     if not command:
         _fail("[FAIL] No proof command supplied and the review has no merge-gate command.")
         return 1
+    noop_reason = noop_verifier_reason(command)
+    if noop_reason:
+        _fail(
+            "[FAIL] Proof command looks like a no-op ({0}): {1}. A command that "
+            "cannot fail proves nothing; run a check that exercises the "
+            "change.".format(noop_reason, command)
+        )
+        return 1
+    gates_merge = bool(gate_command) and _normalized_command(command) == _normalized_command(gate_command)
     context = {
         "plan": None,
         "step_id": None,
@@ -261,6 +307,13 @@ def cmd_quality_review_prove(args, state):
             post_run["reason"]
         ))
         return 2
+    if not gates_merge:
+        _fail(
+            "[WARN] This proof ran {0}, not the merge-gate command ({1}); it is "
+            "evidence for the safety fact but does not verify the merge gate.".format(
+                command, gate_command or "none recorded"
+            )
+        )
     return 0 if verification.get("verified") else 2
 
 
@@ -323,7 +376,13 @@ def add_quality_parser(subparsers, symbols):
     blast.set_defaults(handler=symbols["cmd_blast_radius_review_create"])
     prove = actions.add_parser("prove", help="Run executable proof linked to a blast-radius review.")
     prove.add_argument("name")
-    prove.add_argument("--command", help="Command to run; defaults to the review merge gate.")
+    prove.add_argument(
+        "--command",
+        help=(
+            "Command to run; defaults to the review merge gate. A different "
+            "command records evidence but does not verify the merge gate."
+        ),
+    )
     prove.add_argument("--claim", help="Claim label; defaults to the safety fact.")
     prove.add_argument("--mode", choices=PROOF_MODES, default="executed")
     prove.add_argument("--timeout", type=float, default=300.0)

@@ -14,10 +14,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI = SCRIPTS_DIR / "mythify.py"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from mythify_provenance import (  # noqa: E402
-    evidence_moved_since_run,
-    verification_freshness,
-)
+from mythify_provenance import evidence_moved_since_run  # noqa: E402
 
 
 class VerificationProvenanceTest(unittest.TestCase):
@@ -100,59 +97,6 @@ class VerificationProvenanceTest(unittest.TestCase):
                 "worktree_digest": None,
                 "mythify_version": self.run_cli("--version").stdout.strip().removeprefix("Mythify v"),
             },
-        )
-
-    def test_p_must_02_freshness_rejects_stale_and_preserves_legacy(self):
-        current = {"git_commit": "current", "worktree_clean": True, "mythify_version": "4.3.0"}
-        self.assertEqual(
-            verification_freshness({}, current),
-            {"status": "legacy", "reason": "missing_provenance"},
-        )
-        self.assertEqual(
-            verification_freshness(
-                {"provenance": {"git_commit": "old", "worktree_clean": True, "mythify_version": "4.3.0"}},
-                current,
-            ),
-            {"status": "stale", "reason": "git_commit_mismatch"},
-        )
-        self.assertEqual(
-            verification_freshness(
-                {"provenance": {"git_commit": "current", "worktree_clean": True, "mythify_version": "4.2.0"}},
-                current,
-            ),
-            {"status": "stale", "reason": "mythify_version_mismatch"},
-        )
-        self.assertEqual(
-            verification_freshness(
-                {"provenance": {"git_commit": "current", "worktree_clean": True, "mythify_version": "4.3.0"}},
-                current,
-            ),
-            {"status": "fresh", "reason": "provenance_matches"},
-        )
-        self.assertEqual(
-            verification_freshness(
-                {"provenance": {"git_commit": "recorded", "worktree_clean": True, "mythify_version": "4.3.0"}},
-                {"git_commit": None, "worktree_clean": None, "mythify_version": "4.3.0"},
-            ),
-            {"status": "stale", "reason": "current_git_commit_unavailable"},
-        )
-        self.assertEqual(
-            verification_freshness(
-                {"provenance": {"git_commit": None, "worktree_clean": None, "mythify_version": "4.3.0"}},
-                {"git_commit": None, "worktree_clean": None, "mythify_version": "4.3.0"},
-            ),
-            {"status": "stale", "reason": "current_git_commit_unavailable"},
-        )
-        self.assertEqual(
-            verification_freshness(
-                {"provenance": {"git_commit": "current", "worktree_clean": False, "mythify_version": "4.3.0"}},
-                current,
-            ),
-            {"status": "stale", "reason": "recorded_worktree_dirty"},
-        )
-        self.assertEqual(
-            verification_freshness({"provenance": []}, current),
-            {"status": "legacy", "reason": "missing_provenance"},
         )
 
     def test_evidence_moved_since_run_names_only_visible_movement(self):

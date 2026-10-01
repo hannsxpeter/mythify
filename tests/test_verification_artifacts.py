@@ -83,7 +83,7 @@ class VerificationArtifactTests(unittest.TestCase):
         self.assertEqual(self.records()[1]["test_count"], 19)
         self.assertFalse(self.records()[1]["verified"])
 
-    def test_log_compaction_removes_only_archived_verification_artifacts(self):
+    def test_log_compaction_keeps_artifacts_of_archived_records(self):
         for label in ("first", "second"):
             command = "{0} -c \"print('{1}')\"".format(sys.executable, label)
             result = self.run_cli("verify", "run", command)
@@ -95,8 +95,8 @@ class VerificationArtifactTests(unittest.TestCase):
         self.assertEqual(compacted.returncode, 0, compacted.stderr)
         payload = json.loads(compacted.stdout)
         verification = next(row for row in payload["logs"] if row["log"] == "verifications.jsonl")
-        self.assertEqual(verification["removed_artifacts"], 1)
-        self.assertFalse(first_dir.exists())
+        self.assertEqual(verification["archived_artifacts"], 1)
+        self.assertTrue(first_dir.exists())
         self.assertTrue(second_dir.exists())
 
 
