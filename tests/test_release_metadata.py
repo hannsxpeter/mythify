@@ -1,5 +1,3 @@
-import hashlib
-import json
 import re
 import unittest
 from pathlib import Path
@@ -19,20 +17,14 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("`v{0}`".format(VERSION), self.text("roadmap.md"))
         self.assertIn("## [{0}] - 2026-08-19".format(VERSION), self.text("CHANGELOG.md"))
 
-    def test_release_gate_digest_and_tag_are_pinned(self):
-        gates_path = ROOT / "protocol" / "release-gates.json"
-        gates = json.loads(gates_path.read_text(encoding="utf-8"))
-        commands = [command for gate in gates["gates"] for command in gate["commands"]]
-        self.assertIn("python3 scripts/package_cli.py --check-release-tag v{0}".format(VERSION), commands)
-        digest = hashlib.sha256(gates_path.read_bytes()).hexdigest()
-        protocol_source = self.text("scripts/mythify_protocol.py")
-        self.assertIn('RELEASE_GATES_SHA256 = "{0}"'.format(digest), protocol_source)
+    def test_release_gate_manifest_and_pin_are_gone(self):
+        self.assertFalse((ROOT / "protocol" / "release-gates.json").exists())
+        self.assertNotIn("RELEASE_GATES_SHA256", self.text("scripts/mythify_protocol.py"))
 
-    def test_release_docs_name_current_assets_and_research(self):
+    def test_release_docs_name_current_assets(self):
         release = self.text("docs/release.md")
         self.assertIn("mythify-cli-{0}.tar.gz".format(VERSION), release)
-        self.assertIn("docs/humanlayer-integration-research.md", self.text("README.md"))
-        self.assertIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
+        self.assertNotIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
         self.assertIn("docs/prose-quality.md", self.text("README.md"))
         self.assertIn("docs/prose-quality.md", self.text("scripts/package_cli.py"))
         self.assertIn("docs/blast-radius.md", self.text("README.md"))

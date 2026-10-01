@@ -29,8 +29,8 @@ the ledger.
    Prefer MCP `status` when available.
 4. Report the route decision in chat:
 
-   - Recommended path: direct, plan, research, review, outcome, campaign,
-     failure recovery, handoff, or prompt packet.
+   - Recommended path: direct, plan, map, outcome, review,
+     failure_recovery, or handoff.
    - Why: the risk, ambiguity, active state, or failed evidence that drove it.
    - Next: the exact first action you will take.
 

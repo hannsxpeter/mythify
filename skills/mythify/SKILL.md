@@ -1,6 +1,6 @@
 ---
 name: mythify
-description: Chat-native operational discipline protocol for AI coding agents, including planning loops, campaigns, executed verification, persistent memory, structured reflection, and visible issue reporting. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, when audits or reviews must surface findings in chat, when the user asks for Mythify, mythify, mythos-style autonomous execution, or when the user asks for one shot, in one go, address all, continuous run, keep going until done, yolo, or similar full-send phrasing. Invoke with /mythify in Claude Code or $mythify in Codex.
+description: Chat-native operational discipline protocol for AI coding agents, including planning loops, decision maps, outcome loops, executed verification, persistent memory, structured reflection, and visible issue reporting. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, when audits or reviews must surface findings in chat, when the user asks for Mythify, mythify, mythos-style autonomous execution, or when the user asks for one shot, in one go, address all, continuous run, keep going until done, yolo, or similar full-send phrasing. Invoke with /mythify in Claude Code or $mythify in Codex.
 ---
 
 > Invocation: type `/mythify` in Claude Code or `$mythify` in Codex to run this skill. Treat any text after it as the task or scope argument.
@@ -10,7 +10,7 @@ description: Chat-native operational discipline protocol for AI coding agents, i
 You are operating under the Mythify Protocol: an operational discipline layer.
 It changes how reliably you work, not what you can do. It supplies durable
 workflow capabilities through one CLI: plans with evidence-gated steps,
-research records, campaigns, executed verification, persistent memory, and
+decision maps, outcome loops, executed verification, persistent memory, and
 structured reflection.
 
 Use Mythify as a skill first and a command surface second. Prefer MCP tools
@@ -41,8 +41,8 @@ available:
 - `mythify-verify` for proving a claim and surfacing the verdict in chat.
 
 Use lower-level commands only after the router selects that path, or when the
-user explicitly asks for a primitive such as `plan`, `outcome`, `campaign`,
-`research`, `prompt`, `memory`, `lesson`, or fanout.
+user explicitly asks for a primitive such as `plan`, `outcome`, `map`,
+`prompt`, `memory`, or `lesson`.
 
 Strict step evidence is the default. A `completed` step needs a non-empty
 RESULT and a passing executed `verify run` with exit code 0 since the step
@@ -62,19 +62,17 @@ the word Mythify:
 
 Interpret these as a request for a durable autonomous work loop, not as
 permission to skip safeguards. For small bounded work, use the normal plan or
-outcome loop. For long-running project goals, start or resume a campaign:
+outcome loop. For long-running project goals, plan the whole job with
+verifiable steps and drive it step by step; when the route to the goal is not
+visible yet, chart a decision map first:
 
-    mythify campaign start "GOAL" --success "DONE CRITERIA"
-    mythify campaign status
-    mythify campaign prompt
-    mythify campaign advance --result "phase evidence"
-    mythify campaign learn "what improves the next task" --apply-next
+    mythify plan create "GOAL" --steps JSON
+    mythify status
+    mythify prompt next
+    mythify map create "DESTINATION"
 
-Use `mythify campaign prompt` when the host needs the next task injected or
-displayed inside chat. Use `mythify campaign watch --max-iterations 0` only
-when the host is explicitly managing a long-running background watcher. Both
-commands are read-only prompt surfaces: the host still performs edits, runs
-checks, reports issues in chat, and advances the campaign with evidence.
+`mythify prompt next` is a read-only prompt surface: the host still performs
+edits, runs checks, reports issues in chat, and completes steps with evidence.
 
 Use `mythify route "TASK"` when the next workflow shape is unclear or when the
 user asks for one shot, in one go, address all, continuous run, yolo, review,
@@ -84,8 +82,8 @@ initiating host chat unless the user explicitly hands work elsewhere.
 
 Use `mythify prompt next` when the host needs Mythify to choose the next useful
 chat prompt from durable state. Use the specific packet kinds when the direction
-is known: `prompt research`, `prompt analysis`, `prompt failure`,
-`prompt handoff`, `prompt review`, or `prompt campaign`. Prompt packets are
+is known: `prompt failure`, `prompt handoff`, `prompt review`, or
+`prompt map`. Prompt packets are
 read-only steering material, not verification evidence.
 
 If the user says yolo or full send, keep the same safety boundaries: do not run
@@ -103,9 +101,6 @@ not as a hidden log system. When this skill triggers:
 3. After meaningful phases, failures, audit sweeps, and before the final
    response, run `report --since last --cursor chat --format chat` or MCP
    `report`.
-   When the optional chat report hook is installed, this report cadence can be
-   host-triggered after tool calls, but still bring important report output
-   into the transcript yourself.
 4. Bring the report into the conversation. Lead with `Attention` items:
    failed checks, failed steps, failure reflections, and attested warnings.
    If there are none, say no new issues were reported in that window.
@@ -128,7 +123,7 @@ Match protocol overhead to task size. Trivial tasks pay zero overhead.
 
 ## The autonomy loop
 
-1. PLAN: `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]`, then `status`.
+1. PLAN: `plan create GOAL [--steps JSON] [--name NAME]`, then `status`.
 2. ACT: mark the next step `in_progress`, then do the work.
 3. VERIFY: `verify run COMMAND [--claim TEXT] [--timeout N]`.
 4. REFLECT: record what happened, especially after failures or surprises.
@@ -204,10 +199,9 @@ Most turns should start with `route`, not the full table below.
 | :--- | :--- |
 | `init` | Create `./.mythify` workspace. |
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match this CLI. |
-| `status` | Orientation: active plan, next step, counts. |
-| `harness [--recent N] [--json]` | Read-only evidence harness for autonomous agent work. |
-| `route TASK [--json]` | Choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt routing from task text and durable state without mutating state. `--json` includes the classification with framing, parallelism, and review advisories. |
-| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan, set it active. |
+| `status [--recent N] [--json]` | Orientation: active plan, outcome, and map, evidence breakdown, recent verification, and attention items with issues first. |
+| `route TASK [--json]` | Choose direct, plan, map, outcome, review, failure_recovery, or handoff from task text and durable state without mutating state. `--json` includes the classification with framing, parallelism, and review advisories, plus the loop-fit assessment. |
+| `plan create GOAL [--steps JSON] [--name NAME]` | Create a plan, set it active. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step. |
 | `plan list` | List plans with progress. |
 | `plan show [NAME]` | Full detail of a plan. |
@@ -217,24 +211,10 @@ Most turns should start with `route`, not the full table below.
 | `memory set KEY VALUE [--category C]` | Store an entry (fact, decision, discovery, state). |
 | `memory get [QUERY] [--category C]` | Substring search over keys and values. |
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |
-| `artifact probe [service options]` | Probe the optional external artifact-hygiene service. |
-| `artifact inspect PATH [inspection and service options]` | Inspect an artifact without changing it. Direct output is material, not verification evidence. |
-| `artifact clean PATH --output OUTPUT --confirm-authorized [clean and service options]` | Clean an owned or authorized artifact to a separate output after post-clean inspection. |
-| `research start QUESTION [--name NAME]` | Start source-backed research. |
-| `research add-source TITLE [--url URL]` | Add a research source. |
-| `research add-claim CLAIM --evidence TEXT` | Add a source-backed claim. |
-| `research summary [NAME]` | Show sources, claims, open questions, and decision. |
-| `research close [NAME] --decision TEXT` | Close research with a decision. |
-| `campaign start GOAL [--tasks JSON]` | Start a long-running task campaign. |
-| `campaign status [NAME]` | Show campaign progress and current phase. |
-| `campaign prompt [NAME] [--json]` | Render the next host prompt without mutating state. |
-| `campaign watch [NAME] [--interval N] [--max-iterations N]` | Poll a campaign and emit refreshed host prompts. |
-| `campaign advance [NAME] --result TEXT` | Advance the current task through the loop. |
-| `campaign learn LESSON` | Record learning for later campaign tasks. |
-| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet. |
+| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet: next, handoff, failure, review, or map. |
 | `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND]` | Start a supervised outcome loop with verifier, optional metric, and budget. |
 | `outcome check [NAME]` | Run the verifier and return success, retry, or budget exhaustion. |
-| `outcome status [NAME]` | Show the active or named outcome loop. |
+| `outcome status [NAME]` | Show the active or named outcome loop; with neither, list every outcome. |
 | `outcome results [NAME]` | Show all verifier iterations and final state. |
 | `outcome stop [NAME] --reason TEXT` | Stop an outcome loop. |
 | `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson. |
@@ -244,7 +224,7 @@ Most turns should start with `route`, not the full table below.
 | `verify claim CLAIM EVIDENCE` | Record a self-report. Never counts as verified. |
 | `reflect [JSON]` | Record a reflection (flags form also accepted). |
 | `report --since last --cursor chat` | Chat-ready progress and issue report. |
-| `summary` | Full session report. |
+| `summary [--json]` | Full session report: plans, outcomes, maps, memory, lessons, evidence. |
 
 ## MCP clients
 
@@ -258,15 +238,6 @@ lower-level tools only after routing or an explicit user request: `plan_create`,
 next, handoff, failure, review, or map packets. The `mythify` tool runs any
 other CLI command by argument list. Same state directory, same file formats,
 same evidence gates as the CLI.
-
-Treat artifact hygiene, trace analysis, and evals as labs surfaces. They are
-available when explicitly useful, but they are not the default Mythify path.
-
-The artifact hygiene surface uses an optional external watermarks-remover
-service. Keep loopback as the default, require explicit acknowledgements for
-remote uploads, and require `--confirm-authorized` plus a separate output for
-cleaning. Treat deterministic findings as actionable, stylometry as advisory,
-and service output as material until an executed verifier records it.
 
 Mythify does not spawn workers. When work splits into independent parts, the
 host may delegate to any subagent it offers, or to none. Each delegated prompt

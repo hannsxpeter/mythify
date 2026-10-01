@@ -312,29 +312,6 @@ with `verify run` the same way as anything else.
 The MCP server (`mythify mcp`) exposes the same commands as typed tools over the
 same `.mythify/` folder, so a plan made through the CLI is visible over MCP.
 
-## Inspecting owned artifacts for watermark signals
-
-Mythify can use
-[`watermarks-remover`](https://github.com/guillaumemeyer/watermarks-remover)
-through an optional external service. The integration probes service health and
-capabilities, separates deterministic findings from heuristic advisory signals,
-and can clean an owned or authorized artifact to a separate output file.
-
-```bash
-mythify artifact probe
-mythify artifact inspect ./document.pdf
-mythify artifact clean ./document.pdf \
-  --output ./document.cleaned.pdf \
-  --confirm-authorized
-```
-
-Loopback is the default trust boundary. Remote use needs explicit service and
-data-upload acknowledgements. Cleaning refuses in-place and symbolic-link
-outputs, inspects the returned bytes before writing atomically, and never counts
-service output as Mythify verification evidence. See
-[docs/artifact-hygiene.md](docs/artifact-hygiene.md) for the service contract,
-false-positive policy, licensing boundaries, and residual risks.
-
 ## Writing that names the work
 
 The packaged Mythify skill applies a final rewrite pass to user-facing prose.
@@ -399,25 +376,21 @@ The everyday commands:
 | `map ticket TITLE --type ...` | Add a decision ticket: research, prototype, grilling, or task. |
 | `map claim ID` / `map resolve ID --answer ...` | Take one ticket, then close it with its decision. |
 | `map promote` | Hand a settled map to a plan, decisions and scope included. |
-| `plan create GOAL [--steps JSON] [--archetype ...]` | Create a plan. Steps may include an explicit phase, vertical slice, and `verify_command`. |
-| `plan add-step TITLE [--phase ...] [--vertical-slice JSON] [--verify CMD]` | Add a step with optional phase, vertical result, and check. |
+| `plan create GOAL [--steps JSON]` | Create a plan. Steps may include a `verify_command`. |
+| `plan add-step TITLE [--criteria TEXT] [--verify CMD]` | Add a step with optional criteria and check. |
 | `plan verify ID` | Run a step's own check and record scoped evidence. |
 | `plan import [--source godplans\|godaudits]` | Import a PLAN.mdx or AUDIT.mdx as a plan. |
 | `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing exit-0 verify matching any stored command. |
 | `verify run "CMD" [--claim ...]` | Run a command and record the exit code as evidence. |
-| `design create`, `design alternative`, `design approve` | Record product, system, program, and bounded interface decisions as material. |
 | `lineage attach`, `lineage status` | Capture typed parent revisions and inspect staleness. |
-| `review create`, `review show` | Record structured material-only maintainability judgment. |
-| `review blast-radius`, `review prove` | Record one exact-change safety case, then link executed proof without mutating it. |
-| `workspace show` | Validate merged shared and local multi-repository configuration. |
+| `review blast-radius`, `review prove`, `review show` | Record one exact-change safety case, then link executed proof without mutating it. |
 | `outcome start GOAL --success ... --verify ...` | Start a verifier-backed loop. Add `--agent` to self-drive. |
 | `outcome run` | Drive a self-driving loop to success or a bounded stop. |
 | `memory set/get`, `lesson add/list` | Persist facts, decisions, and lessons. |
-| `artifact probe`, `artifact inspect`, `artifact clean` | Use the optional external artifact-hygiene adapter. Direct results are material, not verification evidence. |
-| `status`, `report`, `summary` | Orient, narrate progress, and wrap up. |
+| `status [--json]`, `report`, `summary [--json]` | Orient with evidence and attention items, narrate progress, and wrap up. |
 
-There is more underneath: campaigns, research, dashboards, trace analysis, and
-the full MCP tool set. The complete reference is in
+There is more underneath: verification history, loop-fit advice, outcome
+listing, and the full MCP tool set. The complete reference is in
 [docs/design.md](docs/design.md), and a guided tour is in
 [docs/start-here.md](docs/start-here.md).
 
@@ -468,7 +441,6 @@ drop-in rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
 - [docs/start-here.md](docs/start-here.md): the shortest path to using Mythify.
 - [docs/design.md](docs/design.md): the complete design and command reference.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the reproducible smoke run and its limits.
-- [docs/humanlayer-integration-research.md](docs/humanlayer-integration-research.md): source-backed HumanLayer repository and philosophy study behind the v5.6 quality controls.
 - [docs/prose-quality.md](docs/prose-quality.md): the user-facing rewrite pass and mechanical prose check.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.

@@ -35,7 +35,6 @@ def load_classification_rules():
         "review",
         "quality_climb",
         "execution_profile",
-        "plan_archetype",
         "next_actions",
         "verification_hints",
     )
@@ -76,7 +75,6 @@ PARALLELISM_POLICY = CLASSIFICATION_MANIFEST["parallelism"]
 REVIEW_POLICY = CLASSIFICATION_MANIFEST["review"]
 QUALITY_CLIMB_POLICY = CLASSIFICATION_MANIFEST["quality_climb"]
 EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST["execution_profile"]
-PLAN_ARCHETYPE_POLICY = CLASSIFICATION_MANIFEST["plan_archetype"]
 NEXT_ACTIONS = CLASSIFICATION_MANIFEST["next_actions"]
 VERIFICATION_HINTS = CLASSIFICATION_MANIFEST["verification_hints"]
 PARALLELISM_CHOOSER = "host"
@@ -194,22 +192,6 @@ def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
     )
 
 
-def plan_archetype_for(task_type, execution_profile, text):
-    direct_profiles = tuple(
-        str(item) for item in PLAN_ARCHETYPE_POLICY["direct_execution_profiles"]
-    )
-    design_types = tuple(
-        str(item) for item in PLAN_ARCHETYPE_POLICY["design_heavy_task_types"]
-    )
-    if execution_profile in direct_profiles:
-        return "direct", PLAN_ARCHETYPE_POLICY["direct_reason"]
-    if task_type in design_types or contains_any(
-        text, tuple(str(term) for term in PLAN_ARCHETYPE_POLICY["design_heavy_terms"])
-    ):
-        return "design-heavy", PLAN_ARCHETYPE_POLICY["design_heavy_reason"]
-    return "rpi", PLAN_ARCHETYPE_POLICY["rpi_reason"]
-
-
 def classify_task_text(task_text):
     text = " ".join(str(task_text or "").lower().split())
     words = [word for word in text.replace("/", " ").replace("_", " ").split() if word]
@@ -262,9 +244,6 @@ def classify_task_text(task_text):
     execution_profile, execution_profile_reason = execution_profile_for(
         task_type, risk, ceremony, ambiguity, text
     )
-    plan_archetype, plan_archetype_reason = plan_archetype_for(
-        task_type, execution_profile, text
-    )
     if execution_profile == "direct":
         next_action = NEXT_ACTIONS["direct"]
     elif execution_profile == "fast":
@@ -281,8 +260,6 @@ def classify_task_text(task_text):
         "ceremony": ceremony,
         "execution_profile": execution_profile,
         "execution_profile_reason": execution_profile_reason,
-        "plan_archetype": plan_archetype,
-        "plan_archetype_reason": plan_archetype_reason,
         "verification": verification,
         "framing": framing_advisory(task_type, risk, ceremony, ambiguity, text),
         "parallelism": parallelism_advisory(task_type, text),

@@ -28,25 +28,20 @@ class ArtifactLineageTests(unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
 
-    def create_parent_design(self):
-        result = self.run_cli(
-            "design", "create", "Parent", "--problem", "Choose a seam", "--name", "parent"
-        )
+    def create_parent_map(self):
+        result = self.run_cli("map", "create", "Choose a seam", "--name", "parent")
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_plan_lineage_becomes_stale_when_parent_design_changes(self):
-        self.create_parent_design()
+    def test_plan_lineage_becomes_stale_when_parent_map_changes(self):
+        self.create_parent_map()
         created = self.run_cli(
-            "plan", "create", "Child", "--name", "child", "--parent", "design:parent"
+            "plan", "create", "Child", "--name", "child", "--parent", "map:parent"
         )
         self.assertEqual(created.returncode, 0, created.stderr)
         current = self.run_cli("lineage", "status", "plan", "child", "--json")
         self.assertEqual(json.loads(current.stdout)["status"], "current")
         changed = self.run_cli(
-            "design", "alternative", "Option", "--interface", "one method",
-            "--call-sites", "caller.py", "--locality", "one module",
-            "--migration-cost", "low", "--deletion-cost", "one file",
-            "--reversal-evidence", "second consumer", "--name", "parent"
+            "map", "ticket", "Pick the interface", "--type", "grilling", "--map", "parent"
         )
         self.assertEqual(changed.returncode, 0, changed.stderr)
         stale = self.run_cli("lineage", "status", "plan", "child", "--json")
@@ -54,18 +49,17 @@ class ArtifactLineageTests(unittest.TestCase):
         self.assertEqual(payload["status"], "stale")
         self.assertEqual(payload["parents"][0]["status"], "stale")
         self.assertEqual(payload["precedence"][-1], "executed_verification_completion")
-        dashboard = self.run_cli("dashboard", "--json")
-        self.assertEqual(json.loads(dashboard.stdout)["active_plan"]["lineage"]["status"], "stale")
-        harness = self.run_cli("harness", "--json")
-        self.assertEqual(json.loads(harness.stdout)["active_plan"]["lineage"]["status"], "stale")
+        status = self.run_cli("status", "--json")
+        self.assertEqual(json.loads(status.stdout)["active_plan"]["lineage"]["status"], "stale")
         summary = self.run_cli("summary")
         self.assertIn("lineage: stale", summary.stdout)
+        summary_json = json.loads(self.run_cli("summary", "--json").stdout)
+        self.assertEqual(summary_json["plans"][0]["lineage"], "stale")
 
-    def test_generic_attach_supports_research_map_and_outcome_children(self):
-        self.create_parent_design()
+    def test_generic_attach_supports_plan_and_outcome_children(self):
+        self.create_parent_map()
         fixtures = {
-            "research": self.state / "research" / "investigation.json",
-            "map": self.state / "maps" / "decision-map.json",
+            "plan": self.state / "plans" / "delivery-plan.json",
             "outcome": self.state / "outcomes" / "delivery" / "goal.json",
         }
         for kind, target in fixtures.items():
@@ -73,16 +67,36 @@ class ArtifactLineageTests(unittest.TestCase):
             target.write_text(json.dumps({"name": target.stem, "created": "2026-08-17T00:00:00Z"}) + "\n")
             attached = self.run_cli(
                 "lineage", "attach", kind, "delivery" if kind == "outcome" else target.stem,
-                "--parent", "design:parent",
+                "--parent", "map:parent",
             )
             self.assertEqual(attached.returncode, 0, attached.stderr)
             record = json.loads(target.read_text())
-            self.assertEqual(record["lineage"]["parents"][0]["kind"], "design")
+            self.assertEqual(record["lineage"]["parents"][0]["kind"], "map")
+
+    def test_removed_kinds_are_rejected_and_legacy_parents_read_unknown(self):
+        self.create_parent_map()
+        for kind in ("design", "research"):
+            refused = self.run_cli("lineage", "status", kind, "anything")
+            self.assertEqual(refused.returncode, 2, kind)
+            self.assertIn("invalid choice", refused.stderr)
+        legacy = self.state / "plans" / "legacy-child.json"
+        legacy.write_text(json.dumps({
+            "name": "legacy-child",
+            "goal": "old",
+            "steps": [],
+            "lineage": {
+                "captured_at": "2026-08-17T00:00:00Z",
+                "parents": [{"kind": "design", "id": "gone", "revision": "abc"}],
+            },
+        }) + "\n")
+        status = self.run_cli("lineage", "status", "plan", "legacy-child", "--json")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(json.loads(status.stdout)["status"], "unknown")
 
     def test_verification_captures_parent_and_legacy_record_reports_unknown(self):
-        self.create_parent_design()
+        self.create_parent_map()
         verified = self.run_cli(
-            "verify", "run", "true", "--parent", "design:parent"
+            "verify", "run", "true", "--parent", "map:parent"
         )
         self.assertEqual(verified.returncode, 0, verified.stderr)
         record = json.loads((self.state / "verifications.jsonl").read_text().splitlines()[-1])
@@ -101,7 +115,7 @@ class ArtifactLineageTests(unittest.TestCase):
             sys.executable, repr(str(marker))
         )
         result = self.run_cli(
-            "verify", "run", command, "--parent", "design:missing"
+            "verify", "run", command, "--parent", "map:missing"
         )
         self.assertEqual(result.returncode, 1)
         self.assertFalse(marker.exists())
@@ -109,9 +123,9 @@ class ArtifactLineageTests(unittest.TestCase):
         self.assertFalse(artifact_root.exists() and any(artifact_root.iterdir()))
 
     def test_artifact_cannot_parent_itself(self):
-        self.create_parent_design()
+        self.create_parent_map()
         result = self.run_cli(
-            "lineage", "attach", "design", "parent", "--parent", "design:parent"
+            "lineage", "attach", "map", "parent", "--parent", "map:parent"
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("cannot be its own lineage parent", result.stderr)

@@ -27,10 +27,10 @@ rules embedded in each artifact. Mythify holds the executed evidence trail.
   only when a passing exit-0 `verify run` for its exact stored `verify_command`
   was recorded while that step was `in_progress`. Context-free or unrelated
   verifications do not count.
-- `readiness` and `harness`: surface artifact status, task progress, open
-  Critical findings, and counter drift beside git and roadmap state.
-- `phase`: imported steps keep the artifact's phase and wave, so the phase view
-  groups them without keyword guessing.
+- `status`: surfaces artifact status, task progress, open Critical findings,
+  and counter drift as attention items, and suggests `plan import` when no plan
+  is active.
+- Imported steps keep the artifact's phase and wave as step fields.
 
 ## The execution loop for an imported plan
 

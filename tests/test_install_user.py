@@ -3,7 +3,6 @@ import json
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tarfile
@@ -87,7 +86,6 @@ class TestUserInstaller(unittest.TestCase):
         project,
         skills_root,
         claude_skills_root,
-        hook_root,
     ):
         return [
             "sh",
@@ -100,9 +98,6 @@ class TestUserInstaller(unittest.TestCase):
             str(skills_root),
             "--claude-skills-root",
             str(claude_skills_root),
-            "--install-chat-hook",
-            "--hook-root",
-            str(hook_root),
         ]
 
     def snapshot_paths(self, paths):
@@ -143,10 +138,8 @@ class TestUserInstaller(unittest.TestCase):
             root + "/scripts/check_prose_quality.py",
             root + "/scripts/mythify_classification.py",
             root + "/protocol/PROTOCOL.md",
-            root + "/protocol/artifact-hygiene.json",
             root + "/protocol/prose-quality.json",
             root + "/protocol/classification-rules.json",
-            root + "/protocol/operation-registry.json",
             root + "/protocol/workflow-router.json",
             root + "/skills/mythify/SKILL.md",
             root + "/CHANGELOG.md",
@@ -158,6 +151,18 @@ class TestUserInstaller(unittest.TestCase):
             root + "/docs/evidence/codex-word-count-2026-07-13.json",
         }
         self.assertTrue(required.issubset(names), sorted(required - names))
+        removed = {
+            root + "/scripts/mythify_chat_report_hook.sh",
+            root + "/protocol/release-gates.json",
+            root + "/protocol/loading-profiles.json",
+            root + "/protocol/operation-registry.json",
+            root + "/protocol/artifact-hygiene.json",
+            root + "/docs/artifact-hygiene.md",
+            root + "/docs/research-report.md",
+            root + "/docs/humanlayer-integration-research.md",
+        }
+        self.assertEqual(removed & names, set())
+        self.assertFalse(any("/protocol/variants/" in name for name in names))
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         local_targets = {
             target.split("#", 1)[0]
@@ -278,7 +283,6 @@ class TestUserInstaller(unittest.TestCase):
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
         project = self.tmp / "project"
         project_state = project / ".mythify"
         project_state.mkdir(parents=True)
@@ -299,7 +303,6 @@ class TestUserInstaller(unittest.TestCase):
             project,
             skills_root,
             claude_skills_root,
-            hook_root,
         )
         result = self.run_cmd(args, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -350,7 +353,6 @@ class TestUserInstaller(unittest.TestCase):
             project,
             skills_root,
             claude_skills_root,
-            hook_root,
         )
         update_result = self.run_cmd(update_args, env=env)
         self.assertEqual(update_result.returncode, 0, update_result.stderr)
@@ -374,7 +376,6 @@ class TestUserInstaller(unittest.TestCase):
             self.assertFalse((claude_skills_root / skill).exists())
         for personal_skill in personal_skills:
             self.assertEqual(personal_skill.read_text(encoding="utf-8"), "user-owned skill\n")
-        self.assertFalse((hook_root / "mythify-chat-report-hook.sh").exists())
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "project-owned state\n")
 
     def test_invalid_project_fails_before_installation_mutation(self):
@@ -382,7 +383,6 @@ class TestUserInstaller(unittest.TestCase):
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
         missing_project = self.tmp / "missing-project"
 
         result = self.run_cmd(
@@ -392,7 +392,6 @@ class TestUserInstaller(unittest.TestCase):
                 missing_project,
                 skills_root,
                 claude_skills_root,
-                hook_root,
             ),
             env={"XDG_DATA_HOME": str(data_home)},
         )
@@ -402,7 +401,6 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse((data_home / "mythify").exists())
         self.assertFalse(skills_root.exists())
         self.assertFalse(claude_skills_root.exists())
-        self.assertFalse(hook_root.exists())
 
     def test_mcp_launcher_works_from_checkout_path_with_apostrophe(self):
         source_root = self.tmp / "source's-checkout"
@@ -465,7 +463,6 @@ class TestUserInstaller(unittest.TestCase):
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
         project = self.tmp / "project"
         project.mkdir()
         env = {"XDG_DATA_HOME": str(data_home)}
@@ -475,7 +472,6 @@ class TestUserInstaller(unittest.TestCase):
             project,
             skills_root,
             claude_skills_root,
-            hook_root,
         )
         first = self.run_cmd(args, env=env)
         self.assertEqual(first.returncode, 0, first.stderr)
@@ -490,7 +486,6 @@ class TestUserInstaller(unittest.TestCase):
             ("mythify", mythify_bin),
             ("uninstall", uninstall_bin),
             ("mcp", prefix / "bin" / "mythify-mcp"),
-            ("hook", hook_root / "mythify-chat-report-hook.sh"),
         ]
         for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
             tracked.append(("codex-" + skill, skills_root / skill))
@@ -519,7 +514,6 @@ class TestUserInstaller(unittest.TestCase):
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
         personal = skills_root / "mythify-personal" / "SKILL.md"
         personal.parent.mkdir(parents=True)
         personal.write_text("unrelated skill\n", encoding="utf-8")
@@ -532,7 +526,6 @@ class TestUserInstaller(unittest.TestCase):
             project,
             skills_root,
             claude_skills_root,
-            hook_root,
         )
         failed = self.run_cmd(
             args,
@@ -551,8 +544,6 @@ class TestUserInstaller(unittest.TestCase):
         for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
             self.assertFalse((skills_root / skill).exists())
             self.assertFalse((claude_skills_root / skill).exists())
-        self.assertFalse((hook_root / "mythify-chat-report-hook.sh").exists())
-        self.assertFalse(hook_root.exists())
         self.assertFalse(claude_skills_root.exists())
         self.assertEqual(personal.read_text(encoding="utf-8"), "unrelated skill\n")
         self.assertFalse((project / ".mythify").exists())
@@ -563,14 +554,12 @@ class TestUserInstaller(unittest.TestCase):
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
         sentinels = []
         for path in (
             prefix / "bin" / "mythify",
             prefix / "bin" / "mythify-mcp",
             skills_root / "mythify" / "SKILL.md",
             claude_skills_root / "mythify" / "SKILL.md",
-            hook_root / "mythify-chat-report-hook.sh",
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("unowned sentinel\n", encoding="utf-8")
@@ -589,9 +578,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(skills_root),
                 "--claude-skills-root",
                 str(claude_skills_root),
-                "--install-chat-hook",
-                "--hook-root",
-                str(hook_root),
             ]
         )
         self.assertNotEqual(result.returncode, 0)
@@ -636,12 +622,10 @@ class TestUserInstaller(unittest.TestCase):
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
         preserved = []
         for path in (
             skills_root / "mythify" / "SKILL.md",
             claude_skills_root / "mythify" / "SKILL.md",
-            hook_root / "mythify-chat-report-hook.sh",
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("pre-existing artifact\n", encoding="utf-8")
@@ -658,8 +642,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(skills_root),
                 "--claude-skills-root",
                 str(claude_skills_root),
-                "--hook-root",
-                str(hook_root),
             ],
             env={"XDG_DATA_HOME": str(data_home)},
         )
@@ -703,11 +685,10 @@ class TestUserInstaller(unittest.TestCase):
         self.assertEqual(uninstall_result.returncode, 0, uninstall_result.stderr)
         self.assertFalse(mcp_bin.exists())
 
-    def test_installs_chat_skills_and_hook_helper(self):
+    def test_installs_chat_skills(self):
         prefix = self.tmp / "prefix"
         skills_root = self.tmp / "skills"
         claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
 
         result = self.run_cmd(
             [
@@ -719,10 +700,8 @@ class TestUserInstaller(unittest.TestCase):
                 str(skills_root),
                 "--claude-skills-root",
                 str(claude_skills_root),
-                "--install-chat-hook",
-                "--hook-root",
-                str(hook_root),
-            ]
+            ],
+            env={"XDG_DATA_HOME": str(self.tmp / "xdg-data")},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -735,42 +714,24 @@ class TestUserInstaller(unittest.TestCase):
                 skill_file = root / skill / "SKILL.md"
                 self.assertTrue(skill_file.is_file(), skill_file)
 
-        hook = hook_root / "mythify-chat-report-hook.sh"
-        self.assertTrue(hook.is_file())
-        self.assertTrue(hook.stat().st_mode & stat.S_IXUSR)
-
         help_result = self.run_cmd([str(mythify_bin), "--help"])
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Mythify v", help_result.stdout)
+        cli_roots = list((self.tmp / "xdg-data").glob("mythify/*/cli"))
+        self.assertEqual(len(cli_roots), 1, cli_roots)
+        self.assertFalse((cli_roots[0] / "protocol" / "ACTIVE.md").exists())
+        self.assertFalse((cli_roots[0] / "scripts" / "mythify_chat_report_hook.sh").exists())
 
-        project = self.tmp / "project"
-        project.mkdir()
-        init_result = self.run_cmd([str(mythify_bin), "init"], cwd=project)
-        self.assertEqual(init_result.returncode, 0, init_result.stderr)
-        mark_result = self.run_cmd(
-            [str(mythify_bin), "report", "--cursor", "chat", "--mark"],
-            cwd=project,
-        )
-        self.assertEqual(mark_result.returncode, 0, mark_result.stderr)
-        claim_result = self.run_cmd(
-            [
-                str(mythify_bin),
-                "verify",
-                "claim",
-                "chat hook attestation",
-                "installer test evidence",
-            ],
-            cwd=project,
-        )
-        self.assertEqual(claim_result.returncode, 0, claim_result.stderr)
-
-        hook_result = self.run_cmd(
-            [str(hook)],
-            cwd=project,
-            env={"MYTHIFY_BIN": str(mythify_bin)},
-        )
-        self.assertEqual(hook_result.returncode, 0, hook_result.stderr)
-        self.assertIn("chat hook attestation", hook_result.stdout)
+    def test_removed_installer_options_are_rejected(self):
+        for option in ("--install-chat-hook", "--protocol-profile", "--hook-root"):
+            with self.subTest(option=option):
+                args = ["sh", str(INSTALLER), "--prefix", str(self.tmp / "prefix"), option]
+                if option != "--install-chat-hook":
+                    args.append("value")
+                result = self.run_cmd(args, env={"XDG_DATA_HOME": str(self.tmp / "xdg")})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unknown option: " + option, result.stderr)
+                self.assertFalse((self.tmp / "prefix").exists())
 
 
 class TestSkillInvocationParity(unittest.TestCase):

@@ -1,4 +1,3 @@
-import json
 import re
 import unittest
 from pathlib import Path
@@ -43,9 +42,6 @@ class ReleaseVersionTest(unittest.TestCase):
         release = (REPO_ROOT / "docs" / "release.md").read_text(encoding="utf-8")
         roadmap = (REPO_ROOT / "roadmap.md").read_text(encoding="utf-8")
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        gates = json.loads(
-            (REPO_ROOT / "protocol" / "release-gates.json").read_text(encoding="utf-8")
-        )
         workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         )
@@ -63,20 +59,12 @@ class ReleaseVersionTest(unittest.TestCase):
         )
         self.assertIn("mythify-cli-{}.tar.gz".format(version), release)
         self.assertNotIn("mythify-mcp-{}.tgz".format(version), release)
-        tag_commands = [
-            command
-            for gate in gates["gates"] if gate["id"] == "release_tag"
-            for command in gate["commands"]
-        ]
-        self.assertEqual(
-            tag_commands,
-            ["python3 scripts/package_cli.py --check-release-tag v{}".format(version)],
-        )
 
         self.assertIn("tags:", workflow)
         self.assertNotIn("types: [published]", workflow)
         release_index = workflow.index("gh release create")
         required_before_release = [
+            'python3 scripts/package_cli.py --check-release-tag "$TAG"',
             "python3 -m unittest discover -s tests -v",
             "python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_server tests.test_release_version -v",
             "python3 scripts/check_prose_quality.py",
@@ -87,14 +75,6 @@ class ReleaseVersionTest(unittest.TestCase):
             "--check dist/release-assets/SHA256SUMS",
         ]
         for command in required_before_release:
-            self.assertIn(command, workflow)
-            self.assertLess(workflow.index(command), release_index, command)
-        gate_commands = [
-            command for gate in gates["gates"] for command in gate["commands"]
-            if not command.startswith("python3 scripts/package_cli.py")
-            and not command.startswith("python3 scripts/build_release_checksums.py")
-        ]
-        for command in gate_commands:
             self.assertIn(command, workflow)
             self.assertLess(workflow.index(command), release_index, command)
         for retired in ("npm ", "node ", "mcp-server", "setup-node", "mythify-mcp-"):

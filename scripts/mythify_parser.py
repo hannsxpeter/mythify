@@ -4,13 +4,9 @@ from __future__ import annotations
 
 import argparse
 
-from mythify_artifact_parser import add_artifact_parser
-from mythify_designs import add_design_parser
 from mythify_lineage import add_lineage_parser
 from mythify_quality import add_quality_parser
-from mythify_workspace import add_workspace_parser
 from mythify_verification_commands import add_verification_parsers
-from mythify_eval_parser import add_eval_parser
 from mythify_map_parser import add_map_parser
 from mythify_mcp import serve as serve_mcp
 
@@ -27,20 +23,17 @@ def build_parser(symbols):
         ),
         epilog=(
             "Recommended front door:\n"
-            "  mythify route \"TASK\"        choose direct, plan, research, review, outcome, campaign, failure, handoff, or prompt routing\n"
-            "  mythify report ...          show chat-ready progress and issue reports\n"
+            "  mythify route \"TASK\"        choose direct, plan, map, outcome, review, failure_recovery, or handoff\n"
+            "  mythify status              reorient from durable state, evidence, and attention items\n"
             "  mythify verify run ...      record executed proof before a completion claim\n"
-            "  mythify status              reorient from durable state\n"
+            "  mythify report ...          show chat-ready progress and issue reports\n"
             "\n"
             "Workflow primitives:\n"
-            "  plan, outcome, campaign, research, prompt\n"
+            "  plan, step, outcome, map, prompt\n"
             "\n"
             "Advanced surfaces:\n"
-            "  dashboard, harness, history, background, progress, readiness, timeline, phase, trace,\n"
-            "  loop-fit, memory, lesson, logs, reflect, summary, protocol, mcp\n"
-            "\n"
-            "Labs surfaces:\n"
-            "  artifact, eval\n"
+            "  history, summary, loop-fit, memory, lesson, logs, reflect, review, lineage,\n"
+            "  protocol, init, mcp\n"
             "\n"
             "Strict evidence mode:\n"
             "  completed steps require a passing verify run by default\n"
@@ -82,50 +75,27 @@ def build_parser(symbols):
 
     p = sub.add_parser(
         "status",
-        help="Show the active plan with step icons, the next pending step, and state counts.",
+        help="Orient: active plan, outcome, and map, evidence breakdown, and attention items.",
         description=(
-            "Orientation: active plan with step icons, next pending step and its "
-            "criteria, and one-line counts for memory, lessons, verifications, "
-            "and reflections."
+            "Read-only orientation: the active plan with step icons and the next "
+            "pending step, the active outcome and map, counts, the executed and "
+            "attested evidence breakdown, recent verification records, and "
+            "attention items (failed checks, no-op or zero-test passes, ledger "
+            "chain breaks, legacy opt-outs, stale or drifted outcome evidence) "
+            "sorted with issues before warnings."
         ),
     )
+    p.add_argument(
+        "--recent",
+        type=int,
+        default=DEFAULT_STATUS_RECENT,
+        help=(
+            "Number of recent verification records and attention items to show. "
+            "Defaults to {0}.".format(DEFAULT_STATUS_RECENT)
+        ),
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_status)
-
-    p = sub.add_parser(
-        "dashboard",
-        help="Show a read-only workflow dashboard with plan, outcome, and evidence state.",
-        description=(
-            "Read-only workflow dashboard: active plan, current and next step, "
-            "active outcome, memory and lesson counts, verification totals, "
-            "recent verification records, and recent reflections."
-        ),
-    )
-    p.add_argument(
-        "--recent",
-        type=int,
-        default=3,
-        help="Number of recent verification and reflection records to show. Defaults to 3.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_dashboard)
-
-    p = sub.add_parser(
-        "harness",
-        help="Show a read-only evidence harness for autonomous agent work.",
-        description=(
-            "Read-only evidence harness: active steering state, evidence mix, "
-            "attention items, delegated work counts, release readiness, and the "
-            "next control action from durable state."
-        ),
-    )
-    p.add_argument(
-        "--recent",
-        type=int,
-        default=5,
-        help="Number of recent verification and reflection records to inspect. Defaults to 5.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_harness)
 
     p = sub.add_parser(
         "history",
@@ -196,11 +166,11 @@ def build_parser(symbols):
         help="Choose the next workflow route from prompt text and durable state.",
         description=(
             "Read-only workflow quarterback: classify a prompt, inspect durable "
-            "state, and choose direct, plan, research, review, outcome, campaign, "
-            "failure recovery, handoff, or prompt packet routing. The JSON output "
-            "carries the deterministic classification with neutral framing, "
-            "parallelism, and review advisories; the host chooses whether and "
-            "where to delegate."
+            "state, and choose direct, plan, map, outcome, review, "
+            "failure_recovery, or handoff routing. The JSON output carries the "
+            "deterministic classification with neutral framing, parallelism, and "
+            "review advisories plus the loop-fit assessment; the host chooses "
+            "whether and where to delegate."
         ),
     )
     p.add_argument("task", help="Task request or problem statement to route.")
@@ -232,21 +202,6 @@ def build_parser(symbols):
         parser.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
 
     p = prompt_sub.add_parser(
-        "research",
-        help="Render a research to implementation prompt packet.",
-    )
-    p.add_argument("name", nargs="?", help="Research name. Defaults to the active research.")
-    add_prompt_common(p)
-    p.set_defaults(handler=cmd_prompt_packet, packet_kind="research")
-
-    p = prompt_sub.add_parser(
-        "analysis",
-        help="Render an analysis to plan prompt packet.",
-    )
-    add_prompt_common(p)
-    p.set_defaults(handler=cmd_prompt_packet, packet_kind="analysis")
-
-    p = prompt_sub.add_parser(
         "failure",
         help="Render a failure recovery prompt packet.",
     )
@@ -268,14 +223,6 @@ def build_parser(symbols):
     p.set_defaults(handler=cmd_prompt_packet, packet_kind="review")
 
     p = prompt_sub.add_parser(
-        "campaign",
-        help="Render a campaign prompt packet through the common packet contract.",
-    )
-    p.add_argument("name", nargs="?", help="Campaign name. Defaults to the active campaign.")
-    add_prompt_common(p)
-    p.set_defaults(handler=cmd_prompt_packet, packet_kind="campaign")
-
-    p = prompt_sub.add_parser(
         "map",
         help="Render a wayfinding map prompt packet for the next decision ticket.",
     )
@@ -290,472 +237,9 @@ def build_parser(symbols):
     add_prompt_common(p)
     p.set_defaults(handler=cmd_prompt_packet, packet_kind="next")
 
-    p = sub.add_parser(
-        "background",
-        help="Show read-only background task state for outcomes and fanout jobs.",
-        description=(
-            "Read-only background task view: outcome loops, fanout jobs, task "
-            "counts, current statuses, and next actions from durable state."
-        ),
-    )
-    p.add_argument(
-        "--recent",
-        type=int,
-        default=5,
-        help="Number of recent outcomes and fanout jobs to show. Defaults to 5.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_background)
-
-    p = sub.add_parser(
-        "progress",
-        help="Show read-only outcome loop progress.",
-        description=(
-            "Read-only outcome loop progress: active and recent outcomes, "
-            "iteration budget, verifier exit details, metric score when present, "
-            "and next action from durable state."
-        ),
-    )
-    p.add_argument(
-        "--recent",
-        type=int,
-        default=5,
-        help="Number of recent outcomes to show. Defaults to 5.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_progress)
-
-    p = sub.add_parser(
-        "readiness",
-        help="Show read-only release readiness from recorded gates.",
-        description=(
-            "Read-only release readiness: recorded verification gates, project "
-            "git state, roadmap state, and release-review status without "
-            "rerunning gates or declaring the release safe."
-        ),
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_readiness)
-
-    p = sub.add_parser(
-        "timeline",
-        help="Show a read-only fanout worker timeline.",
-        description=(
-            "Read-only fanout worker timeline: recent fanout jobs, task start "
-            "and finish events, duration, status, errors, and output metadata "
-            "from durable state."
-        ),
-    )
-    p.add_argument(
-        "--recent",
-        type=int,
-        default=5,
-        help="Number of recent fanout jobs to include. Defaults to 5.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_timeline)
-
-    p = sub.add_parser(
-        "phase",
-        help="Show a read-only Understand, Design, Build, Judge, Verify phase view.",
-        description=(
-            "Read-only phase view: active plan steps grouped into Understand, "
-            "Design, Build, Judge, and Verify, with supporting evidence counts "
-            "from durable state."
-        ),
-    )
-    p.add_argument(
-        "--recent",
-        type=int,
-        default=3,
-        help="Number of recent verification and reflection records to consider. Defaults to 3.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_phase)
-
-    trace = sub.add_parser(
-        "trace",
-        help="Analyze exported agent traces and scenario rows.",
-        description=(
-            "Analyze exported agent session traces, action rows, "
-            "and scenario prompt rows. Trace analysis is material for planning "
-            "and eval design, not verification evidence."
-        ),
-    )
-    trace_sub = trace.add_subparsers(dest="trace_command", metavar="ACTION", required=True)
-    p = trace_sub.add_parser(
-        "analyze",
-        help="Summarize local JSON or JSONL trace exports.",
-        description=(
-            "Read JSONL or JSON files, detect trace shape, count tools and "
-            "sessions, surface verification-like command signals, and suggest "
-            "Mythify product or eval improvements."
-        ),
-    )
-    p.add_argument(
-        "paths",
-        nargs="+",
-        help="JSON or JSONL files, directories, or - for JSONL stdin.",
-    )
-    p.add_argument(
-        "--limit",
-        type=int,
-        default=5000,
-        help="Maximum records to read across inputs. Use 0 for no limit.",
-    )
-    p.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Scan directories recursively for .json and .jsonl files.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_trace_analyze, needs_state=False)
-
-    p = trace_sub.add_parser(
-        "distill",
-        help="Distill a model slice into a Markdown behavior profile.",
-        description=(
-            "Filter local trace exports by model, calculate visible workflow "
-            "metrics, and write a trace-derived behavior profile."
-        ),
-    )
-    p.add_argument(
-        "paths",
-        nargs="+",
-        help="JSON or JSONL files, directories, or - for JSONL stdin.",
-    )
-    p.add_argument("--model", help="Exact model name recorded in the trace rows to filter.")
-    p.add_argument("--title", help="Markdown title. Defaults to a trace-derived behavior profile title.")
-    p.add_argument("--output", help="Write Markdown to this path instead of printing it.")
-    p.add_argument(
-        "--limit",
-        type=int,
-        default=5000,
-        help="Maximum matching records to read across inputs. Use 0 for no limit.",
-    )
-    p.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Scan directories recursively for .json and .jsonl files.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_trace_distill, needs_state=False)
-
-    p = trace_sub.add_parser(
-        "compare",
-        help="Compare target and baseline model trace slices.",
-        description=(
-            "Compare visible workflow metrics between a target model slice "
-            "and a baseline model slice, then render a delta playbook."
-        ),
-    )
-    p.add_argument(
-        "paths",
-        nargs="+",
-        help="JSON or JSONL files or directories. Stdin is not supported for compare.",
-    )
-    p.add_argument("--target", required=True, help="Exact target model name to filter.")
-    p.add_argument("--baseline", required=True, help="Exact baseline model name to filter.")
-    p.add_argument("--target-label", help="Human label for the target slice.")
-    p.add_argument("--baseline-label", help="Human label for the baseline slice.")
-    p.add_argument("--output", help="Write Markdown to this path instead of printing it.")
-    p.add_argument(
-        "--limit",
-        type=int,
-        default=5000,
-        help="Maximum matching records to read for each slice. Use 0 for no limit.",
-    )
-    p.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Scan directories recursively for .json and .jsonl files.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_trace_compare, needs_state=False)
-
-    p = trace_sub.add_parser(
-        "playbook",
-        help="Generate a concise agent playbook from trace behavior.",
-        description=(
-            "Build a session-start playbook from a target trace slice, "
-            "optionally comparing it with a baseline model slice."
-        ),
-    )
-    p.add_argument(
-        "paths",
-        nargs="+",
-        help="JSON or JSONL files, directories, or - for JSONL stdin. Stdin cannot be combined with --baseline.",
-    )
-    p.add_argument("--target", required=True, help="Exact target model name to filter.")
-    p.add_argument("--baseline", help="Exact baseline model name to filter.")
-    p.add_argument("--target-label", help="Human label for the target slice.")
-    p.add_argument("--baseline-label", help="Human label for the baseline slice.")
-    p.add_argument("--title", help="Markdown title. Defaults to a trace-derived agent playbook title.")
-    p.add_argument("--output", help="Write Markdown to this path instead of printing it.")
-    p.add_argument(
-        "--limit",
-        type=int,
-        default=5000,
-        help="Maximum matching records to read for each slice. Use 0 for no limit.",
-    )
-    p.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Scan directories recursively for .json and .jsonl files.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_trace_playbook, needs_state=False)
-
-    p = trace_sub.add_parser(
-        "install-playbook",
-        help="Install a generated playbook as a local agent skill.",
-        description=(
-            "Wrap a generated Markdown playbook in SKILL.md frontmatter and "
-            "install it under a local skill root."
-        ),
-    )
-    p.add_argument("playbook", help="Markdown playbook file to install.")
-    p.add_argument("--skill", help="Skill directory name. Defaults to the playbook filename.")
-    p.add_argument(
-        "--skill-root",
-        required=True,
-        help="Local skill root directory that the host agent loads skills from.",
-    )
-    p.add_argument("--force", action="store_true", help="Overwrite an existing skill directory.")
-    p.set_defaults(handler=cmd_trace_install_playbook, needs_state=False)
-
-    research = sub.add_parser(
-        "research",
-        help="Manage source-backed research records.",
-        description=(
-            "Manage source-backed research: start a question, add sources, add "
-            "claims, track open questions, and close with a decision. Research "
-            "records are material for decisions, not executed verification."
-        ),
-    )
-    research_sub = research.add_subparsers(dest="research_command", metavar="ACTION", required=True)
-
-    p = research_sub.add_parser(
-        "start",
-        help="Start a research record and set it active.",
-        description="Start a source-backed research record and set it active.",
-    )
-    p.add_argument("question", help="Research question or decision to investigate.")
-    p.add_argument("--name", help="Research record name. Defaults to a slug of the question.")
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_research_start)
-
-    p = research_sub.add_parser(
-        "list",
-        help="List research records.",
-        description="List research records with active marker, counts, and status.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_research_list)
-
-    p = research_sub.add_parser(
-        "add-source",
-        help="Add a source to the active or named research record.",
-        description="Add a source with URL, note, and credibility to a research record.",
-    )
-    p.add_argument("title", help="Source title.")
-    p.add_argument("--url", default="", help="Source URL or local path.")
-    p.add_argument("--note", default="", help="Short note about why this source matters.")
-    p.add_argument(
-        "--credibility",
-        choices=RESEARCH_SOURCE_CREDIBILITY,
-        default="unknown",
-        help="Source credibility marker. Defaults to unknown.",
-    )
-    p.add_argument("--research", help="Research record name. Defaults to active.")
-    p.set_defaults(handler=cmd_research_add_source)
-
-    p = research_sub.add_parser(
-        "add-claim",
-        help="Add a claim and its evidence to a research record.",
-        description="Add a claim, evidence note, optional source id, and confidence marker.",
-    )
-    p.add_argument("claim", help="Claim learned from the research.")
-    p.add_argument("--evidence", required=True, help="Evidence supporting the claim.")
-    p.add_argument("--source", help="Source id such as S1.")
-    p.add_argument(
-        "--confidence",
-        choices=RESEARCH_CONFIDENCE,
-        default="medium",
-        help="Confidence marker. Defaults to medium.",
-    )
-    p.add_argument("--research", help="Research record name. Defaults to active.")
-    p.set_defaults(handler=cmd_research_add_claim)
-
-    p = research_sub.add_parser(
-        "add-question",
-        help="Add an open question to a research record.",
-        description="Add an unresolved question that future research should answer.",
-    )
-    p.add_argument("question", help="Open question.")
-    p.add_argument("--research", help="Research record name. Defaults to active.")
-    p.set_defaults(handler=cmd_research_add_question)
-
-    p = research_sub.add_parser(
-        "summary",
-        help="Show the active or named research record.",
-        description="Show sources, claims, open questions, and decision for a research record.",
-    )
-    p.add_argument("name", nargs="?", help="Research record name. Defaults to active.")
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_research_summary)
-
-    p = research_sub.add_parser(
-        "close",
-        help="Close a research record with a decision.",
-        description="Mark a research record closed and record the resulting decision.",
-    )
-    p.add_argument("name", nargs="?", help="Research record name. Defaults to active.")
-    p.add_argument("--decision", required=True, help="Decision or conclusion from the research.")
-    p.set_defaults(handler=cmd_research_close)
-
-    campaign = sub.add_parser(
-        "campaign",
-        help="Manage long-running task campaigns.",
-        description=(
-            "Manage a long-running campaign: decompose a goal into tasks, move "
-            "each task through understand, design, build, judge, verify, and "
-            "reflect, and record learnings that improve later tasks."
-        ),
-    )
-    campaign_sub = campaign.add_subparsers(dest="campaign_command", metavar="ACTION", required=True)
-
-    p = campaign_sub.add_parser(
-        "start",
-        help="Start a campaign and set it active.",
-        description=(
-            "Start a long-running campaign. If --tasks is omitted, Mythify "
-            "generates a small default task list for the goal."
-        ),
-    )
-    p.add_argument("goal", help="Campaign end goal.")
-    p.add_argument(
-        "--tasks",
-        help=(
-            "JSON array of task strings or objects with title and optional "
-            "success_criteria."
-        ),
-    )
-    p.add_argument("--name", help="Campaign name. Defaults to a slug of the goal.")
-    p.add_argument("--success", help="Overall success criteria.")
-    p.add_argument("--verify", help="Optional campaign-level verifier command.")
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_campaign_start)
-
-    p = campaign_sub.add_parser(
-        "list",
-        help="List campaigns.",
-        description="List campaigns with active marker, progress, and status.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_campaign_list)
-
-    p = campaign_sub.add_parser(
-        "status",
-        help="Show the active or named campaign.",
-        description="Show campaign progress, tasks, current phase, and recent learnings.",
-    )
-    p.add_argument("name", nargs="?", help="Campaign name. Defaults to active.")
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_campaign_status)
-
-    p = campaign_sub.add_parser(
-        "prompt",
-        help="Render the next host prompt for a campaign.",
-        description=(
-            "Render a chat-ready prompt for the active or named campaign's "
-            "current task and phase without mutating campaign state."
-        ),
-    )
-    p.add_argument("name", nargs="?", help="Campaign name. Defaults to active.")
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_campaign_prompt)
-
-    p = campaign_sub.add_parser(
-        "watch",
-        help="Poll a campaign and emit refreshed host prompts.",
-        description=(
-            "Poll the active or named campaign and emit the current host prompt. "
-            "Defaults to one iteration; pass --max-iterations 0 for an explicit "
-            "long-running watch managed by the host."
-        ),
-    )
-    p.add_argument("name", nargs="?", help="Campaign name. Defaults to active.")
-    p.add_argument("--interval", type=float, default=5.0, help="Seconds between prompt refreshes.")
-    p.add_argument(
-        "--max-iterations",
-        type=int,
-        default=1,
-        help="Prompt refresh count. Use 0 for an explicit unbounded watch.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_campaign_watch)
-
-    p = campaign_sub.add_parser(
-        "add-task",
-        help="Append a task to the active or named campaign.",
-        description="Append a task to a campaign with optional success criteria.",
-    )
-    p.add_argument("title", help="Task title.")
-    p.add_argument("--criteria", help="Task success criteria.")
-    p.add_argument("--campaign", help="Campaign name. Defaults to active.")
-    p.set_defaults(handler=cmd_campaign_add_task)
-
-    p = campaign_sub.add_parser(
-        "advance",
-        help="Advance the current task to the next campaign phase.",
-        description=(
-            "Advance the current task through understand, design, build, judge, "
-            "verify, and reflect. Advancing from reflect completes the task and "
-            "starts the next pending task."
-        ),
-    )
-    p.add_argument("name", nargs="?", help="Campaign name. Defaults to active.")
-    p.add_argument("--result", required=True, help="Evidence, observation, or output from this phase.")
-    p.set_defaults(handler=cmd_campaign_advance)
-
-    p = campaign_sub.add_parser(
-        "task",
-        help="Set a campaign task status directly.",
-        description="Set a task status directly. completed and failed require RESULT evidence.",
-    )
-    p.add_argument("id", help="Task id.")
-    p.add_argument("status", help="One of: pending, in_progress, completed, failed, skipped.")
-    p.add_argument("result", nargs="?", help="Evidence or failure description.")
-    p.add_argument("--campaign", help="Campaign name. Defaults to active.")
-    p.set_defaults(handler=cmd_campaign_task)
-
-    p = campaign_sub.add_parser(
-        "learn",
-        help="Record a learning for the campaign.",
-        description="Record a learning that should improve the current or next task cycle.",
-    )
-    p.add_argument("lesson", help="Learning to carry forward.")
-    p.add_argument("--task", help="Task id. Defaults to the current task when present.")
-    p.add_argument("--apply-next", action="store_true", help="Mark the learning as guidance for next tasks.")
-    p.add_argument("--campaign", help="Campaign name. Defaults to active.")
-    p.set_defaults(handler=cmd_campaign_learn)
-
-    p = campaign_sub.add_parser(
-        "stop",
-        help="Stop the active or named campaign.",
-        description="Mark a campaign stopped and clear the active pointer when it matches.",
-    )
-    p.add_argument("name", nargs="?", help="Campaign name. Defaults to active.")
-    p.add_argument("--reason", required=True, help="Why the campaign is being stopped.")
-    p.set_defaults(handler=cmd_campaign_stop)
-
     add_map_parser(sub, symbols)
-    add_design_parser(sub, symbols)
     add_lineage_parser(sub, symbols)
     add_quality_parser(sub, symbols)
-    add_workspace_parser(sub, symbols)
-    add_eval_parser(sub, symbols)
 
     p = sub.add_parser(
         "loop-fit",
@@ -778,15 +262,6 @@ def build_parser(symbols):
         help="Print machine-readable JSON instead of text.",
     )
     p.set_defaults(handler=cmd_loop_fit, needs_state=False)
-
-    add_artifact_parser(
-        sub,
-        default_service_url=DEFAULT_SERVICE_URL,
-        default_api_key_env=ARTIFACT_API_KEY_ENV,
-        probe_handler=cmd_artifact_probe,
-        inspect_handler=cmd_artifact_inspect,
-        clean_handler=cmd_artifact_clean,
-    )
 
     outcome = sub.add_parser(
         "outcome",
@@ -930,8 +405,12 @@ def build_parser(symbols):
 
     p = outcome_sub.add_parser(
         "status",
-        help="Show the active or named outcome loop.",
-        description="Show outcome status, iteration budget, verifier, and next action.",
+        help="Show the active or named outcome loop, or list all outcomes when none is active.",
+        description=(
+            "Show outcome status, iteration budget, verifier, and next action. "
+            "With no name and no active outcome, list every outcome loop with "
+            "its status, iteration budget, and last check."
+        ),
     )
     p.add_argument("name", nargs="?", help="Outcome name; defaults to the active outcome.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
@@ -967,8 +446,8 @@ def build_parser(symbols):
         "create",
         help="Create a plan and set it active.",
         description=(
-            "Create a plan and set it active. Without --steps the plan is empty "
-            "unless --horizon or MYTHIFY_PLAN_HORIZON supplies a default step count."
+            "Create a plan and set it active. Without --steps the plan starts "
+            "empty; add steps with plan add-step."
         ),
     )
     p.add_argument("goal", help="What the plan should accomplish.")
@@ -981,21 +460,7 @@ def build_parser(symbols):
             "the executable proof of its done-condition; run it with plan verify."
         ),
     )
-    p.add_argument(
-        "--horizon",
-        help=(
-            "Create N default lookahead steps when --steps is omitted. "
-            "Accepted range: 1-20."
-        ),
-    )
     p.add_argument("--name", help="Plan name; defaults to a slug of the goal.")
-    p.add_argument(
-        "--archetype",
-        choices=PLAN_ARCHETYPES,
-        default="direct",
-        help="Plan shape: direct, rpi, or design-heavy. Defaults to direct.",
-    )
-    p.add_argument("--design", help="Approved design record this plan implements.")
     p.add_argument("--parent", action="append", default=[], help="Parent artifact kind:id. Repeat as needed.")
     p.set_defaults(handler=cmd_plan_create)
 
@@ -1036,11 +501,6 @@ def build_parser(symbols):
     )
     p.add_argument("title", help="Step title.")
     p.add_argument("--criteria", help="Success criteria for the step.")
-    p.add_argument("--phase", choices=PLAN_PHASES, help="Explicit workflow phase.")
-    p.add_argument(
-        "--vertical-slice",
-        help="JSON object with result, files, automated_checks, and manual_checks.",
-    )
     p.add_argument(
         "--verify",
         help="Executable command that proves the step is done; run it with plan verify.",
@@ -1246,13 +706,15 @@ def build_parser(symbols):
 
     p = sub.add_parser(
         "summary",
-        help="Full session report: plans, memory, lessons, verification stats, reflections.",
+        help="Full session report: plans, outcomes, maps, memory, lessons, evidence, reflections.",
         description=(
-            "Full session report: plans and progress, memory count, project and "
-            "global lesson counts, verification stats (executed passed, executed "
-            "failed, attested count), and reflection count."
+            "Full session report: plans and progress, outcome loops, decision "
+            "maps, memory count, project and global lesson counts, verification "
+            "stats (executed passed, executed failed, attested count), and "
+            "reflection count."
         ),
     )
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     p.set_defaults(handler=cmd_summary)
 
     p = sub.add_parser(

@@ -1638,7 +1638,7 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
 - Durability: atomic writes, corrupt-state quarantine
   (`<file>.corrupt-<timestamp>`), and graceful behavior on missing state.
 - Claude Desktop and Claude Code integration guide
-  ([docs/claude-integrations.md](docs/claude-integrations.md)), including
+  (`docs/claude-integrations.md`), including
   running Mythify on smaller models.
 
 ### Changed
@@ -1655,7 +1655,7 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
 
 - The legacy prototype files (Manus research dumps, the old single-file
   orchestrator, and prebuilt `.skill` archives). The source research report is
-  preserved verbatim at [docs/research-report.md](docs/research-report.md).
+  preserved verbatim at `docs/research-report.md`.
 
 [Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...HEAD
 [5.8.0]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...v5.8.0

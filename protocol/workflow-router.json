@@ -1,18 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "description": "Shared deterministic workflow route metadata for the Mythify CLI and MCP server.",
   "routes": [
     {
-      "id": "failure",
+      "id": "failure_recovery",
       "priority": 10,
       "description": "Recover from the latest failed executed verification before starting unrelated work.",
       "prompt_packet": "failure"
-    },
-    {
-      "id": "campaign",
-      "priority": 20,
-      "description": "Use or resume a durable campaign for long-running one-shot or continuous project work.",
-      "prompt_packet": "campaign"
     },
     {
       "id": "outcome",
@@ -23,14 +17,8 @@
     {
       "id": "map",
       "priority": 35,
-      "description": "Chart or work a wayfinding decision map when the effort is too big for one session and the route to the destination is not visible yet.",
+      "description": "Chart or work a wayfinding decision map when the effort is too big for one session, the route to the destination is not visible yet, or a research-like prompt asks several foggy questions.",
       "prompt_packet": "map"
-    },
-    {
-      "id": "research",
-      "priority": 40,
-      "description": "Create or continue source-backed research before implementation when the task depends on external or uncertain information.",
-      "prompt_packet": "research"
     },
     {
       "id": "review",
@@ -41,26 +29,20 @@
     {
       "id": "handoff",
       "priority": 60,
-      "description": "Resume an active plan or current workflow state without assuming hidden chat context.",
+      "description": "Resume an active plan or current workflow state without assuming hidden chat context, or render steering material on request.",
       "prompt_packet": "handoff"
     },
     {
       "id": "plan",
       "priority": 70,
-      "description": "Create a verifiable plan for ordinary multi-step implementation work.",
-      "prompt_packet": "analysis"
-    },
-    {
-      "id": "prompt",
-      "priority": 80,
-      "description": "Render a prompt packet when the user asks for steering material rather than immediate execution.",
-      "prompt_packet": "next"
+      "description": "Create a verifiable plan for ordinary multi-step implementation work, including full-send requests.",
+      "prompt_packet": "handoff"
     },
     {
       "id": "direct",
       "priority": 90,
-      "description": "Answer directly or make a single reversible edit when no durable workflow is needed.",
-      "prompt_packet": "analysis"
+      "description": "Answer directly or make a single reversible edit when no durable workflow is needed, including single-question research lookups.",
+      "prompt_packet": "next"
     }
   ],
   "output_fields": [
@@ -68,6 +50,8 @@
     "reason",
     "next_command",
     "prompt_packet",
+    "classification",
+    "loop_fit",
     "verification_strategy",
     "chat_policy",
     "pause_rules",

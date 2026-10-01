@@ -62,7 +62,6 @@ now_iso = _missing_dependency
 slugify = _missing_dependency
 find_existing_slug_by_name = _missing_dependency
 execute_verification = _missing_dependency
-build_default_plan_steps = _missing_dependency
 create_plan_record = _missing_dependency
 attach_plan_lineage = _missing_dependency
 environ = None
@@ -79,13 +78,12 @@ def configure_map_store(
     fail_func=None,
     find_existing_slug_by_name_func=None,
     execute_verification_func=None,
-    build_default_plan_steps_func=None,
     create_plan_record_func=None,
     attach_plan_lineage_func=None,
     environ_map=None,
 ):
     global now_iso, slugify, fail, find_existing_slug_by_name, execute_verification
-    global build_default_plan_steps, create_plan_record, attach_plan_lineage, environ
+    global create_plan_record, attach_plan_lineage, environ
     if now_iso_func is not None:
         now_iso = now_iso_func
     if slugify_func is not None:
@@ -96,8 +94,6 @@ def configure_map_store(
         find_existing_slug_by_name = find_existing_slug_by_name_func
     if execute_verification_func is not None:
         execute_verification = execute_verification_func
-    if build_default_plan_steps_func is not None:
-        build_default_plan_steps = build_default_plan_steps_func
     if create_plan_record_func is not None:
         create_plan_record = create_plan_record_func
     if attach_plan_lineage_func is not None:
@@ -864,8 +860,6 @@ def cmd_map_promote(args, state):
             fail("[FAIL] --steps must be a JSON array of step objects.")
             return 1
         steps = parsed
-    elif args.horizon:
-        steps = build_default_plan_steps(args.horizon)
     source = {
         "kind": "map",
         "map": slug,

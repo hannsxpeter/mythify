@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--protocol-profile auto|full|thin] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--install-chat-hook] [--hook-root PATH] [--uninstall]
+Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--uninstall]
 
 Installs a versioned, self-contained Mythify CLI runtime and user-local
 launchers: mythify, mythify-mcp (the zero-dependency MCP stdio server), and
@@ -13,14 +13,11 @@ them with $skill in Codex and /skill in Claude Code.
 Options:
   --prefix PATH               Install launchers under PATH/bin. Default: $HOME/.local
   --project PATH              Initialize Mythify state for that project and print MCP setup.
-  --protocol-profile PROFILE Install the full protocol or thin progressive-disclosure bootstrap. Default: auto, which fails closed to full.
   --skip-mcp                  Accepted for older install commands; has no effect.
   --skip-skills               Do not install Mythify chat skills (Codex or Claude).
   --skills-root PATH          Install Codex chat skills under PATH. Default: $CODEX_HOME/skills or $HOME/.codex/skills
   --skip-claude-skills        Do not install the Claude Code copy of the chat skills.
   --claude-skills-root PATH   Install Claude chat skills under PATH. Default: $CLAUDE_HOME/skills or $HOME/.claude/skills
-  --install-chat-hook         Install the optional report hook helper script.
-  --hook-root PATH            Install hook helpers under PATH. Default: $CODEX_HOME/hooks or $HOME/.codex/hooks
   --uninstall                 Remove installed Mythify runtime files and launchers. Project .mythify state is preserved.
   --help                      Show this help.
 USAGE
@@ -127,22 +124,13 @@ install_cli_runtime() {
   mkdir -p "$cli_stage/scripts"
   cp "$repo_root/scripts/mythify.py" "$cli_stage/scripts/mythify.py"
   cp "$repo_root/scripts/install_user.sh" "$cli_stage/scripts/install_user.sh"
-  cp "$repo_root/scripts/mythify_chat_report_hook.sh" "$cli_stage/scripts/mythify_chat_report_hook.sh"
   for module in "$repo_root"/scripts/mythify_*.py; do
     [ -f "$module" ] || continue
     cp "$module" "$cli_stage/scripts/$(basename "$module")"
   done
   cp -R "$repo_root/protocol" "$cli_stage/protocol"
-  if [ "$protocol_profile" = "thin" ]; then
-    cp "$repo_root/protocol/variants/AGENTS.md.thin" "$cli_stage/protocol/ACTIVE.md"
-  elif [ -f "$repo_root/AGENTS.md" ]; then
-    cp "$repo_root/AGENTS.md" "$cli_stage/protocol/ACTIVE.md"
-  else
-    cp "$repo_root/protocol/PROTOCOL.md" "$cli_stage/protocol/ACTIVE.md"
-  fi
   chmod 755 "$cli_stage/scripts/mythify.py"
   chmod 755 "$cli_stage/scripts/install_user.sh"
-  chmod 755 "$cli_stage/scripts/mythify_chat_report_hook.sh"
 
   cli_backup="$install_root/.cli-backup.$$"
   rm -rf "$cli_backup"
@@ -169,13 +157,10 @@ write_ownership_manifest() {
     "$prefix" \
     "$skills_root" \
     "$claude_skills_root" \
-    "$hook_root" \
     "$skip_skills" \
     "$skip_claude_skills" \
-    "$install_chat_hook" \
     "$mythify_skill_names" \
-    "$project_dir" \
-    "$protocol_profile" <<'PY'
+    "$project_dir" <<'PY'
 import hashlib
 import json
 import os
@@ -197,13 +182,9 @@ install_root = Path(sys.argv[2]).resolve()
 prefix = Path(sys.argv[3]).resolve()
 skills_root = Path(sys.argv[4]).resolve()
 claude_skills_root = Path(sys.argv[5]).resolve()
-hook_root = Path(sys.argv[6]).resolve()
-skip_skills, skip_claude, install_hook = (
-    value == "1" for value in sys.argv[7:10]
-)
-skill_names = sys.argv[10].split()
-project_dir = Path(os.path.abspath(sys.argv[11])) if sys.argv[11] else None
-protocol_profile = sys.argv[12]
+skip_skills, skip_claude = (value == "1" for value in sys.argv[6:8])
+skill_names = sys.argv[8].split()
+project_dir = Path(os.path.abspath(sys.argv[9])) if sys.argv[9] else None
 token = secrets.token_hex(16)
 
 files = [
@@ -216,8 +197,6 @@ if not skip_skills:
     directories.extend(skills_root / name for name in skill_names)
     if not skip_claude:
         directories.extend(claude_skills_root / name for name in skill_names)
-if install_hook:
-    files.append(hook_root / "mythify-chat-report-hook.sh")
 
 for directory in directories:
     marker = directory / ".mythify-owned"
@@ -232,11 +211,8 @@ manifest = {
         "prefix": str(prefix),
         "skills_root": str(skills_root),
         "claude_skills_root": str(claude_skills_root),
-        "hook_root": str(hook_root),
         "skip_skills": skip_skills,
         "skip_claude_skills": skip_claude,
-        "install_chat_hook": install_hook,
-        "protocol_profile": protocol_profile,
     },
     "files": {str(path.resolve()): digest(path) for path in files},
     "directories": [str(path.resolve()) for path in directories],
@@ -264,10 +240,8 @@ begin_install_transaction() {
     "$bin_dir" \
     "$skills_root" \
     "$claude_skills_root" \
-    "$hook_root" \
     "$skip_skills" \
     "$skip_claude_skills" \
-    "$install_chat_hook" \
     "$mythify_skill_names" \
     "$project_dir" <<'PY'
 import json
@@ -282,12 +256,9 @@ install_root = Path(os.path.abspath(sys.argv[2]))
 bin_dir = Path(os.path.abspath(sys.argv[3]))
 skills_root = Path(os.path.abspath(sys.argv[4]))
 claude_skills_root = Path(os.path.abspath(sys.argv[5]))
-hook_root = Path(os.path.abspath(sys.argv[6]))
-skip_skills, skip_claude, install_hook = (
-    value == "1" for value in sys.argv[7:10]
-)
-skill_names = sys.argv[10].split()
-project_dir = Path(os.path.abspath(sys.argv[11])) if sys.argv[11] else None
+skip_skills, skip_claude = (value == "1" for value in sys.argv[6:8])
+skill_names = sys.argv[8].split()
+project_dir = Path(os.path.abspath(sys.argv[9])) if sys.argv[9] else None
 
 targets = [
     install_root,
@@ -299,8 +270,6 @@ if not skip_skills:
     targets.extend(skills_root / name for name in skill_names)
     if not skip_claude:
         targets.extend(claude_skills_root / name for name in skill_names)
-if install_hook:
-    targets.append(hook_root / "mythify-chat-report-hook.sh")
 if project_dir is not None:
     targets.append(project_dir / ".gitignore")
     project_state = project_dir / ".mythify"
@@ -460,17 +429,13 @@ project=""
 project_dir=""
 skip_skills=0
 skip_claude_skills=0
-install_chat_hook=0
 uninstall=0
 data_root=""
-protocol_profile_requested="${MYTHIFY_PROTOCOL_PROFILE:-auto}"
-protocol_profile="full"
 mythify_skill_names="mythify mythify-work mythify-route mythify-verify"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 skills_root="${MYTHIFY_SKILLS_ROOT:-$codex_home/skills}"
 claude_home="${CLAUDE_HOME:-$HOME/.claude}"
 claude_skills_root="${MYTHIFY_CLAUDE_SKILLS_ROOT:-$claude_home/skills}"
-hook_root="${MYTHIFY_HOOK_ROOT:-$codex_home/hooks}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -482,11 +447,6 @@ while [ "$#" -gt 0 ]; do
     --project)
       [ "$#" -ge 2 ] || fail "--project requires a path"
       project="$2"
-      shift 2
-      ;;
-    --protocol-profile)
-      [ "$#" -ge 2 ] || fail "--protocol-profile requires auto, full, or thin"
-      protocol_profile_requested="$2"
       shift 2
       ;;
     --skip-mcp)
@@ -509,15 +469,6 @@ while [ "$#" -gt 0 ]; do
     --claude-skills-root)
       [ "$#" -ge 2 ] || fail "--claude-skills-root requires a path"
       claude_skills_root="$2"
-      shift 2
-      ;;
-    --install-chat-hook)
-      install_chat_hook=1
-      shift
-      ;;
-    --hook-root)
-      [ "$#" -ge 2 ] || fail "--hook-root requires a path"
-      hook_root="$2"
       shift 2
       ;;
     --uninstall)
@@ -545,11 +496,6 @@ bin_dir="$prefix/bin"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 require_command python3
 python_bin=$(command -v python3)
-case "$protocol_profile_requested" in
-  auto|full) protocol_profile="full" ;;
-  thin) protocol_profile="thin" ;;
-  *) fail "--protocol-profile must be auto, full, or thin" ;;
-esac
 
 if [ "$uninstall" -eq 1 ]; then
   if [ -n "$data_root" ]; then
@@ -592,11 +538,8 @@ if [ "$uninstall" -eq 1 ]; then
     "$prefix" \
     "$skills_root" \
     "$claude_skills_root" \
-    "$hook_root" \
     "$skip_skills" \
-    "$skip_claude_skills" \
-    "$install_chat_hook" \
-    "$protocol_profile" <<'PY'
+    "$skip_claude_skills" <<'PY'
 import hashlib
 import json
 import os
@@ -622,11 +565,7 @@ install_root = Path(sys.argv[2]).resolve()
 prefix = Path(sys.argv[3]).resolve()
 skills_root = Path(sys.argv[4]).resolve()
 claude_skills_root = Path(sys.argv[5]).resolve()
-hook_root = Path(sys.argv[6]).resolve()
-skip_skills, skip_claude, install_hook = (
-    value == "1" for value in sys.argv[7:10]
-)
-protocol_profile = sys.argv[10]
+skip_skills, skip_claude = (value == "1" for value in sys.argv[6:8])
 
 if not manifest_path.is_file() or manifest_path.is_symlink():
     fail("is missing or unsafe: {}".format(manifest_path))
@@ -640,11 +579,8 @@ config = {
     "prefix": str(prefix),
     "skills_root": str(skills_root),
     "claude_skills_root": str(claude_skills_root),
-    "hook_root": str(hook_root),
     "skip_skills": skip_skills,
     "skip_claude_skills": skip_claude,
-    "install_chat_hook": install_hook,
-    "protocol_profile": protocol_profile,
 }
 if manifest.get("schema") != 1 or manifest.get("config") != config:
     fail("does not match this uninstall request")
@@ -659,8 +595,6 @@ if not skip_skills:
     directories.extend(skills_root / name for name in manifest["skill_names"])
     if not skip_claude:
         directories.extend(claude_skills_root / name for name in manifest["skill_names"])
-if install_hook:
-    files.append(hook_root / "mythify-chat-report-hook.sh")
 
 recorded_files = manifest.get("files", {})
 for path in files:
@@ -729,9 +663,6 @@ if [ "$skip_skills" -eq 0 ]; then
     [ -d "$repo_root/skills/$skill_name" ] || fail "Missing skill directory: skills/$skill_name"
   done
 fi
-if [ "$install_chat_hook" -eq 1 ]; then
-  [ -f "$repo_root/scripts/mythify_chat_report_hook.sh" ] || fail "Missing scripts/mythify_chat_report_hook.sh"
-fi
 preflight_directory "Install prefix" "$prefix"
 preflight_directory "Binary destination" "$bin_dir"
 preflight_file "Mythify launcher" "$bin_dir/mythify"
@@ -753,10 +684,6 @@ if [ "$skip_skills" -eq 0 ]; then
     done
   fi
 fi
-if [ "$install_chat_hook" -eq 1 ]; then
-  preflight_directory "Hook destination" "$hook_root"
-  preflight_file "Hook destination" "$hook_root/mythify-chat-report-hook.sh"
-fi
 begin_install_transaction
 
 if [ -n "$project_dir" ]; then
@@ -775,17 +702,12 @@ set -- \
   --data-root "$install_root" \
   --prefix "$prefix" \
   --skills-root "$skills_root" \
-  --claude-skills-root "$claude_skills_root" \
-  --hook-root "$hook_root" \
-  --protocol-profile "$protocol_profile"
+  --claude-skills-root "$claude_skills_root"
 if [ "$skip_skills" -eq 1 ]; then
   set -- "$@" --skip-skills
 fi
 if [ "$skip_claude_skills" -eq 1 ]; then
   set -- "$@" --skip-claude-skills
-fi
-if [ "$install_chat_hook" -eq 1 ]; then
-  set -- "$@" --install-chat-hook
 fi
 if [ -n "$project_dir" ]; then
   set -- "$@" --project "$project_dir"
@@ -795,16 +717,7 @@ write_exec_launcher "$bin_dir/mythify-uninstall" "$@"
 printf '%s\n' "[OK] Installed mythify CLI: $bin_dir/mythify"
 printf '%s\n' "[OK] Installed mythify MCP server: $bin_dir/mythify-mcp"
 printf '%s\n' "[OK] Installed CLI runtime: $cli_dir"
-printf '%s\n' "[OK] Installed protocol loading profile: $protocol_profile ($cli_dir/protocol/ACTIVE.md)"
 printf '%s\n' "[OK] Installed uninstaller: $bin_dir/mythify-uninstall"
-
-if [ "$install_chat_hook" -eq 1 ]; then
-  [ -f "$repo_root/scripts/mythify_chat_report_hook.sh" ] || fail "Missing scripts/mythify_chat_report_hook.sh"
-  mkdir -p "$hook_root"
-  cp "$repo_root/scripts/mythify_chat_report_hook.sh" "$hook_root/mythify-chat-report-hook.sh"
-  chmod 755 "$hook_root/mythify-chat-report-hook.sh"
-  printf '%s\n' "[OK] Installed chat report hook helper: $hook_root/mythify-chat-report-hook.sh"
-fi
 
 if [ "$skip_skills" -eq 0 ]; then
   [ -d "$repo_root/skills" ] || fail "Missing skills directory"

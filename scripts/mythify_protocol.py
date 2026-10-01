@@ -1,11 +1,10 @@
-"""Protocol handshake and frozen-manifest checks for the Mythify CLI.
+"""Protocol handshake check for the Mythify CLI.
 
-The protocol text and the release gate manifest are frozen nodes: rules the
-optimizer being graded must never tune silently. Both are pinned to digests
-embedded here; `protocol check` compares the deployed copies against them and
+The protocol text is a frozen node: a rule the optimizer being graded must
+never tune silently. It is pinned to a digest embedded here; `protocol check`
+compares the source protocol and every generated drop-in copy against it and
 fails loudly on drift. scripts/build_variants.py rewrites
-PROTOCOL_SOURCE_SHA256 when the protocol source legitimately changes; a
-legitimate release-gate change must update RELEASE_GATES_SHA256 by hand.
+PROTOCOL_SOURCE_SHA256 when the protocol source legitimately changes.
 """
 
 import hashlib
@@ -13,17 +12,9 @@ import json
 import sys
 from pathlib import Path
 
-from mythify_protocol_profiles import (
-    PROFILE_BODY_PREFIX,
-    PROFILE_PREFIX,
-    load_profile_manifest,
-    render_profile_body,
-)
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 PROTOCOL_SOURCE_SHA256 = "6b2a8d9fd34e0ed4f2c3d5bbba5e3473719b70e65da3fa206ada4751e27514b8"
-RELEASE_GATES_SHA256 = "bc64aea9ef4180c3d7d42d56bf288ef817d4c101860e7bf898b4123bfe5a3b48"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 
@@ -50,15 +41,8 @@ def extract_protocol_copy_hash(text):
     return None
 
 
-def extract_header_value(text, prefix):
-    for line in text.splitlines()[:10]:
-        stripped = line.strip()
-        if stripped.startswith(prefix) and stripped.endswith("-->"):
-            return stripped[len(prefix):-3].strip()
-    return None
-
-
 def extract_protocol_body(text):
+    """Return the protocol body that follows the generated header block."""
     marker = "\n\n"
     if marker not in text:
         return ""
@@ -89,23 +73,6 @@ def protocol_source_check():
     }
 
 
-def release_gates_checks():
-    """Hash-pin every present release gate manifest against the embedded digest."""
-    results = []
-    for path in (REPO_ROOT / "protocol" / "release-gates.json",):
-        if not path.is_file():
-            continue
-        actual = sha256_text(path.read_text(encoding="utf-8"))
-        results.append({
-            "kind": "release_gates",
-            "path": str(path),
-            "expected": RELEASE_GATES_SHA256,
-            "actual": actual,
-            "status": "ok" if actual == RELEASE_GATES_SHA256 else "drift",
-        })
-    return results
-
-
 def protocol_copy_check(path):
     path = Path(path)
     result = {
@@ -125,25 +92,9 @@ def protocol_copy_check(path):
         result["status"] = "missing_header"
     elif actual != PROTOCOL_SOURCE_SHA256:
         result["status"] = "drift"
-    else:
-        profile = extract_header_value(text, PROFILE_PREFIX)
-        body_digest = extract_header_value(text, PROFILE_BODY_PREFIX)
-        result["profile"] = profile or "legacy_full"
-        result["body_digest"] = body_digest
-        if profile is not None:
-            try:
-                manifest = load_profile_manifest(REPO_ROOT)
-                source = source_protocol_path().read_text(encoding="utf-8")
-                expected_body = render_profile_body(source, profile, manifest)
-            except (OSError, ValueError, KeyError, json.JSONDecodeError):
-                result["status"] = "invalid_profile"
-            else:
-                expected_body_digest = sha256_text(expected_body)
-                result["expected_body_digest"] = expected_body_digest
-                actual_body_digest = sha256_text(extract_protocol_body(text))
-                result["actual_body_digest"] = actual_body_digest
-                if body_digest != expected_body_digest or actual_body_digest != expected_body_digest:
-                    result["status"] = "body_drift"
+    elif sha256_text(extract_protocol_body(text)) != PROTOCOL_SOURCE_SHA256:
+        # The header matches but the body was edited or truncated.
+        result["status"] = "body_drift"
     return result
 
 
@@ -157,19 +108,12 @@ def format_protocol_check_failure(result):
             "[FAIL] Protocol handshake missing from {0}. Regenerate with "
             "scripts/build_variants.py or copy a current protocol variant."
         ).format(path)
-    if status == "invalid_profile":
-        return "[FAIL] Invalid protocol loading profile in {0}.".format(path)
     if status == "body_drift":
         return (
-            "[FAIL] Protocol profile body drift in {0}. Regenerate with "
+            "[FAIL] Protocol body drift in {0}: the header matches but the body "
+            "differs from the protocol it names. Regenerate with "
             "scripts/build_variants.py."
         ).format(path)
-    if status == "drift" and result.get("kind") == "release_gates":
-        return (
-            "[FAIL] Release gate manifest drift in {0}: expected {1}, found "
-            "{2}. The gate list is frozen; a legitimate change must also "
-            "update RELEASE_GATES_SHA256 in the CLI."
-        ).format(path, short_hash(result["expected"]), short_hash(result["actual"]))
     if status == "drift":
         return (
             "[FAIL] Protocol handshake drift in {0}: expected {1}, found {2}. "
@@ -188,9 +132,6 @@ def cmd_protocol_check(args, _state):
         if source_result is not None:
             results.append(source_result)
         results.extend(protocol_copy_check(path) for path in default_protocol_check_paths())
-    # The gate manifest is pinned on every invocation (when present), so the
-    # release gate command itself proves the gate list it is graded against.
-    results.extend(release_gates_checks())
 
     if not results:
         output = {

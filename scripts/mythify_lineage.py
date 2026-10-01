@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 
 
-ARTIFACT_KINDS = ("research", "map", "design", "plan", "outcome", "review", "verification")
+# Parents recorded by older versions with other kinds (research, design)
+# inspect as "unknown" rather than failing.
+ARTIFACT_KINDS = ("map", "plan", "outcome", "review", "verification")
 PRECEDENCE = (
     "live_code_current_behavior",
     "approved_design_desired_behavior",
@@ -45,12 +47,8 @@ def parse_parent_spec(value):
 
 def artifact_path(state, kind, artifact_id):
     state = Path(state)
-    if kind == "research":
-        return state / "research" / (artifact_id + ".json")
     if kind == "map":
         return state / "maps" / (artifact_id + ".json")
-    if kind == "design":
-        return state / "designs" / (artifact_id + ".json")
     if kind == "plan":
         return state / "plans" / (artifact_id + ".json")
     if kind == "outcome":

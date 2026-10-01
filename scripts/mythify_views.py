@@ -1,39 +1,43 @@
-"""Read-only dashboard and progress surfaces for the Mythify CLI."""
+"""Read-only status, history, and report views for the Mythify CLI.
+
+`status` is the single orientation view: active plan, outcome, and map, the
+executed and attested evidence breakdown, recent verification records, and
+attention items from the evidence detectors, sorted so issues come before
+warnings. Every view reads durable state only; none reruns checks.
+"""
 
 from __future__ import annotations
 
 import json
-import re
+import os
+import subprocess
 import sys
+from pathlib import Path
 
+from mythify_evidence_guard import (
+    active_legacy_opt_outs,
+    ledger_chain_breaks,
+    trivial_pass_reason,
+)
+from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_io import read_json, read_jsonl, read_jsonl_since, write_json_atomic
-from mythify_outcomes import (
-    get_active_outcome_slug,
-    list_outcomes,
-    load_outcome,
-    outcome_iterations_path,
+from mythify_maps import (
+    frontier_tickets,
+    get_active_map_slug,
+    load_map,
+    map_is_clear,
+    map_next_action,
+    open_tickets,
+    ungraduated_fog,
 )
-from mythify_views_status import (
-    build_evidence_harness_view,
-    build_fanout_timeline_view,
-    build_phase_view,
-    build_release_readiness_view,
-    cmd_harness,
-    cmd_phase,
-    cmd_readiness,
-    cmd_timeline,
-    configure_status_views,
-    format_evidence_harness_view,
-    format_fanout_timeline_view,
-    format_phase_view,
-    format_release_readiness_view,
-    git_status_summary,
-)
+from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
 
+WORKSPACE_DIR_NAME = ".mythify"
 REPORT_SINCE_MODES = ("last", "start")
 REPORT_FORMATS = ("chat", "json")
 DEFAULT_REPORT_RECENT = 8
 DEFAULT_REPORT_ATTENTION = 5
+DEFAULT_STATUS_RECENT = 5
 
 
 def _missing_dependency(*_args, **_kwargs):
@@ -44,6 +48,7 @@ get_active_slug = _missing_dependency
 load_plan = _missing_dependency
 plan_progress = _missing_dependency
 next_pending_step = _missing_dependency
+describe_next_pending = _missing_dependency
 load_memory = _missing_dependency
 load_lessons = _missing_dependency
 global_lessons_dir = _missing_dependency
@@ -79,6 +84,7 @@ def configure_views(
     load_plan_func=None,
     plan_progress_func=None,
     next_pending_step_func=None,
+    describe_next_pending_func=None,
     load_memory_func=None,
     load_lessons_func=None,
     global_lessons_dir_func=None,
@@ -90,9 +96,9 @@ def configure_views(
     slugify_func=None,
     inspect_lineage_func=None,
     fail_func=None,
-    mythify_version=None,
 ):
     global get_active_slug, load_plan, plan_progress, next_pending_step
+    global describe_next_pending
     global load_memory, load_lessons, global_lessons_dir, list_plan_slugs
     global format_step_line, timestamp_sort_key, timestamp_after, now_iso, slugify
     global inspect_lineage
@@ -105,6 +111,8 @@ def configure_views(
         plan_progress = plan_progress_func
     if next_pending_step_func is not None:
         next_pending_step = next_pending_step_func
+    if describe_next_pending_func is not None:
+        describe_next_pending = describe_next_pending_func
     if load_memory_func is not None:
         load_memory = load_memory_func
     if load_lessons_func is not None:
@@ -127,20 +135,6 @@ def configure_views(
         inspect_lineage = inspect_lineage_func
     if fail_func is not None:
         fail = fail_func
-    configure_status_views(
-        build_dashboard=build_dashboard,
-        build_background_view=build_background_view,
-        count_statuses=count_statuses,
-        compact_label=compact_label,
-        list_fanout_summaries=list_fanout_summaries,
-        _contains_any=_contains_any,
-        mythify_version=mythify_version,
-    )
-
-
-def _contains_any(text, needles):
-    lower = str(text or "").lower()
-    return any(needle in lower for needle in needles)
 
 
 def current_in_progress_step(plan):
@@ -150,168 +144,10 @@ def current_in_progress_step(plan):
     return None
 
 
-def recent_records(records, limit):
+def recent_tail(items, limit):
     if limit <= 0:
         return []
-    return records[-limit:]
-
-
-def build_dashboard(state, recent=3):
-    active = get_active_slug(state)
-    active_plan = None
-    if active:
-        plan = load_plan(state, active)
-        if plan is not None:
-            done, total = plan_progress(plan)
-            active_plan = {
-                "slug": active,
-                "goal": plan.get("goal", ""),
-                "completed_steps": done,
-                "total_steps": total,
-                "current_step": current_in_progress_step(plan),
-                "next_pending_step": next_pending_step(plan),
-                "steps": plan.get("steps", []),
-                "lineage": inspect_lineage(state, plan.get("lineage")),
-            }
-    active_outcome_slug = get_active_outcome_slug(state)
-    active_outcome = None
-    if active_outcome_slug:
-        slug, goal = load_outcome(state, active_outcome_slug)
-        if goal is not None:
-            iterations = read_jsonl(outcome_iterations_path(state, slug))
-            active_outcome = {
-                "slug": slug,
-                "goal": goal.get("goal", ""),
-                "status": goal.get("status", "active"),
-                "iteration_count": goal.get("iteration_count", 0),
-                "max_iterations": goal.get("max_iterations", 1),
-                "last_iteration": iterations[-1] if iterations else None,
-            }
-    memory = load_memory(state)
-    project_lessons = load_lessons(state / "lessons", "project")
-    global_lessons = load_lessons(global_lessons_dir(), "global")
-    verifications = read_jsonl(state / "verifications.jsonl")
-    executed = [record for record in verifications if record.get("kind") == "executed"]
-    reflections = read_jsonl(state / "reflections.jsonl")
-    return {
-        "state_dir": str(state),
-        "active_plan": active_plan,
-        "active_outcome": active_outcome,
-        "counts": {
-            "memory": len(memory["entries"]),
-            "project_lessons": len(project_lessons),
-            "global_lessons": len(global_lessons),
-            "verifications": len(verifications),
-            "reflections": len(reflections),
-        },
-        "verification_summary": {
-            "executed": len(executed),
-            "executed_passed": sum(1 for record in executed if record.get("verified") is True),
-            "executed_failed": sum(1 for record in executed if record.get("verified") is False),
-            "attested": sum(1 for record in verifications if record.get("kind") == "attested"),
-            "recent": recent_records(verifications, recent),
-        },
-        "reflection_summary": {
-            "total": len(reflections),
-            "recent": recent_records(reflections, recent),
-        },
-    }
-
-
-def format_dashboard(dashboard):
-    lines = ["[OK] Workflow dashboard: {0}".format(dashboard["state_dir"])]
-    plan = dashboard.get("active_plan")
-    if plan:
-        lines.append(
-            "Active plan: {0} ({1}/{2} completed)".format(
-                plan["slug"], plan["completed_steps"], plan["total_steps"]
-            )
-        )
-        lines.append("Goal: {0}".format(plan.get("goal", "")))
-        lines.append("Lineage: {0}".format(plan["lineage"]["status"]))
-        current = plan.get("current_step")
-        if current:
-            lines.append("Current step: {0}".format(format_step_line(current, "").strip()))
-        next_step = plan.get("next_pending_step")
-        if next_step:
-            lines.append(
-                "Next pending: {0}. {1} (criteria: {2})".format(
-                    next_step.get("id"),
-                    next_step.get("title"),
-                    next_step.get("success_criteria") or "none",
-                )
-            )
-        elif not current:
-            lines.append("Next pending: none")
-    else:
-        lines.append("Active plan: none")
-    outcome = dashboard.get("active_outcome")
-    if outcome:
-        lines.append(
-            "Active outcome: {0} ({1}, {2}/{3} iterations)".format(
-                outcome["slug"],
-                outcome["status"],
-                outcome["iteration_count"],
-                outcome["max_iterations"],
-            )
-        )
-    else:
-        lines.append("Active outcome: none")
-    counts = dashboard["counts"]
-    lines.append(
-        "Counts: memory {0}, lessons {1} project + {2} global, verifications {3}, reflections {4}".format(
-            counts["memory"],
-            counts["project_lessons"],
-            counts["global_lessons"],
-            counts["verifications"],
-            counts["reflections"],
-        )
-    )
-    verification = dashboard["verification_summary"]
-    lines.append(
-        "Evidence: {0} executed ({1} passed, {2} failed), {3} attested".format(
-            verification["executed"],
-            verification["executed_passed"],
-            verification["executed_failed"],
-            verification["attested"],
-        )
-    )
-    if verification["recent"]:
-        lines.append("Recent verification:")
-        for record in verification["recent"]:
-            if record.get("kind") == "executed":
-                verdict = "passed" if record.get("verified") is True else "failed"
-                label = record.get("claim") or record.get("command") or "executed check"
-                lines.append(
-                    "  - {0}: {1} (exit {2})".format(
-                        verdict, label, record.get("exit_code")
-                    )
-                )
-            else:
-                lines.append(
-                    "  - attested: {0}".format(record.get("claim") or "claim")
-                )
-    reflections = dashboard["reflection_summary"]
-    if reflections["recent"]:
-        lines.append("Recent reflection:")
-        for record in reflections["recent"]:
-            lines.append(
-                "  - {0}: {1}; next {2}".format(
-                    record.get("outcome", "unknown"),
-                    record.get("action", ""),
-                    record.get("next", ""),
-                )
-            )
-    return "\n".join(lines)
-
-
-def cmd_dashboard(args, state):
-    dashboard = build_dashboard(state, args.recent)
-    if args.json_output:
-        print(json.dumps(dashboard, indent=2))
-    else:
-        print(format_dashboard(dashboard))
-    return 0
+    return list(items[-limit:])
 
 
 VERIFICATION_HISTORY_ICONS = {
@@ -802,177 +638,6 @@ def cmd_report(args, state):
     return 0
 
 
-BACKGROUND_STATUS_ICONS = {
-    "active": "[>]",
-    "running": "[>]",
-    "pending": "[ ]",
-    "completed": "[x]",
-    "succeeded": "[x]",
-    "failed": "[!]",
-    "interrupted": "[~]",
-    "stopped": "[~]",
-    "empty": "[ ]",
-}
-
-
-def background_recent(items, limit):
-    if limit <= 0:
-        return []
-    return list(reversed(items[-limit:]))
-
-
-def fanout_root_dir(state):
-    return state / "fanout"
-
-
-def count_statuses(items, statuses):
-    counts = {status: 0 for status in statuses}
-    for item in items:
-        status = item.get("status", "unknown")
-        counts[status] = counts.get(status, 0) + 1
-    return counts
-
-
-def summarize_fanout_job(job):
-    tasks = job.get("tasks") if isinstance(job.get("tasks"), list) else []
-    counts = count_statuses(
-        tasks, ("pending", "running", "completed", "failed", "interrupted")
-    )
-    if counts.get("pending", 0) or counts.get("running", 0):
-        status = "active"
-    elif counts.get("failed", 0):
-        status = "failed"
-    elif counts.get("interrupted", 0):
-        status = "interrupted"
-    elif tasks:
-        status = "completed"
-    else:
-        status = "empty"
-    return {
-        "id": job.get("id", ""),
-        "status": status,
-        "created": job.get("created", ""),
-        "last_updated": job.get("last_updated", ""),
-        "purpose": job.get("purpose", ""),
-        "engine": job.get("engine", ""),
-        "model": job.get("model", ""),
-        "visibility": job.get("visibility", "summary"),
-        "task_counts": counts,
-        "task_total": len(tasks),
-        "tasks": [
-            {
-                "id": task.get("id"),
-                "title": task.get("title", ""),
-                "status": task.get("status", "pending"),
-                "role": task.get("role", "worker"),
-                "engine": task.get("engine", ""),
-                "model": task.get("model", ""),
-                "started_at": task.get("started_at", ""),
-                "finished_at": task.get("finished_at", ""),
-                "duration_seconds": task.get("duration_seconds", 0),
-                "error": task.get("error"),
-                "output_file": task.get("output_file"),
-                "output_bytes": task.get("output_bytes", 0),
-            }
-            for task in tasks
-        ],
-    }
-
-
-def list_fanout_summaries(state):
-    root = fanout_root_dir(state)
-    if not root.exists():
-        return []
-    jobs = []
-    for path in sorted(root.iterdir()):
-        if not path.is_dir() or not re.match(r"^fo-\d{14}-[0-9a-f]{4}$", path.name):
-            continue
-        job = read_json(path / "job.json", None)
-        if isinstance(job, dict):
-            summary = summarize_fanout_job(job)
-            if not summary["id"]:
-                summary["id"] = path.name
-            jobs.append(summary)
-    return sorted(jobs, key=lambda item: (item.get("created") or "", item.get("id") or ""))
-
-
-def summarize_outcome(state, slug, goal):
-    iterations = read_jsonl(outcome_iterations_path(state, slug))
-    last_iteration = iterations[-1] if iterations else None
-    # Sensor-drift watcher: every iteration records the command it actually
-    # ran, so a verifier swapped mid-loop is visible in the durable record.
-    commands = {
-        str((item.get("verify") or {}).get("command") or "")
-        for item in iterations
-        if isinstance(item.get("verify"), dict)
-    }
-    goal_command = str(goal.get("verify_command") or "")
-    verifier_drift = bool(commands) and (
-        len(commands) > 1 or (goal_command != "" and goal_command not in commands)
-    )
-    return {
-        "id": slug,
-        "goal": goal.get("goal", ""),
-        "status": goal.get("status", "active"),
-        "iteration_count": goal.get("iteration_count", 0),
-        "max_iterations": goal.get("max_iterations", 1),
-        "created": goal.get("created", ""),
-        "updated": goal.get("updated", ""),
-        "last_verified": goal.get("last_verified"),
-        "verifier_drift": verifier_drift,
-        "evidence_stale": bool(goal.get("evidence_stale")),
-        "last_iteration": last_iteration,
-        "next_action": last_iteration.get("next_action") if last_iteration else (
-            "make a bounded attempt, then run outcome check"
-        ),
-    }
-
-
-def list_outcome_summaries(state):
-    items = []
-    for slug, goal in list_outcomes(state):
-        items.append(summarize_outcome(state, slug, goal))
-    return sorted(items, key=lambda item: (item.get("updated") or item.get("created") or "", item.get("id") or ""))
-
-
-def build_background_view(state, recent=5):
-    outcomes = list_outcome_summaries(state)
-    fanout_jobs = list_fanout_summaries(state)
-    active_outcome_slug = get_active_outcome_slug(state)
-    outcome_counts = count_statuses(
-        outcomes, ("active", "succeeded", "failed", "stopped")
-    )
-    fanout_counts = count_statuses(
-        fanout_jobs, ("active", "completed", "failed", "interrupted", "empty")
-    )
-    task_counts = {
-        "pending": 0,
-        "running": 0,
-        "completed": 0,
-        "failed": 0,
-        "interrupted": 0,
-    }
-    for job in fanout_jobs:
-        for status, count in job.get("task_counts", {}).items():
-            task_counts[status] = task_counts.get(status, 0) + count
-    active_outcome = None
-    for outcome in outcomes:
-        if outcome.get("id") == active_outcome_slug:
-            active_outcome = outcome
-            break
-    return {
-        "state_dir": str(state),
-        "active_outcome": active_outcome,
-        "outcomes": background_recent(outcomes, recent),
-        "fanout_jobs": background_recent(fanout_jobs, recent),
-        "counts": {
-            "outcomes": {"total": len(outcomes), **outcome_counts},
-            "fanout_jobs": {"total": len(fanout_jobs), **fanout_counts},
-            "fanout_tasks": task_counts,
-        },
-    }
-
-
 def compact_label(text, fallback):
     value = str(text or "").strip()
     if not value:
@@ -980,278 +645,562 @@ def compact_label(text, fallback):
     return value if len(value) <= 80 else value[:77] + "..."
 
 
-def format_background_view(view):
-    lines = ["[OK] Background tasks: {0}".format(view["state_dir"])]
-    counts = view["counts"]
-    outcomes = counts["outcomes"]
-    lines.append(
-        "Outcomes: {0} total; {1} active, {2} succeeded, {3} failed, {4} stopped".format(
-            outcomes["total"],
-            outcomes.get("active", 0),
-            outcomes.get("succeeded", 0),
-            outcomes.get("failed", 0),
-            outcomes.get("stopped", 0),
+def project_root_for_state(state):
+    return state.parent if state.name == WORKSPACE_DIR_NAME else Path.cwd()
+
+
+def git_status_summary(root):
+    try:
+        result = subprocess.run(
+            ["git", "--no-optional-locks", "status", "--short", "--branch"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "status": "unknown",
+            "branch": "",
+            "clean": None,
+            "detail": str(exc),
+        }
+    output = result.stdout or ""
+    if result.returncode != 0:
+        return {
+            "status": "unknown",
+            "branch": "",
+            "clean": None,
+            "detail": (result.stderr or output or "git status failed").strip(),
+        }
+    lines = [line for line in output.splitlines() if line.strip()]
+    branch = ""
+    if lines and lines[0].startswith("## "):
+        branch = lines[0][3:].strip()
+    dirty_lines = [line for line in lines if not line.startswith("## ")]
+    clean = len(dirty_lines) == 0
+    return {
+        "status": "clean" if clean else "dirty",
+        "branch": branch,
+        "clean": clean,
+        "detail": "working tree clean" if clean else "{0} changed paths".format(len(dirty_lines)),
+        "changed_paths": dirty_lines[:20],
+    }
+
+
+def god_artifact_views(root):
+    views = {}
+    plan = godplans_summary(root)
+    if plan.get("present"):
+        views["godplans"] = plan
+    audit = godaudits_summary(root)
+    if audit.get("present"):
+        views["godaudits"] = audit
+    return views
+
+
+# ---------------------------------------------------------------------------
+# Attention detectors
+# ---------------------------------------------------------------------------
+
+# Reminder thresholds. Both signals are computed from durable state that
+# already exists; neither adds new tracking. Drift is windowed (recent tail)
+# and stale-evidence self-resets the moment an executed verify is recorded, so
+# neither grows unbounded with the cumulative verification log.
+ATTENTION_DRIFT_MIN_ATTESTED = 2
+ATTENTION_STALE_EXECUTED_RECORDS = 8
+ATTENTION_LEVEL_ORDER = {"issue": 0, "warning": 1}
+STATUS_GUARDRAIL = (
+    "status summarizes durable state only; it does not rerun checks, and "
+    "delegated or worker output is material until an executed verifier "
+    "records evidence"
+)
+
+
+def evidence_record_label(record):
+    return compact_label(
+        record.get("claim") or record.get("command") or record.get("evidence"),
+        "verification",
     )
-    active_outcome = view.get("active_outcome")
-    if active_outcome:
+
+
+def attention_item(level, source, summary, detail, timestamp=""):
+    return {
+        "level": level,
+        "source": source,
+        "summary": summary,
+        "detail": detail,
+        "timestamp": timestamp or "",
+    }
+
+
+def evidence_attention_from_drift(records, recent):
+    """Warn when the recent evidence window leans on attested claims."""
+    window = recent_tail(records, recent)
+    executed = sum(1 for record in window if record.get("kind") == "executed")
+    attested = sum(1 for record in window if record.get("kind") == "attested")
+    if attested >= ATTENTION_DRIFT_MIN_ATTESTED and attested > executed:
+        return [attention_item(
+            "warning",
+            "drift",
+            "verification drift: recent evidence leans on attested claims",
+            "{0} attested vs {1} executed in the last {2} records; record an executed verify".format(
+                attested, executed, len(window)
+            ),
+            window[-1].get("timestamp", "") if window else "",
+        )]
+    return []
+
+
+def evidence_attention_from_stale_executed(records):
+    """Warn after a long run of records with no executed verification."""
+    if not records:
+        return []
+    since = 0
+    for record in reversed(records):
+        if record.get("kind") == "executed":
+            break
+        since += 1
+    if since >= ATTENTION_STALE_EXECUTED_RECORDS:
+        return [attention_item(
+            "warning",
+            "session",
+            "long run without an executed verify",
+            "{0} records since the last executed check; run a real verifier or summarize".format(since),
+            records[-1].get("timestamp", ""),
+        )]
+    return []
+
+
+def evidence_attention_from_trivial_passes(records, recent):
+    """Flag recent passes whose command cannot fail or that ran zero tests."""
+    attention = []
+    for record in recent_tail(records, recent):
+        reason = trivial_pass_reason(record)
+        if reason:
+            attention.append(attention_item(
+                "warning",
+                "verification",
+                "trivial pass: {0}".format(evidence_record_label(record)),
+                "{0}; the green exit code proves nothing".format(reason),
+                record.get("timestamp", ""),
+            ))
+    return attention
+
+
+def evidence_attention_from_opt_outs(environ=None):
+    """Name every legacy gate opt-out active in this session."""
+    environ = os.environ if environ is None else environ
+    return [
+        attention_item(
+            "warning",
+            "session",
+            "legacy opt-out active: {0}".format(item["name"]),
+            item["effect"],
+        )
+        for item in active_legacy_opt_outs(environ)
+    ]
+
+
+def evidence_attention_from_ledger_chain(state):
+    """Flag chained ledger lines whose prev_sha256 no longer matches."""
+    try:
+        text = (state / "verifications.jsonl").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    breaks = ledger_chain_breaks(text)
+    if not breaks:
+        return []
+    return [attention_item(
+        "issue",
+        "ledger",
+        "verification ledger chain break at record {0}".format(
+            ", ".join(str(index) for index in breaks[:5])
+        ),
+        "a chained record's prev_sha256 does not match the preceding line; the ledger may have been edited",
+    )]
+
+
+def evidence_attention_from_verifications(records, recent):
+    attention = []
+    for record in recent_tail(records, recent):
+        if record.get("kind") == "executed" and record.get("verified") is False:
+            attention.append(attention_item(
+                "issue",
+                "verification",
+                "failed verification: {0}".format(evidence_record_label(record)),
+                "exit {0}".format(record.get("exit_code")),
+                record.get("timestamp", ""),
+            ))
+        elif record.get("kind") == "attested":
+            attention.append(attention_item(
+                "warning",
+                "verification",
+                "attested claim: {0}".format(evidence_record_label(record)),
+                "self-reported, not machine-checked",
+                record.get("timestamp", ""),
+            ))
+    return attention
+
+
+def evidence_attention_from_plan(plan):
+    attention = []
+    if not plan:
+        return attention
+    for step in plan.get("steps", []):
+        if step.get("status") == "failed":
+            attention.append(attention_item(
+                "issue",
+                "plan",
+                "failed step {0}: {1}".format(
+                    step.get("id"),
+                    compact_label(step.get("title"), "step"),
+                ),
+                compact_label(step.get("result"), "no result recorded"),
+                step.get("updated_at", ""),
+            ))
+        elif step.get("status") == "completed" and step.get("strict_gate_waived"):
+            attention.append(attention_item(
+                "warning",
+                "plan",
+                "step {0} completed under a waived strict gate".format(step.get("id")),
+                "MYTHIFY_REQUIRE_VERIFIED_STEP=0 was active; evidence is prose-only",
+                step.get("updated_at", ""),
+            ))
+    return attention
+
+
+def evidence_attention_from_outcomes(outcomes):
+    attention = []
+    for outcome in outcomes:
+        timestamp = outcome.get("updated", "") or outcome.get("created", "")
+        name = outcome.get("id") or "outcome"
+        if outcome.get("status") == "failed":
+            attention.append(attention_item(
+                "issue",
+                "outcome",
+                "failed outcome: {0}".format(name),
+                compact_label(outcome.get("goal"), "outcome"),
+                timestamp,
+            ))
+        if outcome.get("verifier_drift"):
+            attention.append(attention_item(
+                "warning",
+                "outcome",
+                "outcome verifier changed mid-loop: {0}".format(name),
+                "iterations record different verify commands; the sensor may have been tuned",
+                timestamp,
+            ))
+        if outcome.get("evidence_stale"):
+            attention.append(attention_item(
+                "issue",
+                "outcome",
+                "audit recheck failed for outcome: {0}".format(name),
+                "the recorded result no longer reproduces; re-verify before trusting it",
+                timestamp,
+            ))
+    return attention
+
+
+def evidence_attention_from_god_artifacts(god_views):
+    attention = []
+    audit = god_views.get("godaudits")
+    if audit:
+        if audit.get("open_critical"):
+            attention.append(attention_item(
+                "issue",
+                "godaudits",
+                "{0} open Critical finding(s) in the godaudits audit".format(
+                    audit["open_critical"]
+                ),
+                compact_label(audit.get("detail"), "audit"),
+            ))
+        if audit.get("counter_drift"):
+            attention.append(attention_item(
+                "warning",
+                "godaudits",
+                "godaudits frontmatter counters disagree with checkboxes",
+                compact_label(audit.get("path"), "audit"),
+            ))
+    plan = god_views.get("godplans")
+    if plan and plan.get("counter_drift"):
+        attention.append(attention_item(
+            "warning",
+            "godplans",
+            "godplans frontmatter counters disagree with checkboxes",
+            compact_label(plan.get("path"), "plan"),
+        ))
+    return attention
+
+
+def sort_attention(items):
+    """Issues before warnings; detector order is kept within a level."""
+    return sorted(items, key=lambda item: ATTENTION_LEVEL_ORDER.get(item.get("level"), 2))
+
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+
+def active_plan_open_steps(plan):
+    if not plan:
+        return []
+    return [
+        step for step in plan.get("steps", [])
+        if step.get("status") in ("pending", "in_progress", "failed")
+    ]
+
+
+def status_next_action(view):
+    attention = view.get("attention", [])
+    if attention:
+        return "resolve attention item: {0}".format(attention[0]["summary"])
+    plan = view.get("active_plan")
+    if plan:
+        current = plan.get("current_step")
+        if current:
+            return "continue step {0}: {1}".format(
+                current.get("id"),
+                compact_label(current.get("title"), "step"),
+            )
+        pending = plan.get("next_pending_step")
+        if pending:
+            return "start step {0}: {1}".format(
+                pending.get("id"),
+                compact_label(pending.get("title"), "step"),
+            )
+    outcome = view.get("active_outcome")
+    if outcome and outcome.get("status") == "active":
+        return "make a bounded attempt, then run outcome check"
+    active_map = view.get("active_map")
+    if active_map and active_map.get("status") != "promoted":
+        return active_map.get("next_action") or "work the next map ticket"
+    god = view.get("god_artifacts") or {}
+    if not plan:
+        for key in ("godaudits", "godplans"):
+            summary = god.get(key)
+            if summary and summary.get("next_task_id"):
+                return (
+                    "import the open {0} tasks: mythify "
+                    "plan import --source {0}".format(key)
+                )
+    if view["evidence"]["executed"] == 0:
+        return "run the nearest verify run before claiming completion"
+    return "ready for human judgment or release review"
+
+
+def status_control(view):
+    if view.get("attention_total"):
+        return "needs_attention"
+    if view["evidence"]["executed"] == 0:
+        return "needs_evidence"
+    if view.get("active_plan") and active_plan_open_steps(view["active_plan"]):
+        return "in_progress"
+    outcome = view.get("active_outcome")
+    if outcome and outcome.get("status") == "active":
+        return "in_progress"
+    return "controlled"
+
+
+def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
+    active_plan = None
+    active_slug = get_active_slug(state)
+    plan_record = load_plan(state, active_slug) if active_slug else None
+    if plan_record is not None:
+        done, total = plan_progress(plan_record)
+        active_plan = {
+            "id": active_slug,
+            "goal": plan_record.get("goal", ""),
+            "completed_steps": done,
+            "total_steps": total,
+            "current_step": current_in_progress_step(plan_record),
+            "next_pending_step": next_pending_step(plan_record),
+            "next_summary": describe_next_pending(plan_record),
+            "steps": plan_record.get("steps", []),
+            "lineage": inspect_lineage(state, plan_record.get("lineage")),
+        }
+    outcomes = list_outcome_rows(state)
+    active_outcome_slug = get_active_outcome_slug(state)
+    active_outcome = next(
+        (outcome for outcome in outcomes if outcome.get("id") == active_outcome_slug),
+        None,
+    )
+    active_map = None
+    map_slug = get_active_map_slug(state)
+    map_record = load_map(state, map_slug)[1] if map_slug else None
+    if map_record is not None:
+        active_map = {
+            "id": map_slug,
+            "destination": map_record.get("destination", ""),
+            "status": map_record.get("status", "charting"),
+            "open_tickets": len(open_tickets(map_record)),
+            "frontier": len(frontier_tickets(map_record)),
+            "decisions": len(map_record.get("decisions") or []),
+            "fog": len(ungraduated_fog(map_record)),
+            "clear": map_is_clear(map_record),
+            "next_action": map_next_action(map_record),
+        }
+    memory = load_memory(state)
+    project_lessons = load_lessons(state / "lessons", "project")
+    global_lessons = load_lessons(global_lessons_dir(), "global")
+    records = read_jsonl(state / "verifications.jsonl")
+    reflections = read_jsonl(state / "reflections.jsonl")
+    executed = [record for record in records if record.get("kind") == "executed"]
+    rows = [
+        summarize_verification_record(record, index + 1)
+        for index, record in enumerate(records)
+    ]
+    god_views = god_artifact_views(project_root_for_state(state))
+    attention = sort_attention(
+        evidence_attention_from_plan(plan_record)
+        + evidence_attention_from_verifications(records, recent)
+        + evidence_attention_from_trivial_passes(records, recent)
+        + evidence_attention_from_outcomes(recent_tail(outcomes, recent))
+        + evidence_attention_from_god_artifacts(god_views)
+        + evidence_attention_from_drift(records, recent)
+        + evidence_attention_from_stale_executed(records)
+        + evidence_attention_from_ledger_chain(state)
+        + evidence_attention_from_opt_outs()
+    )
+    shown = attention[:max(recent, 0)]
+    view = {
+        "state_dir": str(state),
+        "status": "unknown",
+        "active_plan": active_plan,
+        "active_outcome": active_outcome,
+        "active_map": active_map,
+        "god_artifacts": god_views,
+        "counts": {
+            "memory": len(memory["entries"]),
+            "project_lessons": len(project_lessons),
+            "global_lessons": len(global_lessons),
+            "verifications": len(records),
+            "reflections": len(reflections),
+            "outcomes": len(outcomes),
+        },
+        "evidence": {
+            "total": len(records),
+            "executed": len(executed),
+            "executed_passed": sum(1 for record in executed if record.get("verified") is True),
+            "executed_failed": sum(1 for record in executed if record.get("verified") is False),
+            "attested": sum(1 for record in records if record.get("kind") == "attested"),
+            "recent": list(reversed(recent_tail(rows, recent))),
+        },
+        "attention": shown,
+        "attention_total": len(attention),
+        "attention_omitted": len(attention) - len(shown),
+        "next_action": "",
+        "guardrail": STATUS_GUARDRAIL,
+    }
+    view["status"] = status_control(view)
+    view["next_action"] = status_next_action(view)
+    return view
+
+
+def format_status_view(view):
+    lines = ["[OK] Status: {0}".format(view["state_dir"])]
+    plan = view.get("active_plan")
+    if plan:
+        lines.append(
+            "Active plan: {0} ({1}/{2} completed)".format(
+                plan["id"], plan["completed_steps"], plan["total_steps"]
+            )
+        )
+        lines.append("Goal: {0}".format(plan.get("goal", "")))
+        for step in plan.get("steps", []):
+            lines.append(format_step_line(step))
+        lines.append(plan["next_summary"])
+    else:
+        lines.append("Active plan: none")
+    outcome = view.get("active_outcome")
+    if outcome:
         lines.append(
             "Active outcome: {0} ({1}, {2}/{3} iterations)".format(
-                active_outcome["id"],
-                active_outcome["status"],
-                active_outcome["iteration_count"],
-                active_outcome["max_iterations"],
+                outcome["id"],
+                outcome["status"],
+                outcome["iteration_count"],
+                outcome["max_iterations"],
             )
         )
+        lines.append("Outcome goal: {0}".format(outcome.get("goal", "")))
     else:
         lines.append("Active outcome: none")
-    if view["outcomes"]:
-        lines.append("Recent outcomes:")
-        for outcome in view["outcomes"]:
-            icon = BACKGROUND_STATUS_ICONS.get(outcome["status"], "[ ]")
-            lines.append(
-                "  {0} {1}: {2} ({3}, {4}/{5} iterations, last verified={6})".format(
-                    icon,
-                    outcome["id"],
-                    compact_label(outcome["goal"], "outcome"),
-                    outcome["status"],
-                    outcome["iteration_count"],
-                    outcome["max_iterations"],
-                    outcome["last_verified"],
-                )
-            )
-            if outcome.get("next_action"):
-                lines.append("      next: {0}".format(outcome["next_action"]))
-    fanout = counts["fanout_jobs"]
-    tasks = counts["fanout_tasks"]
-    lines.append(
-        "Fanout jobs: {0} total; {1} active, {2} completed, {3} failed, {4} interrupted".format(
-            fanout["total"],
-            fanout.get("active", 0),
-            fanout.get("completed", 0),
-            fanout.get("failed", 0),
-            fanout.get("interrupted", 0),
-        )
-    )
-    lines.append(
-        "Fanout tasks: {0} running, {1} pending, {2} completed, {3} failed, {4} interrupted".format(
-            tasks.get("running", 0),
-            tasks.get("pending", 0),
-            tasks.get("completed", 0),
-            tasks.get("failed", 0),
-            tasks.get("interrupted", 0),
-        )
-    )
-    if view["fanout_jobs"]:
-        lines.append("Recent fanout jobs:")
-        for job in view["fanout_jobs"]:
-            icon = BACKGROUND_STATUS_ICONS.get(job["status"], "[ ]")
-            task_counts = job["task_counts"]
-            lines.append(
-                "  {0} {1}: {2} ({3}; {4} tasks, {5} completed, {6} failed, {7} running, {8} pending)".format(
-                    icon,
-                    job["id"],
-                    compact_label(job["purpose"], "fanout job"),
-                    job["status"],
-                    job["task_total"],
-                    task_counts.get("completed", 0),
-                    task_counts.get("failed", 0),
-                    task_counts.get("running", 0),
-                    task_counts.get("pending", 0),
-                )
-            )
-            lines.append(
-                "      visibility: {0}; engine: {1}; created: {2}".format(
-                    job["visibility"] or "summary",
-                    job["engine"] or "unknown",
-                    job["created"] or "unknown",
-                )
-            )
-            for task in job["tasks"]:
-                task_icon = BACKGROUND_STATUS_ICONS.get(task["status"], "[ ]")
-                detail = "      {0} {1}. {2} ({3})".format(
-                    task_icon,
-                    task["id"],
-                    compact_label(task["title"], "task"),
-                    task["status"],
-                )
-                if task.get("error"):
-                    detail += ": {0}".format(compact_label(task["error"], "error"))
-                lines.append(detail)
-    if not view["outcomes"] and not view["fanout_jobs"]:
-        lines.append("No background tasks found.")
-    return "\n".join(lines)
-
-
-def cmd_background(args, state):
-    view = build_background_view(state, args.recent)
-    if args.json_output:
-        print(json.dumps(view, indent=2))
-    else:
-        print(format_background_view(view))
-    return 0
-
-
-def summarize_outcome_progress(state, slug, goal):
-    iterations = read_jsonl(outcome_iterations_path(state, slug))
-    last_iteration = iterations[-1] if iterations else None
-    iteration_count = int(goal.get("iteration_count", 0) or 0)
-    max_iterations = int(goal.get("max_iterations", 1) or 1)
-    remaining = max(0, max_iterations - iteration_count)
-    last_check = None
-    if last_iteration:
-        verify = last_iteration.get("verify") or {}
-        metric = last_iteration.get("metric") or {}
-        last_check = {
-            "iteration": last_iteration.get("iteration"),
-            "timestamp": last_iteration.get("timestamp", ""),
-            "verified": last_iteration.get("verified"),
-            "status_after": last_iteration.get("status_after", ""),
-            "notes": last_iteration.get("notes", ""),
-            "verify_exit_code": verify.get("exit_code"),
-            "verify_duration_seconds": verify.get("duration_seconds", 0),
-            "verify_verified": verify.get("verified"),
-            "metric_exit_code": metric.get("exit_code") if metric else None,
-            "metric_score": metric.get("score") if metric else None,
-            "metric_verified": metric.get("verified") if metric else None,
-        }
-    return {
-        "id": slug,
-        "goal": goal.get("goal", ""),
-        "success_criteria": goal.get("success_criteria", ""),
-        "status": goal.get("status", "active"),
-        "iteration_count": iteration_count,
-        "max_iterations": max_iterations,
-        "iterations_remaining": remaining,
-        "progress_percent": round((iteration_count / max_iterations) * 100, 1)
-        if max_iterations
-        else 0,
-        "created": goal.get("created", ""),
-        "updated": goal.get("updated", ""),
-        "last_verified": goal.get("last_verified"),
-        "last_check": last_check,
-        "next_action": (
-            last_iteration.get("next_action")
-            if last_iteration
-            else "make a bounded attempt, then run outcome check"
-        ),
-        "verify_command": goal.get("verify_command", ""),
-        "metric_command": goal.get("metric_command", ""),
-        "best_metric_score": goal.get("best_metric_score"),
-        "allowed_paths": goal.get("allowed_paths") or [],
-        "stop_reason": goal.get("stop_reason"),
-    }
-
-
-def list_outcome_progress_rows(state):
-    rows = [
-        summarize_outcome_progress(state, slug, goal)
-        for slug, goal in list_outcomes(state)
-    ]
-    return sorted(
-        rows,
-        key=lambda item: (
-            item.get("updated") or item.get("created") or "",
-            item.get("id") or "",
-        ),
-    )
-
-
-def build_outcome_progress_view(state, recent=5):
-    rows = list_outcome_progress_rows(state)
-    active_slug = get_active_outcome_slug(state)
-    counts = count_statuses(rows, ("active", "succeeded", "failed", "stopped"))
-    return {
-        "state_dir": str(state),
-        "active_outcome": next(
-            (row for row in rows if row.get("id") == active_slug),
-            None,
-        ),
-        "outcomes": background_recent(rows, recent),
-        "counts": {"total": len(rows), **counts},
-        "guardrail": (
-            "progress displays recorded outcome verifier results only; it does "
-            "not run checks, make attempts, stop loops, or treat notes as verification"
-        ),
-    }
-
-
-def format_outcome_progress_row(row):
-    icon = BACKGROUND_STATUS_ICONS.get(row.get("status"), "[ ]")
-    lines = [
-        "  {0} {1}: {2} ({3}, {4}/{5} iterations, {6} remaining)".format(
-            icon,
-            row.get("id"),
-            compact_label(row.get("goal"), "outcome"),
-            row.get("status"),
-            row.get("iteration_count"),
-            row.get("max_iterations"),
-            row.get("iterations_remaining"),
-        )
-    ]
-    last = row.get("last_check")
-    if last:
+    active_map = view.get("active_map")
+    if active_map:
         lines.append(
-            "      verifier: iteration {0}, exit {1}, verified={2}, at {3}".format(
-                last.get("iteration"),
-                last.get("verify_exit_code"),
-                last.get("verify_verified"),
-                last.get("timestamp") or "unknown-time",
+            "Active map: {0} ({1} open, {2} on the frontier, {3} decided)".format(
+                active_map["id"],
+                active_map["open_tickets"],
+                active_map["frontier"],
+                active_map["decisions"],
             )
         )
-        if last.get("metric_exit_code") is not None:
-            metric_line = "      metric: exit {0}".format(
-                last.get("metric_exit_code")
-            )
-            if last.get("metric_score") is not None:
-                metric_line += ", score {0}".format(last.get("metric_score"))
-            lines.append(metric_line)
+        lines.append("Destination: {0}".format(active_map.get("destination", "")))
+        lines.append("Map next: {0}".format(active_map["next_action"]))
     else:
-        lines.append("      verifier: no recorded iterations yet")
-    if row.get("next_action"):
-        lines.append("      next: {0}".format(row.get("next_action")))
-    return lines
-
-
-def format_outcome_progress_view(view):
-    lines = ["[OK] Outcome progress: {0}".format(view["state_dir"])]
+        lines.append("Active map: none")
+    god = view.get("god_artifacts") or {}
+    for label, key in (("Godplans plan", "godplans"), ("Godaudits audit", "godaudits")):
+        summary = god.get(key)
+        if summary:
+            lines.append(
+                "{0}: {1}; {2}".format(
+                    label,
+                    summary.get("status", "unknown"),
+                    compact_label(summary.get("detail"), "no detail"),
+                )
+            )
     counts = view["counts"]
     lines.append(
-        "Outcomes: {0} total; {1} active, {2} succeeded, {3} failed, {4} stopped".format(
-            counts["total"],
-            counts.get("active", 0),
-            counts.get("succeeded", 0),
-            counts.get("failed", 0),
-            counts.get("stopped", 0),
+        "Counts: memory {0}, lessons {1} project + {2} global, "
+        "verifications {3}, reflections {4}".format(
+            counts["memory"],
+            counts["project_lessons"],
+            counts["global_lessons"],
+            counts["verifications"],
+            counts["reflections"],
         )
     )
-    active = view.get("active_outcome")
-    if active:
-        lines.append(
-            "Active outcome: {0} ({1}, {2}/{3} iterations, {4} remaining)".format(
-                active.get("id"),
-                active.get("status"),
-                active.get("iteration_count"),
-                active.get("max_iterations"),
-                active.get("iterations_remaining"),
+    evidence = view["evidence"]
+    lines.append(
+        "Evidence: {0} executed ({1} passed, {2} failed), {3} attested".format(
+            evidence["executed"],
+            evidence["executed_passed"],
+            evidence["executed_failed"],
+            evidence["attested"],
+        )
+    )
+    if evidence["recent"]:
+        lines.append("Recent verification:")
+        for row in evidence["recent"]:
+            lines.append(format_verification_history_row(row))
+    if view["attention"]:
+        lines.append("Attention ({0}):".format(view["attention_total"]))
+        for item in view["attention"]:
+            lines.append("  {0}: {1} ({2})".format(item["level"], item["summary"], item["detail"]))
+        if view["attention_omitted"]:
+            lines.append(
+                "  {0} more omitted; raise --recent to see them".format(view["attention_omitted"])
             )
+    elif view["attention_total"]:
+        lines.append(
+            "Attention ({0}): hidden by --recent 0".format(view["attention_total"])
         )
     else:
-        lines.append("Active outcome: none")
-    if view["outcomes"]:
-        lines.append("Recent outcomes:")
-        for row in view["outcomes"]:
-            lines.extend(format_outcome_progress_row(row))
-    else:
-        lines.append("No outcome loops found.")
-    lines.append("Guardrail: {0}.".format(view["guardrail"]))
+        lines.append("Attention: none")
+    lines.append("Next: {0}".format(view["next_action"]))
     return "\n".join(lines)
 
 
-def cmd_progress(args, state):
-    view = build_outcome_progress_view(state, args.recent)
-    if args.json_output:
+def cmd_status(args, state):
+    recent = getattr(args, "recent", DEFAULT_STATUS_RECENT)
+    if recent < 0:
+        fail("[FAIL] Invalid --recent: use 0 or a positive integer.")
+        return 1
+    view = build_status_view(state, recent)
+    if getattr(args, "json_output", False):
         print(json.dumps(view, indent=2))
     else:
-        print(format_outcome_progress_view(view))
+        print(format_status_view(view))
     return 0

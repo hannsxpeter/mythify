@@ -30,13 +30,6 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from mythify_parser import build_parser as build_cli_parser  # noqa: E402
-from mythify_artifacts import (  # noqa: E402
-    ARTIFACT_API_KEY_ENV,
-    DEFAULT_SERVICE_URL,
-    cmd_artifact_clean,
-    cmd_artifact_inspect,
-    cmd_artifact_probe,
-)
 from mythify_io import (  # noqa: E402
     JSONL_TAIL_CHUNK_BYTES,
     _write_text_atomic,
@@ -63,11 +56,6 @@ from mythify_memory import (  # noqa: E402
     load_memory,
     write_lesson,
 )
-from mythify_plan_horizon import (  # noqa: E402
-    build_default_plan_steps,
-    env_plan_horizon,
-    parse_plan_horizon,
-)
 from mythify_loopfit import cmd_loop_fit  # noqa: E402
 from mythify_maps import (  # noqa: E402
     MAP_TICKET_MODES,
@@ -83,36 +71,12 @@ from mythify_maps import (  # noqa: E402
     cmd_map_ticket,
     cmd_map_verify,
     configure_map_store,
-    frontier_tickets,
     get_active_map_slug,
-    load_map,
-    map_is_clear,
-    map_next_action,
+    list_map_records,
     open_tickets,
-)
-from mythify_evals import (  # noqa: E402
-    cmd_eval_adopt,
-    cmd_eval_baseline,
-    cmd_eval_list,
-    cmd_eval_propose,
-    cmd_eval_reject,
-    cmd_eval_scan,
-    cmd_eval_show,
-    cmd_eval_verify,
-    configure_evals_store,
 )
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
 from mythify_evidence_guard import noop_verifier_reason  # noqa: E402
-from mythify_designs import (  # noqa: E402
-    PLAN_ARCHETYPES,
-    PLAN_PHASES,
-    cmd_design_add_alternative,
-    cmd_design_approve,
-    cmd_design_create,
-    cmd_design_show,
-    configure_design_store,
-    plan_step_extensions,
-)
 from mythify_lineage import (  # noqa: E402
     capture_lineage,
     cmd_lineage_attach,
@@ -124,7 +88,6 @@ from mythify_lineage import (  # noqa: E402
 from mythify_quality import (  # noqa: E402
     REVIEW_STATUSES,
     cmd_blast_radius_review_create,
-    cmd_quality_review_create,
     cmd_quality_review_prove,
     cmd_quality_review_show,
     configure_quality_store,
@@ -160,42 +123,11 @@ from mythify_outcomes import (  # noqa: E402
     get_active_outcome_slug,
     list_outcomes,
     load_outcome,
-    outcome_iterations_path,
-)
-from mythify_trace import (  # noqa: E402
-    cmd_trace_analyze,
-    cmd_trace_compare,
-    cmd_trace_distill,
-    cmd_trace_install_playbook,
-    cmd_trace_playbook,
-    configure_trace_commands,
 )
 from mythify_router import (  # noqa: E402
     cmd_prompt_packet,
     cmd_route,
     configure_prompt_router,
-)
-from mythify_workflows import (  # noqa: E402
-    RESEARCH_CONFIDENCE,
-    RESEARCH_SOURCE_CREDIBILITY,
-    cmd_campaign_add_task,
-    cmd_campaign_advance,
-    cmd_campaign_learn,
-    cmd_campaign_list,
-    cmd_campaign_prompt,
-    cmd_campaign_start,
-    cmd_campaign_status,
-    cmd_campaign_stop,
-    cmd_campaign_task,
-    cmd_campaign_watch,
-    cmd_research_add_claim,
-    cmd_research_add_question,
-    cmd_research_add_source,
-    cmd_research_close,
-    cmd_research_list,
-    cmd_research_start,
-    cmd_research_summary,
-    configure_workflow_stores,
 )
 from mythify_plan_import import (  # noqa: E402
     cmd_plan_import,
@@ -204,19 +136,14 @@ from mythify_plan_import import (  # noqa: E402
 )
 from mythify_views import (  # noqa: E402
     DEFAULT_REPORT_RECENT,
+    DEFAULT_STATUS_RECENT,
     REPORT_FORMATS,
     REPORT_SINCE_MODES,
     build_verification_history_view,
     build_work_report,
-    cmd_background,
-    cmd_dashboard,
-    cmd_harness,
     cmd_history,
-    cmd_phase,
-    cmd_progress,
-    cmd_readiness,
     cmd_report,
-    cmd_timeline,
+    cmd_status,
     compact_report_detail,
     configure_views,
     git_status_summary,
@@ -271,10 +198,6 @@ def fail(message):
     sys.stderr.write(message + "\n")
 
 
-configure_trace_commands(
-    slugify_func=slugify,
-    fail_func=fail,
-)
 configure_memory_store(
     now_iso_func=now_iso,
     now_stamp_func=now_stamp,
@@ -287,19 +210,24 @@ configure_memory_store(
 # State directory resolution
 # ---------------------------------------------------------------------------
 
+# Subdirectories v6 uses. Folders left behind by older versions (research,
+# campaigns, designs, evals, fanout) are never created and are ignored on read.
+STATE_SUBDIRECTORIES = (
+    ("plans", "archive"),
+    ("lessons",),
+    ("outcomes",),
+    ("maps",),
+    ("reports",),
+    ("reviews",),
+    ("verification-artifacts",),
+    ("logs", "archive"),
+)
+
+
 def ensure_layout(state):
     """Create the state directory and its subdirectories."""
-    (state / "plans" / "archive").mkdir(parents=True, exist_ok=True)
-    (state / "lessons").mkdir(parents=True, exist_ok=True)
-    (state / "outcomes").mkdir(parents=True, exist_ok=True)
-    (state / "research").mkdir(parents=True, exist_ok=True)
-    (state / "campaigns").mkdir(parents=True, exist_ok=True)
-    (state / "maps").mkdir(parents=True, exist_ok=True)
-    (state / "reports").mkdir(parents=True, exist_ok=True)
-    (state / "designs").mkdir(parents=True, exist_ok=True)
-    (state / "reviews").mkdir(parents=True, exist_ok=True)
-    (state / "verification-artifacts").mkdir(parents=True, exist_ok=True)
-    (state / "logs" / "archive").mkdir(parents=True, exist_ok=True)
+    for parts in STATE_SUBDIRECTORIES:
+        state.joinpath(*parts).mkdir(parents=True, exist_ok=True)
 
 
 def gitignore_has_state_entry(text):
@@ -346,15 +274,6 @@ configure_durable_io(
     resolve_state_dir_func=resolve_state_dir,
     now_stamp_func=now_stamp,
     timestamp_at_or_after_func=timestamp_at_or_after,
-)
-configure_design_store(
-    now_iso_func=now_iso,
-    slugify_func=slugify,
-    write_json_atomic_func=write_json_atomic,
-    write_text_atomic_func=_write_text_atomic,
-    read_json_func=read_json,
-    fail_func=fail,
-    capture_lineage_func=capture_lineage,
 )
 configure_lineage_store(
     now_iso_func=now_iso,
@@ -539,13 +458,6 @@ def attach_plan_lineage(state, slug, parents):
     save_plan(state, slug, plan)
 
 
-configure_workflow_stores(
-    now_iso_func=now_iso,
-    slugify_func=slugify,
-    fail_func=fail,
-    find_existing_slug_by_name_func=find_existing_slug_by_name,
-    execute_verification_func=execute_recorded_verification,
-)
 configure_plan_import(
     now_iso_func=now_iso,
     slugify_func=slugify,
@@ -563,18 +475,10 @@ configure_map_store(
     fail_func=fail,
     find_existing_slug_by_name_func=find_existing_slug_by_name,
     execute_verification_func=execute_recorded_verification,
-    build_default_plan_steps_func=build_default_plan_steps,
     create_plan_record_func=lambda state, goal, name, steps, source: create_plan_record(
         state, goal, name=name, steps=steps, source=source
     ),
     attach_plan_lineage_func=attach_plan_lineage,
-    environ_map=os.environ,
-)
-configure_evals_store(
-    now_iso_func=now_iso,
-    fail_func=fail,
-    execute_verification_func=execute_recorded_verification,
-    load_lessons_func=load_lessons,
     environ_map=os.environ,
 )
 
@@ -701,81 +605,12 @@ def cmd_init(args, _state):
     return 0
 
 
-def cmd_status(args, state):
-    print("[OK] Status: {0}".format(state))
-    active = get_active_slug(state)
-    if active:
-        plan = load_plan(state, active)
-        if plan is not None:
-            done, total = plan_progress(plan)
-            print("Active plan: {0} ({1}/{2} completed)".format(active, done, total))
-            print("Goal: {0}".format(plan.get("goal", "")))
-            for step in plan.get("steps", []):
-                print(format_step_line(step))
-            print(describe_next_pending(plan))
-        else:
-            print("Active plan: none")
-    else:
-        print("Active plan: none")
-    active_outcome = get_active_outcome_slug(state)
-    if active_outcome:
-        _, outcome = load_outcome(state, active_outcome)
-        if outcome is not None:
-            print(
-                "Active outcome: {0} ({1}, {2}/{3} iterations)".format(
-                    active_outcome,
-                    outcome.get("status", "active"),
-                    outcome.get("iteration_count", 0),
-                    outcome.get("max_iterations", 1),
-                )
-            )
-            print("Outcome goal: {0}".format(outcome.get("goal", "")))
-        else:
-            print("Active outcome: none")
-    else:
-        print("Active outcome: none")
-    active_map_slug = get_active_map_slug(state)
-    active_map = load_map(state, active_map_slug)[1] if active_map_slug else None
-    if active_map is not None:
-        print(
-            "Active map: {0} ({1} open, {2} on the frontier, {3} decided)".format(
-                active_map_slug,
-                len(open_tickets(active_map)),
-                len(frontier_tickets(active_map)),
-                len(active_map.get("decisions") or []),
-            )
-        )
-        print("Destination: {0}".format(active_map.get("destination", "")))
-        print("Map next: {0}".format(map_next_action(active_map)))
-    else:
-        print("Active map: none")
-    memory = load_memory(state)
-    project_lessons = load_lessons(state / "lessons", "project")
-    global_lessons = load_lessons(global_lessons_dir(), "global")
-    verifications = read_jsonl(state / "verifications.jsonl")
-    reflections = read_jsonl(state / "reflections.jsonl")
-    print(
-        "Counts: memory {0}, lessons {1} project + {2} global, "
-        "verifications {3}, reflections {4}".format(
-            len(memory["entries"]),
-            len(project_lessons),
-            len(global_lessons),
-            len(verifications),
-            len(reflections),
-        )
-    )
-    return 0
-
-
 # ---------------------------------------------------------------------------
 # Plans
 # ---------------------------------------------------------------------------
 def cmd_plan_create(args, state):
     steps_input = []
     if args.steps is not None:
-        if getattr(args, "horizon", None) is not None:
-            fail("[FAIL] --horizon can only be used when --steps is omitted.")
-            return 1
         try:
             parsed = json.loads(args.steps)
         except ValueError:
@@ -792,25 +627,11 @@ def cmd_plan_create(args, state):
                 fail("[FAIL] Invalid --steps: every step needs a non-empty \"title\".")
                 return 1
         steps_input = parsed
-    else:
-        try:
-            horizon = (
-                parse_plan_horizon(args.horizon, "--horizon")
-                if getattr(args, "horizon", None) is not None
-                else env_plan_horizon()
-            )
-        except ValueError as exc:
-            fail("[FAIL] {0}".format(exc))
-            return 1
-        if horizon is not None:
-            steps_input = build_default_plan_steps(horizon)
     slug, error = create_plan_record(
         state,
         args.goal,
         args.name,
         steps_input,
-        archetype=args.archetype,
-        design=args.design,
         parents=args.parent,
     )
     if error:
@@ -824,24 +645,17 @@ def cmd_plan_create(args, state):
     return 0
 
 
-def create_plan_record(
-    state, goal, name=None, steps=None, source=None, archetype="direct", design=None,
-    parents=None
-):
+def create_plan_record(state, goal, name=None, steps=None, source=None, parents=None):
     """Write a new plan, set it active, and return (slug, error_message).
 
     Shared by `plan create` and `map promote`, so a promoted map produces the
     same plan shape as a hand-written one, plus a `source` provenance block.
+    Step objects keep title, success_criteria, and verify_command; other keys
+    are ignored.
     """
-    if archetype not in PLAN_ARCHETYPES:
-        return None, "[FAIL] Invalid plan archetype: {0}.".format(archetype)
     for item in steps or []:
         if not isinstance(item, dict) or not item.get("title"):
             return None, "[FAIL] Invalid steps: every step needs a non-empty \"title\"."
-        try:
-            plan_step_extensions(item, archetype)
-        except ValueError as exc:
-            return None, "[FAIL] Invalid step {0}: {1}.".format(item.get("title"), exc)
     base = slugify(name if name else goal) or "plan"
     slug = base
     suffix = 2
@@ -862,7 +676,6 @@ def create_plan_record(
         if verify_command:
             step["verify_command"] = verify_command
             warn_noop_verifier(step["id"], verify_command)
-        step.update(plan_step_extensions(item, archetype))
         plan_steps.append(step)
     plan = {
         "name": slug,
@@ -870,10 +683,7 @@ def create_plan_record(
         "steps": plan_steps,
         "created": stamp,
         "last_updated": stamp,
-        "archetype": archetype,
     }
-    if design:
-        plan["design"] = str(design)
     if parents:
         try:
             plan["lineage"] = capture_lineage(state, parents)
@@ -922,19 +732,6 @@ def cmd_plan_add_step(args, state):
     if verify_command:
         step["verify_command"] = verify_command
         warn_noop_verifier(new_id, verify_command)
-    try:
-        step.update(
-            plan_step_extensions(
-                {
-                    "phase": getattr(args, "phase", None),
-                    "vertical_slice": getattr(args, "vertical_slice", None),
-                },
-                plan.get("archetype", "direct"),
-            )
-        )
-    except ValueError as exc:
-        fail("[FAIL] Invalid step: {0}.".format(exc))
-        return 1
     plan["steps"].append(step)
     plan["last_updated"] = now_iso()
     save_plan(state, slug, plan)
@@ -1476,44 +1273,144 @@ configure_verification_commands(
 )
 
 
-def cmd_summary(args, state):
-    slugs = list_plan_slugs(state)
-    active = get_active_slug(state)
-    print("[OK] Summary: {0}".format(state))
-    print("Plans ({0}):".format(len(slugs)))
-    if not slugs:
-        print("  none")
-    for slug in slugs:
+def build_summary(state):
+    """Session report data: plans, outcomes, maps, memory, lessons, evidence."""
+    active_plan = get_active_slug(state)
+    plans = []
+    for slug in list_plan_slugs(state):
         plan = load_plan(state, slug)
         if plan is None:
             continue
         done, total = plan_progress(plan)
-        label = " (active)" if slug == active else ""
-        print(
-            "  {0}{1}: {2}/{3} completed - {4}".format(
-                slug, label, done, total, plan.get("goal", "")
-            )
-        )
-        lineage = inspect_lineage(state, plan.get("lineage"))
-        print("    lineage: {0}".format(lineage["status"]))
-    print("Archived plans: {0}".format(count_archived(state)))
+        plans.append({
+            "id": slug,
+            "goal": plan.get("goal", ""),
+            "active": slug == active_plan,
+            "completed_steps": done,
+            "total_steps": total,
+            "lineage": inspect_lineage(state, plan.get("lineage"))["status"],
+        })
+    active_outcome = get_active_outcome_slug(state)
+    outcomes = [
+        {
+            "id": slug,
+            "goal": goal.get("goal", ""),
+            "active": slug == active_outcome,
+            "status": goal.get("status", "active"),
+            "iteration_count": goal.get("iteration_count", 0),
+            "max_iterations": goal.get("max_iterations", 1),
+            "last_verified": goal.get("last_verified"),
+            "evidence_stale": bool(goal.get("evidence_stale")),
+        }
+        for slug, goal in list_outcomes(state)
+    ]
+    active_map = get_active_map_slug(state)
+    maps = [
+        {
+            "id": slug,
+            "destination": record.get("destination", ""),
+            "active": slug == active_map,
+            "status": record.get("status", "charting"),
+            "open_tickets": len(open_tickets(record)),
+            "decisions": len(record.get("decisions") or []),
+        }
+        for slug, record in list_map_records(state)
+    ]
     memory = load_memory(state)
-    print("Memory entries: {0}".format(len(memory["entries"])))
     project_lessons = load_lessons(state / "lessons", "project")
     global_lessons = load_lessons(global_lessons_dir(), "global")
-    print("Lessons: {0} project, {1} global".format(len(project_lessons), len(global_lessons)))
     verifications = read_jsonl(state / "verifications.jsonl")
     executed = [r for r in verifications if r.get("kind") == "executed"]
-    passed = sum(1 for r in executed if r.get("verified") is True)
-    failed = sum(1 for r in executed if r.get("verified") is False)
-    attested = sum(1 for r in verifications if r.get("kind") == "attested")
-    print(
-        "Verifications: {0} executed ({1} passed, {2} failed), {3} attested".format(
-            len(executed), passed, failed, attested
+    reflections = read_jsonl(state / "reflections.jsonl")
+    return {
+        "state_dir": str(state),
+        "plans": plans,
+        "archived_plans": count_archived(state),
+        "outcomes": outcomes,
+        "maps": maps,
+        "memory_entries": len(memory["entries"]),
+        "lessons": {"project": len(project_lessons), "global": len(global_lessons)},
+        "verifications": {
+            "executed": len(executed),
+            "executed_passed": sum(1 for r in executed if r.get("verified") is True),
+            "executed_failed": sum(1 for r in executed if r.get("verified") is False),
+            "attested": sum(1 for r in verifications if r.get("kind") == "attested"),
+        },
+        "reflections": len(reflections),
+    }
+
+
+def format_summary(summary):
+    lines = ["[OK] Summary: {0}".format(summary["state_dir"])]
+    lines.append("Plans ({0}):".format(len(summary["plans"])))
+    if not summary["plans"]:
+        lines.append("  none")
+    for plan in summary["plans"]:
+        lines.append(
+            "  {0}{1}: {2}/{3} completed - {4}".format(
+                plan["id"],
+                " (active)" if plan["active"] else "",
+                plan["completed_steps"],
+                plan["total_steps"],
+                plan["goal"],
+            )
+        )
+        lines.append("    lineage: {0}".format(plan["lineage"]))
+    lines.append("Archived plans: {0}".format(summary["archived_plans"]))
+    lines.append("Outcomes ({0}):".format(len(summary["outcomes"])))
+    if not summary["outcomes"]:
+        lines.append("  none")
+    for outcome in summary["outcomes"]:
+        lines.append(
+            "  {0}{1}: {2}, {3}/{4} iterations - {5}{6}".format(
+                outcome["id"],
+                " (active)" if outcome["active"] else "",
+                outcome["status"],
+                outcome["iteration_count"],
+                outcome["max_iterations"],
+                outcome["goal"],
+                " (evidence stale)" if outcome["evidence_stale"] else "",
+            )
+        )
+    lines.append("Maps ({0}):".format(len(summary["maps"])))
+    if not summary["maps"]:
+        lines.append("  none")
+    for record in summary["maps"]:
+        lines.append(
+            "  {0}{1}: {2}, {3} open, {4} decided - {5}".format(
+                record["id"],
+                " (active)" if record["active"] else "",
+                record["status"],
+                record["open_tickets"],
+                record["decisions"],
+                record["destination"],
+            )
+        )
+    lines.append("Memory entries: {0}".format(summary["memory_entries"]))
+    lines.append(
+        "Lessons: {0} project, {1} global".format(
+            summary["lessons"]["project"], summary["lessons"]["global"]
         )
     )
-    reflections = read_jsonl(state / "reflections.jsonl")
-    print("Reflections: {0}".format(len(reflections)))
+    evidence = summary["verifications"]
+    lines.append(
+        "Verifications: {0} executed ({1} passed, {2} failed), {3} attested".format(
+            evidence["executed"],
+            evidence["executed_passed"],
+            evidence["executed_failed"],
+            evidence["attested"],
+        )
+    )
+    lines.append("Reflections: {0}".format(summary["reflections"]))
+    return "\n".join(lines)
+
+
+def cmd_summary(args, state):
+    summary = build_summary(state)
+    if getattr(args, "json_output", False):
+        print(json.dumps(summary, indent=2))
+    else:
+        print(format_summary(summary))
     return 0
 
 
@@ -1522,6 +1419,7 @@ configure_views(
     load_plan_func=load_plan,
     plan_progress_func=plan_progress,
     next_pending_step_func=next_pending_step,
+    describe_next_pending_func=describe_next_pending,
     load_memory_func=load_memory,
     load_lessons_func=load_lessons,
     global_lessons_dir_func=global_lessons_dir,
@@ -1533,7 +1431,6 @@ configure_views(
     slugify_func=slugify,
     inspect_lineage_func=inspect_lineage,
     fail_func=fail,
-    mythify_version=VERSION,
 )
 
 configure_prompt_router(

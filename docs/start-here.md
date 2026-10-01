@@ -61,9 +61,8 @@ The skill tells the host agent to run that same durable loop while surfacing
 ## Two commands worth understanding early
 
 **`route`** picks the workflow shape from your prompt and your current durable
-state. It can return direct, plan, research, review, outcome, campaign, failure
-recovery, handoff, or prompt-packet routing. It only advises. It never executes
-the work for you.
+state. It can return direct, plan, map, outcome, review, failure_recovery, or
+handoff routing. It only advises. It never executes the work for you.
 
 **`report`** is for while you work, not only at the end. It turns new Mythify
 events into short chat-ready updates, then advances a cursor so repeated calls do
@@ -131,19 +130,18 @@ close without `--human-input`, because an agent that answers its own question ha
 proved nothing. `map promote` hands the settled destination, its decisions, and
 its scope boundary to a plan, and the loop above takes over.
 
-### 4. Release readiness
+### 4. Before a release
 
 Before publishing, or before merging something broad.
 
 ```bash
 mythify verify run "python3 -m unittest discover -s tests -v" --claim "Python suite passes"
 mythify verify run "python3 -m unittest tests.test_mcp_server -v" --claim "MCP server suite passes"
-mythify verify run "python3 scripts/mythify.py readiness --json" --claim "readiness report generated"
-mythify readiness
+mythify status
 ```
 
-`readiness` is a dashboard over recorded evidence. It reports what has been
-proven. It does not make the release safe by itself.
+`status` lists the recorded evidence and its attention items, issues first. It
+reports what has been proven. It does not make the release safe by itself.
 
 ## What to ignore at first
 

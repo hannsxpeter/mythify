@@ -457,7 +457,86 @@ def cmd_outcome_start(args, state):
     return 0
 
 
+def summarize_outcome_row(state, slug, goal):
+    """One outcome loop as a summary row, shared by outcome status and status."""
+    iterations = read_jsonl(outcome_iterations_path(state, slug))
+    last = iterations[-1] if iterations else None
+    # Sensor-drift watcher: every iteration records the command it actually
+    # ran, so a verifier swapped mid-loop is visible in the durable record.
+    commands = {
+        str((item.get("verify") or {}).get("command") or "")
+        for item in iterations
+        if isinstance(item.get("verify"), dict)
+    }
+    goal_command = str(goal.get("verify_command") or "")
+    verifier_drift = bool(commands) and (
+        len(commands) > 1 or (goal_command != "" and goal_command not in commands)
+    )
+    return {
+        "id": slug,
+        "goal": goal.get("goal", ""),
+        "status": goal.get("status", "active"),
+        "iteration_count": goal.get("iteration_count", 0),
+        "max_iterations": goal.get("max_iterations", 1),
+        "verify_command": goal_command,
+        "last_verified": goal.get("last_verified"),
+        "verifier_drift": verifier_drift,
+        "evidence_stale": bool(goal.get("evidence_stale")),
+        "created": goal.get("created", ""),
+        "updated": goal.get("updated", ""),
+        "last_check": {
+            "iteration": last.get("iteration"),
+            "verified": last.get("verified"),
+            "status_after": last.get("status_after"),
+            "timestamp": last.get("timestamp", ""),
+        } if last else None,
+        "next_action": (last or {}).get("next_action")
+        or "make a bounded attempt, then run outcome check",
+    }
+
+
+def format_outcome_list(rows):
+    lines = ["[OK] Outcomes ({0}); none is active:".format(len(rows))]
+    if not rows:
+        lines.append("  none. Start one with outcome start.")
+    for row in rows:
+        lines.append(
+            "  {0}: {1} ({2}, {3}/{4} iterations{5})".format(
+                row["id"],
+                row["goal"],
+                row["status"],
+                row["iteration_count"],
+                row["max_iterations"],
+                ", evidence stale" if row["evidence_stale"] else "",
+            )
+        )
+        last = row.get("last_check")
+        if last:
+            lines.append(
+                "      last check: iteration {0}, verified={1}, status={2}".format(
+                    last.get("iteration"), last.get("verified"), last.get("status_after")
+                )
+            )
+    return "\n".join(lines)
+
+
+def list_outcome_rows(state):
+    """Every outcome loop as a summary row, oldest update first."""
+    return sorted(
+        (summarize_outcome_row(state, slug, goal) for slug, goal in list_outcomes(state)),
+        key=lambda row: (row.get("updated") or row.get("created") or "", row["id"]),
+    )
+
+
 def cmd_outcome_status(args, state):
+    if not args.name and get_active_outcome_slug(state) is None:
+        # No name and nothing active: list every outcome loop instead.
+        rows = list_outcome_rows(state)
+        if args.json_output:
+            print(json.dumps({"active": None, "outcomes": rows}, indent=2))
+        else:
+            print(format_outcome_list(rows))
+        return 0
     slug, goal = load_outcome(state, args.name)
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")

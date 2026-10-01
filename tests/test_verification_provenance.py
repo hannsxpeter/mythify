@@ -1,4 +1,4 @@
-"""P-MUST-02 verification provenance and readiness freshness tests."""
+"""P-MUST-02 verification provenance and freshness tests."""
 
 import json
 import os
@@ -17,10 +17,6 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from mythify_provenance import (  # noqa: E402
     evidence_moved_since_run,
     verification_freshness,
-)
-from mythify_views_status import (  # noqa: E402
-    release_readiness_status,
-    summarize_release_gate,
 )
 
 
@@ -247,66 +243,6 @@ class VerificationProvenanceTest(unittest.TestCase):
         self.assertEqual(rerun.returncode, 0, rerun.stderr)
         done = self.run_cli("step", "1", "completed", "verify run exit 0")
         self.assertEqual(done.returncode, 0, done.stderr)
-
-    def test_p_must_02_readiness_uses_only_fresh_passing_evidence(self):
-        gate = {
-            "id": "tests",
-            "label": "Tests",
-            "required": True,
-            "sources": ["tests/"],
-            "commands": ["python3 -m unittest discover -s tests -v"],
-        }
-        current = {"git_commit": "current", "worktree_clean": True, "mythify_version": "4.3.0"}
-        base = {
-            "kind": "executed",
-            "claim": "suite passes",
-            "command": "python3 -m unittest discover -s tests -v",
-            "exit_code": 0,
-            "verified": True,
-            "timestamp": "2026-07-13T00:00:00Z",
-        }
-
-        legacy = summarize_release_gate(gate, [base], current)
-        self.assertEqual(legacy["status"], "stale")
-        self.assertEqual(legacy["freshness"], {"status": "legacy", "reason": "missing_provenance"})
-        self.assertIsNone(legacy["latest_record"]["provenance"])
-
-        stale_record = {
-            **base,
-            "provenance": {"git_commit": "old", "worktree_clean": True, "mythify_version": "4.3.0"},
-        }
-        stale = summarize_release_gate(gate, [stale_record], current)
-        self.assertEqual(stale["status"], "stale")
-        self.assertEqual(stale["freshness"]["reason"], "git_commit_mismatch")
-        self.assertEqual(
-            release_readiness_status([stale], {"status": "clean"}),
-            "needs_evidence",
-        )
-
-        fresh_record = {
-            **base,
-            "provenance": {"git_commit": "current", "worktree_clean": True, "mythify_version": "4.3.0"},
-        }
-        fresh = summarize_release_gate(gate, [fresh_record], current)
-        self.assertEqual(fresh["status"], "passed")
-        self.assertEqual(fresh["freshness"]["status"], "fresh")
-        self.assertEqual(
-            release_readiness_status([fresh], {"status": "clean"}),
-            "ready_for_release_review",
-        )
-
-        spoof = summarize_release_gate(
-            gate,
-            [{**base, "command": "true", "claim": "python3 -m unittest discover -s tests -v"}],
-            current,
-        )
-        self.assertEqual(spoof["status"], "missing")
-        inconsistent = summarize_release_gate(
-            gate,
-            [{**fresh_record, "exit_code": 9}],
-            current,
-        )
-        self.assertEqual(inconsistent["status"], "failed")
 
 
 if __name__ == "__main__":

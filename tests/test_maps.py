@@ -33,7 +33,6 @@ class MapCase(unittest.TestCase):
     def run_cli(self, *args, **kwargs):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
-        env.pop("MYTHIFY_PLAN_HORIZON", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env.pop("MYTHIFY_REQUIRE_HUMAN_INPUT", None)
         env.pop("MYTHIFY_MAP_CLAIMANT", None)
@@ -436,7 +435,10 @@ class TestPromote(MapCase):
 
     def test_promote_carries_decisions_and_scope_into_the_plan(self):
         self.clear_map()
-        self.ok("map", "promote", "--plan", "billing-build", "--horizon", "2")
+        self.ok(
+            "map", "promote", "--plan", "billing-build",
+            "--steps", json.dumps([{"title": "Write the spec"}, {"title": "Review it"}]),
+        )
         plan = json.loads(
             (self.project / ".mythify" / "plans" / "billing-build.json").read_text(encoding="utf-8")
         )

@@ -258,7 +258,6 @@ class TestPlanImportCli(unittest.TestCase):
     def run_cli(self, *args, env_extra=None):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
-        env.pop("MYTHIFY_PLAN_HORIZON", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env["HOME"] = str(self.home)
         if env_extra:
@@ -400,7 +399,7 @@ class TestGodRouting(TestPlanImportCli):
         self.assertIn(
             "Reason: Classification says this is multi-step work", result.stdout
         )
-        self.assertIn("plan create 'plan this project' --horizon 20", result.stdout)
+        self.assertIn("Next command: mythify plan create 'plan this project'\n", result.stdout)
         self.assertNotIn("godplans", result.stdout)
         self.assertNotIn("godaudits", result.stdout)
 
@@ -422,44 +421,34 @@ class TestGodRouting(TestPlanImportCli):
 
 
 class TestGodViews(TestPlanImportCli):
-    """Readiness, harness, and phase views surface god artifacts."""
+    """The status view surfaces god artifacts, their attention, and next action."""
 
-    def test_readiness_surfaces_artifacts(self):
+    def test_status_surfaces_artifacts(self):
         self.init_with_artifacts(plan=True, audit=True)
-        result = self.run_cli("readiness")
+        result = self.run_cli("status")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Godplans plan: [~] executing; 2/5 tasks done", result.stdout)
-        self.assertIn("Godaudits audit: [~] reported; score 64 (at risk)", result.stdout)
+        self.assertIn("Godplans plan: executing; 2/5 tasks done", result.stdout)
+        self.assertIn("Godaudits audit: reported; score 64 (at risk)", result.stdout)
 
-    def test_readiness_silent_without_artifacts(self):
+    def test_status_silent_without_artifacts(self):
         self.init_with_artifacts(plan=False)
-        result = self.run_cli("readiness")
+        result = self.run_cli("status")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("Godplans", result.stdout)
         self.assertNotIn("Godaudits", result.stdout)
 
-    def test_harness_attention_and_next_action(self):
+    def test_status_attention_names_open_critical_findings(self):
         self.init_with_artifacts(plan=False, audit=True)
-        result = self.run_cli("harness")
+        result = self.run_cli("status")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("open Critical finding(s) in the godaudits audit", result.stdout)
 
-    def test_harness_next_action_suggests_import(self):
+    def test_status_next_action_suggests_import(self):
         self.init_with_artifacts(plan=True)
-        result = self.run_cli("harness", "--json")
+        result = self.run_cli("status", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         view = json.loads(result.stdout)
         self.assertIn("plan import --source godplans", view["next_action"])
-
-    def test_phase_view_uses_imported_phase_fields(self):
-        self.init_with_artifacts(plan=True)
-        self.assertEqual(self.run_cli("plan", "import").returncode, 0)
-        result = self.run_cli("phase", "--json")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        view = json.loads(result.stdout)
-        by_phase = {phase["id"]: phase for phase in view["phases"]}
-        verify_titles = [step["title"] for step in by_phase["verify"]["steps"]]
-        self.assertTrue(any("GP-301" in title for title in verify_titles), verify_titles)
 
 
 if __name__ == "__main__":

@@ -196,10 +196,5 @@ def add_map_parser(sub, symbols):
     p.add_argument("name", nargs="?", help="Map name. Defaults to active.")
     p.add_argument("--plan", help="Plan name. Defaults to the map name.")
     p.add_argument("--steps", help="JSON array of step objects for the new plan.")
-    p.add_argument(
-        "--horizon",
-        type=int,
-        help="Create N default lookahead steps when --steps is omitted.",
-    )
     p.set_defaults(handler=cmd_map_promote)
 

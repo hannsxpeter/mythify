@@ -16,13 +16,8 @@ STANDALONE_DOCS = (
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
-    "docs/artifact-hygiene.md",
-    "docs/claude-integrations.md",
     "docs/design.md",
-    "docs/desktop-tool-calls.md",
     "docs/start-here.md",
-    "docs/research-report.md",
-    "docs/humanlayer-integration-research.md",
     "docs/prose-quality.md",
     "docs/blast-radius.md",
     "docs/evidence/codex-word-count-2026-07-13.json",
@@ -58,7 +53,6 @@ def artifact_files(repo_root):
         repo_root / "README.md",
         repo_root / "scripts" / "install_user.sh",
         repo_root / "scripts" / "mythify.py",
-        repo_root / "scripts" / "mythify_chat_report_hook.sh",
         repo_root / "scripts" / "check_prose_quality.py",
     }
     files.update(repo_root / relative for relative in STANDALONE_DOCS)
@@ -86,7 +80,6 @@ def archive_mode(relative_path):
     if relative_path.as_posix() in (
         "scripts/install_user.sh",
         "scripts/mythify.py",
-        "scripts/mythify_chat_report_hook.sh",
     ):
         return 0o755
     return 0o644

@@ -1,7 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
 <!-- Mythify protocol-sha256: 6b2a8d9fd34e0ed4f2c3d5bbba5e3473719b70e65da3fa206ada4751e27514b8 -->
-<!-- Mythify protocol-profile: full -->
-<!-- Mythify protocol-body-sha256: 6b2a8d9fd34e0ed4f2c3d5bbba5e3473719b70e65da3fa206ada4751e27514b8 -->
 
 # The Mythify Protocol
 

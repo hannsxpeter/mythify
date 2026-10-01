@@ -37,10 +37,7 @@ class ProseQualityContractTests(unittest.TestCase):
         python_source = (ROOT / "scripts" / "mythify_router.py").read_text(encoding="utf-8")
         self.assertIn(expected, python_source)
 
-    def test_release_gate_runs_the_mechanical_checker(self):
-        gates = json.loads((ROOT / "protocol" / "release-gates.json").read_text(encoding="utf-8"))
-        prose_gate = next(gate for gate in gates["gates"] if gate["id"] == "prose_quality")
-        self.assertEqual(prose_gate["commands"], ["python3 scripts/check_prose_quality.py"])
+    def test_release_workflow_runs_the_mechanical_checker(self):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.assertLess(
             workflow.index("python3 scripts/check_prose_quality.py"),
