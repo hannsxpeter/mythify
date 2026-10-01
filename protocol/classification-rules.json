@@ -31,9 +31,6 @@
   ],
   "risk": {
     "high_terms": [
-      "delete",
-      "remove",
-      "drop",
       "destructive",
       "production",
       "payment",
@@ -47,10 +44,49 @@
       "release",
       "deploy",
       "migration",
-      "schema",
       "data loss",
       "permission",
-      "permissions"
+      "permissions",
+      "credentials",
+      "secrets",
+      "database schema",
+      "db schema",
+      "table schema",
+      "schema migration",
+      "schema change",
+      "drop table",
+      "drop database",
+      "truncate table",
+      "force push",
+      "rm -rf"
+    ],
+    "destructive_verbs": [
+      "delete",
+      "remove",
+      "drop",
+      "wipe",
+      "purge",
+      "truncate",
+      "erase",
+      "destroy"
+    ],
+    "destructive_objects": [
+      "data",
+      "database",
+      "databases",
+      "db",
+      "production",
+      "prod",
+      "users",
+      "customers",
+      "accounts",
+      "records",
+      "backup",
+      "backups",
+      "bucket",
+      "buckets",
+      "repo",
+      "repository"
     ],
     "high_task_types": [
       "security",
@@ -119,7 +155,8 @@
       "security",
       "migration",
       "release",
-      "performance"
+      "performance",
+      "product"
     ],
     "full_task_type_reason": "This problem type benefits from an explicit framing pass before execution.",
     "light_task_types": [
@@ -230,6 +267,7 @@
     "feature": "Run targeted tests for the feature plus the nearest broader suite.",
     "docs": "Run docs generation, link checks, or a text/build check when available.",
     "design": "Use verify claim for the design rationale, then create executable checks for implementation steps.",
+    "product": "Run product check until it exits 0, get the human's approval before promote, and record product measure for each outcome after shipping.",
     "question": "No executable check is required unless the answer makes a factual or time-sensitive claim.",
     "trivial": "Use the smallest available check, or no protocol command for a one-line answer."
   },
@@ -249,7 +287,14 @@
         "permissions",
         "sandbox",
         "exploit",
-        "token"
+        "secrets",
+        "credentials",
+        "access token",
+        "auth token",
+        "api token",
+        "bearer token",
+        "refresh token",
+        "token leak"
       ]
     },
     {
@@ -273,8 +318,13 @@
         "upgrade",
         "dependency",
         "dependencies",
-        "schema",
-        "breaking"
+        "breaking",
+        "database schema",
+        "db schema",
+        "table schema",
+        "schema migration",
+        "schema change",
+        "alter table"
       ]
     },
     {
@@ -429,6 +479,29 @@
         "approach",
         "proposal",
         "spec"
+      ]
+    },
+    {
+      "id": "product",
+      "terms": [
+        "product plan",
+        "product planning",
+        "prd",
+        "roadmap",
+        "product roadmap",
+        "prioritize",
+        "prioritise",
+        "product strategy",
+        "target users",
+        "target user",
+        "kill criteria",
+        "kill criterion",
+        "north star",
+        "go-to-market",
+        "positioning",
+        "what should we build",
+        "product requirements",
+        "outcomes and metrics"
       ]
     }
   ]

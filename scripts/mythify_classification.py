@@ -5,6 +5,13 @@ manifest-backed classification policy out of the large command dispatcher.
 Classification never names, ranks, or selects a model, provider, or subagent:
 the framing, parallelism, and review outputs are neutral advisories, and the
 host decides whether and where to delegate.
+
+Two precision rules keep short or incidental wording from misleading the
+router. A prompt of trivial length is trivial only when it matches no task,
+risk, or route-selecting term. Destructive verbs (delete, remove, drop, and
+kin) raise risk only next to a destructive object such as data, users, or
+production, so "remove an unused import" stays low risk while "delete
+production data" stays high.
 """
 
 import json
@@ -66,6 +73,8 @@ MEDIUM_AMBIGUITY_WORD_COUNT = int(CLASSIFICATION_THRESHOLDS["medium_ambiguity_wo
 QUESTION_PREFIXES = tuple(str(prefix) for prefix in CLASSIFICATION_MANIFEST["question_prefixes"])
 VAGUE_REQUEST_TERMS = tuple(str(term) for term in CLASSIFICATION_MANIFEST["vague_request_terms"])
 HIGH_RISK_TERMS = classification_tuple("risk", "high_terms")
+DESTRUCTIVE_VERBS = classification_tuple("risk", "destructive_verbs")
+DESTRUCTIVE_OBJECTS = classification_tuple("risk", "destructive_objects")
 HIGH_RISK_TASK_TYPES = classification_tuple("risk", "high_task_types")
 MEDIUM_RISK_TERMS = classification_tuple("risk", "medium_terms")
 MEDIUM_RISK_TASK_TYPES = classification_tuple("risk", "medium_task_types")
@@ -92,6 +101,21 @@ def contains_any(text, terms):
         if needle_words and " {0} ".format(" ".join(needle_words)) in haystack:
             matches.append(term)
     return matches
+
+
+def term_count(term):
+    return len(wordish(term).split())
+
+
+def term_risk(text):
+    """Risk named by the wording alone: "high", "medium", or None."""
+    if contains_any(text, HIGH_RISK_TERMS) or (
+        contains_any(text, DESTRUCTIVE_VERBS) and contains_any(text, DESTRUCTIVE_OBJECTS)
+    ):
+        return "high"
+    if contains_any(text, MEDIUM_RISK_TERMS):
+        return "medium"
+    return None
 
 
 def classify_ambiguity(text, words, signals, scores, task_type):
@@ -192,30 +216,42 @@ def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
     )
 
 
-def classify_task_text(task_text):
+def classify_task_text(task_text, route_terms=()):
+    """Classify TASK_TEXT. ROUTE_TERMS are the router's route-selecting terms."""
     text = " ".join(str(task_text or "").lower().split())
     words = [word for word in text.replace("/", " ").replace("_", " ").split() if word]
     signals = []
     scores = {}
+    longest = {}
     for task_type, terms in CLASSIFICATION_RULES:
         matches = contains_any(text, terms)
         if matches:
             scores[task_type] = len(matches)
+            longest[task_type] = max(term_count(term) for term in matches)
             signals.extend(matches)
+    worded_risk = term_risk(text)
     if scores:
-        task_type = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
+        # Ties go to the type with the longest matched phrase, so "product plan"
+        # outranks the bare "plan", then to the alphabetically first type.
+        task_type = sorted(
+            scores.items(), key=lambda item: (-item[1], -longest[item[0]], item[0])
+        )[0][0]
     elif text.endswith("?") or any(text.startswith(prefix) for prefix in QUESTION_PREFIXES):
         task_type = "question"
     elif contains_any(text, VAGUE_REQUEST_TERMS):
         task_type = "feature"
-    elif len(words) <= TRIVIAL_WORD_COUNT:
+    elif (
+        len(words) <= TRIVIAL_WORD_COUNT
+        and worded_risk is None
+        and not contains_any(text, route_terms)
+    ):
         task_type = "trivial"
     else:
         task_type = "feature"
 
-    if contains_any(text, HIGH_RISK_TERMS) or task_type in HIGH_RISK_TASK_TYPES:
+    if worded_risk == "high" or task_type in HIGH_RISK_TASK_TYPES:
         risk = "high"
-    elif contains_any(text, MEDIUM_RISK_TERMS) or task_type in MEDIUM_RISK_TASK_TYPES:
+    elif worded_risk == "medium" or task_type in MEDIUM_RISK_TASK_TYPES:
         risk = "medium"
     else:
         risk = "low"

@@ -15,6 +15,12 @@
       "prompt_packet": "handoff"
     },
     {
+      "id": "product",
+      "priority": 33,
+      "description": "Frame product-planning work (problem, primary user, measurable outcomes, non-goals, bets, risks) in a product record and get a human's approval before any bet becomes a plan.",
+      "prompt_packet": "product"
+    },
+    {
       "id": "map",
       "priority": 35,
       "description": "Chart or work a wayfinding decision map when the effort is too big for one session, the route to the destination is not visible yet, or a research-like prompt asks several foggy questions.",
