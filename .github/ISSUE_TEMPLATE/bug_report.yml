@@ -16,7 +16,7 @@ body:
       description: Which part of Mythify misbehaves?
       options:
         - CLI (scripts/mythify.py)
-        - MCP server (mcp-server/)
+        - MCP server (scripts/mythify_mcp.py, mythify mcp)
         - Protocol files (protocol/PROTOCOL.md, CLAUDE.md, AGENTS.md, .cursorrules)
         - Skill package (skills/mythify/, dist/mythify.skill)
         - Documentation (README.md, docs/)
@@ -29,7 +29,7 @@ body:
       description: How are you running Mythify?
       options:
         - Drop-in copy (protocol variant plus scripts/mythify.py copied into a project)
-        - MCP server (node mcp-server/src/index.js registered with an MCP client)
+        - MCP server (bin/mythify-mcp or mythify mcp registered with an MCP client)
         - Skill (dist/mythify.skill imported into Manus or another skill-compatible agent)
         - Working directly in a checkout of this repository
     validations:
@@ -81,11 +81,5 @@ body:
     id: python-version
     attributes:
       label: Python version
-      description: Output of python3 --version (the CLI requires 3.9+). Leave blank if the CLI is not involved.
+      description: Output of python3 --version (the CLI and MCP server require 3.9+).
       placeholder: Python 3.12.4
-  - type: input
-    id: node-version
-    attributes:
-      label: Node version
-      description: Output of node --version (the MCP server requires 20+). Leave blank if the MCP server is not involved.
-      placeholder: v20.14.0

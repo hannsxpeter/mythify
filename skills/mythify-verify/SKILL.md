@@ -28,7 +28,7 @@ Turn a claim into executed evidence and show the result in chat.
 
        mythify report --since last --cursor chat --format chat
 
-   Prefer MCP `work_report` when available.
+   Prefer MCP `report` when available.
 5. Bring the verdict into chat:
 
    - Verified: claim, command, exit code, and duration.

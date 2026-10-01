@@ -137,7 +137,7 @@ Before publishing, or before merging something broad.
 
 ```bash
 mythify verify run "python3 -m unittest discover -s tests -v" --claim "Python suite passes"
-mythify verify run "npm test --prefix mcp-server" --claim "MCP suite passes"
+mythify verify run "python3 -m unittest tests.test_mcp_server -v" --claim "MCP server suite passes"
 mythify verify run "python3 scripts/mythify.py readiness --json" --claim "readiness report generated"
 mythify readiness
 ```

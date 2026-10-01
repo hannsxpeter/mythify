@@ -3,7 +3,6 @@
 
 import argparse
 import gzip
-import json
 import os
 import re
 import tarfile
@@ -45,14 +44,6 @@ def read_version(repo_root):
 
 def check_release_tag(repo_root, tag):
     cli_version = read_version(repo_root)
-    package_path = repo_root / "mcp-server" / "package.json"
-    package_version = json.loads(package_path.read_text(encoding="utf-8"))["version"]
-    if package_version != cli_version:
-        raise RuntimeError(
-            "CLI version {} does not match MCP package version {}".format(
-                cli_version, package_version
-            )
-        )
     expected = "v" + cli_version
     if tag != expected:
         raise RuntimeError(
@@ -158,7 +149,7 @@ def main(argv=None):
         "--check-release-tag",
         default="",
         metavar="TAG",
-        help="Fail unless TAG is v plus the matching CLI and MCP package version.",
+        help="Fail unless TAG is v plus the CLI version.",
     )
     args = parser.parse_args(argv)
 
@@ -166,10 +157,10 @@ def main(argv=None):
     if args.check_release_tag:
         try:
             version = check_release_tag(repo_root, args.check_release_tag)
-        except (OSError, KeyError, ValueError, RuntimeError) as exc:
+        except (OSError, RuntimeError) as exc:
             print("[FAIL] {}".format(exc))
             return 1
-        print("[OK] Release tag v{} matches CLI and MCP package version.".format(version))
+        print("[OK] Release tag v{} matches the CLI version.".format(version))
         return 0
     output_dir = args.output_dir or (repo_root / "dist")
     destination = build_archive(repo_root, output_dir.resolve())

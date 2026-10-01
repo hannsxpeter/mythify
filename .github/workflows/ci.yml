@@ -18,57 +18,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      # The interop test self-skips here because mcp-server/node_modules
-      # is absent; that is expected. The interop job covers it.
-      - name: Run CLI tests
+      - name: Run test suite
         run: python -m unittest discover -s tests -v
-
-  node:
-    name: Node ${{ matrix.node-version }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [20, 24]
-    defaults:
-      run:
-        working-directory: mcp-server
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: Audit dependencies
-        run: npm audit --audit-level=moderate
-      - name: Run MCP server tests
-        run: npm test
-
-  parity:
-    name: Dual-runtime parity
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
-      - name: Install MCP server dependencies
-        run: npm ci
-        working-directory: mcp-server
-      - name: Run CLI and MCP interop tests
-        run: python -m unittest tests.test_interop -v
-      - name: Check shared parity manifests
-        run: |
-          node scripts/check_surface_manifest.mjs
-          node scripts/check_classification_rules_manifest.mjs
 
   hygiene:
     name: Repository hygiene
@@ -78,103 +29,67 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-        with:
-          node-version: 20
-      - name: Generated files are in sync
+      - name: Generated protocol files are in sync
         run: |
           python scripts/build_variants.py
-          git diff --exit-code CLAUDE.md AGENTS.md .cursorrules
-          node scripts/build_registry_docs.mjs
-          git diff --exit-code docs/adapter-candidates.md
-          node scripts/check_surface_manifest.mjs
-          node scripts/check_classification_rules_manifest.mjs
-      - name: Installer smoke
+          git diff --exit-code CLAUDE.md AGENTS.md .cursorrules protocol/variants scripts/mythify_protocol.py
+      - name: Prose quality
+        run: python scripts/check_prose_quality.py
+      - name: Installer and MCP server smoke
         run: |
           mkdir -p "$RUNNER_TEMP/mythify-project"
           XDG_DATA_HOME="$RUNNER_TEMP/mythify-data" scripts/install_user.sh \
             --prefix "$RUNNER_TEMP/mythify-install" \
             --project "$RUNNER_TEMP/mythify-project"
-          ! find mcp-server -maxdepth 1 -name 'mythify-mcp-*.tgz' | grep -q .
           (cd "$RUNNER_TEMP/mythify-project" && "$RUNNER_TEMP/mythify-install/bin/mythify" status)
           test -x "$RUNNER_TEMP/mythify-install/bin/mythify-mcp"
-          VERSION="$(node -p "require('./mcp-server/package.json').version")"
-          MCP_DIR="$RUNNER_TEMP/mythify-data/mythify/$VERSION/mcp-server"
-          cd "$MCP_DIR"
-          node --input-type=module <<'NODE'
-          import assert from "node:assert/strict";
-          import { spawn } from "node:child_process";
-          import fs from "node:fs";
-          import os from "node:os";
-          import path from "node:path";
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
 
-          const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mythify-ci-install-"));
-          const server = spawn(process.env.RUNNER_TEMP + "/mythify-install/bin/mythify-mcp", [], {
-            env: { ...process.env, MYTHIFY_DIR: stateDir },
-            stdio: ["pipe", "pipe", "pipe"],
-          });
-          const closed = new Promise((resolve) => server.once("close", resolve));
-          let buffered = "";
-          let stderr = "";
-          const messages = [];
-          server.stdout.setEncoding("utf8");
-          server.stderr.setEncoding("utf8");
-          server.stderr.on("data", (chunk) => {
-            stderr += chunk;
-          });
-          server.stdout.on("data", (chunk) => {
-            buffered += chunk;
-            for (;;) {
-              const newline = buffered.indexOf("\n");
-              if (newline < 0) break;
-              const line = buffered.slice(0, newline).trim();
-              buffered = buffered.slice(newline + 1);
-              if (line) messages.push(JSON.parse(line));
-            }
-          });
-
-          function send(message) {
-            server.stdin.write(`${JSON.stringify(message)}\n`);
-          }
-
-          function responseFor(id) {
-            return new Promise((resolve, reject) => {
-              const deadline = Date.now() + 5000;
-              const poll = () => {
-                const index = messages.findIndex((message) => message.id === id);
-                if (index >= 0) return resolve(messages.splice(index, 1)[0]);
-                if (Date.now() >= deadline) {
-                  return reject(new Error(`timed out waiting for response ${id}: ${stderr}`));
-                }
-                setTimeout(poll, 10);
-              };
-              poll();
-            });
-          }
-
-          try {
-            send({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "initialize",
-              params: {
-                protocolVersion: "2025-11-25",
-                capabilities: {},
-                clientInfo: { name: "mythify-ci-install", version: "1.0.0" },
+          runner_temp = os.environ["RUNNER_TEMP"]
+          env = dict(os.environ)
+          env["MYTHIFY_DIR"] = os.path.join(runner_temp, "mythify-project", ".mythify")
+          requests = [
+              {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "initialize",
+                  "params": {
+                      "protocolVersion": "2025-11-25",
+                      "capabilities": {},
+                      "clientInfo": {"name": "mythify-ci-install", "version": "1.0.0"},
+                  },
               },
-            });
-            const initialized = await responseFor(1);
-            assert.equal(initialized.result.protocolVersion, "2025-11-25");
-            send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-            send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-            const listed = await responseFor(2);
-            const manifest = JSON.parse(fs.readFileSync("protocol/surface-manifest.json", "utf8"));
-            assert.equal(listed.result.tools.length, manifest.surfaces.mcp.total_tools);
-          } finally {
-            server.kill();
-            await closed;
-          }
-          NODE
+              {"jsonrpc": "2.0", "method": "notifications/initialized"},
+              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+              {
+                  "jsonrpc": "2.0",
+                  "id": 3,
+                  "method": "tools/call",
+                  "params": {"name": "status", "arguments": {}},
+              },
+          ]
+          completed = subprocess.run(
+              [os.path.join(runner_temp, "mythify-install", "bin", "mythify-mcp")],
+              input="".join(json.dumps(item) + "\n" for item in requests),
+              capture_output=True,
+              text=True,
+              env=env,
+              timeout=120,
+              check=True,
+          )
+          responses = {}
+          for line in completed.stdout.splitlines():
+              message = json.loads(line)
+              responses[message["id"]] = message
+          assert responses[1]["result"]["protocolVersion"] == "2025-11-25", responses[1]
+          names = [tool["name"] for tool in responses[2]["result"]["tools"]]
+          assert "verify_run" in names and "mythify" in names, names
+          assert responses[3]["result"]["isError"] is False, responses[3]
+          print("MCP smoke passed: {0} tools listed.".format(len(names)))
+          PY
       - name: ASCII rules
         run: |
           python - <<'PY'

@@ -66,7 +66,7 @@ class TestNoopVerifierReason(unittest.TestCase):
     def test_real_verifiers_are_not_flagged(self):
         for command in (
             "python3 -m unittest discover -s tests",
-            "npm test --prefix mcp-server",
+            "npm test",
             "test -f dist/mythify.py",
             "git diff --check",
             "",

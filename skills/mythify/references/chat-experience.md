@@ -13,7 +13,7 @@ For non-trivial tasks:
 
        mythify report --cursor chat --mark
 
-   MCP equivalent: call `work_report` with `cursor: "chat"` and `mark: true`.
+   MCP equivalent: call `report` with `cursor: "chat"` and `mark: true`.
 
 ## While working
 
@@ -21,7 +21,7 @@ After a meaningful phase, failed check, audit sweep, or surprise, run:
 
     mythify report --since last --cursor chat --format chat
 
-MCP equivalent: call `work_report` with `since: "last"` and `cursor: "chat"`.
+MCP equivalent: call `report` with `since: "last"` and `cursor: "chat"`.
 
 Then write a short user-facing update:
 
@@ -51,7 +51,7 @@ inspection pass, or both actually happened.
 ## Final response
 
 Before the final response, run a final chat report or equivalent MCP
-`work_report`. The final answer should lead with the verified outcome, then
+`report`. The final answer should lead with the verified outcome, then
 issue status, then evidence. It should not require the user to inspect
 `.mythify/` to know what happened.
 

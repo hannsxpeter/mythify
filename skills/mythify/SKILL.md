@@ -25,12 +25,12 @@ once). The only global state is the cross-project lessons store in
 Prefer the reduced Mythify surface unless the user asks for a specific
 primitive:
 
-1. `mythify route "TASK"` or MCP `workflow_route` to choose the workflow.
+1. `mythify route "TASK"` or MCP `route` to choose the workflow.
 2. `mythify report --since last --cursor chat --format chat` or MCP
-   `work_report` to narrate progress and issues.
+   `report` to narrate progress and issues.
 3. `mythify verify run "COMMAND" --claim "CLAIM"` or MCP `verify_run` to prove
    completion claims.
-4. `mythify status` or MCP `workflow_status` to reorient.
+4. `mythify status` or MCP `status` to reorient.
 
 For the most chat-native experience, prefer the installed focused skills when
 available:
@@ -99,10 +99,10 @@ not as a hidden log system. When this skill triggers:
 
 1. Say briefly that you are using Mythify and what outcome you are pursuing.
 2. For multi-step work, create or resume a plan and set a chat cursor:
-   `report --cursor chat --mark` or MCP `work_report` with `mark: true`.
+   `report --cursor chat --mark` or MCP `report` with `mark: true`.
 3. After meaningful phases, failures, audit sweeps, and before the final
    response, run `report --since last --cursor chat --format chat` or MCP
-   `work_report`.
+   `report`.
    When the optional chat report hook is installed, this report cadence can be
    host-triggered after tool calls, but still bring important report output
    into the transcript yourself.
@@ -252,15 +252,16 @@ Most turns should start with `route`, not the full table below.
 
 ## MCP clients
 
-Clients wired to the Mythify MCP server instead of the CLI should use the
-equivalent tools. For broad or ambiguous prompts, start with `workflow_route`.
-Use `work_report` for chat narration, `verify_run` for evidence,
-`workflow_status` or `evidence_harness` for orientation, and lower-level tools only after routing or
-an explicit user request: `plan_create`, `plan_add_step`, `plan_update_step`,
-`verify_claim`, `reflect`, `campaign_next_prompt`, and `prompt_packet` for
-research, analysis, failure, handoff, review, campaign, or next-prompt packets.
-Same state directory, same file formats, full
-interop with the CLI.
+Clients wired to the Mythify MCP server (`mythify mcp`, installed as
+`mythify-mcp`) instead of the CLI should use the equivalent tools. Each tool is
+a CLI command path joined by underscores, and each call runs that command in the
+project root. For broad or ambiguous prompts, start with `route`. Use `report`
+for chat narration, `verify_run` for evidence, `status` for orientation, and
+lower-level tools only after routing or an explicit user request: `plan_create`,
+`plan_add_step`, `step`, `verify_claim`, `reflect`, and the `prompt_*` tools for
+next, handoff, failure, review, or map packets. The `mythify` tool runs any
+other CLI command by argument list. Same state directory, same file formats,
+same evidence gates as the CLI.
 
 Treat host-model state, artifact hygiene, provider probes, local model runs,
 host CLI workers, execution substrate tools, and lifecycle probes as labs surfaces. They are
@@ -272,19 +273,12 @@ remote uploads, and require `--confirm-authorized` plus a separate output for
 cleaning. Treat deterministic findings as actionable, stylometry as advisory,
 and service output as material until an executed verifier records it.
 
-`classify_task` returns `model_policy.session.recommendation` so hosts can map
+`mythify classify --json` returns `model_policy.session.recommendation` so hosts can map
 the prompt to chat settings before work begins. Direct low-risk prompts use a
 `utility` profile, ordinary implementation uses `balanced`, and research or
 high-risk work uses `strong`; `max` remains explicit-only.
 
-When `model_policy.model_router.execution_topology.native_adapter.recommended`
-is true, use the MCP fanout lifecycle as the native UltraCode adapter: call
-`fanout_start` with `engine: "claude-ultracode"` and exactly one task, monitor
-with `fanout_status`, and ingest the result with `fanout_results`. The adapter
-requires Claude Code 2.1.203 or newer, preserves host permissions, and returns
-material rather than verification evidence. Run a deterministic verifier after
-integrating the workflow result.
-
-Fanout visibility defaults to `summary`: show worker titles, status counts,
-and notable findings in the main chat. Use quiet, verbose, or threaded only
-when the prompt asks for that behavior; threaded still requires host support.
+Mythify does not spawn workers. When work splits into independent parts, the
+host may delegate to any subagent it offers, or to none. Each delegated prompt
+must stand alone, and delegated output is material: merge it, then run a
+deterministic verifier on the integrated result.

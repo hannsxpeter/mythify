@@ -3,17 +3,18 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--protocol-profile auto|full|thin] [--skip-mcp] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--install-chat-hook] [--hook-root PATH] [--uninstall]
+Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--protocol-profile auto|full|thin] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--install-chat-hook] [--hook-root PATH] [--uninstall]
 
 Installs a versioned, self-contained Mythify CLI runtime and user-local
-launchers. Mythify chat skills are installed for both runtimes: invoke them
-with $skill in Codex and /skill in Claude Code.
+launchers: mythify, mythify-mcp (the zero-dependency MCP stdio server), and
+mythify-uninstall. Mythify chat skills are installed for both runtimes: invoke
+them with $skill in Codex and /skill in Claude Code.
 
 Options:
   --prefix PATH               Install launchers under PATH/bin. Default: $HOME/.local
   --project PATH              Initialize Mythify state for that project and print MCP setup.
   --protocol-profile PROFILE Install the full protocol or thin progressive-disclosure bootstrap. Default: auto, which fails closed to full.
-  --skip-mcp                  Install only the mythify CLI wrapper.
+  --skip-mcp                  Accepted for older install commands; has no effect.
   --skip-skills               Do not install Mythify chat skills (Codex or Claude).
   --skills-root PATH          Install Codex chat skills under PATH. Default: $CODEX_HOME/skills or $HOME/.codex/skills
   --skip-claude-skills        Do not install the Claude Code copy of the chat skills.
@@ -169,7 +170,6 @@ write_ownership_manifest() {
     "$skills_root" \
     "$claude_skills_root" \
     "$hook_root" \
-    "$skip_mcp" \
     "$skip_skills" \
     "$skip_claude_skills" \
     "$install_chat_hook" \
@@ -198,19 +198,20 @@ prefix = Path(sys.argv[3]).resolve()
 skills_root = Path(sys.argv[4]).resolve()
 claude_skills_root = Path(sys.argv[5]).resolve()
 hook_root = Path(sys.argv[6]).resolve()
-skip_mcp, skip_skills, skip_claude, install_hook = (
-    value == "1" for value in sys.argv[7:11]
+skip_skills, skip_claude, install_hook = (
+    value == "1" for value in sys.argv[7:10]
 )
-skill_names = sys.argv[11].split()
-project_dir = Path(os.path.abspath(sys.argv[12])) if sys.argv[12] else None
-protocol_profile = sys.argv[13]
+skill_names = sys.argv[10].split()
+project_dir = Path(os.path.abspath(sys.argv[11])) if sys.argv[11] else None
+protocol_profile = sys.argv[12]
 token = secrets.token_hex(16)
 
-files = [prefix / "bin" / "mythify", prefix / "bin" / "mythify-uninstall"]
+files = [
+    prefix / "bin" / "mythify",
+    prefix / "bin" / "mythify-mcp",
+    prefix / "bin" / "mythify-uninstall",
+]
 directories = [install_root / "cli"]
-if not skip_mcp:
-    files.append(prefix / "bin" / "mythify-mcp")
-    directories.append(install_root / "mcp-server")
 if not skip_skills:
     directories.extend(skills_root / name for name in skill_names)
     if not skip_claude:
@@ -232,7 +233,6 @@ manifest = {
         "skills_root": str(skills_root),
         "claude_skills_root": str(claude_skills_root),
         "hook_root": str(hook_root),
-        "skip_mcp": skip_mcp,
         "skip_skills": skip_skills,
         "skip_claude_skills": skip_claude,
         "install_chat_hook": install_hook,
@@ -256,36 +256,6 @@ finally:
 PY
 }
 
-prepare_mcp_runtime() {
-  pack_dir=$(mktemp -d "${TMPDIR:-/tmp}/mythify-pack.XXXXXX")
-  mcp_stage=$(mktemp -d "${TMPDIR:-/tmp}/mythify-mcp-stage.XXXXXX")
-  tarball=$(CDPATH= cd -- "$repo_root/mcp-server" && npm pack --silent --pack-destination "$pack_dir")
-  tar -xzf "$pack_dir/$tarball" -C "$mcp_stage" --strip-components=1
-  npm install --prefix "$mcp_stage" --omit=dev --ignore-scripts >/dev/null
-}
-
-install_mcp_runtime() {
-  mcp_dir="$install_root/mcp-server"
-  mcp_commit_stage=$(mktemp -d "$install_root/.mcp-commit.XXXXXX")
-  cp -R "$mcp_stage/." "$mcp_commit_stage"
-  mcp_backup="$install_root/.mcp-backup.$$"
-  rm -rf "$mcp_backup"
-  if [ -d "$mcp_dir" ]; then
-    mv "$mcp_dir" "$mcp_backup"
-  fi
-  if ! mv "$mcp_commit_stage" "$mcp_dir"; then
-    mcp_commit_stage=""
-    if [ -d "$mcp_backup" ]; then
-      mv "$mcp_backup" "$mcp_dir"
-      mcp_backup=""
-    fi
-    fail "Could not replace the installed Mythify MCP runtime"
-  fi
-  mcp_commit_stage=""
-  rm -rf "$mcp_backup"
-  mcp_backup=""
-}
-
 begin_install_transaction() {
   transaction_backup_dir=$(mktemp -d "${TMPDIR:-/tmp}/mythify-install-rollback.XXXXXX")
   "$python_bin" - \
@@ -295,7 +265,6 @@ begin_install_transaction() {
     "$skills_root" \
     "$claude_skills_root" \
     "$hook_root" \
-    "$skip_mcp" \
     "$skip_skills" \
     "$skip_claude_skills" \
     "$install_chat_hook" \
@@ -314,15 +283,18 @@ bin_dir = Path(os.path.abspath(sys.argv[3]))
 skills_root = Path(os.path.abspath(sys.argv[4]))
 claude_skills_root = Path(os.path.abspath(sys.argv[5]))
 hook_root = Path(os.path.abspath(sys.argv[6]))
-skip_mcp, skip_skills, skip_claude, install_hook = (
-    value == "1" for value in sys.argv[7:11]
+skip_skills, skip_claude, install_hook = (
+    value == "1" for value in sys.argv[7:10]
 )
-skill_names = sys.argv[11].split()
-project_dir = Path(os.path.abspath(sys.argv[12])) if sys.argv[12] else None
+skill_names = sys.argv[10].split()
+project_dir = Path(os.path.abspath(sys.argv[11])) if sys.argv[11] else None
 
-targets = [install_root, bin_dir / "mythify", bin_dir / "mythify-uninstall"]
-if not skip_mcp:
-    targets.append(bin_dir / "mythify-mcp")
+targets = [
+    install_root,
+    bin_dir / "mythify",
+    bin_dir / "mythify-mcp",
+    bin_dir / "mythify-uninstall",
+]
 if not skip_skills:
     targets.extend(skills_root / name for name in skill_names)
     if not skip_claude:
@@ -447,13 +419,9 @@ commit_install_transaction() {
   fi
 }
 
-pack_dir=""
 cli_stage=""
 cli_backup=""
 cli_dir=""
-mcp_stage=""
-mcp_commit_stage=""
-mcp_backup=""
 transaction_active=0
 transaction_backup_dir=""
 skill_failure_injected=0
@@ -461,9 +429,6 @@ cleanup_temporary_dirs() {
   cleanup_status=$?
   trap - EXIT
   set +e
-  if [ -n "$pack_dir" ] && [ -d "$pack_dir" ]; then
-    rm -rf "$pack_dir"
-  fi
   if [ -n "$cli_stage" ] && [ -d "$cli_stage" ]; then
     rm -rf "$cli_stage"
   fi
@@ -472,19 +437,6 @@ cleanup_temporary_dirs() {
       mv "$cli_backup" "$cli_dir"
     else
       rm -rf "$cli_backup"
-    fi
-  fi
-  if [ -n "$mcp_stage" ] && [ -d "$mcp_stage" ]; then
-    rm -rf "$mcp_stage"
-  fi
-  if [ -n "$mcp_commit_stage" ] && [ -d "$mcp_commit_stage" ]; then
-    rm -rf "$mcp_commit_stage"
-  fi
-  if [ -n "$mcp_backup" ] && [ -d "$mcp_backup" ]; then
-    if [ -n "${mcp_dir:-}" ] && [ ! -d "$mcp_dir" ]; then
-      mv "$mcp_backup" "$mcp_dir"
-    else
-      rm -rf "$mcp_backup"
     fi
   fi
   if [ "$transaction_active" -eq 1 ] && [ -n "$transaction_backup_dir" ]; then
@@ -506,7 +458,6 @@ trap cleanup_temporary_dirs EXIT
 prefix="${PREFIX:-$HOME/.local}"
 project=""
 project_dir=""
-skip_mcp=0
 skip_skills=0
 skip_claude_skills=0
 install_chat_hook=0
@@ -539,7 +490,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --skip-mcp)
-      skip_mcp=1
+      # Accepted for older install commands; the MCP launcher needs only Python.
       shift
       ;;
     --skip-skills)
@@ -642,7 +593,6 @@ if [ "$uninstall" -eq 1 ]; then
     "$skills_root" \
     "$claude_skills_root" \
     "$hook_root" \
-    "$skip_mcp" \
     "$skip_skills" \
     "$skip_claude_skills" \
     "$install_chat_hook" \
@@ -673,10 +623,10 @@ prefix = Path(sys.argv[3]).resolve()
 skills_root = Path(sys.argv[4]).resolve()
 claude_skills_root = Path(sys.argv[5]).resolve()
 hook_root = Path(sys.argv[6]).resolve()
-skip_mcp, skip_skills, skip_claude, install_hook = (
-    value == "1" for value in sys.argv[7:11]
+skip_skills, skip_claude, install_hook = (
+    value == "1" for value in sys.argv[7:10]
 )
-protocol_profile = sys.argv[11]
+protocol_profile = sys.argv[10]
 
 if not manifest_path.is_file() or manifest_path.is_symlink():
     fail("is missing or unsafe: {}".format(manifest_path))
@@ -691,7 +641,6 @@ config = {
     "skills_root": str(skills_root),
     "claude_skills_root": str(claude_skills_root),
     "hook_root": str(hook_root),
-    "skip_mcp": skip_mcp,
     "skip_skills": skip_skills,
     "skip_claude_skills": skip_claude,
     "install_chat_hook": install_hook,
@@ -700,11 +649,12 @@ config = {
 if manifest.get("schema") != 1 or manifest.get("config") != config:
     fail("does not match this uninstall request")
 
-files = [prefix / "bin" / "mythify", prefix / "bin" / "mythify-uninstall"]
+files = [
+    prefix / "bin" / "mythify",
+    prefix / "bin" / "mythify-mcp",
+    prefix / "bin" / "mythify-uninstall",
+]
 directories = [install_root / "cli"]
-if not skip_mcp:
-    files.append(prefix / "bin" / "mythify-mcp")
-    directories.append(install_root / "mcp-server")
 if not skip_skills:
     directories.extend(skills_root / name for name in manifest["skill_names"])
     if not skip_claude:
@@ -782,25 +732,10 @@ fi
 if [ "$install_chat_hook" -eq 1 ]; then
   [ -f "$repo_root/scripts/mythify_chat_report_hook.sh" ] || fail "Missing scripts/mythify_chat_report_hook.sh"
 fi
-if [ "$skip_mcp" -eq 0 ]; then
-  [ -f "$repo_root/mcp-server/package.json" ] || fail "Missing mcp-server/package.json; use --skip-mcp with the standalone CLI artifact"
-  require_command node
-  require_command npm
-  require_command tar
-  node_bin=$(command -v node)
-  node_version=$(node -p "process.versions.node")
-  node_major=${node_version%%.*}
-  case "$node_major" in
-    ''|*[!0-9]*) fail "Could not determine Node.js major version: $node_version" ;;
-  esac
-  [ "$node_major" -ge 20 ] || fail "Mythify MCP requires Node.js 20 or newer; found $node_version"
-  mcp_version=$(node -p "require(process.argv[1]).version" "$repo_root/mcp-server/package.json")
-  [ "$mcp_version" = "$version" ] || fail "CLI version $version does not match MCP version $mcp_version"
-fi
-
 preflight_directory "Install prefix" "$prefix"
 preflight_directory "Binary destination" "$bin_dir"
 preflight_file "Mythify launcher" "$bin_dir/mythify"
+preflight_file "MCP launcher" "$bin_dir/mythify-mcp"
 preflight_file "Mythify uninstaller" "$bin_dir/mythify-uninstall"
 preflight_directory "Data destination" "$data_home"
 preflight_directory "Versioned data destination" "$install_root"
@@ -822,12 +757,6 @@ if [ "$install_chat_hook" -eq 1 ]; then
   preflight_directory "Hook destination" "$hook_root"
   preflight_file "Hook destination" "$hook_root/mythify-chat-report-hook.sh"
 fi
-if [ "$skip_mcp" -eq 0 ]; then
-  preflight_directory "MCP data destination" "$install_root/mcp-server"
-  preflight_file "MCP launcher" "$bin_dir/mythify-mcp"
-  prepare_mcp_runtime
-fi
-
 begin_install_transaction
 
 if [ -n "$project_dir" ]; then
@@ -838,6 +767,7 @@ mkdir -p "$bin_dir"
 install_cli_runtime
 
 write_exec_launcher "$bin_dir/mythify" "$python_bin" "$cli_dir/scripts/mythify.py"
+write_exec_launcher "$bin_dir/mythify-mcp" "$python_bin" "$cli_dir/scripts/mythify.py" mcp
 set -- \
   sh \
   "$cli_dir/scripts/install_user.sh" \
@@ -848,9 +778,6 @@ set -- \
   --claude-skills-root "$claude_skills_root" \
   --hook-root "$hook_root" \
   --protocol-profile "$protocol_profile"
-if [ "$skip_mcp" -eq 1 ]; then
-  set -- "$@" --skip-mcp
-fi
 if [ "$skip_skills" -eq 1 ]; then
   set -- "$@" --skip-skills
 fi
@@ -866,6 +793,7 @@ fi
 write_exec_launcher "$bin_dir/mythify-uninstall" "$@"
 
 printf '%s\n' "[OK] Installed mythify CLI: $bin_dir/mythify"
+printf '%s\n' "[OK] Installed mythify MCP server: $bin_dir/mythify-mcp"
 printf '%s\n' "[OK] Installed CLI runtime: $cli_dir"
 printf '%s\n' "[OK] Installed protocol loading profile: $protocol_profile ($cli_dir/protocol/ACTIVE.md)"
 printf '%s\n' "[OK] Installed uninstaller: $bin_dir/mythify-uninstall"
@@ -876,14 +804,6 @@ if [ "$install_chat_hook" -eq 1 ]; then
   cp "$repo_root/scripts/mythify_chat_report_hook.sh" "$hook_root/mythify-chat-report-hook.sh"
   chmod 755 "$hook_root/mythify-chat-report-hook.sh"
   printf '%s\n' "[OK] Installed chat report hook helper: $hook_root/mythify-chat-report-hook.sh"
-fi
-
-if [ "$skip_mcp" -eq 0 ]; then
-  install_mcp_runtime
-  write_exec_launcher "$bin_dir/mythify-mcp" "$node_bin" "$mcp_dir/src/index.js"
-
-  printf '%s\n' "[OK] Installed mythify MCP: $bin_dir/mythify-mcp"
-  printf '%s\n' "[OK] Installed MCP package: $mcp_dir"
 fi
 
 if [ "$skip_skills" -eq 0 ]; then
@@ -898,16 +818,11 @@ write_ownership_manifest
 
 if [ -n "$project" ]; then
   printf '%s\n' "[OK] Initialized project state: $project_dir/.mythify"
-
-  if [ "$skip_mcp" -eq 0 ]; then
-    cat <<EOF
-[OK] Codex MCP setup command:
-codex mcp add mythify \\
-  --env MYTHIFY_DIR=$project_dir/.mythify \\
-  --env MYTHIFY_HOST_PLATFORM=codex-desktop \\
-  -- $bin_dir/mythify-mcp
+  cat <<EOF
+[OK] MCP setup: register this stdio server with your MCP client:
+  command: $bin_dir/mythify-mcp
+  env: MYTHIFY_DIR=$project_dir/.mythify
 EOF
-  fi
 fi
 
 case ":$PATH:" in

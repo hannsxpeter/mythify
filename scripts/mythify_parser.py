@@ -12,6 +12,7 @@ from mythify_workspace import add_workspace_parser
 from mythify_verification_commands import add_verification_parsers
 from mythify_eval_parser import add_eval_parser
 from mythify_map_parser import add_map_parser
+from mythify_mcp import serve as serve_mcp
 
 
 def nonnegative_int(value):
@@ -43,7 +44,7 @@ def build_parser(symbols):
             "\n"
             "Advanced surfaces:\n"
             "  dashboard, harness, history, background, progress, readiness, timeline, phase, trace,\n"
-            "  classify, memory, lesson, logs, reflect, summary, protocol, fanout through MCP\n"
+            "  classify, memory, lesson, logs, reflect, summary, protocol, mcp\n"
             "\n"
             "Labs surfaces:\n"
             "  host-model, artifact, eval, provider probes, local model runs, host CLI workers,\n"
@@ -1526,5 +1527,17 @@ def build_parser(symbols):
         ),
     )
     p.set_defaults(handler=cmd_summary)
+
+    p = sub.add_parser(
+        "mcp",
+        help="Serve Mythify commands as MCP tools over stdio.",
+        description=(
+            "Run the zero-dependency MCP stdio server. Each tool call runs one "
+            "Mythify command in the project root and returns its output and "
+            "exit code. Register bin/mythify-mcp, or this command, with an MCP "
+            "client. The mcp command itself is not callable as a tool."
+        ),
+    )
+    p.set_defaults(handler=lambda _args, _state: serve_mcp(parser, VERSION), needs_state=False)
 
     return parser

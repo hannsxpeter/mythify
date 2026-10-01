@@ -6,8 +6,8 @@ merged.
 
 ## Prerequisites
 
-- Python 3.9 or newer (the CLI and its tests use only the standard library).
-- Node.js 20 or newer, only if you are touching the MCP server in `mcp-server/`.
+- Python 3.9 or newer (the CLI, the MCP server, and the tests use only the
+  standard library).
 - No other tooling is required. There is nothing to `pip install`.
 
 ## Getting started
@@ -19,44 +19,20 @@ cd mythify
 
 ## Running the tests
 
-Run the Python suite from the repository root:
+Run the suite from the repository root:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Run the MCP server suite:
-
-```bash
-cd mcp-server && npm ci && npm test
-```
-
-Notes:
-
-- Use `npm ci`, not `npm install`, so your run matches the lockfile and CI.
-- `tests/test_interop.py` exercises the CLI and the MCP server against the same
-  state directory. It skips itself (it does not fail) when `node` is not on PATH
-  or `mcp-server/node_modules` is missing. To run it, install the MCP server
-  dependencies first with `cd mcp-server && npm ci`.
-
-Both suites must pass before you open a pull request.
-
-Run the dual-runtime parity gate whenever a change touches shared CLI and MCP
-behavior, public surface metadata, deterministic routing, evidence records, or
-on-disk state:
-
-```bash
-cd mcp-server && npm ci && cd ..
-python3 -m unittest tests.test_interop -v
-node scripts/check_surface_manifest.mjs
-node scripts/check_classification_rules_manifest.mjs
-```
+It covers the CLI and the MCP stdio server (`tests/test_mcp_server.py` spawns
+`python3 scripts/mythify.py mcp`). It must pass before you open a pull request.
 
 ## The design contract
 
 [docs/design.md](docs/design.md) is the authoritative contract for every CLI
-command, every MCP tool, and every on-disk format. The Python CLI and the Node
-MCP server are independent implementations of that one contract.
+command and every on-disk format. The MCP server is generated from the CLI
+parser and runs the CLI for every tool call, so there is one implementation.
 
 If your change alters any interface or format, update `docs/design.md` in the
 same pull request, and update both implementations so they stay in sync. A
@@ -111,9 +87,9 @@ Program output uses the ASCII markers `[OK]`, `[FAIL]`, and `[WARN]`.
   `fix: ...`, `docs: ...`, `test: ...`.
 - Fill in the checklist in the pull request template. It mirrors the rules in
   this document.
-- CI runs the Python suite on Python 3.9 and 3.13, the MCP server suite on
-  Node 20 and 24, the dual-runtime parity gate, the generated-file sync check,
-  and the ASCII rules check. All jobs must be green.
+- CI runs the suite on Python 3.9 and 3.13, the generated-file sync check, the
+  prose check, an installer and MCP server smoke test, and the ASCII rules
+  check. All jobs must be green.
 
 ## Reporting bugs and requesting features
 

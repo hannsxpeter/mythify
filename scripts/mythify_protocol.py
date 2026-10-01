@@ -23,7 +23,7 @@ from mythify_protocol_profiles import (
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 PROTOCOL_SOURCE_SHA256 = "6b2a8d9fd34e0ed4f2c3d5bbba5e3473719b70e65da3fa206ada4751e27514b8"
-RELEASE_GATES_SHA256 = "408ea372fa2a93d3cc1f43b2de934d846f3d893e5befc40d33a4d81a39f415dd"
+RELEASE_GATES_SHA256 = "bc64aea9ef4180c3d7d42d56bf288ef817d4c101860e7bf898b4123bfe5a3b48"
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 PROTOCOL_COPY_CANDIDATES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 
@@ -92,10 +92,7 @@ def protocol_source_check():
 def release_gates_checks():
     """Hash-pin every present release gate manifest against the embedded digest."""
     results = []
-    for path in (
-        REPO_ROOT / "protocol" / "release-gates.json",
-        REPO_ROOT / "mcp-server" / "protocol" / "release-gates.json",
-    ):
+    for path in (REPO_ROOT / "protocol" / "release-gates.json",):
         if not path.is_file():
             continue
         actual = sha256_text(path.read_text(encoding="utf-8"))

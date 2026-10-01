@@ -29,8 +29,6 @@ publish checks.
 - [tool-use-contract.md](tool-use-contract.md): deferred-tool discovery
   discipline. Adapters must load a tool's real schema before calling it, and must
   never invoke from a guessed schema.
-- [adapter-candidates.md](adapter-candidates.md): generated adapter capability
-  registry output.
 - [cli-to-model-runtime-migration.md](cli-to-model-runtime-migration.md): the
   migration path from drop-in CLI use to MCP and model-runtime integrations.
 - [artifact-hygiene.md](artifact-hygiene.md): optional external
@@ -83,14 +81,13 @@ not broken.
   the artifact adapter is installed.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
-- Keep MCP public surface claims at 63 tools: 60 core tools plus 3 fanout tools.
-  `protocol/surface-manifest.json` is authoritative; check it before restating a
-  count anywhere.
+- Keep MCP tool claims aligned to `TOOL_ALLOWLIST` in `scripts/mythify_mcp.py`
+  plus the `mythify` escape-hatch tool; `tools/list` is authoritative.
 - Keep `tool-use-contract.md` aligned with the `CLAUDE.md` and `AGENTS.md` MCP
   note and the capability-registry guardrails. It restates their discovery
   discipline; it does not diverge from them.
-- Keep release claims aligned to `mcp-server/package.json`,
-  `mcp-server/package-lock.json`, `CHANGELOG.md`, and the latest GitHub release.
+- Keep release claims aligned to `VERSION` in `scripts/mythify.py`,
+  `CHANGELOG.md`, and the latest GitHub release.
 - Keep marketing claims in `README.md` no stronger than
   `evidence/efficacy-reproduction.md` supports. The project's own rule applies to
   its own front page: executed evidence beats confident prose.

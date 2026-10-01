@@ -21,12 +21,12 @@ the ledger.
 
        mythify route "TASK"
 
-   Prefer MCP `workflow_route` when available.
+   Prefer MCP `route` when available.
 3. Run orientation:
 
        mythify status
 
-   Prefer MCP `workflow_status` when available.
+   Prefer MCP `status` when available.
 4. Report the route decision in chat:
 
    - Recommended path: direct, plan, research, review, outcome, campaign,

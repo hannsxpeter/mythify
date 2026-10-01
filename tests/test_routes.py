@@ -5,7 +5,7 @@ Asserts every route id the router can emit, the documented precedence order
 branches. Routing is read-only: each case sets up only the durable state it
 needs, then asserts the chosen route and next command. Companion coverage:
 tests/test_godfiles.py owns god-artifact routing, import, and the strict gate;
-tests/test_interop.py owns CLI/MCP route parity.
+tests/test_mcp_server.py owns the MCP transport over the same CLI.
 """
 
 import json
@@ -110,23 +110,20 @@ class TestRouteMatrix(RouteCase):
             self.assertNotEqual(self.route(task)["route"], "research", task)
 
     def test_freshness_terms_have_single_synced_source(self):
-        # Freshness routing now has one source of truth: the research task_type
-        # in classification-rules.json. Assert both byte-mirrored copies carry
-        # the terms and that classify still yields task_type='research', so
-        # single-copy drift or a semantic regression fails loudly.
+        # Freshness routing has one source of truth: the research task_type
+        # in classification-rules.json. Assert the manifest carries the terms
+        # and that classify still yields task_type='research', so manifest
+        # drift or a semantic regression fails loudly.
         terms = (
             "what is the current pricing",
             "check the live status",
             "how much does it cost",
         )
-        for rel in (
-            "protocol/classification-rules.json",
-            "mcp-server/protocol/classification-rules.json",
-        ):
-            data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
-            research = next(t for t in data["task_types"] if t["id"] == "research")
-            for term in terms:
-                self.assertIn(term, research["terms"], rel)
+        rel = "protocol/classification-rules.json"
+        data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
+        research = next(t for t in data["task_types"] if t["id"] == "research")
+        for term in terms:
+            self.assertIn(term, research["terms"], rel)
         for task in (
             "what is the current pricing for the API",
             "check the live status of the service",

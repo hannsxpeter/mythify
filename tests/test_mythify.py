@@ -41,7 +41,6 @@ PY_VIEWS = REPO_ROOT / "scripts" / "mythify_views.py"
 PY_VIEWS_STATUS = REPO_ROOT / "scripts" / "mythify_views_status.py"
 PY_WORKFLOWS = REPO_ROOT / "scripts" / "mythify_workflows.py"
 OPERATION_REGISTRY = REPO_ROOT / "protocol" / "operation-registry.json"
-SURFACE_MANIFEST = REPO_ROOT / "protocol" / "surface-manifest.json"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
 MODEL_CAPABILITIES = REPO_ROOT / "protocol" / "model-capabilities.json"
 WORKFLOW_ROUTER = REPO_ROOT / "protocol" / "workflow-router.json"
@@ -185,7 +184,14 @@ class TestInit(CliTestCase):
     def test_help_exits_zero(self):
         result = self.run_cli("--help")
         self.assertEqual(result.returncode, 0)
-        commands = self.read_json(SURFACE_MANIFEST)["surfaces"]["cli"]["commands"]
+        spec = importlib.util.spec_from_file_location("mythify_cli_help_under_test", CLI)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        parser = module.build_cli_parser(vars(module))
+        commands = next(
+            action.choices for action in parser._actions if getattr(action, "choices", None)
+        )
+        self.assertIn("mcp", commands)
         for name in commands:
             self.assertIn(name, result.stdout)
         self.assertIn("Recommended front door:", result.stdout)
@@ -707,6 +713,7 @@ class TestProtocolHandshake(CliTestCase):
             "mythify_loopfit.py",
             "mythify_map_parser.py",
             "mythify_maps.py",
+            "mythify_mcp.py",
             "mythify_plan_import.py",
             "mythify_protocol.py",
             "mythify_protocol_profiles.py",
@@ -4755,7 +4762,6 @@ class TestStatusAndSummary(CliTestCase):
         )
         self.assertIn(", 0 stale", result.stdout)
         self.assertIn("Python test suite: missing", result.stdout)
-        self.assertIn("Node MCP suite: missing", result.stdout)
         self.assertIn("Project git: [~] unknown", result.stdout)
         self.assertIn("Roadmap: [x] present; - [>] Release readiness view.", result.stdout)
         self.assertIn("Guardrail: readiness summarizes recorded evidence", result.stdout)
@@ -4766,7 +4772,7 @@ class TestStatusAndSummary(CliTestCase):
         payload = json.loads(json_result.stdout)
         self.assertEqual(payload["status"], "needs_evidence")
         self.assertEqual(payload["counts"]["passed"], 0)
-        self.assertEqual(payload["counts"]["missing"], 14)
+        self.assertEqual(payload["counts"]["missing"], 8)
         self.assertEqual(payload["counts"]["stale"], 0)
         self.assertIsNone(payload["current_provenance"]["git_commit"])
         self.assertRegex(

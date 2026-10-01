@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "description": "Shared deterministic task classification policy for the Python CLI and Node MCP server.",
+  "description": "Deterministic task classification policy for the Mythify CLI.",
   "thresholds": {
     "trivial_word_count": 12,
     "high_ambiguity_word_count": 18,

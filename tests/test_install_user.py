@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -21,7 +22,7 @@ class TestUserInstaller(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="mythify-install-test-"))
         self.addCleanup(shutil.rmtree, str(self.tmp), True)
 
-    def run_cmd(self, args, cwd=None, env=None):
+    def run_cmd(self, args, cwd=None, env=None, input_text=None):
         merged_env = dict(os.environ)
         merged_env["HOME"] = str(self.tmp / "home")
         if env:
@@ -36,7 +37,39 @@ class TestUserInstaller(unittest.TestCase):
             env=merged_env,
             capture_output=True,
             text=True,
+            input=input_text,
+            timeout=300,
         )
+
+    def mcp_tool_names(self, launcher, cwd, env=None):
+        """Handshake with an installed mythify-mcp launcher and list its tools."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "mythify-install-test", "version": "1.0.0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]
+        result = self.run_cmd(
+            [str(launcher)],
+            cwd=cwd,
+            env=env,
+            input_text="".join(json.dumps(item) + "\n" for item in requests),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        responses = {}
+        for line in result.stdout.splitlines():
+            message = json.loads(line)
+            responses[message["id"]] = message
+        self.assertEqual(responses[1]["result"]["serverInfo"]["name"], "mythify-mcp")
+        return [tool["name"] for tool in responses[2]["result"]["tools"]]
 
     def build_cli_artifact(self, output_dir):
         result = self.run_cmd(
@@ -63,7 +96,6 @@ class TestUserInstaller(unittest.TestCase):
             str(prefix),
             "--project",
             str(project),
-            "--skip-mcp",
             "--skills-root",
             str(skills_root),
             "--claude-skills-root",
@@ -107,6 +139,7 @@ class TestUserInstaller(unittest.TestCase):
             root + "/README.md",
             root + "/scripts/install_user.sh",
             root + "/scripts/mythify.py",
+            root + "/scripts/mythify_mcp.py",
             root + "/scripts/check_prose_quality.py",
             root + "/scripts/mythify_classification.py",
             root + "/protocol/PROTOCOL.md",
@@ -158,7 +191,7 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse(any("__pycache__" in name for name in names))
         self.assertFalse(any(name.endswith(".pyc") for name in names))
 
-    def test_release_tag_must_match_cli_and_mcp_version(self):
+    def test_release_tag_must_match_cli_version(self):
         current = self.run_cmd([sys.executable, str(REPO_ROOT / "scripts" / "mythify.py"), "--version"])
         expected = current.stdout.strip().removeprefix("Mythify ")
         result = self.run_cmd(
@@ -288,8 +321,15 @@ class TestUserInstaller(unittest.TestCase):
         launcher_text = mythify_bin.read_text(encoding="utf-8")
         self.assertNotIn(str(artifact_root), launcher_text)
         self.assertIn(str(cli_root), launcher_text)
+        mcp_bin = prefix / "bin" / "mythify-mcp"
+        mcp_launcher_text = mcp_bin.read_text(encoding="utf-8")
+        self.assertIn(str(cli_root / "scripts" / "mythify.py"), mcp_launcher_text)
+        self.assertIn(' mcp "$@"', mcp_launcher_text)
 
         shutil.rmtree(extract_root)
+        tool_names = self.mcp_tool_names(mcp_bin, cwd=project, env=env)
+        self.assertIn("verify_run", tool_names)
+        self.assertIn("mythify", tool_names)
         classify_result = self.run_cmd(
             [str(mythify_bin), "classify", "fix failing parser", "--json"],
             cwd=project,
@@ -364,46 +404,14 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse(claude_skills_root.exists())
         self.assertFalse(hook_root.exists())
 
-    def test_installer_rejects_node_below_package_floor_before_mutation(self):
-        fake_bin = self.tmp / "fake-bin"
-        fake_bin.mkdir()
-        fake_node = fake_bin / "node"
-        fake_node.write_text(
-            "#!/bin/sh\n"
-            "if [ \"${1:-}\" = \"-p\" ]; then printf '%s\\n' '18.20.0'; exit 0; fi\n"
-            "exit 99\n",
-            encoding="utf-8",
-        )
-        fake_node.chmod(0o755)
-        prefix = self.tmp / "prefix"
-        data_home = self.tmp / "xdg-data"
-        result = self.run_cmd(
-            [
-                "sh",
-                str(INSTALLER),
-                "--prefix",
-                str(prefix),
-                "--skip-skills",
-            ],
-            env={
-                "XDG_DATA_HOME": str(data_home),
-                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
-            },
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires Node.js 20 or newer", result.stderr)
-        self.assertFalse(prefix.exists())
-        self.assertFalse((data_home / "mythify").exists())
-
-    def test_installer_reads_mcp_version_from_checkout_path_with_apostrophe(self):
+    def test_mcp_launcher_works_from_checkout_path_with_apostrophe(self):
         source_root = self.tmp / "source's-checkout"
-        shutil.copytree(REPO_ROOT / "scripts", source_root / "scripts")
-        shutil.copytree(REPO_ROOT / "protocol", source_root / "protocol")
         shutil.copytree(
-            REPO_ROOT / "mcp-server",
-            source_root / "mcp-server",
-            ignore=shutil.ignore_patterns("node_modules", "*.tgz"),
+            REPO_ROOT / "scripts",
+            source_root / "scripts",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
+        shutil.copytree(REPO_ROOT / "protocol", source_root / "protocol")
         prefix = self.tmp / "apostrophe-prefix"
         data_home = self.tmp / "apostrophe-data"
 
@@ -419,7 +427,14 @@ class TestUserInstaller(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((prefix / "bin" / "mythify-mcp").is_file())
+        mcp_bin = prefix / "bin" / "mythify-mcp"
+        self.assertTrue(os.access(mcp_bin, os.X_OK))
+        project = self.tmp / "apostrophe-project"
+        project.mkdir()
+        tool_names = self.mcp_tool_names(
+            mcp_bin, cwd=project, env={"XDG_DATA_HOME": str(data_home)}
+        )
+        self.assertIn("step", tool_names)
 
     def test_destination_type_failure_leaves_no_partial_install(self):
         prefix = self.tmp / "prefix"
@@ -433,7 +448,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skills-root",
                 str(skills_root),
                 "--skip-claude-skills",
@@ -463,7 +477,6 @@ class TestUserInstaller(unittest.TestCase):
             claude_skills_root,
             hook_root,
         )
-        args.remove("--skip-mcp")
         first = self.run_cmd(args, env=env)
         self.assertEqual(first.returncode, 0, first.stderr)
         mythify_bin = prefix / "bin" / "mythify"
@@ -521,7 +534,6 @@ class TestUserInstaller(unittest.TestCase):
             claude_skills_root,
             hook_root,
         )
-        args.remove("--skip-mcp")
         failed = self.run_cmd(
             args,
             env={
@@ -596,7 +608,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skip-skills",
             ],
             env={"XDG_DATA_HOME": str(data_home)},
@@ -631,7 +642,6 @@ class TestUserInstaller(unittest.TestCase):
             skills_root / "mythify" / "SKILL.md",
             claude_skills_root / "mythify" / "SKILL.md",
             hook_root / "mythify-chat-report-hook.sh",
-            prefix / "bin" / "mythify-mcp",
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("pre-existing artifact\n", encoding="utf-8")
@@ -643,7 +653,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skip-skills",
                 "--skills-root",
                 str(skills_root),
@@ -661,9 +670,9 @@ class TestUserInstaller(unittest.TestCase):
         self.assertEqual(version_result.returncode, 0, version_result.stderr)
         version = version_result.stdout.strip().removeprefix("Mythify v")
         install_root = data_home / "mythify" / version
-        mcp_sentinel = install_root / "mcp-server" / "preserve.txt"
-        mcp_sentinel.parent.mkdir(parents=True)
-        mcp_sentinel.write_text("pre-existing MCP\n", encoding="utf-8")
+        unowned_sentinel = install_root / "unowned" / "preserve.txt"
+        unowned_sentinel.parent.mkdir(parents=True)
+        unowned_sentinel.write_text("pre-existing data\n", encoding="utf-8")
 
         uninstall_result = self.run_cmd(
             [str(uninstall_bin)], env={"XDG_DATA_HOME": None}
@@ -671,9 +680,28 @@ class TestUserInstaller(unittest.TestCase):
         self.assertEqual(uninstall_result.returncode, 0, uninstall_result.stderr)
         self.assertFalse(mythify_bin.exists())
         self.assertFalse(uninstall_bin.exists())
-        self.assertEqual(mcp_sentinel.read_text(encoding="utf-8"), "pre-existing MCP\n")
+        self.assertFalse((prefix / "bin" / "mythify-mcp").exists())
+        self.assertEqual(unowned_sentinel.read_text(encoding="utf-8"), "pre-existing data\n")
         for path in preserved:
             self.assertEqual(path.read_text(encoding="utf-8"), "pre-existing artifact\n")
+
+    def test_skip_mcp_is_an_accepted_no_op(self):
+        prefix = self.tmp / "prefix"
+        data_home = self.tmp / "xdg-data"
+        env = {"XDG_DATA_HOME": str(data_home)}
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skip-mcp", "--skip-skills"],
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mcp_bin = prefix / "bin" / "mythify-mcp"
+        self.assertTrue(os.access(mcp_bin, os.X_OK))
+        self.assertNotIn("--skip-mcp", (prefix / "bin" / "mythify-uninstall").read_text(encoding="utf-8"))
+        uninstall_result = self.run_cmd(
+            [str(prefix / "bin" / "mythify-uninstall")], env={"XDG_DATA_HOME": None}
+        )
+        self.assertEqual(uninstall_result.returncode, 0, uninstall_result.stderr)
+        self.assertFalse(mcp_bin.exists())
 
     def test_installs_chat_skills_and_hook_helper(self):
         prefix = self.tmp / "prefix"
@@ -687,7 +715,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skills-root",
                 str(skills_root),
                 "--claude-skills-root",

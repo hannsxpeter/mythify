@@ -6,7 +6,6 @@
   <a href="https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml"><img src="https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/hannsxpeter/mythify/releases/latest"><img src="https://img.shields.io/github/v/release/hannsxpeter/mythify?sort=semver&label=release&color=FF4F59" alt="Release"></a>
   <img src="https://img.shields.io/badge/python-3.9%2B-201A33.svg" alt="Python 3.9+">
-  <img src="https://img.shields.io/badge/node-20%2B-201A33.svg" alt="Node 20+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-24C3C0.svg" alt="License: MIT"></a>
 </p>
 
@@ -69,8 +68,8 @@ hits.
 
 ## Get started in five minutes
 
-Mythify needs Python 3.9 or newer. Node 20+ is optional and only used for the
-server that plugs Mythify directly into agent tooling.
+Mythify needs Python 3.9 or newer and nothing else. The same install includes
+the MCP server that plugs Mythify directly into agent tooling.
 
 ```bash
 git clone https://github.com/hannsxpeter/mythify.git
@@ -78,9 +77,9 @@ cd mythify
 ./scripts/install_user.sh --project /path/to/your/project
 ```
 
-There is no account to create, no API key, and no `npm install`. Mythify is
-zero-dependency Python plus one small optional Node server. The installer copies
-a self-contained runtime into your home directory, so you can delete the clone
+There is no account to create, no API key, and no package install. Mythify is
+zero-dependency Python, MCP server included. The installer copies a
+self-contained runtime into your home directory, so you can delete the clone
 afterwards and everything keeps working.
 
 Now run your first loop from inside your own project:
@@ -124,7 +123,6 @@ Download `mythify-cli-VERSION.tar.gz` from a
 ```bash
 tar -xzf mythify-cli-VERSION.tar.gz
 ./mythify-cli-VERSION/scripts/install_user.sh \
-  --skip-mcp \
   --project /path/to/your/project
 ```
 
@@ -138,11 +136,10 @@ are deterministic, so the same source tree always produces the same bytes.
 <details>
 <summary>Agent tooling support (MCP server)</summary>
 
-Releases also ship `mythify-mcp-VERSION.tgz`. Create a small runtime directory,
-run `npm install /path/to/mythify-mcp-VERSION.tgz` there, and point your MCP
-client at `node node_modules/mythify-mcp/src/index.js` with `MYTHIFY_DIR` set to
-your project's `.mythify` directory. This is a local tarball install; Mythify is
-not published to an npm registry.
+The installer also writes `mythify-mcp`, which runs `mythify mcp`: a
+zero-dependency MCP stdio server. Register that launcher with your MCP client
+and set `MYTHIFY_DIR` to your project's `.mythify` directory. Each MCP tool runs
+one Mythify command in the project root, so the CLI and MCP share every rule.
 
 </details>
 
@@ -307,18 +304,13 @@ reads them and holds the evidence trail.
 
 ## Running several agents at once
 
-The optional Node MCP server exposes Mythify's state to agent tooling and adds
-**fanout**: several independent agent tasks running in parallel. Writing tasks
-can use `isolation: "worktree"` so each one gets its own git worktree on a fresh
-branch and cannot collide with the others. You merge the branches you want.
+Mythify does not spawn or schedule agents. Your host decides whether to split
+work across subagents. Each delegated prompt must stand alone, and delegated
+output is material, not proof: merge the work, then verify the merged result
+with `verify run` the same way as anything else.
 
-The server shares the exact same `.mythify/` folder as the CLI, so a plan made in
-one is visible in the other. It exposes Mythify through 63 MCP tools by default,
-or a smaller capability profile selected with `MYTHIFY_MCP_TOOL_PROFILE`. The
-full list and profile budgets are in [docs/design.md](docs/design.md).
-
-Fanout results are material, not proof. Merge the work, then verify the merged
-result the same way as anything else.
+The MCP server (`mythify mcp`) exposes the same commands as typed tools over the
+same `.mythify/` folder, so a plan made through the CLI is visible over MCP.
 
 ## Inspecting owned artifacts for watermark signals
 
@@ -449,13 +441,6 @@ work as aliases.
 A stronger model is still just a stronger opinion. Executable checks decide
 completion.
 
-For independently parallel research, design, migration, security, release, or
-benchmark work, the router can recommend the native `claude-ultracode` adapter.
-The MCP host launches exactly one Claude dynamic workflow through `fanout_start`,
-watches it with `fanout_status`, and ingests its final material with
-`fanout_results`. The adapter needs Claude Code 2.1.203 or newer, keeps
-permissions with the host, and never promotes workflow output into evidence.
-
 ## Evidence, honestly
 
 Mythify is a product about not overclaiming, so here is exactly what has been
@@ -476,15 +461,14 @@ from here.
 
 ## How it is built
 
-Two runtimes over one state folder:
+One runtime over one state folder:
 
 - **CLI** (`scripts/mythify.py` and friends): zero-dependency Python 3.9+.
-- **MCP server** (`mcp-server/`): Node 20+, exposing the same state as MCP tools
-  plus fanout.
+- **MCP server** (`scripts/mythify_mcp.py`, run as `mythify mcp`): the same
+  Python, exposing CLI commands as MCP tools. Each tool call runs the CLI, so
+  there is no second implementation to keep aligned.
 
-Both read and write the same `.mythify/` directory. Shared manifests, semantic
-contract checks, and interop tests keep the two independent implementations
-aligned. The protocol text itself (`protocol/PROTOCOL.md`) is the source for the
+Both read and write the same `.mythify/` directory. The protocol text itself (`protocol/PROTOCOL.md`) is the source for the
 drop-in rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
 
 ## Learn more

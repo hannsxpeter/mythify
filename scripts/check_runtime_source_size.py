@@ -10,9 +10,9 @@ from pathlib import Path
 
 
 DEFAULT_LIMIT = 1500
-RUNTIME_ROOTS = (("scripts", "*.py"), ("mcp-server/src", "*.js"))
-# Generated dependency and cache directories are not first-party runtime code.
-EXCLUDED_DIRECTORY_NAMES = frozenset({"__pycache__", "node_modules", ".venv"})
+RUNTIME_ROOTS = (("scripts", "*.py"),)
+# Cache and virtual environment directories are not first-party runtime code.
+EXCLUDED_DIRECTORY_NAMES = frozenset({"__pycache__", ".venv"})
 
 
 def nonblank_line_count(path):
@@ -65,7 +65,7 @@ def check_runtime_sources(root, limit=DEFAULT_LIMIT):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Check first-party Python and Node runtime sources against a line ceiling."
+        description="Check first-party Python runtime sources against a line ceiling."
     )
     parser.add_argument("--root", default=".", help="Repository root. Defaults to cwd.")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
