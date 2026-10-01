@@ -37,37 +37,6 @@ from mythify_artifacts import (  # noqa: E402
     cmd_artifact_inspect,
     cmd_artifact_probe,
 )
-from mythify_classification import (  # noqa: E402
-    classify_task_text,
-    format_classification,
-    should_run_model_triage,
-)
-from mythify_host_model import (  # noqa: E402
-    HOST_THINKING_LEVELS,
-    PLATFORMS,
-    SPEED_LEVELS,
-    cmd_host_model_clear,
-    cmd_host_model_status,
-    cmd_host_model_switch,
-    configure_host_model_store,
-    host_capability_for_record,
-    normalize_host_platform,
-    normalize_host_speed,
-    normalize_host_thinking,
-    read_host_model_state,
-)
-from mythify_model_policy import (  # noqa: E402
-    EFFORT_LEVELS,
-    FANOUT_VISIBILITY_MODES,
-    MODEL_PROFILE_INPUTS,
-    REVIEWER_STRENGTH_MODES,
-    SPAWN_CEILINGS,
-    TRIAGE_ENGINES,
-    TRIAGE_MODES,
-    build_model_policy,
-    classify_model_tier,
-    run_model_triage,
-)
 from mythify_io import (  # noqa: E402
     JSONL_TAIL_CHUNK_BYTES,
     _write_text_atomic,
@@ -377,12 +346,6 @@ configure_durable_io(
     resolve_state_dir_func=resolve_state_dir,
     now_stamp_func=now_stamp,
     timestamp_at_or_after_func=timestamp_at_or_after,
-)
-configure_host_model_store(
-    resolve_state_dir_func=resolve_state_dir,
-    now_iso_func=now_iso,
-    classify_model_tier_func=classify_model_tier,
-    fail_func=fail,
 )
 configure_design_store(
     now_iso_func=now_iso,
@@ -805,24 +768,8 @@ def cmd_status(args, state):
 
 
 # ---------------------------------------------------------------------------
-# Loop-fit advisory
+# Plans
 # ---------------------------------------------------------------------------
-def cmd_classify(args, _state):
-    result = classify_task_text(args.task)
-    result["model_policy"] = build_model_policy(
-        result,
-        args,
-        read_host_model_state(_state),
-    )
-    if args.triage != "never":
-        result["model_triage_run"] = run_model_triage(args.task, result, args)
-    if args.json_output:
-        print(json.dumps(result, indent=2))
-    else:
-        print(format_classification(result))
-    return 0
-
-
 def cmd_plan_create(args, state):
     steps_input = []
     if args.steps is not None:
@@ -1601,7 +1548,6 @@ configure_prompt_router(
     compact_report_detail_func=compact_report_detail,
     build_work_report_func=build_work_report,
     load_outcome_func=load_outcome,
-    read_host_model_state_func=read_host_model_state,
     fail_func=fail,
 )
 

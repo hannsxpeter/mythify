@@ -20,10 +20,10 @@ need is itself a failure mode.
 When in doubt, start light and escalate the moment a task grows a second step
 or a second session.
 
-Use `classify` before non-trivial work when available. If it returns
-`execution_profile: fast`, act directly on the focused task and record
-verification. If the task expands into multiple dependent steps, escalate to a
-plan.
+Use `route --json` before non-trivial work when available. If its
+classification reports `execution_profile: fast`, act directly on the focused
+task and record verification. If the task expands into multiple dependent
+steps, escalate to a plan.
 
 ## Stage 1: PLAN
 

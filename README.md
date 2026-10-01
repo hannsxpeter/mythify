@@ -416,30 +416,22 @@ The everyday commands:
 | `artifact probe`, `artifact inspect`, `artifact clean` | Use the optional external artifact-hygiene adapter. Direct results are material, not verification evidence. |
 | `status`, `report`, `summary` | Orient, narrate progress, and wrap up. |
 
-There is more underneath: campaigns, research, dashboards, model policy, trace
-analysis, and the full MCP tool set. The complete reference is in
+There is more underneath: campaigns, research, dashboards, trace analysis, and
+the full MCP tool set. The complete reference is in
 [docs/design.md](docs/design.md), and a guided tour is in
 [docs/start-here.md](docs/start-here.md).
 
-## Choosing a model for the job
+## Delegation
 
-`classify` and `route` return a `model_policy.model_router`. It picks a
-provider-neutral profile, `utility`, `balanced`, `strong`, or explicit-only
-`max`, while keeping autonomy, topology, reasoning effort, independent review,
-and executable verification as separate decisions.
+Mythify never chooses a model, provider, or subagent. `route --json` reports
+three neutral advisories inside `classification`: `framing` (how much to
+restate before acting), `parallelism` (whether the work splits into independent
+parts; its `chooser` is always `host`), and `review` (whether the integrated
+result deserves an independent review).
 
-OpenAI resolves these to Luna, Terra, Sol, and Sol in max or pro mode. Claude
-resolves them to Haiku, Sonnet, Opus, and Fable. Cursor workers inspect their
-live model catalog and pick a matching available model without crossing
-providers.
-
-Pass `--model-profile` to override the default for a task. Pass `--failure-count`
-only from real verifier failures; escalation then moves one profile per failure
-and stops at `strong`. The older `fast`, `standard`, and `frontier` inputs still
-work as aliases.
-
-A stronger model is still just a stronger opinion. Executable checks decide
-completion.
+The host may delegate to any subagent it offers, or to none. Each delegated
+prompt must stand alone. Delegated output is material: merge it, then run
+`verify run` on the integrated result. Executable checks decide completion.
 
 ## Evidence, honestly
 

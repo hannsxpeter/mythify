@@ -47,7 +47,7 @@ class RouteCase(unittest.TestCase):
         )
 
     def route(self, task):
-        result = self.run_cli("route", task, "--json", "--triage", "never")
+        result = self.run_cli("route", task, "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
@@ -112,8 +112,8 @@ class TestRouteMatrix(RouteCase):
     def test_freshness_terms_have_single_synced_source(self):
         # Freshness routing has one source of truth: the research task_type
         # in classification-rules.json. Assert the manifest carries the terms
-        # and that classify still yields task_type='research', so manifest
-        # drift or a semantic regression fails loudly.
+        # and that the route classification still yields task_type='research',
+        # so manifest drift or a semantic regression fails loudly.
         terms = (
             "what is the current pricing",
             "check the live status",
@@ -129,9 +129,9 @@ class TestRouteMatrix(RouteCase):
             "check the live status of the service",
             "how much does it cost to run the API",
         ):
-            result = self.run_cli("classify", task, "--json", "--triage", "never")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout)["task_type"], "research", task)
+            self.assertEqual(
+                self.route(task)["classification"]["task_type"], "research", task
+            )
 
     def test_review(self):
         for task in (
@@ -239,10 +239,6 @@ class TestRouteMatrix(RouteCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestLoopCollisionVocabulary(RouteCase):
     def test_single_active_loop_reports_no_collision(self):
         self.run_cli("plan", "create", "Ship the feature", "--name", "solo-plan")
@@ -261,7 +257,7 @@ class TestLoopCollisionVocabulary(RouteCase):
         self.assertIsNotNone(collision)
         self.assertEqual(collision["families"], ["outcome", "plan"])
         self.assertEqual(collision["steers"], "outcome")
-        text = self.run_cli("route", "continue the work", "--triage", "never")
+        text = self.run_cli("route", "continue the work")
         self.assertIn("Loop collision:", text.stdout)
 
 
@@ -297,3 +293,87 @@ class TestQuestionTheReference(RouteCase):
         self.assertEqual(run.returncode, 2)
         packet = self.failure_packet()
         self.assertEqual(packet["context"]["failed_command_streak"], 1)
+
+
+FORBIDDEN_ROUTE_KEYS = ("model_policy", "model_router", "execution_adapter", "session")
+
+
+def collect_keys(value, found=None):
+    """Every dict key anywhere in a decoded JSON value."""
+    found = set() if found is None else found
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found.add(key)
+            collect_keys(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            collect_keys(item, found)
+    return found
+
+
+class TestRouteAdvisories(RouteCase):
+    """route --json carries neutral advisories and never a model recommendation."""
+
+    def test_classification_carries_framing_parallelism_and_review(self):
+        for task in (
+            "What does the status command show?",
+            "Add an export endpoint with validation, tests, and docs",
+            "Audit this module and find the risks",
+            "Rotate the production deploy credential",
+        ):
+            with self.subTest(task=task):
+                classification = self.route(task)["classification"]
+                framing = classification["framing"]
+                self.assertIn(framing["level"], ("none", "light", "full"))
+                self.assertTrue(framing["reason"])
+                parallelism = classification["parallelism"]
+                self.assertIn(parallelism["fit"], ("none", "possible", "strong"))
+                self.assertEqual(parallelism["chooser"], "host")
+                self.assertTrue(parallelism["reason"])
+                review = classification["review"]
+                self.assertIsInstance(review["independent"], bool)
+                self.assertTrue(review["reason"])
+                for key in (
+                    "task_type",
+                    "risk",
+                    "ambiguity",
+                    "ceremony",
+                    "execution_profile",
+                    "verification",
+                    "next_action",
+                    "quality_climb",
+                    "quality_climb_reason",
+                    "quality_climb_protocol",
+                ):
+                    self.assertIn(key, classification)
+
+    def test_route_json_has_no_model_keys_with_or_without_state(self):
+        payloads = [self.route("Research the latest options for the wire format")]
+        self.run_cli("plan", "create", "feature", "--steps", json.dumps([{"title": "s1"}]))
+        self.run_cli("outcome", "start", "green", "--success", "ok", "--verify", "true")
+        self.run_cli("verify", "run", "false", "--claim", "red on purpose")
+        payloads.append(self.route("continue the work"))
+        for payload in payloads:
+            keys = collect_keys(payload)
+            for forbidden in FORBIDDEN_ROUTE_KEYS:
+                self.assertNotIn(forbidden, keys)
+
+    def test_high_risk_route_asks_for_independent_review(self):
+        classification = self.route("Rotate the production deploy credential")["classification"]
+        self.assertEqual(classification["risk"], "high")
+        self.assertTrue(classification["review"]["independent"])
+        quiet = self.route("What does the status command show?")["classification"]
+        self.assertFalse(quiet["review"]["independent"])
+        self.assertEqual(quiet["framing"]["level"], "none")
+        self.assertEqual(quiet["parallelism"]["fit"], "none")
+
+    def test_text_route_prints_the_advisories(self):
+        result = self.run_cli("route", "Compare three parser designs")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Advisories: framing=", result.stdout)
+        self.assertIn("(chooser: host)", result.stdout)
+        self.assertNotIn("Execution adapter", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

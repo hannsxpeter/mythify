@@ -406,12 +406,12 @@ class TestGodRouting(TestPlanImportCli):
 
     def test_classification_terms(self):
         self.init_with_artifacts(plan=False)
-        design = self.run_cli("classify", "godplans", "--json")
+        design = self.run_cli("route", "godplans", "--json")
         self.assertEqual(design.returncode, 0, design.stderr)
-        self.assertEqual(json.loads(design.stdout)["task_type"], "design")
-        review = self.run_cli("classify", "godaudits", "--json")
+        self.assertEqual(json.loads(design.stdout)["classification"]["task_type"], "design")
+        review = self.run_cli("route", "godaudits", "--json")
         self.assertEqual(review.returncode, 0, review.stderr)
-        self.assertEqual(json.loads(review.stdout)["task_type"], "review")
+        self.assertEqual(json.loads(review.stdout)["classification"]["task_type"], "review")
 
     def test_review_prompt_packet_includes_audit(self):
         self.init_with_artifacts(plan=False, audit=True)

@@ -206,8 +206,7 @@ Most turns should start with `route`, not the full table below.
 | `protocol check [PATH ...] [--json]` | Verify copied protocol files match this CLI. |
 | `status` | Orientation: active plan, next step, counts. |
 | `harness [--recent N] [--json]` | Read-only evidence harness for autonomous agent work. |
-| `route TASK [--json] [--triage never\|auto\|always]` | Choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt routing from task text and durable state without mutating state. |
-| `classify TASK [--json] [--triage never\|auto\|always]` | Identify task type, risk, execution profile, verification strategy, fanout fit, model policy, and task-based host recommendation when routing is not needed. |
+| `route TASK [--json]` | Choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt routing from task text and durable state without mutating state. `--json` includes the classification with framing, parallelism, and review advisories. |
 | `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan, set it active. |
 | `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step. |
 | `plan list` | List plans with progress. |
@@ -218,9 +217,6 @@ Most turns should start with `route`, not the full table below.
 | `memory set KEY VALUE [--category C]` | Store an entry (fact, decision, discovery, state). |
 | `memory get [QUERY] [--category C]` | Substring search over keys and values. |
 | `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |
-| `host-model switch MODEL [--platform P]` | Record a requested host chat model switch for model policy. |
-| `host-model status` | Show the recorded host model switch. |
-| `host-model clear` | Clear the recorded host model switch. |
 | `artifact probe [service options]` | Probe the optional external artifact-hygiene service. |
 | `artifact inspect PATH [inspection and service options]` | Inspect an artifact without changing it. Direct output is material, not verification evidence. |
 | `artifact clean PATH --output OUTPUT --confirm-authorized [clean and service options]` | Clean an owned or authorized artifact to a separate output after post-clean inspection. |
@@ -263,8 +259,7 @@ next, handoff, failure, review, or map packets. The `mythify` tool runs any
 other CLI command by argument list. Same state directory, same file formats,
 same evidence gates as the CLI.
 
-Treat host-model state, artifact hygiene, provider probes, local model runs,
-host CLI workers, execution substrate tools, and lifecycle probes as labs surfaces. They are
+Treat artifact hygiene, trace analysis, and evals as labs surfaces. They are
 available when explicitly useful, but they are not the default Mythify path.
 
 The artifact hygiene surface uses an optional external watermarks-remover
@@ -272,11 +267,6 @@ service. Keep loopback as the default, require explicit acknowledgements for
 remote uploads, and require `--confirm-authorized` plus a separate output for
 cleaning. Treat deterministic findings as actionable, stylometry as advisory,
 and service output as material until an executed verifier records it.
-
-`mythify classify --json` returns `model_policy.session.recommendation` so hosts can map
-the prompt to chat settings before work begins. Direct low-risk prompts use a
-`utility` profile, ordinary implementation uses `balanced`, and research or
-high-risk work uses `strong`; `max` remains explicit-only.
 
 Mythify does not spawn workers. When work splits into independent parts, the
 host may delegate to any subagent it offers, or to none. Each delegated prompt

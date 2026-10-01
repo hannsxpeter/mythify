@@ -27,7 +27,6 @@ cp scripts/mythify.py /path/to/your/project/scripts/
 cp scripts/mythify_*.py /path/to/your/project/scripts/
 cp protocol/operation-registry.json /path/to/your/project/protocol/
 cp protocol/classification-rules.json /path/to/your/project/protocol/
-cp protocol/model-capabilities.json /path/to/your/project/protocol/
 cp protocol/workflow-router.json /path/to/your/project/protocol/
 cp protocol/artifact-hygiene.json /path/to/your/project/protocol/
 cd /path/to/your/project

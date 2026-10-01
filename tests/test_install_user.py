@@ -146,7 +146,6 @@ class TestUserInstaller(unittest.TestCase):
             root + "/protocol/artifact-hygiene.json",
             root + "/protocol/prose-quality.json",
             root + "/protocol/classification-rules.json",
-            root + "/protocol/model-capabilities.json",
             root + "/protocol/operation-registry.json",
             root + "/protocol/workflow-router.json",
             root + "/skills/mythify/SKILL.md",
@@ -330,13 +329,14 @@ class TestUserInstaller(unittest.TestCase):
         tool_names = self.mcp_tool_names(mcp_bin, cwd=project, env=env)
         self.assertIn("verify_run", tool_names)
         self.assertIn("mythify", tool_names)
-        classify_result = self.run_cmd(
-            [str(mythify_bin), "classify", "fix failing parser", "--json"],
+        route_result = self.run_cmd(
+            [str(mythify_bin), "route", "fix failing parser", "--json"],
             cwd=project,
             env=env,
         )
-        self.assertEqual(classify_result.returncode, 0, classify_result.stderr)
-        self.assertIn('"task_type": "bugfix"', classify_result.stdout)
+        self.assertEqual(route_result.returncode, 0, route_result.stderr)
+        self.assertIn('"task_type": "bugfix"', route_result.stdout)
+        self.assertIn('"chooser": "host"', route_result.stdout)
 
         obsolete = cli_root / "obsolete-from-previous-install.txt"
         obsolete.write_text("remove on update\n", encoding="utf-8")

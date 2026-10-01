@@ -309,10 +309,6 @@ def install_mythify(workspace):
         workspace / "protocol" / "classification-rules.json",
     )
     shutil.copy2(
-        root / "protocol" / "model-capabilities.json",
-        workspace / "protocol" / "model-capabilities.json",
-    )
-    shutil.copy2(
         root / "protocol" / "workflow-router.json",
         workspace / "protocol" / "workflow-router.json",
     )

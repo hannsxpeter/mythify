@@ -420,7 +420,6 @@ def cmd_outcome_start(args, state):
         "escalate_after": escalate_after,
         "allowed_paths": parse_allowed_paths(args.allowed_paths),
         "frozen_paths": parse_allowed_paths(getattr(args, "frozen_paths", "")),
-        "visibility": args.visibility,
         "status": "active",
         "created": now,
         "updated": now,

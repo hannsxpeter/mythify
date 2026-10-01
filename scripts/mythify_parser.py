@@ -15,13 +15,6 @@ from mythify_map_parser import add_map_parser
 from mythify_mcp import serve as serve_mcp
 
 
-def nonnegative_int(value):
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("must be a nonnegative integer")
-    return parsed
-
-
 def build_parser(symbols):
     globals().update(symbols)
     parser = argparse.ArgumentParser(
@@ -44,11 +37,10 @@ def build_parser(symbols):
             "\n"
             "Advanced surfaces:\n"
             "  dashboard, harness, history, background, progress, readiness, timeline, phase, trace,\n"
-            "  classify, memory, lesson, logs, reflect, summary, protocol, mcp\n"
+            "  loop-fit, memory, lesson, logs, reflect, summary, protocol, mcp\n"
             "\n"
             "Labs surfaces:\n"
-            "  host-model, artifact, eval, provider probes, local model runs, host CLI workers,\n"
-            "  execution probes/runs, lifecycle probes\n"
+            "  artifact, eval\n"
             "\n"
             "Strict evidence mode:\n"
             "  completed steps require a passing verify run by default\n"
@@ -205,93 +197,14 @@ def build_parser(symbols):
         description=(
             "Read-only workflow quarterback: classify a prompt, inspect durable "
             "state, and choose direct, plan, research, review, outcome, campaign, "
-            "failure recovery, handoff, or prompt packet routing."
+            "failure recovery, handoff, or prompt packet routing. The JSON output "
+            "carries the deterministic classification with neutral framing, "
+            "parallelism, and review advisories; the host chooses whether and "
+            "where to delegate."
         ),
     )
     p.add_argument("task", help="Task request or problem statement to route.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.add_argument(
-        "--triage",
-        choices=TRIAGE_MODES,
-        default="never",
-        help=(
-            "Run a fast model triage pass: never (default), auto when the gate "
-            "is recommended or required, or always."
-        ),
-    )
-    p.add_argument(
-        "--triage-engine",
-        choices=TRIAGE_ENGINES,
-        default="",
-        help=(
-            "Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE, then "
-            "codex-cli when available, then local auto-detection."
-        ),
-    )
-    p.add_argument(
-        "--triage-model",
-        default="",
-        help="Fast triage model. Defaults to MYTHIFY_TRIAGE_MODEL or the engine default.",
-    )
-    p.add_argument(
-        "--triage-timeout",
-        type=float,
-        default=120.0,
-        help="Fast triage timeout in seconds.",
-    )
-    p.add_argument(
-        "--platform",
-        choices=PLATFORMS,
-        default="auto",
-        help="Host platform for model policy. Defaults to auto-detection.",
-    )
-    p.add_argument(
-        "--effort",
-        choices=EFFORT_LEVELS,
-        default="auto",
-        help="Overall effort preference for spawned model roles.",
-    )
-    p.add_argument(
-        "--speed",
-        choices=SPEED_LEVELS,
-        default="auto",
-        help="Overall speed preference for spawned model roles.",
-    )
-    p.add_argument(
-        "--session-model",
-        default="",
-        help="Current host session model for spawn ceiling policy.",
-    )
-    p.add_argument(
-        "--model-profile",
-        choices=MODEL_PROFILE_INPUTS,
-        default="auto",
-        help=(
-            "Capability profile override. Use utility, balanced, strong, or max; "
-            "fast, standard, and frontier remain compatibility aliases."
-        ),
-    )
-    p.add_argument(
-        "--failure-count",
-        type=nonnegative_int,
-        default=None,
-        help=(
-            "Executed verifier failures in the current bounded loop. Each failure "
-            "can escalate one profile, capped at strong unless max is explicit."
-        ),
-    )
-    p.add_argument(
-        "--spawn-ceiling",
-        choices=SPAWN_CEILINGS,
-        default="auto",
-        help="Maximum spawned model tier relative to the session model.",
-    )
-    p.add_argument(
-        "--reviewer-strength",
-        choices=REVIEWER_STRENGTH_MODES,
-        default="auto",
-        help="Reviewer model strength relative to the session.",
-    )
     p.set_defaults(handler=cmd_route, needs_state="optional")
 
     prompt = sub.add_parser(
@@ -464,7 +377,7 @@ def build_parser(symbols):
         "trace",
         help="Analyze exported agent traces and scenario rows.",
         description=(
-            "Analyze exported Fable-style session traces, model action rows, "
+            "Analyze exported agent session traces, action rows, "
             "and scenario prompt rows. Trace analysis is material for planning "
             "and eval design, not verification evidence."
         ),
@@ -511,7 +424,7 @@ def build_parser(symbols):
         nargs="+",
         help="JSON or JSONL files, directories, or - for JSONL stdin.",
     )
-    p.add_argument("--model", help="Exact model name to filter, such as claude-fable-5.")
+    p.add_argument("--model", help="Exact model name recorded in the trace rows to filter.")
     p.add_argument("--title", help="Markdown title. Defaults to a trace-derived behavior profile title.")
     p.add_argument("--output", help="Write Markdown to this path instead of printing it.")
     p.add_argument(
@@ -595,7 +508,7 @@ def build_parser(symbols):
 
     p = trace_sub.add_parser(
         "install-playbook",
-        help="Install a generated playbook as a local Code or Codex skill.",
+        help="Install a generated playbook as a local agent skill.",
         description=(
             "Wrap a generated Markdown playbook in SKILL.md frontmatter and "
             "install it under a local skill root."
@@ -605,8 +518,8 @@ def build_parser(symbols):
     p.add_argument("--skill", help="Skill directory name. Defaults to the playbook filename.")
     p.add_argument(
         "--skill-root",
-        default="~/.codex/skills",
-        help="Local skill root. Defaults to ~/.codex/skills.",
+        required=True,
+        help="Local skill root directory that the host agent loads skills from.",
     )
     p.add_argument("--force", action="store_true", help="Overwrite an existing skill directory.")
     p.set_defaults(handler=cmd_trace_install_playbook, needs_state=False)
@@ -845,126 +758,6 @@ def build_parser(symbols):
     add_eval_parser(sub, symbols)
 
     p = sub.add_parser(
-        "classify",
-        help="Classify a task and recommend ceremony, verification, and fanout.",
-        description=(
-            "Classify TASK before planning. Returns task type, risk, ceremony "
-            "level, verification strategy, model triage fit, and whether fanout is useful. This "
-            "command does not require an initialized .mythify workspace."
-        ),
-    )
-    p.add_argument("task", help="Task request or problem statement to classify.")
-    p.add_argument(
-        "--json",
-        dest="json_output",
-        action="store_true",
-        help="Print machine-readable JSON instead of text.",
-    )
-    p.add_argument(
-        "--triage",
-        choices=TRIAGE_MODES,
-        default="never",
-        help=(
-            "Run a fast model triage pass: never (default), auto when the gate "
-            "is recommended or required, or always."
-        ),
-    )
-    p.add_argument(
-        "--triage-engine",
-        choices=TRIAGE_ENGINES,
-        default="",
-        help=(
-            "Fast triage engine. Defaults to MYTHIFY_TRIAGE_ENGINE, then "
-            "codex-cli when available, then local auto-detection: "
-            "claude-cli, cursor-agent, command."
-        ),
-    )
-    p.add_argument(
-        "--triage-model",
-        default="",
-        help="Fast triage model. Defaults to MYTHIFY_TRIAGE_MODEL or the engine default.",
-    )
-    p.add_argument(
-        "--triage-timeout",
-        type=float,
-        default=120.0,
-        help="Fast triage timeout in seconds.",
-    )
-    p.add_argument(
-        "--platform",
-        choices=PLATFORMS,
-        default="auto",
-        help=(
-            "Host platform for model policy. Defaults to auto-detection; use "
-            "codex-desktop, claude-desktop, or cursor-desktop when the host is known."
-        ),
-    )
-    p.add_argument(
-        "--effort",
-        choices=EFFORT_LEVELS,
-        default="auto",
-        help=(
-            "Overall effort preference for spawned model roles. Auto keeps "
-            "triage cheap and scales worker or reviewer effort by risk."
-        ),
-    )
-    p.add_argument(
-        "--speed",
-        choices=SPEED_LEVELS,
-        default="auto",
-        help=(
-            "Overall speed preference for spawned model roles. Auto preserves "
-            "host defaults; fast enables Codex fast mode where supported."
-        ),
-    )
-    p.add_argument(
-        "--session-model",
-        default="",
-        help=(
-            "Current host session model for spawn ceiling policy. Defaults to "
-            "MYTHIFY_SESSION_MODEL when set."
-        ),
-    )
-    p.add_argument(
-        "--model-profile",
-        choices=MODEL_PROFILE_INPUTS,
-        default="auto",
-        help=(
-            "Capability profile override. Use utility, balanced, strong, or max; "
-            "fast, standard, and frontier remain compatibility aliases."
-        ),
-    )
-    p.add_argument(
-        "--failure-count",
-        type=nonnegative_int,
-        default=None,
-        help=(
-            "Executed verifier failures in the current bounded loop. Each failure "
-            "can escalate one profile, capped at strong unless max is explicit."
-        ),
-    )
-    p.add_argument(
-        "--spawn-ceiling",
-        choices=SPAWN_CEILINGS,
-        default="auto",
-        help=(
-            "Maximum spawned model tier relative to the session model. Auto "
-            "uses MYTHIFY_SPAWN_CEILING or same_or_lower."
-        ),
-    )
-    p.add_argument(
-        "--reviewer-strength",
-        choices=REVIEWER_STRENGTH_MODES,
-        default="auto",
-        help=(
-            "Reviewer model strength relative to the session. Auto uses "
-            "MYTHIFY_REVIEWER_STRENGTH or same_or_lower; allow_stronger is "
-            "an explicit reviewer-only opt-in."
-        ),
-    )
-    p.set_defaults(handler=cmd_classify, needs_state=False)
-
-    p = sub.add_parser(
         "loop-fit",
         help="Advise whether a task should be a loop, supervised, or done directly.",
         description=(
@@ -985,66 +778,6 @@ def build_parser(symbols):
         help="Print machine-readable JSON instead of text.",
     )
     p.set_defaults(handler=cmd_loop_fit, needs_state=False)
-
-    host_model = sub.add_parser(
-        "host-model",
-        help="Record or inspect the intended host chat model.",
-        description=(
-            "Record a requested host chat model switch. Mythify uses the recorded "
-            "target as the default session model for model policy and spawn ceiling "
-            "checks, while the actual current chat model remains controlled by the host."
-        ),
-    )
-    host_model_sub = host_model.add_subparsers(dest="host_model_command", metavar="ACTION", required=True)
-
-    p = host_model_sub.add_parser(
-        "switch",
-        help="Record a requested host chat model switch.",
-        description="Record a target host model and print host-specific switch guidance.",
-    )
-    p.add_argument("target_model", help="Target host model to record.")
-    p.add_argument(
-        "--platform",
-        choices=PLATFORMS,
-        default="auto",
-        help="Host platform. Defaults to auto.",
-    )
-    p.add_argument(
-        "--current-model",
-        default="",
-        help="Current host model when known, recorded for audit only.",
-    )
-    p.add_argument(
-        "--thinking",
-        choices=HOST_THINKING_LEVELS,
-        default="auto",
-        help="Requested host reasoning effort when the host supports it.",
-    )
-    p.add_argument(
-        "--speed",
-        choices=SPEED_LEVELS,
-        default="auto",
-        help="Requested host speed preference when the host supports it.",
-    )
-    p.add_argument("--reason", default="", help="Reason for the host switch.")
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_host_model_switch)
-
-    p = host_model_sub.add_parser(
-        "status",
-        help="Show the recorded host model switch.",
-        description="Show the recorded host model switch, if any.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_host_model_status)
-
-    p = host_model_sub.add_parser(
-        "clear",
-        help="Clear the recorded host model switch.",
-        description="Remove host-model.json from the Mythify state directory.",
-    )
-    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_host_model_clear)
 
     add_artifact_parser(
         sub,
@@ -1139,12 +872,6 @@ def build_parser(symbols):
         type=int,
         default=None,
         help="Stop and hand back to a human after N consecutive failed verifications.",
-    )
-    p.add_argument(
-        "--visibility",
-        choices=FANOUT_VISIBILITY_MODES,
-        default="summary",
-        help="How much loop progress the host should surface.",
     )
     p.add_argument("--name", help="Outcome name; defaults to a slug of the goal.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")

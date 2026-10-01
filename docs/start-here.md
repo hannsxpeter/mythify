@@ -147,13 +147,13 @@ proven. It does not make the release safe by itself.
 
 ## What to ignore at first
 
-Skip fanout, host model switching, provider probes, remote execution, lifecycle
-adapters, and most of the MCP tool set. Those are power-user surfaces and none of
+Skip fanout, provider probes, remote execution, lifecycle adapters, and most of
+the MCP tool set. Those are power-user surfaces and none of
 them are load-bearing on day one.
 
-Skip `classify` too, unless you specifically need classification on its own. For
-ordinary chat work, `route` wraps classification with durable state and returns
-the next workflow move.
+For ordinary chat work, `route` wraps classification with durable state and
+returns the next workflow move; `route --json` carries the classification
+itself.
 
 ## When to add MCP
 

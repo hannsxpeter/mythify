@@ -916,7 +916,6 @@ def summarize_outcome(state, slug, goal):
         "status": goal.get("status", "active"),
         "iteration_count": goal.get("iteration_count", 0),
         "max_iterations": goal.get("max_iterations", 1),
-        "visibility": goal.get("visibility", "summary"),
         "created": goal.get("created", ""),
         "updated": goal.get("updated", ""),
         "last_verified": goal.get("last_verified"),
@@ -1127,7 +1126,6 @@ def summarize_outcome_progress(state, slug, goal):
         "progress_percent": round((iteration_count / max_iterations) * 100, 1)
         if max_iterations
         else 0,
-        "visibility": goal.get("visibility", "summary"),
         "created": goal.get("created", ""),
         "updated": goal.get("updated", ""),
         "last_verified": goal.get("last_verified"),

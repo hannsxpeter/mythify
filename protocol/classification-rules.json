@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "description": "Deterministic task classification policy for the Mythify CLI.",
   "thresholds": {
     "trivial_word_count": 12,
@@ -95,88 +95,68 @@
       "security"
     ]
   },
-  "fanout": {
-    "recommended_task_types": [
+  "framing": {
+    "none_reason": "The deterministic classification is enough for a simple question or one-step task.",
+    "high_impact_terms": [
+      "production",
+      "payment",
+      "credential",
+      "secret",
+      "data loss",
+      "delete",
+      "remove",
+      "drop",
+      "deploy"
+    ],
+    "high_impact_reason": "High-impact ambiguous work needs the goal, hidden requirements, and verifier restated before planning.",
+    "high_ambiguity_reason": "The request is underspecified: restate the goal, hidden questions, and verifier before acting.",
+    "full_task_types": [
+      "research",
+      "review",
+      "benchmark",
+      "design",
+      "debugging",
+      "security",
+      "migration",
+      "release",
+      "performance"
+    ],
+    "full_task_type_reason": "This problem type benefits from an explicit framing pass before execution.",
+    "light_task_types": [
+      "feature",
+      "refactor",
+      "frontend_ui",
+      "bugfix",
+      "test_generation"
+    ],
+    "light_reason": "A short framing note naming the goal and verifier helps, but the work can proceed without a separate pass.",
+    "default_reason": "The deterministic classification gives enough routing signal for this task."
+  },
+  "parallelism": {
+    "strong_task_types": [
       "research",
       "review",
       "benchmark",
       "design"
     ],
-    "recommended_terms": [
+    "strong_terms": [
       "parallel"
     ],
-    "recommended_reason": "Independent analysis or comparison work can be split across workers.",
-    "optional_task_types": [
+    "strong_reason": "Independent analysis or comparison work splits cleanly; the host may delegate parts to any subagent it offers, or to none.",
+    "possible_task_types": [
       "feature",
       "refactor",
       "frontend_ui"
     ],
-    "optional_terms": [
+    "possible_terms": [
       "multiple files"
     ],
-    "optional_reason": "Use fanout only for independent subtasks; keep dependent implementation sequential.",
-    "not_recommended_reason": "A single focused worker is simpler for this task type."
+    "possible_reason": "Delegate only independent parts; keep dependent implementation sequential.",
+    "none_reason": "One focused worker is simpler for this task type."
   },
-  "fanout_visibility": {
-    "default": {
-      "visibility": "summary",
-      "source": "default",
-      "reason": "Summary visibility is the default: show worker titles, status, and notable results without flooding the chat."
-    },
-    "modes": [
-      {
-        "visibility": "quiet",
-        "source": "prompt",
-        "reason": "The prompt asks to keep background worker activity quiet.",
-        "terms": [
-          "quiet",
-          "quietly",
-          "silent",
-          "silently",
-          "background only",
-          "do not show worker",
-          "don't show worker",
-          "do not show subagent",
-          "don't show subagent",
-          "no worker details",
-          "minimal progress"
-        ]
-      },
-      {
-        "visibility": "threaded",
-        "source": "prompt",
-        "reason": "The prompt asks for visible worker threads or separate chats when the host supports them.",
-        "terms": [
-          "threaded",
-          "visible thread",
-          "visible threads",
-          "separate thread",
-          "separate threads",
-          "separate chat",
-          "separate chats",
-          "show subagent chats",
-          "show sub-agent chats",
-          "visible subagent",
-          "visible sub-agent"
-        ]
-      },
-      {
-        "visibility": "verbose",
-        "source": "prompt",
-        "reason": "The prompt asks to see detailed worker output or progress.",
-        "terms": [
-          "verbose",
-          "show details",
-          "show full",
-          "show logs",
-          "show worker output",
-          "show subagent output",
-          "show sub-agent output",
-          "detailed progress",
-          "full worker output"
-        ]
-      }
-    ]
+  "review": {
+    "independent_reason": "High-risk or heavy work deserves an independent review of the integrated result before completion; review output is material, not verification.",
+    "self_check_reason": "A self-check against the executable verifier is enough; an independent review is optional."
   },
   "quality_climb": {
     "terms": [
@@ -196,12 +176,12 @@
     ],
     "detected_reason": "The prompt asks for an open-ended quality climb toward a reference bar, not a machine-checkable done-condition.",
     "not_detected_reason": "No open-ended quality-climb language detected.",
-    "protocol": "Fan out builder workers, add one separate harsh critic that blind-compares the integrated deliverable side by side with the named reference, record critic verdicts as material with verify claim, keep any executable checks as verify run gates, and state an explicit budget up front: the reference bar stays out of reach by design, so the budget or the human is the brake."
+    "protocol": "Split builder work across whatever subagents the host offers (or none), add one separate harsh critic that blind-compares the integrated deliverable side by side with the named reference, record critic verdicts as material with verify claim, keep any executable checks as verify run gates, and state an explicit budget up front: the reference bar stays out of reach by design, so the budget or the human is the brake."
   },
   "execution_profile": {
     "direct_reason": "No protocol state is needed for a simple answer or one reversible edit.",
     "full_reason": "High-risk or heavy work needs the full plan, verify, reflect, and state loop.",
-    "ambiguous_reason": "Ambiguous work needs a plan or fast triage before execution.",
+    "ambiguous_reason": "Ambiguous work needs framing or a plan before execution.",
     "fast_reason": "Focused low-risk work can skip plan state but must still use verify run.",
     "light_reason": "Light work can use the fast profile unless it expands into multiple steps.",
     "standard_reason": "Use a plan with verifiable steps and verify run before completion.",
@@ -259,43 +239,6 @@
     "fast": "Use the fast profile: skip plan state, make the focused change, and run verify run before completion.",
     "standard": "Create a plan with verifiable steps, act step by step, and use verify run before completion.",
     "full": "Use the full loop: plan, memory, step updates, verify run, reflect on failures, and summarize."
-  },
-  "model_triage": {
-    "none_reason": "The deterministic classifier is enough for a simple question or one-step task.",
-    "high_impact_terms": [
-      "production",
-      "payment",
-      "credential",
-      "secret",
-      "data loss",
-      "delete",
-      "remove",
-      "drop",
-      "deploy"
-    ],
-    "high_impact_required_reason": "High-impact ambiguous work deserves a cheap second read before planning.",
-    "high_ambiguity_reason": "The request is underspecified enough that a fast framing pass can reduce rework.",
-    "recommended_task_types": [
-      "research",
-      "review",
-      "benchmark",
-      "design",
-      "debugging",
-      "security",
-      "migration",
-      "release",
-      "performance"
-    ],
-    "recommended_reason": "This problem type benefits from an independent framing pass before execution.",
-    "optional_task_types": [
-      "feature",
-      "refactor",
-      "frontend_ui",
-      "bugfix",
-      "test_generation"
-    ],
-    "optional_reason": "A fast triage pass may help, but the main worker can proceed without it.",
-    "skip_reason": "The deterministic classification gives enough routing signal for this task."
   },
   "verification_hints": {
     "security": "Run security-focused tests plus the relevant normal suite; inspect permissions and secret handling.",

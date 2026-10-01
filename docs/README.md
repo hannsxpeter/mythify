@@ -29,8 +29,6 @@ publish checks.
 - [tool-use-contract.md](tool-use-contract.md): deferred-tool discovery
   discipline. Adapters must load a tool's real schema before calling it, and must
   never invoke from a guessed schema.
-- [cli-to-model-runtime-migration.md](cli-to-model-runtime-migration.md): the
-  migration path from drop-in CLI use to MCP and model-runtime integrations.
 - [artifact-hygiene.md](artifact-hygiene.md): optional external
   watermarks-remover adapter, trust boundaries, finding normalization, and
   guarded cleaning contract.
@@ -47,8 +45,6 @@ publish checks.
 These describe work that is investigated but not promised. Treat them as notes,
 not as product commitments.
 
-- [host-apply-confirm-proof-watchlist.md](host-apply-confirm-proof-watchlist.md)
-- [host-model-switching-research.md](host-model-switching-research.md)
 - [local-llm-and-new-host-research.md](local-llm-and-new-host-research.md)
 - [agents-cli-adk-spike-plan.md](agents-cli-adk-spike-plan.md)
 - [colab-cli-spike-plan.md](colab-cli-spike-plan.md)
@@ -76,9 +72,8 @@ not broken.
 - Keep current setup instructions in sync with the required drop-in files:
   protocol variant, `scripts/mythify.py`, adjacent `scripts/mythify_*.py`
   helpers, `protocol/operation-registry.json`,
-  `protocol/classification-rules.json`, `protocol/model-capabilities.json`, and
-  `protocol/workflow-router.json`, plus `protocol/artifact-hygiene.json` when
-  the artifact adapter is installed.
+  `protocol/classification-rules.json`, and `protocol/workflow-router.json`,
+  plus `protocol/artifact-hygiene.json` when the artifact adapter is installed.
 - Keep first-run instructions focused on one happy path before listing advanced
   surfaces.
 - Keep MCP tool claims aligned to `TOOL_ALLOWLIST` in `scripts/mythify_mcp.py`

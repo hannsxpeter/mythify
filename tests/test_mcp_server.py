@@ -391,6 +391,10 @@ class TestToolList(McpServerCase):
         self.assertEqual(by_name["protocol_check"]["properties"]["paths"]["type"], "array")
         self.assertNotIn("required", by_name["protocol_check"])
         self.assertEqual(by_name["mythify"]["required"], ["args"])
+        # Model-agnostic: route takes only the task and --json, and outcome
+        # start has no visibility knob.
+        self.assertEqual(sorted(by_name["route"]["properties"]), ["json", "task"])
+        self.assertNotIn("visibility", by_name["outcome_start"]["properties"])
 
 
 class TestSchemaGeneration(unittest.TestCase):

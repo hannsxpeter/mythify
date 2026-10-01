@@ -7,7 +7,6 @@ from pathlib import Path
 
 from mythify_classification import classify_task_text
 from mythify_godfiles import godaudits_summary, godplans_summary
-from mythify_model_policy import build_model_policy, run_model_triage
 from mythify_plan_horizon import route_plan_horizon
 from mythify_maps import (
     format_ticket_line,
@@ -132,7 +131,6 @@ git_status_summary = _missing_dependency
 compact_report_detail = _missing_dependency
 build_work_report = _missing_dependency
 load_outcome = _missing_dependency
-read_host_model_state = _missing_dependency
 
 
 def fail(message):
@@ -152,13 +150,12 @@ def configure_prompt_router(
     compact_report_detail_func=None,
     build_work_report_func=None,
     load_outcome_func=None,
-    read_host_model_state_func=None,
     fail_func=None,
 ):
     global get_active_slug, load_plan, plan_progress, next_pending_step
     global read_jsonl, build_verification_history_view, verification_label
     global git_status_summary, compact_report_detail, build_work_report
-    global load_outcome, read_host_model_state, fail
+    global load_outcome, fail
     if get_active_slug_func is not None:
         get_active_slug = get_active_slug_func
     if load_plan_func is not None:
@@ -181,8 +178,6 @@ def configure_prompt_router(
         build_work_report = build_work_report_func
     if load_outcome_func is not None:
         load_outcome = load_outcome_func
-    if read_host_model_state_func is not None:
-        read_host_model_state = read_host_model_state_func
     if fail_func is not None:
         fail = fail_func
 
@@ -1241,12 +1236,6 @@ def build_workflow_route(task, state, classification):
             god_audit.get("path"), god_audit.get("detail")
         )
     packet_kind = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
-    execution_adapter = (
-        classification.get("model_policy", {})
-        .get("model_router", {})
-        .get("execution_topology", {})
-        .get("native_adapter", {})
-    )
     state_writes = route_state_writes(route, state_view)
     loop_collision = active_loop_collision(state_view)
     return {
@@ -1262,7 +1251,6 @@ def build_workflow_route(task, state, classification):
             "kind": packet_kind,
             "command": "mythify prompt {0}".format(packet_kind),
         },
-        "execution_adapter": execution_adapter,
         "verification_strategy": classification.get("verification", ""),
         "plan_archetype": route_plan_archetype(route, classification),
         "maintainability_review": maintainability_review_packet(route, classification),
@@ -1301,20 +1289,33 @@ def format_workflow_route(payload):
             else "optional"
         ),
     ]
+    classification = payload.get("classification") or {}
+    framing = classification.get("framing") or {}
+    parallelism = classification.get("parallelism") or {}
+    review = classification.get("review") or {}
+    lines.append(
+        "Classification: type={0}; risk={1}; ambiguity={2}; profile={3}".format(
+            classification.get("task_type", ""),
+            classification.get("risk", ""),
+            classification.get("ambiguity", ""),
+            classification.get("execution_profile", ""),
+        )
+    )
+    lines.append(
+        "Advisories: framing={0}; parallelism={1} (chooser: {2}); independent review={3}".format(
+            framing.get("level", "none"),
+            parallelism.get("fit", "none"),
+            parallelism.get("chooser", "host"),
+            "yes" if review.get("independent") else "no",
+        )
+    )
+    if classification.get("quality_climb") == "detected":
+        lines.append(
+            "Quality climb: {0}".format(classification.get("quality_climb_protocol", ""))
+        )
     collision = payload.get("loop_collision")
     if collision:
         lines.append("Loop collision: {0}".format(collision.get("note", "")))
-    adapter = payload.get("execution_adapter") or {}
-    if adapter.get("recommended") is True:
-        lines.append(
-            "Execution adapter: {0}; start={1}; status={2}; results={3}; evidence={4}".format(
-                adapter.get("engine", "claude-ultracode"),
-                adapter.get("start_tool", "fanout_start"),
-                adapter.get("status_tool", "fanout_status"),
-                adapter.get("results_tool", "fanout_results"),
-                adapter.get("result_evidence_status", "material_not_verification"),
-            )
-        )
     policy = payload.get("chat_policy") or {}
     lines.append("Chat policy: executor={0}; surface={1}; report_issues={2}".format(
         policy.get("executor", "initiating_host"),
@@ -1335,13 +1336,6 @@ def format_workflow_route(payload):
 
 def cmd_route(args, state):
     classification = classify_task_text(args.task)
-    classification["model_policy"] = build_model_policy(
-        classification,
-        args,
-        read_host_model_state(state),
-    )
-    if args.triage != "never":
-        classification["model_triage_run"] = run_model_triage(args.task, classification, args)
     payload = build_workflow_route(args.task, state, classification)
     if args.json_output:
         print(json.dumps(payload, indent=2))
