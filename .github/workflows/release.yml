@@ -34,7 +34,7 @@ jobs:
           python3 scripts/check_runtime_source_size.py
       - name: Check protocol variants and whitespace
         run: |
-          python3 scripts/mythify.py protocol check CLAUDE.md AGENTS.md .cursorrules
+          python3 scripts/mythify.py protocol check AGENTS.md CLAUDE.md
           git diff --check
       - name: Build skill package
         run: python3 scripts/package_skill.py

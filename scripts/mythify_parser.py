@@ -65,8 +65,9 @@ def build_parser(symbols):
         help="Verify copied protocol files match this CLI.",
         description=(
             "Verify copied protocol files match this CLI's embedded source protocol "
-            "hash. With no paths, check source protocol when present and local "
-            "CLAUDE.md, AGENTS.md, and .cursorrules files."
+            "hash. With no paths, check the source protocol when present, a local "
+            "AGENTS.md (full copy), a local CLAUDE.md (pointer that imports "
+            "AGENTS.md, or a legacy full copy), and a leftover legacy .cursorrules."
         ),
     )
     p.add_argument("paths", nargs="*", help="Protocol copy files to check.")

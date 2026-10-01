@@ -48,9 +48,10 @@ pay for itself.
 
 ## Generated files: never edit by hand
 
-`CLAUDE.md`, `AGENTS.md`, and `.cursorrules` at the repository root are
-generated. Do not edit them directly; CI rejects any drift between them and
-their source.
+`AGENTS.md` and `CLAUDE.md` at the repository root are generated. `AGENTS.md`
+is the full protocol copy; `CLAUDE.md` is a pointer that imports it. Do not
+edit them directly; CI runs `python3 scripts/build_variants.py --check` and
+rejects any drift between them and their source.
 
 To change the protocol:
 
@@ -61,8 +62,8 @@ To change the protocol:
    python3 scripts/build_variants.py
    ```
 
-3. Commit `protocol/PROTOCOL.md` together with the regenerated `CLAUDE.md`,
-   `AGENTS.md`, and `.cursorrules`.
+3. Commit `protocol/PROTOCOL.md` together with the regenerated `AGENTS.md`,
+   `CLAUDE.md`, and `scripts/mythify_protocol.py` (its embedded protocol hash).
 
 Similarly, `dist/mythify.skill` is a build output (created by
 `python3 scripts/package_skill.py` from `skills/mythify/`) and is not committed.

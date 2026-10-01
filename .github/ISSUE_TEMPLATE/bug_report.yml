@@ -17,7 +17,7 @@ body:
       options:
         - CLI (scripts/mythify.py)
         - MCP server (scripts/mythify_mcp.py, mythify mcp)
-        - Protocol files (protocol/PROTOCOL.md, CLAUDE.md, AGENTS.md, .cursorrules)
+        - Protocol files (protocol/PROTOCOL.md, AGENTS.md, CLAUDE.md)
         - Skill package (skills/mythify/, dist/mythify.skill)
         - Documentation (README.md, docs/)
     validations:
