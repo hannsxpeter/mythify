@@ -5,9 +5,11 @@ AGENTS.md is the canonical drop-in: a generated header line, a
 protocol-sha256 handshake line, a blank line, then the full protocol body.
 CLAUDE.md is a short pointer: the generated header line, a blank line, an
 `@AGENTS.md` import line, and one sentence naming AGENTS.md as the home of the
-protocol. The embedded PROTOCOL_SOURCE_SHA256 constant in
-scripts/mythify_protocol.py is rewritten to the new digest in the same run, so
-a protocol edit cannot leave the handshake stale.
+protocol. The pointer text comes from scripts/mythify_protocol.py, the same
+text `protocol check` compares a pointer against. The embedded
+PROTOCOL_SOURCE_SHA256 constant in scripts/mythify_protocol.py is rewritten to
+the new digest in the same run, so a protocol edit cannot leave the handshake
+stale.
 
 The script is idempotent: running it twice produces byte-identical output.
 With --check it writes nothing and exits 1 when any generated file is out of
@@ -20,26 +22,17 @@ import re
 import sys
 from pathlib import Path
 
-HEADER = (
-    "<!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. "
-    "Edit the source, then rebuild. -->"
-)
-HASH_HEADER = "<!-- Mythify protocol-sha256: {0} -->"
-POINTER_LINE = "@AGENTS.md"
-POINTER_SENTENCE = (
-    "The Mythify protocol lives in AGENTS.md; the line above imports it, so "
-    "edit protocol/PROTOCOL.md and rebuild instead of editing either file."
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from mythify_protocol import GENERATED_HEADER, PROTOCOL_HASH_PREFIX, pointer_copy  # noqa: E402
+
+HASH_HEADER = PROTOCOL_HASH_PREFIX + "{0} -->"
 CLI_HASH_PATTERN = re.compile(r'^PROTOCOL_SOURCE_SHA256 = "[0-9a-f]{64}"$', re.M)
 CLI_MODULE = Path("scripts") / "mythify_protocol.py"
 
 
 def full_copy(body, digest):
-    return HEADER + "\n" + HASH_HEADER.format(digest) + "\n\n" + body
-
-
-def pointer_copy():
-    return HEADER + "\n\n" + POINTER_LINE + "\n\n" + POINTER_SENTENCE + "\n"
+    return GENERATED_HEADER + "\n" + HASH_HEADER.format(digest) + "\n\n" + body
 
 
 def expected_outputs(repo_root):

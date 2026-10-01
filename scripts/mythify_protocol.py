@@ -3,11 +3,14 @@
 The protocol text is a frozen node: a rule the optimizer being graded must
 never tune silently. It is pinned to a digest embedded here; `protocol check`
 compares the source protocol and every drop-in against it and fails loudly on
-drift. AGENTS.md is the canonical full copy. CLAUDE.md is accepted as a
-pointer whose `@AGENTS.md` line imports AGENTS.md, or as a legacy full copy. A
-leftover .cursorrules is a legacy full copy Mythify no longer generates; it is
-checked and labeled as such. scripts/build_variants.py rewrites
-PROTOCOL_SOURCE_SHA256 when the protocol source legitimately changes.
+drift. AGENTS.md is the canonical full copy. CLAUDE.md is accepted as the
+generated pointer, whose `@AGENTS.md` line imports AGENTS.md, or as a legacy
+full copy. A pointer must match pointer_copy() exactly, apart from trailing
+whitespace and line endings, so no rule can ride beside the import unchecked.
+A leftover .cursorrules is a legacy full copy Mythify no longer generates; it
+is checked and labeled as such. scripts/build_variants.py imports the pointer
+text from here and rewrites PROTOCOL_SOURCE_SHA256 when the protocol source
+legitimately changes.
 """
 
 import hashlib
@@ -21,6 +24,14 @@ PROTOCOL_SOURCE_SHA256 = "851bd9826d6cd7ea7cd820923438ae5e4befca1c17b95acf4496c2
 PROTOCOL_HASH_PREFIX = "<!-- Mythify protocol-sha256: "
 CANONICAL_COPY_NAME = "AGENTS.md"
 POINTER_IMPORT_LINE = "@" + CANONICAL_COPY_NAME
+GENERATED_HEADER = (
+    "<!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. "
+    "Edit the source, then rebuild. -->"
+)
+POINTER_SENTENCE = (
+    "The Mythify protocol lives in AGENTS.md; the line above imports it, so "
+    "edit protocol/PROTOCOL.md and rebuild instead of editing either file."
+)
 PROTOCOL_COPY_CANDIDATES = (CANONICAL_COPY_NAME, "CLAUDE.md")
 LEGACY_COPY_NAMES = (".cursorrules",)
 
@@ -65,6 +76,16 @@ def default_protocol_check_paths():
     return [cwd / name for name in names if (cwd / name).is_file()]
 
 
+def pointer_copy():
+    """Return the exact pointer text build_variants.py writes to CLAUDE.md."""
+    return GENERATED_HEADER + "\n\n" + POINTER_IMPORT_LINE + "\n\n" + POINTER_SENTENCE + "\n"
+
+
+def normalize_pointer(text):
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n".join(line.rstrip() for line in lines).rstrip()
+
+
 def is_pointer(text):
     return any(line.strip() == POINTER_IMPORT_LINE for line in text.splitlines())
 
@@ -84,15 +105,18 @@ def protocol_source_check():
     }
 
 
-def protocol_pointer_check(path, result):
-    """Check a pointer drop-in through the AGENTS.md it imports."""
+def protocol_pointer_check(path, text, result):
+    """Check a pointer drop-in: its own text, then the AGENTS.md it imports."""
     target = path.parent / CANONICAL_COPY_NAME
     result["kind"] = "pointer"
     result["target"] = str(target)
     target_result = protocol_copy_check(target)
     result["actual"] = target_result["actual"]
     result["target_status"] = target_result["status"]
-    if target_result["status"] == "missing_file":
+    if normalize_pointer(text) != normalize_pointer(pointer_copy()):
+        # Anything beside the import line is unchecked protocol text.
+        result["status"] = "pointer_drift"
+    elif target_result["status"] == "missing_file":
         result["status"] = "missing_target"
     elif target_result["status"] != "ok":
         result["status"] = "target_drift"
@@ -116,7 +140,7 @@ def protocol_copy_check(path):
     actual = extract_protocol_copy_hash(text)
     result["actual"] = actual
     if actual is None and not legacy and path.name != CANONICAL_COPY_NAME and is_pointer(text):
-        return protocol_pointer_check(path, result)
+        return protocol_pointer_check(path, text, result)
     if actual is None:
         result["status"] = "missing_header"
     elif actual != PROTOCOL_SOURCE_SHA256:
@@ -146,6 +170,14 @@ def format_protocol_check_failure(result):
         return "[FAIL] Legacy protocol copy {0} is stale ({1}). {2}".format(
             path, status, LEGACY_NOTE
         )
+    if status == "pointer_drift":
+        return (
+            "[FAIL] Pointer drift in {0}: it has an {1} line but is not the "
+            "generated pointer, and text beside the import is never checked. "
+            "Replace it with the generated pointer that ships with this CLI "
+            "(scripts/build_variants.py writes it), or keep your own "
+            "instructions there and run `protocol check {2}` instead."
+        ).format(path, POINTER_IMPORT_LINE, CANONICAL_COPY_NAME)
     if status == "missing_target":
         return (
             "[FAIL] {0} imports AGENTS.md, but {1} does not exist. {2}"
@@ -157,7 +189,7 @@ def format_protocol_check_failure(result):
     if status == "missing_header":
         shape = "a full protocol copy"
         if Path(path).name != CANONICAL_COPY_NAME:
-            shape += " or a pointer with an {0} line".format(POINTER_IMPORT_LINE)
+            shape += " or the generated {0} pointer".format(POINTER_IMPORT_LINE)
         return "[FAIL] Protocol handshake missing from {0}: it is not {1}. {2}".format(
             path, shape, REFRESH_HINT
         )
