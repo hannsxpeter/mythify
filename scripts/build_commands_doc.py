@@ -157,7 +157,7 @@ def argument_line(action):
     notes = []
     if action.option_strings and action.required:
         notes.append("Required.")
-    if isinstance(action, argparse._AppendAction):
+    if isinstance(action, argparse._AppendAction) and "repeatable" not in (action.help or "").lower():
         notes.append("Repeatable.")
     if action.choices is not None and action.metavar is not None:
         notes.append("Choices: {0}.".format(", ".join("`{0}`".format(item) for item in action.choices)))

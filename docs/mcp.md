@@ -159,7 +159,7 @@ code:
 | Exit code | Meaning | `isError` |
 | :--- | :--- | :--- |
 | 0 | Success. | false |
-| 2 | A recorded unverified verdict: the check ran and failed, or `product check` found gaps. This is a valid result, not a tool error. | false |
+| 2 | An unverified verdict: the check ran and failed, `product check` found gaps, or `MYTHIFY_DISABLE_RUN` blocked the check (nothing ran and nothing was recorded). This is a valid result, not a tool error. | false |
 | 1 | Refusal or failure, for example `step` completed without a passing `verify run`, or `product approve` without `human_input`. | true |
 | 64 | Usage error from the CLI's argument parser. | true |
 | 124 | The call hit `MYTHIFY_MCP_CALL_TIMEOUT` and was stopped. | true |

@@ -99,6 +99,8 @@ def inject_model_agnostic(root):
     append(root / "README.md", "\nTested in a codex terminal.\n")
     # docs/mcp.md documents host setup, so this line is not a finding.
     append(root / "docs" / "mcp.md", "\nTested in a codex terminal.\n")
+    # The README banner ships in the archive, so it is in the vendor scope too.
+    replace(root / "docs" / "assets" / "banner.svg", "</svg>", "<text>Built for Claude Code</text></svg>")
     append(
         root / "scripts" / "mythify_io.py",
         "".join("\n# reads {0}".format(form) for form in ROUTING_PREFIX_FORMS) + "\n",
@@ -108,10 +110,14 @@ def inject_model_agnostic(root):
 def inject_dependencies(root):
     append(root / "scripts" / "mythify_io.py", "\nimport yaml  # noqa: E402\n")
     (root / "package.json").write_text("{}\n", encoding="utf-8")
+    # A second runtime without a manifest is still a dependency.
+    (root / "scripts" / "check_legacy.mjs").write_text("#!/usr/bin/env node\n", encoding="utf-8")
 
 
 def inject_mcp_surface(root):
     replace(root / "scripts" / "mythify_mcp.py", '    ("status",),\n', '    ("status",),\n    ("no-such", "leaf"),\n')
+    # The documented typed-tool table must follow the allowlist.
+    replace(root / "docs" / "mcp.md", "`reflect`", "`reflect`, `memory_clear`")
 
 
 def inject_links(root):
@@ -130,10 +136,10 @@ INJECTIONS = {
     "prose": (inject_prose, ["docs/start-here.md"]),
     "model-agnostic": (
         inject_model_agnostic,
-        ["README.md", "docs/start-here.md", "scripts/mythify_io.py", "skills/mythify/SKILL.md"],
+        ["README.md", "docs/assets/banner.svg", "docs/start-here.md", "scripts/mythify_io.py", "skills/mythify/SKILL.md"],
     ),
-    "dependencies": (inject_dependencies, ["package.json", "scripts/mythify_io.py"]),
-    "mcp-surface": (inject_mcp_surface, ["scripts/mythify_mcp.py"]),
+    "dependencies": (inject_dependencies, ["package.json", "scripts/check_legacy.mjs", "scripts/mythify_io.py"]),
+    "mcp-surface": (inject_mcp_surface, ["docs/mcp.md", "scripts/mythify_mcp.py"]),
     "links": (inject_links, ["README.md"]),
     "source-size": (inject_source_size, ["scripts/mythify_oversized.py"]),
 }
@@ -230,6 +236,9 @@ class TestDenylistEntriesFire(unittest.TestCase):
         "mistral": "a Mistral endpoint",
         "qwen": "Qwen coder",
         "deepseek": "DeepSeek reasoning",
+        "mixtral": "a Mixtral worker",
+        "codestral": "Codestral completions",
+        "grok": "route reviews to Grok",
         "luna": "target the Luna profile",
         "terra": "the Terra profile",
         "sol": "upgrade to Sol",
@@ -248,6 +257,10 @@ class TestDenylistEntriesFire(unittest.TestCase):
         "lm studio": "LM Studio endpoint",
         "vllm": "vLLM endpoint",
         "adk": "ADK eval help",
+        "copilot": "a Copilot agent",
+        "windsurf": "Windsurf rules",
+        "cline": "Cline task",
+        "aider": "aider session",
     }
 
     def test_every_model_and_vendor_entry_fires(self):
@@ -269,6 +282,11 @@ class TestDenylistEntriesFire(unittest.TestCase):
             self.assertTrue(lint.in_vendor_scope(path), path)
         self.assertFalse(lint.in_vendor_scope("docs/mcp.md"))
         self.assertFalse(lint.in_vendor_scope("scripts/install_user.sh"))
+        self.assertTrue(lint.in_vendor_scope("docs/assets/banner.svg"))
+        self.assertTrue(lint.in_vendor_scope("CLAUDE.md"))
+        # The host config path token is allowed only in the MCP setup table.
+        self.assertEqual(lint.model_agnostic_hits("~/.gemini/config/mcp_config.json", path="docs/mcp.md"), [])
+        self.assertIn("gemini", lint.model_agnostic_hits("~/.gemini/config/mcp_config.json", path="README.md"))
 
     def test_every_routing_identifier_fires(self):
         for name in lint.ROUTING_IDENTIFIERS:

@@ -1711,6 +1711,22 @@ class TestOutcome(CliTestCase):
         subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.project, check=True)
         return self.init_workspace()
 
+    def test_outcome_start_warns_on_a_no_op_verifier(self):
+        self.init_workspace()
+        started = self.run_cli(
+            "outcome", "start", "Pretend to pass", "--success", "always green",
+            "--verify", "/usr/bin/true", "--max-iterations", "1",
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertIn("[WARN] Outcome verifier looks like a no-op", started.stderr)
+        real = self.run_cli(
+            "outcome", "start", "Real check", "--success", "tests pass",
+            "--verify", shell_py("raise SystemExit(0)"), "--max-iterations", "1",
+            "--supersede", "replaced by a real check",
+        )
+        self.assertEqual(real.returncode, 0, real.stderr)
+        self.assertNotIn("no-op", real.stderr)
+
     def test_outcome_start_check_and_results_success(self):
         state = self.init_workspace()
         started = self.run_cli(

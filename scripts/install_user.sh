@@ -117,6 +117,12 @@ preflight_skills_root() {
   preflight_directory "Skill destination" "$1"
   for skill_name in $mythify_skill_names; do
     preflight_directory "Skill destination" "$1/$skill_name"
+    # Replace only a folder that holds this Mythify skill or an install marker;
+    # never delete someone else's skill that happens to share the name.
+    if [ -e "$1/$skill_name" ] && [ ! -e "$1/$skill_name/.mythify-owned" ] \
+      && ! grep -qx "name: $skill_name" "$1/$skill_name/SKILL.md" 2>/dev/null; then
+      fail "Skill destination holds a different skill (no 'name: $skill_name' in SKILL.md): $1/$skill_name. Move it away or pass --skills-root."
+    fi
   done
 }
 

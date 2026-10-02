@@ -223,5 +223,3 @@ def cmd_lesson_list(args, state):
             line += " [tags: {0}]".format(", ".join(tags))
         print(line)
     return 0
-
-

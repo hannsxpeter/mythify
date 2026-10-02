@@ -201,4 +201,3 @@ def add_map_parser(sub, symbols):
     p.add_argument("--plan", help="Plan name. Defaults to the map name.")
     p.add_argument("--steps", help="JSON array of step objects for the new plan.")
     p.set_defaults(handler=cmd_map_promote)
-

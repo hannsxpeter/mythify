@@ -240,7 +240,7 @@ Options:
 
 - `--name NAME`: Map name. Defaults to a slug of the destination.
 - `--notes NOTES`: Domain, skills, and standing preferences for this effort.
-- `--fog FOG`: A question you can see coming but cannot yet state sharply. Repeatable. Repeatable.
+- `--fog FOG`: A question you can see coming but cannot yet state sharply. Repeatable.
 - `--json`: Print JSON.
 
 ### map list
@@ -345,8 +345,8 @@ Options:
 - `--gist GIST`: One-line index entry. Defaults to the answer.
 - `--human-input HUMAN_INPUT`: What the human actually decided. Required for HITL tickets.
 - `--out-of-scope`: Rule the ticket past the destination instead of recording a decision.
-- `--fog FOG`: New fog the answer surfaced. Repeatable. Repeatable.
-- `--scope-out SCOPE_OUT`: Work the answer ruled past the destination. Repeatable. Repeatable.
+- `--fog FOG`: New fog the answer surfaced. Repeatable.
+- `--scope-out SCOPE_OUT`: Work the answer ruled past the destination. Repeatable.
 - `--map MAP`: Map name. Defaults to active.
 
 ### map fog

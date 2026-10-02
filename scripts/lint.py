@@ -322,6 +322,9 @@ MODEL_NAMES = (
     ("mistral", word("mistral")),
     ("qwen", word("qwen")),
     ("deepseek", word("deepseek")),
+    ("mixtral", word("mixtral")),
+    ("codestral", word("codestral")),
+    ("grok", word("grok")),
     # Removed provider-profile names. They collide with ordinary words in
     # lower case, so only the capitalized and suffix forms match.
     ("luna", re.compile(r"\bLuna\b|-luna\b")),
@@ -395,6 +398,10 @@ VENDOR_NAMES = (
     ("lm studio", word("lm[-_ ]?studio")),
     ("vllm", word("vllm")),
     ("adk", re.compile(r"(?<![A-Za-z])ADK(?![A-Za-z])")),
+    ("copilot", word("copilot")),
+    ("windsurf", word("windsurf")),
+    ("cline", word("cline")),
+    ("aider", word("aider")),
 )
 
 # Exact text removed from a line before matching: file names and a license
@@ -407,9 +414,11 @@ ALLOWED_TOKENS = (
     # MIT attributions for the adapted prose rules and blast-radius workflow.
     re.compile(re.escape("https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md")),
     re.compile(re.escape("https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md")),
-    # Host configuration file locations in the MCP setup table.
-    re.compile(r"~/\.gemini/[\w./-]*"),
 )
+# Host configuration file locations, allowed only in the MCP setup table.
+PATH_ALLOWED_TOKENS = {
+    "docs/mcp.md": (re.compile(r"~/\.gemini/[\w./-]*"),),
+}
 
 # Historical records, plus this denylist and its self-test.
 MODEL_AGNOSTIC_EXEMPT = (
@@ -437,19 +446,21 @@ VENDOR_SCOPE = (
     "RELEASE-CHECKLIST.md",
     "CODE_OF_CONDUCT.md",
     "docs/*.md",
+    "docs/assets/*.svg",
+    "CLAUDE.md",
 )
 VENDOR_SCOPE_EXCLUDED = ("docs/mcp.md",)
 
 
-def strip_allowed(line):
-    for token in ALLOWED_TOKENS:
+def strip_allowed(line, path=None):
+    for token in ALLOWED_TOKENS + PATH_ALLOWED_TOKENS.get(path, ()):
         line = token.sub("", line)
     return line
 
 
-def model_agnostic_hits(line, vendors=True):
+def model_agnostic_hits(line, vendors=True, path=None):
     """Labels of every denylist entry LINE matches after allowed tokens are removed."""
-    line = strip_allowed(line)
+    line = strip_allowed(line, path)
     tables = MODEL_NAMES + ROUTING_PATTERNS + (VENDOR_NAMES if vendors else ())
     return [label for label, pattern in tables if pattern.search(line)]
 
@@ -480,7 +491,7 @@ def check_model_agnostic(root, files):
             continue
         vendors = in_vendor_scope(path)
         for number, line in enumerate(text.splitlines(), 1):
-            for label in model_agnostic_hits(line, vendors=vendors):
+            for label in model_agnostic_hits(line, vendors=vendors, path=path):
                 findings.append(Finding(path, number, "model-agnostic", "names `{0}`".format(label)))
     return findings
 
@@ -488,8 +499,8 @@ def check_model_agnostic(root, files):
 # ---------------------------------------------------------------------------
 # dependencies
 
-# sys.stdlib_module_names exists from Python 3.10. On 3.9 this fixed list of
-# top-level standard library modules stands in for it.
+# The Python 3.9 standard library, used on every interpreter so a module added
+# after 3.9 (tomllib, for example) is caught even when lint runs on a newer one.
 STDLIB_FALLBACK = frozenset("""
 __future__ abc aifc argparse array ast asynchat asyncio asyncore atexit audioop
 base64 bdb binascii binhex bisect builtins bz2 cProfile calendar cgi cgitb chunk
@@ -509,12 +520,12 @@ rlcompleter runpy sched secrets select selectors shelve shlex shutil signal site
 smtpd smtplib sndhdr socket socketserver spwd sqlite3 sre_compile sre_constants
 sre_parse ssl stat statistics string stringprep struct subprocess sunau symbol
 symtable sys sysconfig syslog tabnanny tarfile telnetlib tempfile termios
-textwrap threading time timeit tkinter token tokenize tomllib trace traceback
+textwrap threading time timeit tkinter token tokenize trace traceback
 tracemalloc tty types typing unicodedata unittest urllib uu uuid venv warnings
 wave weakref webbrowser winreg winsound wsgiref xdrlib xml xmlrpc zipapp zipfile
 zipimport zlib zoneinfo
 """.split())
-STDLIB_MODULES = frozenset(getattr(sys, "stdlib_module_names", ())) or STDLIB_FALLBACK
+STDLIB_MODULES = STDLIB_FALLBACK
 
 DEPENDENCY_MANIFESTS = (
     "package.json",
@@ -551,6 +562,8 @@ def check_dependencies(root, files):
             findings.append(Finding(path, 1, "dependencies", "node_modules is tracked"))
         elif any(fnmatch.fnmatch(name, pattern) for pattern in DEPENDENCY_MANIFESTS):
             findings.append(Finding(path, 1, "dependencies", "dependency manifest is tracked"))
+        elif posixpath.splitext(name)[1] in (".js", ".mjs", ".cjs", ".ts"):
+            findings.append(Finding(path, 1, "dependencies", "JavaScript or TypeScript source is tracked; Mythify is one Python runtime"))
         elif name == "pyproject.toml":
             text = read_text(root, path) or ""
             match = PYPROJECT_DEPENDENCIES.search(text)
@@ -655,6 +668,36 @@ def check_mcp_surface(root, files):
                 module, hatch_line, "mcp-surface",
                 "escape-hatch tool description lists `{0}`, which is typed, refused, or not a leaf".format(command),
             ))
+    findings.extend(mcp_doc_table_findings(root, allowlist))
+    return findings
+
+
+MCP_DOC = "docs/mcp.md"
+MCP_DOC_TABLE = re.compile(r"^\|\s*Group\s*\|\s*Typed tools\s*\|")
+
+
+def mcp_doc_table_findings(root, allowlist):
+    """docs/mcp.md's typed-tool table must name exactly the allowlisted tools."""
+    text = read_text(root, MCP_DOC)
+    if text is None:
+        return [Finding(MCP_DOC, 1, "mcp-surface", "docs/mcp.md is missing")]
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if MCP_DOC_TABLE.match(line)), None)
+    if start is None:
+        return [Finding(MCP_DOC, 1, "mcp-surface", "docs/mcp.md has no `| Group | Typed tools |` table")]
+    documented = []
+    for line in lines[start + 2:]:
+        if not line.startswith("|"):
+            break
+        documented.extend(re.findall(r"`([a-z0-9_]+)`", line.split("|")[2] if line.count("|") >= 3 else ""))
+    expected = ["_".join(path).replace("-", "_") for path in allowlist]
+    findings = []
+    for name in expected:
+        if name not in documented:
+            findings.append(Finding(MCP_DOC, start + 1, "mcp-surface", "typed tool `{0}` is missing from the table".format(name)))
+    for name in documented:
+        if name not in expected:
+            findings.append(Finding(MCP_DOC, start + 1, "mcp-surface", "table lists `{0}`, which is not a typed tool".format(name)))
     return findings
 
 

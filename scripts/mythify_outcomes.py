@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mythify_evidence_guard import run_disabled
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
 from mythify_io import (
     _write_text_atomic,
     append_chained_jsonl,
@@ -591,6 +591,14 @@ def cmd_outcome_start(args, state):
     if frozen_error:
         print(frozen_error)
         return 1
+    noop = noop_verifier_reason(args.verify)
+    if noop:
+        # Advisory, like plan steps: the loop would end on its first check.
+        print(
+            "[WARN] Outcome verifier looks like a no-op ({0}): {1}. The first "
+            "outcome check will report success without checking anything.".format(noop, args.verify),
+            file=sys.stderr,
+        )
     base = args.name or args.goal
     slug = slugify(base) or "outcome"
     original = slug

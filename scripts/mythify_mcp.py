@@ -8,7 +8,7 @@ for the commands in TOOL_ALLOWLIST; the `mythify` tool runs any other CLI
 command by argument list, except `mcp` itself.
 
 Tool results carry the command's stdout, then its stderr when non-empty, then
-a final `exit_code: N` line. Exit 2 is a recorded unverified verdict and is a
+a final `exit_code: N` line. Exit 2 is an unverified verdict and is a
 valid result; every other nonzero exit (1 refusal, 64 usage error, 124
 timeout) sets isError.
 """
@@ -99,7 +99,8 @@ INSTRUCTIONS = (
     "Mythify records evidence for agent work in the project's .mythify "
     "directory. Each tool runs one Mythify CLI command in the project root and "
     "returns its output followed by an exit_code line. Exit 0 is success. Exit "
-    "2 is a recorded unverified verdict, not a tool error. Exit 1 is a refusal "
+    "2 is an unverified verdict (a check failed, or MYTHIFY_DISABLE_RUN blocked "
+    "it), not a tool error. Exit 1 is a refusal "
     "or failure; exit 64 is a usage error. Run verify_run before any "
     "completion claim: step with status completed is refused until a passing "
     "verify run is recorded since the step started. product_approve and "

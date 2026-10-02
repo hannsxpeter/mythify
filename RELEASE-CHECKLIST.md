@@ -71,8 +71,12 @@ publishes, besides the full suite and the step 4 lint:
 python3 scripts/package_cli.py --check-release-tag vX.Y.Z
 python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_server tests.test_release_version -v
 python3 scripts/mythify.py protocol check AGENTS.md CLAUDE.md
-git diff --check
+git diff --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
 ```
+
+The last command diffs the committed tree against git's empty tree, so it
+flags whitespace errors anywhere in the release. A bare `git diff --check`
+compares the worktree to the index and passes on any fresh checkout.
 
 ## 6. Installer smoke
 

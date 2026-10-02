@@ -865,6 +865,24 @@ class TestUserInstaller(unittest.TestCase):
             self.assertEqual(list(root.iterdir()), [])
         self.assertEqual(self.snapshot_tree(home), before)
 
+    def test_foreign_skill_folder_with_a_mythify_name_is_never_deleted(self):
+        root = self.tmp / "roots" / "shared"
+        foreign = root / "mythify-work"
+        foreign.mkdir(parents=True)
+        (foreign / "SKILL.md").write_text("---\nname: someone-elses-skill\n---\n", encoding="utf-8")
+        prefix = self.tmp / "prefix"
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skills-root", str(root)],
+            env=self.neutral_env(),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("holds a different skill", result.stderr + result.stdout)
+        self.assertEqual(
+            (foreign / "SKILL.md").read_text(encoding="utf-8"),
+            "---\nname: someone-elses-skill\n---\n",
+        )
+        self.assertFalse((prefix / "bin" / "mythify").exists())
+
     def test_default_skill_roots_follow_existing_host_directories(self):
         home = self.make_host_home(".claude", ".cursor", ".codex")
         codex_home = self.tmp / "codex-home"
