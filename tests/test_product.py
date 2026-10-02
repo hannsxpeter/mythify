@@ -545,6 +545,35 @@ class TestMeasure(ProductCase):
         result = self.refused("step", "1", "completed", "measured", code=1)
         self.assertIn("Verified evidence required", result.stderr)
 
+    def test_verify_run_cannot_pose_as_a_measurement(self):
+        self.ready_product(measure=FAIL)
+        self.ok(
+            "product", "outcome", "Fewer setup tickets", "--metric", "setup tickets",
+            "--target", "2", "--measure", PASS,
+        )
+        self.ok("product", "bet", "Checklist", "--outcome", "O2", "--kill", "flat", "--decider", "Dana")
+        self.ok("product", "approve", "--human-input", "Dana: go")
+        steps = json.dumps([{"title": "Add invite step", "verify_command": PASS}])
+        self.ok("product", "promote", "B1", "--steps", steps)
+        spoof = self.ok(
+            "verify", "run", PASS, "--claim", "O1 measured: week-one invite rate",
+            "--parent", "product:onboarding",
+        )
+        self.assertIn("VERIFIED", spoof.stdout)
+        self.assertNotIn("O1", self.show_json()["measurements"])
+        self.assertIn("never measured", self.ok("product", "show").stdout)
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "verify run exit 0")
+        flags = [(item["code"], item["item"]) for item in self.show_json()["flags"]]
+        self.assertIn(("completed_plan_unmeasured", "B1"), flags)
+        self.ok("product", "measure", "O2")
+        self.assertEqual(self.record()["bets"][0]["status"], "in_flight")
+        self.assertTrue(self.show_json()["measurements"]["O2"]["verified"])
+        record = self.record()
+        record["outcomes"][1]["measure"] = FAIL
+        self.write_record(record)
+        self.assertNotIn("O2", self.show_json()["measurements"])
+
     def test_measure_respects_the_timeout(self):
         slow = "{0} -c {1}".format(json.dumps(sys.executable), json.dumps("import time; time.sleep(5)"))
         self.ready_product(measure=slow)

@@ -91,7 +91,10 @@ through the same recorded-verification path as `verify run`: hash-chained
 ledger, provenance, retained output artifacts, redaction, timeout, and
 `MYTHIFY_DISABLE_RUN=1` refusing to run. The record carries the parent
 `product:onboarding` and the claim `O1 measured: week-one invite rate`. Exit 0
-means the command passed; exit 2 means it ran and failed.
+means the command passed; exit 2 means it ran and failed. Only records that
+`product measure` itself stamps with the product and outcome id, using the
+outcome's current measure command, count as measurements. A `verify run` with
+the same parent and claim wording does not.
 
 ```bash
 mythify product measure O1

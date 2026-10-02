@@ -2,10 +2,10 @@
 
 Two v6 fixes keep the deterministic classifier from misreading wording. A
 prompt of twelve words or fewer is trivial only when it matches no task, risk,
-or route-selecting term. Destructive verbs raise risk only beside a
-destructive object, and nouns such as "token" or "JSON schema" no longer make
-a low-risk edit a security or migration task, while genuinely risky prompts
-stay high.
+or route-selecting term. A destructive verb is high risk unless the words
+after it name only a code-local object (an import, a comment, a typo), and
+nouns such as "token" or "JSON schema" no longer make a low-risk edit a
+security or migration task, while genuinely risky prompts stay high.
 """
 
 import json
@@ -72,6 +72,10 @@ class TestRiskTermsAreTight(unittest.TestCase):
             "delete a stale comment in the router",
             "fix a typo in the JSON schema description",
             "remove the else branch in parse",
+            "remove dead code in the router",
+            "drop the debug print in main.py",
+            "remove unused imports from the file",
+            "remove all unused imports",
         ):
             with self.subTest(task=task):
                 payload = classify(task)
@@ -92,12 +96,47 @@ class TestRiskTermsAreTight(unittest.TestCase):
             ("change the database schema for orders", "migration"),
             ("leak an access token in the logs", "security"),
             ("force push over main", None),
+            ("delete the user account", None),
+            ("delete everything in the home folder", None),
+            ("remove the password check", "security"),
+            ("store the JWT token in localStorage", "security"),
+            ("delete all files in the uploads directory", None),
+            ("delete customer emails", None),
+            ("remove all user sessions", None),
+            ("drop the orders collection", None),
+            ("delete the branch main", None),
+            ("update the schema for the orders table", "migration"),
+            ("leak of the session token", "security"),
+            ("remove the unused import and delete the user account", None),
+            ("delete unused user accounts", None),
         ):
             with self.subTest(task=task):
                 payload = classify(task)
                 self.assertEqual(payload["risk"], "high")
                 if task_type:
                     self.assertEqual(payload["task_type"], task_type)
+
+    def test_destructive_prompts_route_to_a_plan_not_direct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env.pop("MYTHIFY_DIR", None)
+            env["HOME"] = tmp
+            for task, route in (
+                ("delete the user account", "plan"),
+                ("remove an unused import in utils.py", "direct"),
+            ):
+                with self.subTest(task=task):
+                    result = subprocess.run(
+                        [sys.executable, str(CLI), "route", task, "--json"],
+                        cwd=tmp,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    payload = json.loads(result.stdout)
+                    self.assertEqual(payload["route"], route)
 
     def test_route_classification_uses_the_route_terms(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -421,11 +421,20 @@ def readiness_gaps(record):
     return stage, gaps
 
 
-def measurements(state, slug):
-    """Latest executed measurement per outcome id, from the verification ledger."""
+def measurements(state, slug, product):
+    """Latest executed measurement per outcome id, from the verification ledger.
+
+    Only records that product measure stamped count: verify run can borrow the
+    parent and the claim wording, but never the product and outcome_id fields,
+    and the command must be the outcome's current measure command.
+    """
+    commands = {
+        item_id(outcome): str(outcome.get("measure") or "").strip()
+        for outcome in items(product, "outcomes")
+    }
     latest = {}
     for record in read_jsonl(state / "verifications.jsonl"):
-        if record.get("kind") != "executed":
+        if record.get("kind") != "executed" or record.get("product") != slug:
             continue
         parents = (record.get("lineage") or {}).get("parents") or []
         if not any(
@@ -436,9 +445,12 @@ def measurements(state, slug):
         ):
             continue
         head, marker, _metric = str(record.get("claim") or "").partition(MEASURE_MARKER)
-        if not marker or not head.strip():
+        oid = head.strip().upper()
+        if not marker or not oid or record.get("outcome_id") != oid:
             continue
-        latest[head.strip().upper()] = {
+        if not commands.get(oid) or record.get("command") != commands[oid]:
+            continue
+        latest[oid] = {
             "verification_id": record.get("id"),
             "verified": record.get("verified") is True,
             "exit_code": record.get("exit_code"),
@@ -484,7 +496,7 @@ def bet_plan_view(state, bet):
 def traceability_flags(state, slug, record, measured=None, today=None):
     """Traces, not opinions: gaps between outcomes, bets, plans, and measurements."""
     today = today or date.today()
-    measured = measurements(state, slug) if measured is None else measured
+    measured = measurements(state, slug, record) if measured is None else measured
     bets = sorted_bets(record)
     live = [bet for bet in bets if bet.get("status") != "stopped"]
     flags = []
@@ -561,7 +573,7 @@ def product_next_action(record, gaps, flags):
 def product_view(state, slug, record, today=None):
     """The record plus computed readiness, measurements, plans, and flags."""
     stage, gaps = readiness_gaps(record)
-    measured = measurements(state, slug)
+    measured = measurements(state, slug, record)
     flags = traceability_flags(state, slug, record, measured, today)
     return {
         "id": slug,
@@ -1376,7 +1388,7 @@ def cmd_product_measure(args, state):
         )
     )
     print("Target: {0}; the command's exit code is the verdict.".format(outcome.get("target", "")))
-    shipped = mark_shipped_bets(state, slug, record, measurements(state, slug))
+    shipped = mark_shipped_bets(state, slug, record, measurements(state, slug, record))
     if shipped:
         save_product(state, slug, record)
         print(

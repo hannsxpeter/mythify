@@ -8,10 +8,11 @@ host decides whether and where to delegate.
 
 Two precision rules keep short or incidental wording from misleading the
 router. A prompt of trivial length is trivial only when it matches no task,
-risk, or route-selecting term. Destructive verbs (delete, remove, drop, and
-kin) raise risk only next to a destructive object such as data, users, or
-production, so "remove an unused import" stays low risk while "delete
-production data" stays high.
+risk, or route-selecting term. A destructive verb (delete, remove, drop, and
+kin) is high risk unless the words right after it name only a code-local
+object such as an import, a comment, or a typo, so "remove an unused import"
+stays low risk while "delete the user account" and "delete production data"
+stay high. A destructive object in that window always wins.
 """
 
 import json
@@ -75,6 +76,16 @@ VAGUE_REQUEST_TERMS = tuple(str(term) for term in CLASSIFICATION_MANIFEST["vague
 HIGH_RISK_TERMS = classification_tuple("risk", "high_terms")
 DESTRUCTIVE_VERBS = classification_tuple("risk", "destructive_verbs")
 DESTRUCTIVE_OBJECTS = classification_tuple("risk", "destructive_objects")
+CODE_LOCAL_OBJECTS = classification_tuple("risk", "code_local_objects")
+NEAR_TERMS = tuple(
+    (
+        str(entry["task_type"]),
+        tuple(str(term) for term in entry["terms"]),
+        tuple(str(term) for term in entry["near"]),
+    )
+    for entry in CLASSIFICATION_MANIFEST["risk"].get("near_terms", [])
+)
+RISK_WINDOW_WORDS = int(CLASSIFICATION_THRESHOLDS["risk_window_words"])
 HIGH_RISK_TASK_TYPES = classification_tuple("risk", "high_task_types")
 MEDIUM_RISK_TERMS = classification_tuple("risk", "medium_terms")
 MEDIUM_RISK_TASK_TYPES = classification_tuple("risk", "medium_task_types")
@@ -107,11 +118,48 @@ def term_count(term):
     return len(wordish(term).split())
 
 
+def term_positions(tokens, term):
+    needle = wordish(term).split()
+    size = len(needle)
+    return [i for i in range(len(tokens) - size + 1) if needle and tokens[i:i + size] == needle]
+
+
+def destructive_wording(text):
+    """True unless every destructive verb acts only on a code-local object.
+
+    The object is the next RISK_WINDOW_WORDS words. A destructive object there
+    makes the verb high risk; a code-local object alone makes it benign; and a
+    verb with neither stays high, so unknown objects fail toward caution.
+    """
+    tokens = wordish(text).split()
+    for verb in DESTRUCTIVE_VERBS:
+        size = len(wordish(verb).split())
+        for start in term_positions(tokens, verb):
+            window = " ".join(tokens[start + size:start + size + RISK_WINDOW_WORDS])
+            if contains_any(window, DESTRUCTIVE_OBJECTS) or not contains_any(
+                window, CODE_LOCAL_OBJECTS
+            ):
+                return True
+    return False
+
+
+def near_matches(text):
+    """(task_type, signal) pairs where a term sits within the window of a partner."""
+    tokens = wordish(text).split()
+    found = []
+    for task_type, terms, partners in NEAR_TERMS:
+        for term in terms:
+            for start in term_positions(tokens, term):
+                low = max(0, start - RISK_WINDOW_WORDS)
+                window = " ".join(tokens[low:start + RISK_WINDOW_WORDS + 1])
+                for partner in contains_any(window, partners):
+                    found.append((task_type, "{0} near {1}".format(term, partner)))
+    return found
+
+
 def term_risk(text):
     """Risk named by the wording alone: "high", "medium", or None."""
-    if contains_any(text, HIGH_RISK_TERMS) or (
-        contains_any(text, DESTRUCTIVE_VERBS) and contains_any(text, DESTRUCTIVE_OBJECTS)
-    ):
+    if contains_any(text, HIGH_RISK_TERMS) or destructive_wording(text) or near_matches(text):
         return "high"
     if contains_any(text, MEDIUM_RISK_TERMS):
         return "medium"
@@ -223,8 +271,10 @@ def classify_task_text(task_text, route_terms=()):
     signals = []
     scores = {}
     longest = {}
+    paired = near_matches(text)
     for task_type, terms in CLASSIFICATION_RULES:
         matches = contains_any(text, terms)
+        matches.extend(signal for kind, signal in paired if kind == task_type)
         if matches:
             scores[task_type] = len(matches)
             longest[task_type] = max(term_count(term) for term in matches)
