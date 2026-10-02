@@ -24,11 +24,11 @@ A developer or builder directing an AI coding agent on real work who has been bu
 
 | ID | Outcome | Metric | Baseline | Target | Source | Last measurement |
 | --- | --- | --- | --- | --- | --- | --- |
-| O1 | A completion claim without an executed passing check is refused every time | strict verified-step gate regression tests passing | all passing in 5.8.0 | all passing on every release | decided | never measured |
-| O2 | Mythify runs with any model and ships no third-party code | model or vendor names and non-standard-library imports in the shipped runtime | about 190 vendor-name lines and 3 npm runtime packages in 5.8.0 | 0 and 0 | decided | never measured |
-| O3 | Any model can load the whole protocol cheaply, small local models included | bytes of always-loaded protocol text in AGENTS.md | 36,510 bytes in 5.8.0 | at most 12,000 bytes | decided | never measured |
-| O4 | A new user reaches a first verified step within five minutes | scripted quickstart from install to a completed, verified step | not measured; the 5.x quickstart failed on machines without Node | passes on every release on Python 3.9 and 3.13 | hypothesis | never measured |
-| O5 | The written trail never contradicts the code | drift findings from the maintainer lint | 112 drift entries recorded in the 6.0 review of 5.8.0 | 0 on every release | decided | never measured |
+| O1 | A completion claim without an executed passing check is refused every time | strict verified-step gate regression tests passing | all passing in 5.8.0 | all passing on every release | decided | passed (exit 0, 2026-10-02T05:46:29+00:00) |
+| O2 | Mythify runs with any model and ships no third-party code | model or vendor names and non-standard-library imports in the shipped runtime | about 190 vendor-name lines and 3 npm runtime packages in 5.8.0 | 0 and 0 | decided | passed (exit 0, 2026-10-02T05:46:30+00:00) |
+| O3 | Any model can load the whole protocol cheaply, small local models included | bytes of always-loaded protocol text in AGENTS.md | 36,510 bytes in 5.8.0 | at most 12,000 bytes | decided | passed (exit 0, 2026-10-02T05:46:30+00:00) |
+| O4 | A new user reaches a first verified step within five minutes | scripted quickstart from install to a completed, verified step | not measured; the 5.x quickstart failed on machines without Node | passes on every release on Python 3.9 and 3.13 | hypothesis | passed (exit 0, 2026-10-02T05:46:32+00:00) |
+| O5 | The written trail never contradicts the code | drift findings from the maintainer lint | 112 drift entries recorded in the 6.0 review of 5.8.0 | 0 on every release | decided | passed (exit 0, 2026-10-02T05:46:34+00:00) |
 
 ## Non-goals
 
