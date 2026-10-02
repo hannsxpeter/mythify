@@ -59,48 +59,28 @@ TOOL_ALLOWLIST = (
     ("init",),
     ("status",),
     ("report",),
-    ("history",),
-    ("summary",),
     ("route",),
-    ("loop-fit",),
-    ("prompt", "next"),
-    ("prompt", "handoff"),
-    ("prompt", "failure"),
-    ("prompt", "review"),
-    ("prompt", "map"),
-    ("prompt", "product"),
     ("plan", "create"),
-    ("plan", "import"),
     ("plan", "add-step"),
     ("plan", "verify"),
-    ("plan", "list"),
     ("plan", "show"),
-    ("plan", "switch"),
-    ("plan", "archive"),
     ("step",),
     ("verify", "run"),
     ("verify", "claim"),
     ("reflect",),
     ("memory", "set"),
     ("memory", "get"),
-    ("memory", "clear"),
     ("lesson", "add"),
     ("lesson", "list"),
-    ("logs", "compact"),
     ("outcome", "start"),
     ("outcome", "check"),
     ("outcome", "status"),
-    ("outcome", "results"),
     ("outcome", "stop"),
     ("map", "create"),
     ("map", "ticket"),
     ("map", "claim"),
-    ("map", "verify"),
     ("map", "resolve"),
-    ("map", "fog"),
-    ("map", "scope-out"),
     ("map", "show"),
-    ("map", "list"),
     ("map", "promote"),
     ("product", "create"),
     ("product", "outcome"),
@@ -113,12 +93,6 @@ TOOL_ALLOWLIST = (
     ("product", "promote"),
     ("product", "measure"),
     ("product", "show"),
-    ("review", "blast-radius"),
-    ("review", "prove"),
-    ("review", "show"),
-    ("lineage", "attach"),
-    ("lineage", "status"),
-    ("protocol", "check"),
 )
 
 INSTRUCTIONS = (
@@ -311,14 +285,36 @@ def build_tool(parser, path):
     return tool, {"path": tuple(path), "specs": specs}
 
 
-def escape_hatch_tool():
+def leaf_paths(parser, prefix=()):
+    """Every runnable command path in the parser, in declaration order."""
+    actions = _subparsers_action(parser)
+    if actions is None:
+        return [prefix] if prefix else []
+    paths = []
+    for name, child in actions.choices.items():
+        paths.extend(leaf_paths(child, prefix + (name,)))
+    return paths
+
+
+def escape_hatch_tool(parser=None, allowlist=TOOL_ALLOWLIST):
+    others = []
+    if parser is not None:
+        typed = set(tuple(path) for path in allowlist)
+        others = [
+            " ".join(path)
+            for path in leaf_paths(parser)
+            if path not in typed and path[0] != "mcp"
+        ]
+    description = (
+        "Run any Mythify CLI command by argument list, for commands without a "
+        "typed tool, for example {\"args\": [\"outcome\", \"run\"]}. The mcp "
+        "command is refused."
+    )
+    if others:
+        description += " Commands without a typed tool: {0}.".format(", ".join(others))
     return {
         "name": ESCAPE_HATCH_TOOL,
-        "description": (
-            "Run any Mythify CLI command by argument list, for commands without a "
-            "typed tool, for example {\"args\": [\"outcome\", \"run\"]}. The mcp "
-            "command is refused."
-        ),
+        "description": description,
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -344,7 +340,7 @@ def build_tools(parser, allowlist=TOOL_ALLOWLIST):
             raise ValueError("Duplicate tool name: {0}".format(tool["name"]))
         tools.append(tool)
         specs[tool["name"]] = spec
-    tools.append(escape_hatch_tool())
+    tools.append(escape_hatch_tool(parser, allowlist))
     return tools, specs
 
 

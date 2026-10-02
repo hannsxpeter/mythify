@@ -806,9 +806,12 @@ class TestProductThroughMcp(ProductCase):
             ("product_approve", {"human_input": "   "}),
         ])
         names = [tool["name"] for tool in responses[2]["result"]["tools"]]
-        for name in PRODUCT_TOOLS + ("prompt_product",):
+        for name in PRODUCT_TOOLS:
             self.assertIn(name, names)
         self.assertNotIn("product_list", names)
+        hatch = next(tool for tool in responses[2]["result"]["tools"] if tool["name"] == "mythify")
+        self.assertIn("prompt product", hatch["description"])
+        self.assertIn("product list", hatch["description"])
         created = responses[3]["result"]
         self.assertFalse(created["isError"], created)
         check = responses[6]["result"]

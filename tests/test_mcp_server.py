@@ -276,7 +276,7 @@ class TestHandshake(McpServerCase):
         self.assertIn("verify_run", [tool["name"] for tool in listed["tools"]])
         self.assertEqual(listed["_meta"]["io.modelcontextprotocol/serverInfo"], server_info)
 
-        called = client.call("loop_fit", {"task": "fix the parser", "json": True}, meta=meta)
+        called = client.call("route", {"task": "fix the parser", "json": True}, meta=meta)
         self.assertFalse(called["isError"], result_text(called))
         self.assertEqual(called["_meta"]["io.modelcontextprotocol/serverInfo"], server_info)
 
@@ -384,12 +384,22 @@ class TestToolList(McpServerCase):
         self.assertEqual(verify["properties"]["timeout"]["type"], "number")
         self.assertEqual(verify["properties"]["parent"]["type"], "array")
         self.assertEqual(verify["properties"]["output"]["enum"], ["compact", "full"])
-        blast = by_name["review_blast_radius"]
+        # Commands reached through the escape hatch still generate valid
+        # schemas, so promoting one to a typed tool is a one-line change.
+        import mythify
+        import mythify_parser
+
+        parser = mythify_parser.build_parser(vars(mythify))
+        extra = {}
+        for path in (("review", "blast-radius"), ("memory", "clear"), ("protocol", "check")):
+            tool, _spec = mythify_mcp.build_tool(parser, path)
+            extra[tool["name"]] = tool["inputSchema"]
+        blast = extra["review_blast_radius"]
         self.assertEqual(blast["properties"]["proof_depth"]["enum"], [1, 2, 3])
         self.assertEqual(blast["properties"]["proof_depth"]["type"], "integer")
-        self.assertEqual(by_name["memory_clear"]["properties"]["all"]["type"], "boolean")
-        self.assertEqual(by_name["protocol_check"]["properties"]["paths"]["type"], "array")
-        self.assertNotIn("required", by_name["protocol_check"])
+        self.assertEqual(extra["memory_clear"]["properties"]["all"]["type"], "boolean")
+        self.assertEqual(extra["protocol_check"]["properties"]["paths"]["type"], "array")
+        self.assertNotIn("required", extra["protocol_check"])
         self.assertEqual(by_name["mythify"]["required"], ["args"])
         # Model-agnostic: route takes only the task and --json, and outcome
         # start has no visibility knob.
@@ -576,7 +586,7 @@ class TestToolCalls(McpServerCase):
         self.assertTrue(missing["isError"])
         self.assertIn("'command'", result_text(missing))
 
-        refused = client.call("memory_clear", {})
+        refused = client.call("memory_get", {})
         self.assertTrue(refused["isError"], "no workspace is a refusal")
 
     def test_call_timeout_terminates_the_command(self):

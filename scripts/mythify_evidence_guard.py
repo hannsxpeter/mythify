@@ -53,6 +53,12 @@ def noop_verifier_reason(command):
     if normalized in NOOP_COMMANDS:
         return "the command always exits 0"
     first_word = normalized.split(" ", 1)[0]
+    no_operators = not any(operator in normalized for operator in SHELL_OPERATORS)
+    # `/usr/bin/true`, `true --anything`, and `: ignored` still always exit 0.
+    if no_operators and first_word.rsplit("/", 1)[-1] in ("true", ":"):
+        return "the command always exits 0"
+    if no_operators and normalized.startswith("exit 0 "):
+        return "the command always exits 0"
     if first_word in NOOP_PRINT_PREFIXES and not any(
         operator in normalized for operator in SHELL_OPERATORS
     ):

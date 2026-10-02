@@ -54,6 +54,12 @@ class TestNoopVerifierReason(unittest.TestCase):
         for command in ("true", " true ", "TRUE", ":", "exit 0", "exit  0"):
             self.assertIsNotNone(noop_verifier_reason(command), command)
 
+    def test_flags_path_qualified_and_argument_forms(self):
+        for command in ("/usr/bin/true", "/bin/true --version", ": ignored", "true anything"):
+            self.assertIsNotNone(noop_verifier_reason(command), command)
+        self.assertIsNone(noop_verifier_reason("true && pytest"))
+        self.assertIsNone(noop_verifier_reason("/usr/bin/test -f build/out.bin"))
+
     def test_flags_bare_print_commands(self):
         self.assertIsNotNone(noop_verifier_reason("echo ok"))
         self.assertIsNotNone(noop_verifier_reason("printf done"))
