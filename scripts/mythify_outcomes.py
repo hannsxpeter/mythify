@@ -1,5 +1,6 @@
 """Outcome loop store and command handlers for the Mythify CLI."""
 
+import hashlib
 import json
 import math
 import os
@@ -292,12 +293,12 @@ def _diff_name_status_paths(raw):
     return paths
 
 
-def self_driving_changed_paths(state, baseline):
-    root = outcome_project_root(state)
-    commit = str((baseline or {}).get("git_commit") or "")
-    if not commit:
-        raise ScopeInspectionError("scope baseline commit is unavailable")
-    _run_git_scope(root, ["merge-base", "--is-ancestor", commit, "HEAD"])
+def _changed_paths_since(root, commit):
+    """Paths whose working-tree content differs from COMMIT, plus untracked.
+
+    Diffing the worktree against a recorded commit sees committed and
+    uncommitted changes alike, which a plain `git status` misses.
+    """
     tracked = _diff_name_status_paths(
         _run_git_scope(root, ["diff", "--name-status", "-z", "--find-renames", commit])
     )
@@ -308,8 +309,65 @@ def self_driving_changed_paths(state, baseline):
     return list(dict.fromkeys(tracked + untracked))
 
 
-def self_driving_scope_violations(state, allowed_paths, baseline):
-    return paths_outside_scope(self_driving_changed_paths(state, baseline), allowed_paths)
+def self_driving_changed_paths(state, baseline):
+    root = outcome_project_root(state)
+    commit = str((baseline or {}).get("git_commit") or "")
+    if not commit:
+        raise ScopeInspectionError("scope baseline commit is unavailable")
+    _run_git_scope(root, ["merge-base", "--is-ancestor", commit, "HEAD"])
+    return _changed_paths_since(root, commit)
+
+
+def _content_digest(root, relative):
+    """sha256 of a path's bytes, or None when it does not exist as a file."""
+    try:
+        data = (root / relative).read_bytes()
+    except (OSError, ValueError):
+        return None
+    return hashlib.sha256(data).hexdigest()
+
+
+def start_frozen_baseline(state, frozen):
+    """HEAD at outcome start plus digests of frozen paths already dirty then.
+
+    Host-supervised checks diff against this commit, so a frozen-path change
+    that was committed is still caught, while a frozen file that was already
+    dirty before the loop started only counts once its content changes again.
+    """
+    root = outcome_project_root(state)
+    commit = _run_git_scope(root, ["rev-parse", "HEAD"]).decode("ascii", "replace").strip()
+    if not commit:
+        raise ScopeInspectionError("Git HEAD is unavailable")
+    dirty = frozen_path_violations(_changed_paths_since(root, commit), frozen)
+    return {
+        "git_commit": commit,
+        "dirty_frozen": {path: _content_digest(root, path) for path in dirty},
+    }
+
+
+def frozen_changed_paths(state, goal):
+    """Paths changed since the outcome's frozen baseline (host-supervised mode).
+
+    Outcomes without a baseline (started off-git, or by an older version) fall
+    back to the working-tree status, as does a baseline git can no longer read.
+    """
+    root = outcome_project_root(state)
+    baseline = goal.get("frozen_baseline")
+    commit = str((baseline or {}).get("git_commit") or "") if isinstance(baseline, dict) else ""
+    if not commit:
+        return git_changed_paths(root) or []
+    try:
+        changed = _changed_paths_since(root, commit)
+    except ScopeInspectionError:
+        return git_changed_paths(root) or []
+    dirty = baseline.get("dirty_frozen")
+    dirty = dirty if isinstance(dirty, dict) else {}
+    paths = []
+    for path in dict.fromkeys(changed + list(dirty)):
+        if path in dirty and _content_digest(root, path) == dirty[path]:
+            continue
+        paths.append(path)
+    return paths
 
 
 def parse_metric_score(output):
@@ -428,6 +486,16 @@ def cmd_outcome_start(args, state):
         "stop_reason": None,
         "supersedes": superseded[0] if superseded else None,
     }
+    if goal["frozen_paths"]:
+        try:
+            goal["frozen_baseline"] = start_frozen_baseline(state, goal["frozen_paths"])
+        except ScopeInspectionError as exc:
+            goal["frozen_baseline"] = None
+            fail(
+                "[WARN] Frozen-path baseline unavailable ({0}); outcome check "
+                "falls back to the working-tree status and cannot see committed "
+                "changes.".format(exc)
+            )
     if superseded:
         old_slug, old_goal = superseded
         old_goal["status"] = "stopped"
@@ -602,7 +670,7 @@ def perform_outcome_iteration(
         changed = (
             list(changed_paths_override)
             if changed_paths_override is not None
-            else (git_changed_paths(outcome_project_root(state)) or [])
+            else frozen_changed_paths(state, goal)
         )
         frozen_hits = frozen_path_violations(changed, frozen)
     else:

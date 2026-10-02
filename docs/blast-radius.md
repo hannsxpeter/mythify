@@ -42,15 +42,20 @@ mythify review show cache-eviction
 mythify review show cache-eviction --json
 ```
 
-`review prove` accepts `--command` to override the stored command for that run,
+`review prove` accepts `--command` to run a different check for that run,
 `--claim` to label the verification, `--mode executed|runtime`, and `--timeout`.
+A `--command` run is evidence for the safety fact, but only a run of the stored
+merge-gate command sets `merge_gate.verified`. A no-op command such as `true`,
+`exit 0`, or a bare `echo` is refused, because a check that cannot fail proves
+nothing.
 Runtime mode represents a running-app or integration reproduction and produces
 proof depth 5 when it passes. Ordinary executed mode produces depth 4.
 
 Exit codes are:
 
 - `0`: the command ran against the exact reviewed change and passed.
-- `1`: the review is missing, has the wrong type, is stale, or has no command.
+- `1`: the review is missing, has the wrong type, is stale, has no command, or
+  the command is a no-op.
 - `2`: execution was disabled, the command failed, or a passing command changed
   the reviewed source.
 

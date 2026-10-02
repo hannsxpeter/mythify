@@ -124,15 +124,32 @@ def inspect_lineage(state, lineage):
     return {"status": overall, "parents": rows, "precedence": list(PRECEDENCE)}
 
 
+# Kinds whose stored record lineage attach must never rewrite: verification
+# records are append-only, and a blast-radius review is an immutable safety
+# case whose revision digest anchors its linked proof.
+IMMUTABLE_KINDS = {
+    "verification": "verification lineage is append-only and must be captured by verify run",
+    "review": (
+        "reviews are immutable safety cases: rewriting one would change the "
+        "revision its proofs are linked to. Create a new review instead"
+    ),
+}
+
+
 def _save_artifact(state, kind, artifact_id, record):
-    if kind == "verification":
-        raise ValueError("verification lineage is append-only and must be captured by verify run")
+    if kind in IMMUTABLE_KINDS:
+        raise ValueError(IMMUTABLE_KINDS[kind])
     record["lineage_updated"] = _now_iso()
     _write_json_atomic(artifact_path(state, kind, artifact_id), record)
 
 
 def cmd_lineage_attach(args, state):
     artifact_id = _slugify(args.id)
+    if args.kind in IMMUTABLE_KINDS:
+        _fail("[FAIL] Cannot attach lineage to {0}:{1}: {2}.".format(
+            args.kind, artifact_id, IMMUTABLE_KINDS[args.kind]
+        ))
+        return 1
     record = artifact_record(state, args.kind, artifact_id)
     if record is None:
         _fail("[FAIL] Artifact not found: {0}:{1}".format(args.kind, artifact_id))

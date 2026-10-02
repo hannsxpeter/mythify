@@ -169,9 +169,84 @@ def append_chained_jsonl(path, record):
             handle.write(json.dumps(record, allow_nan=False) + "\n")
 
 
-def write_jsonl_atomic(path, records):
-    text = "".join(json.dumps(record, allow_nan=False) + "\n" for record in records)
-    _write_text_atomic(path, text)
+def _line_sha256(line):
+    return hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+
+def jsonl_append_anchor(path):
+    """A position marker for the current end of PATH that survives compaction.
+
+    The anchor is the sha256 of the last raw line, the same value the next
+    chained record carries as prev_sha256. `logs compact` keeps retained lines
+    byte for byte, so the anchor still resolves after compaction, where a line
+    count would point past the shortened file. None marks an empty log.
+    """
+    last = last_jsonl_line(path)
+    return {"after_sha256": _line_sha256(last) if last else None}
+
+
+def _raw_jsonl_lines(path):
+    try:
+        text = Path(path).read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    return [line for line in text.splitlines() if line.strip()]
+
+
+def _records_after_anchor(path, anchor):
+    """Records after ANCHOR's line, or None when the line cannot be placed."""
+    target = anchor.get("after_sha256")
+    if target is None:
+        # The log was empty when the anchor was taken: every line is newer.
+        return read_jsonl(path)
+    lines = _raw_jsonl_lines(path)
+    for index in range(len(lines) - 1, -1, -1):
+        if _line_sha256(lines[index]) == target:
+            return _parse_jsonl_lines(path, lines[index + 1:])
+    # Compaction archives the whole log before trimming its oldest lines, so an
+    # anchor found only in an archive was trimmed away and every line still in
+    # the active log is newer than it.
+    path = Path(path)
+    archive_dir = path.parent / "logs" / "archive"
+    for archive in sorted(archive_dir.glob(path.stem + "-*" + path.suffix)):
+        if any(_line_sha256(line) == target for line in _raw_jsonl_lines(archive)):
+            return read_jsonl(path)
+    return None
+
+
+def _timestamp_strictly_after(value, lower_bound):
+    return _timestamp_at_or_after(value, lower_bound) and not _timestamp_at_or_after(
+        lower_bound, value
+    )
+
+
+def read_jsonl_after_marker(path, anchor=None, legacy_cursor=None, lower_bound=""):
+    """Records appended after a stored position marker, or None without one.
+
+    ANCHOR comes from jsonl_append_anchor. LEGACY_CURSOR is the integer line
+    count stored before 6.0; it stays exact until a compaction shrinks the log
+    below it. When neither marker can be placed, only records strictly after
+    LOWER_BOUND count: evidence from before the marker is never reused, at the
+    cost of asking for a re-run when a new record shares the marker's second.
+    """
+    if isinstance(anchor, dict):
+        records = _records_after_anchor(path, anchor)
+    elif (
+        isinstance(legacy_cursor, int)
+        and not isinstance(legacy_cursor, bool)
+        and legacy_cursor >= 0
+    ):
+        everything = read_jsonl(path)
+        records = everything[legacy_cursor:] if legacy_cursor <= len(everything) else None
+    else:
+        return None
+    if records is None:
+        records = [
+            record
+            for record in read_jsonl_since(path, lower_bound)
+            if _timestamp_strictly_after(record.get("timestamp", ""), lower_bound)
+        ]
+    return records
 
 
 def jsonl_lock_dir(path):

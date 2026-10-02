@@ -524,6 +524,7 @@ class TestToolCalls(McpServerCase):
         usage = client.call("mythify", {"args": ["plan", "create"]})
         self.assertTrue(usage["isError"], result_text(usage))
         self.assertIn("error:", result_text(usage))
+        self.assertEqual(exit_code(usage), 64)
 
     def test_verify_run_executes_in_project_root(self):
         state = self.init_project()

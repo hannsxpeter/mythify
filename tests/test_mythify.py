@@ -876,7 +876,7 @@ class TestPromptPackets(CliTestCase):
         self.assertEqual(before, self.state_snapshot(state))
         for removed in ("research", "analysis", "campaign"):
             result = self.run_cli("prompt", removed)
-            self.assertEqual(result.returncode, 2, removed)
+            self.assertEqual(result.returncode, 64, removed)
             self.assertIn("invalid choice", result.stderr)
 
         result = self.run_cli(
@@ -1613,7 +1613,7 @@ class TestMemory(CliTestCase):
             [entry["category"] for entry in stored["entries"]], categories + ["fact"]
         )
         result = self.run_cli("memory", "set", "bad", "value", "--category", "opinion")
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 64)
 
         result = self.run_cli("memory", "clear")
         self.assertEqual(result.returncode, 1)

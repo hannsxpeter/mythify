@@ -249,7 +249,7 @@ class TestRemovedModelSurface(unittest.TestCase):
         for argv in cases:
             with self.subTest(argv=argv):
                 result = self.run_cli(*argv)
-                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
                 self.assertRegex(result.stderr, r"invalid choice|unrecognized arguments")
 
     def test_route_still_works_with_only_task_and_json(self):

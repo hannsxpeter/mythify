@@ -36,8 +36,10 @@ from mythify_io import (  # noqa: E402
     append_chained_jsonl,
     append_jsonl,
     configure_durable_io,
+    jsonl_append_anchor,
     read_json,
     read_jsonl,
+    read_jsonl_after_marker,
     read_jsonl_since,
     write_json_atomic,
 )
@@ -102,11 +104,11 @@ from mythify_provenance import (  # noqa: E402
     evidence_moved_since_run,
 )
 from mythify_runtime_helpers import (  # noqa: E402
+    ChildTerminationGuard,
     now_iso,
     now_stamp,
     redact_sensitive_output,
     slugify,
-    tail_text,
     timestamp_after,
     timestamp_at_or_after,
     timestamp_sort_key,
@@ -250,12 +252,25 @@ def ensure_default_state_gitignored(project_dir):
         return False
 
 
+def global_state_root():
+    """~/.mythify holds global lessons; it is never a discovered workspace."""
+    try:
+        return (Path.home() / WORKSPACE_DIR_NAME).resolve()
+    except (OSError, RuntimeError):
+        return None
+
+
 def discover_state_dir():
-    """Walk upward from cwd; the first directory containing .mythify wins."""
+    """Walk upward from cwd; the first directory containing .mythify wins.
+
+    The global lessons root (~/.mythify) is skipped, so a project under HOME
+    never inherits it as a workspace. MYTHIFY_DIR can still name it explicitly.
+    """
     current = Path.cwd().resolve()
+    global_root = global_state_root()
     for base in [current] + list(current.parents):
         candidate = base / WORKSPACE_DIR_NAME
-        if candidate.is_dir():
+        if candidate.is_dir() and candidate.resolve() != global_root:
             return candidate
     return None
 
@@ -597,6 +612,13 @@ def cmd_init(args, _state):
         print("[WARN] Already inside a Mythify workspace: {0}. Nothing to do.".format(existing))
         return 0
     state = Path.cwd() / WORKSPACE_DIR_NAME
+    if state.resolve() == global_state_root():
+        fail(
+            "[FAIL] {0} is the global lessons root, not a project workspace. "
+            "Run init inside a project directory, or set MYTHIFY_DIR to use it "
+            "explicitly.".format(state)
+        )
+        return 1
     ensure_layout(state)
     ensure_default_state_gitignored(Path.cwd())
     if not (state / "memory.json").exists():
@@ -741,6 +763,16 @@ def cmd_plan_add_step(args, state):
     return 0
 
 
+def mark_step_verification_anchor(state, step):
+    """Record where the step's evidence window starts in verifications.jsonl.
+
+    The anchor is a line hash, not a line count, so `logs compact` cannot move
+    it. A pre-6.0 integer verification_cursor is replaced when the step restarts.
+    """
+    step["verification_anchor"] = jsonl_append_anchor(state / "verifications.jsonl")
+    step.pop("verification_cursor", None)
+
+
 def cmd_plan_verify(args, state):
     """Run a step's own verify command and record the evidence scoped to it.
 
@@ -776,7 +808,7 @@ def cmd_plan_verify(args, state):
         )
         return 1
     if step.get("status") != "completed":
-        step["verification_cursor"] = len(read_jsonl(state / "verifications.jsonl"))
+        mark_step_verification_anchor(state, step)
         step["status"] = "in_progress"
         step["updated_at"] = now_iso()
         plan["last_updated"] = step["updated_at"]
@@ -965,10 +997,13 @@ def cmd_step(args, state):
         strict_context = bool(plan.get("strict_context"))
         expected_command = str(step.get("verify_command") or "").strip()
         lower_bound = step.get("updated_at") or plan.get("created", "")
-        cursor = step.get("verification_cursor")
-        if isinstance(cursor, int) and cursor >= 0:
-            records = read_jsonl(state / "verifications.jsonl")[cursor:]
-        else:
+        records = read_jsonl_after_marker(
+            state / "verifications.jsonl",
+            anchor=step.get("verification_anchor"),
+            legacy_cursor=step.get("verification_cursor"),
+            lower_bound=lower_bound,
+        )
+        if records is None:
             records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
         satisfying = [
             record
@@ -1018,7 +1053,7 @@ def cmd_step(args, state):
             "stamped on the step as strict_gate_waived."
         )
     if args.status == "in_progress":
-        step["verification_cursor"] = len(read_jsonl(state / "verifications.jsonl"))
+        mark_step_verification_anchor(state, step)
     step["status"] = args.status
     if args.result is not None:
         step["result"] = args.result
@@ -1152,38 +1187,40 @@ def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None
         stdout_path = Path(tempdir) / "stdout"
         stderr_path = Path(tempdir) / "stderr"
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
-            try:
-                process = subprocess.Popen(
-                    command,
-                    shell=True,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    start_new_session=(os.name != "nt"),
-                )
-            except OSError as exc:
-                process = None
-                spawn_error = str(exc)
-            if process is not None:
-                deadline = time.monotonic() + timeout
-                while process.poll() is None:
-                    if time.monotonic() >= deadline:
-                        timed_out = True
-                        containment_failed = not terminate_process_tree(process)
-                        break
-                    total_size = _file_size(stdout_path) + _file_size(stderr_path)
-                    if total_size > max_output_bytes:
-                        output_limit_exceeded = True
-                        containment_failed = not terminate_process_tree(process)
-                        break
-                    time.sleep(0.02)
+            with ChildTerminationGuard(terminate_process_tree) as guard:
                 try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    containment_failed = (
-                        not terminate_process_tree(process) or containment_failed
+                    process = subprocess.Popen(
+                        command,
+                        shell=True,
+                        stdout=stdout_file,
+                        stderr=stderr_file,
+                        start_new_session=(os.name != "nt"),
                     )
-                    process.wait(timeout=1)
-                exit_code = process.returncode
+                except OSError as exc:
+                    process = None
+                    spawn_error = str(exc)
+                guard.attach(process)
+                if process is not None:
+                    deadline = time.monotonic() + timeout
+                    while process.poll() is None:
+                        if time.monotonic() >= deadline:
+                            timed_out = True
+                            containment_failed = not terminate_process_tree(process)
+                            break
+                        total_size = _file_size(stdout_path) + _file_size(stderr_path)
+                        if total_size > max_output_bytes:
+                            output_limit_exceeded = True
+                            containment_failed = not terminate_process_tree(process)
+                            break
+                        time.sleep(0.02)
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        containment_failed = (
+                            not terminate_process_tree(process) or containment_failed
+                        )
+                        process.wait(timeout=1)
+                    exit_code = process.returncode
         stdout_tail = _read_file_tail_text(stdout_path, redactor=redact_sensitive_output)
         stderr_tail = _read_file_tail_text(stderr_path, redactor=redact_sensitive_output)
         total_size = _file_size(stdout_path) + _file_size(stderr_path)

@@ -563,11 +563,17 @@ def build_handoff_prompt_packet(state, goal="", verify_command=""):
     if verify_command:
         lines.append("- Suggested verifier: {0}".format(verify_command))
     lines.append("Guardrail: {0}".format(PROMPT_PACKET_GUARDRAIL))
+    if plan_context:
+        source = {"type": "plan", "id": plan_context.get("slug")}
+    elif active_outcome:
+        source = {"type": "outcome", "id": outcome_slug}
+    else:
+        source = {"type": "workflow_state", "id": None, "detail": "no active plan or outcome"}
     return {
         "kind": "handoff",
         "selected_kind": "handoff",
         "title": "Handoff prompt packet",
-        "source": {"type": "workflow_state", "id": (plan_context or {}).get("slug")},
+        "source": source,
         "context": {
             "goal": goal,
             "active_plan": plan_context,
@@ -629,7 +635,11 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
         "kind": "review",
         "selected_kind": "review",
         "title": "Review prompt packet",
-        "source": {"type": "git", "id": git_state.get("branch")},
+        "source": (
+            {"type": "git", "id": git_state.get("branch")}
+            if git_state.get("branch")
+            else {"type": "git", "id": None, "detail": "no git branch detected"}
+        ),
         "context": {
             "goal": goal,
             "git": git_state,
@@ -660,7 +670,12 @@ def format_prompt_packet(payload):
     ]
     if payload.get("source"):
         source = payload["source"]
-        lines.append("Source: {0} {1}".format(source.get("type", ""), source.get("id", "")))
+        line = "Source: {0}".format(source.get("type", ""))
+        if source.get("id") not in (None, ""):
+            line += " {0}".format(source["id"])
+        elif source.get("detail"):
+            line += " ({0})".format(source["detail"])
+        lines.append(line)
     lines.append("Next prompt:")
     lines.append(payload.get("next_prompt", ""))
     lines.append("Guardrail: {0}".format(payload.get("guardrail", PROMPT_PACKET_GUARDRAIL)))

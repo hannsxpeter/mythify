@@ -41,7 +41,7 @@ class QualityControlTests(unittest.TestCase):
         result = self.run_cli(
             "review", "create", "--status", "warn", "--path", "scripts/example.py",
         )
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 64)
         self.assertIn("invalid choice", result.stderr)
 
     def test_legacy_maintainability_record_shows_as_material(self):
@@ -97,7 +97,7 @@ class QualityControlTests(unittest.TestCase):
         created = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
             "--safety-fact", "the changed payload remains parseable", "--proof-depth", "2",
-            "--risk", risk, "--cleared", cleared, "--merge-command", "true",
+            "--risk", risk, "--cleared", cleared, "--merge-command", "test -f tracked.txt",
             "--name", "payload-safety",
         )
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -133,7 +133,7 @@ class QualityControlTests(unittest.TestCase):
         tracked.write_text("first dirty state\n", encoding="utf-8")
         created = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
-            "--safety-fact", "the dirty change remains safe", "--merge-command", "true",
+            "--safety-fact", "the dirty change remains safe", "--merge-command", "test -f tracked.txt",
             "--name", "dirty-safety",
         )
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -168,7 +168,7 @@ class QualityControlTests(unittest.TestCase):
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
             "--safety-fact", "claimed execution", "--proof-depth", "4", "--name", "too-deep",
         )
-        self.assertEqual(depth.returncode, 2)
+        self.assertEqual(depth.returncode, 64)
         self.assertIn("invalid choice", depth.stderr)
         invalid = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
@@ -186,7 +186,7 @@ class QualityControlTests(unittest.TestCase):
         self.init_git_repo()
         created = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
-            "--safety-fact", "the reviewed source is unchanged", "--merge-command", "true",
+            "--safety-fact", "the reviewed source is unchanged", "--merge-command", "test -f tracked.txt",
             "--name", "source-safety",
         )
         self.assertEqual(created.returncode, 0, created.stderr)

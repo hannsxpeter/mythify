@@ -120,7 +120,7 @@ class TestCutSurface(DownsizeCase):
         for argv in cases:
             with self.subTest(argv=argv):
                 result = self.run_cli(*argv)
-                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
                 self.assertRegex(result.stderr, r"invalid choice|unrecognized arguments")
 
     def test_plan_horizon_environment_is_ignored(self):
