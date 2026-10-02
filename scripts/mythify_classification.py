@@ -9,10 +9,11 @@ host decides whether and where to delegate.
 Two precision rules keep short or incidental wording from misleading the
 router. A prompt of trivial length is trivial only when it matches no task,
 risk, or route-selecting term. A destructive verb (delete, remove, drop, and
-kin) is high risk unless the words right after it name only a code-local
-object such as an import, a comment, or a typo, so "remove an unused import"
-stays low risk while "delete the user account" and "delete production data"
-stay high. A destructive object in that window always wins.
+kin) is high risk unless the words right after it name a code-local object
+such as an import, a comment, or a typo and the prompt names no destructive
+object anywhere, so "remove an unused import" stays low risk while "delete the
+user account", "delete production data", and "remove the imports from the s3
+bucket" stay high.
 """
 
 import json
@@ -127,18 +128,18 @@ def term_positions(tokens, term):
 def destructive_wording(text):
     """True unless every destructive verb acts only on a code-local object.
 
-    The object is the next RISK_WINDOW_WORDS words. A destructive object there
-    makes the verb high risk; a code-local object alone makes it benign; and a
-    verb with neither stays high, so unknown objects fail toward caution.
+    A destructive object anywhere in the prompt makes any destructive verb high
+    risk, however far apart they are. Otherwise a verb is benign only when the
+    next RISK_WINDOW_WORDS words name a code-local object; a verb followed by
+    neither kind stays high, so unknown objects fail toward caution.
     """
     tokens = wordish(text).split()
+    names_destructive_object = bool(contains_any(text, DESTRUCTIVE_OBJECTS))
     for verb in DESTRUCTIVE_VERBS:
         size = len(wordish(verb).split())
         for start in term_positions(tokens, verb):
             window = " ".join(tokens[start + size:start + size + RISK_WINDOW_WORDS])
-            if contains_any(window, DESTRUCTIVE_OBJECTS) or not contains_any(
-                window, CODE_LOCAL_OBJECTS
-            ):
+            if names_destructive_object or not contains_any(window, CODE_LOCAL_OBJECTS):
                 return True
     return False
 

@@ -3,8 +3,8 @@
 Two v6 fixes keep the deterministic classifier from misreading wording. A
 prompt of twelve words or fewer is trivial only when it matches no task, risk,
 or route-selecting term. A destructive verb is high risk unless the words
-after it name only a code-local object (an import, a comment, a typo), and
-nouns such as "token" or "JSON schema" no longer make a low-risk edit a
+after it name a code-local object (an import, a comment, a typo) and the
+prompt names no destructive object anywhere, and nouns such as "token" or "JSON schema" no longer make a low-risk edit a
 security or migration task, while genuinely risky prompts stay high.
 """
 
@@ -109,6 +109,10 @@ class TestRiskTermsAreTight(unittest.TestCase):
             ("leak of the session token", "security"),
             ("remove the unused import and delete the user account", None),
             ("delete unused user accounts", None),
+            ("delete the comment column from the users table", None),
+            ("remove all comments posted by spam users", None),
+            ("remove the imports from the s3 bucket", None),
+            ("drop the comment column", None),
         ):
             with self.subTest(task=task):
                 payload = classify(task)
@@ -123,6 +127,7 @@ class TestRiskTermsAreTight(unittest.TestCase):
             env["HOME"] = tmp
             for task, route in (
                 ("delete the user account", "plan"),
+                ("delete the comment column from the users table", "plan"),
                 ("remove an unused import in utils.py", "direct"),
             ):
                 with self.subTest(task=task):
