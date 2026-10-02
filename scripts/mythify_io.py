@@ -87,6 +87,23 @@ def _write_text_atomic(path, text):
                 pass
 
 
+def write_text_keeping_mode(path, text):
+    """Atomic write that keeps PATH's mode, or the umask default when new.
+
+    The atomic writer's temp file is 0600, which would otherwise make a
+    user-owned file such as .gitignore unreadable to group and others.
+    """
+    path = Path(path)
+    if path.exists():
+        mode = path.stat().st_mode & 0o777
+    else:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+    _write_text_atomic(path, text)
+    os.chmod(str(path), mode)
+
+
 def write_json_atomic(path, data):
     """Write JSON to a temp file in the same directory, then rename over the
     target so readers never observe a partial file."""

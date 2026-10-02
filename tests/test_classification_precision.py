@@ -165,6 +165,11 @@ class TestPhraseTieBreak(unittest.TestCase):
         self.assertEqual(classify("write a product plan for onboarding")["task_type"], "product")
         self.assertEqual(classify("what should we build next quarter")["task_type"], "product")
 
+    def test_product_terms_win_ties_against_generic_verbs(self):
+        self.assertEqual(classify("build a roadmap for next quarter")["task_type"], "product")
+        self.assertEqual(classify("create a roadmap for the app")["task_type"], "product")
+        self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
+
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
         self.assertEqual(classify("adjust css positioning of the modal")["task_type"], "frontend_ui")

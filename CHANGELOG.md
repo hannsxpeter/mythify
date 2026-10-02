@@ -20,8 +20,9 @@ until a `verify run` on the integrated result passes. The CLI goes from 36 to
 22 top-level commands: 16 are removed, seven of them views folded into
 `status`, and `product` (product planning with human gates and measured
 outcomes) and `mcp` are added. The generated `AGENTS.md` shrinks from 36,510
-bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
-`scripts/lint.py` checks the repository for drift.
+bytes to 7,777. The 13 bugs reproduced in the 5.8 review, and the gate and
+installer bugs found during the release reviews, are fixed with regression
+tests. `scripts/lint.py` checks the repository for drift.
 
 ### Breaking changes
 
@@ -184,6 +185,13 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
 
 ### Fixed
 
+- `init` rewrote `.gitignore` with mode 0600. It keeps the file's mode, or
+  the umask default for a new file.
+- `plan import` warns when a task has no Verify command, because such a step
+  completes on any passing run, and tells the agent to complete a step before
+  flipping its checkbox.
+- "build a roadmap" and "create a roadmap" routed to `plan` as features; a
+  product term now wins a tie against a generic verb and routes to `product`.
 - `~/.mythify`, the global lessons root, was discovered as the workspace for
   every uninitialized project under HOME. Discovery skips it, and `init` in
   HOME exits 1.

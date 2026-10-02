@@ -7,6 +7,7 @@ artifacts; checkbox flips stay with the executing agent per the artifact's own
 embedded rules.
 """
 
+import sys
 from pathlib import Path
 
 from mythify_godfiles import (
@@ -213,6 +214,15 @@ def cmd_plan_import(args, state):
             "each still completes only after its verify command passes while "
             "the step is in progress.".format(checked, path.name)
         )
+    unverifiable = [step["source_id"] for step in steps if not (step.get("verify_command") or "").strip()]
+    if unverifiable:
+        print(
+            "[WARN] {0} task(s) in {1} have no Verify command: {2}. Their steps "
+            "complete on any passing verify run recorded while they are in "
+            "progress, so add a Verify line to the artifact and re-import, or "
+            "use plan add-step with --verify.".format(len(unverifiable), path.name, ", ".join(unverifiable)),
+            file=sys.stderr,
+        )
     if digest.get("counter_drift"):
         print(
             "[WARN] Frontmatter counters disagree with the checkboxes in {0}; "
@@ -220,7 +230,10 @@ def cmd_plan_import(args, state):
         )
     print(
         "Checkbox flips in the artifact stay with the executing agent per its "
-        "embedded rules; Mythify holds the evidence trail."
+        "embedded rules; Mythify holds the evidence trail. Complete the step "
+        "first, then flip the box: the artifact is part of the fingerprinted "
+        "worktree, so editing it between the check and the completion makes "
+        "the evidence stale."
     )
     print(describe_next_pending(plan))
     return 0

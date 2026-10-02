@@ -158,6 +158,28 @@ class TestGlobalLessonsRootIsNotAWorkspace(CliCase):
                 self.assertEqual(mythify_mcp.project_root(self.nested), self.nested.resolve())
 
 
+class TestInitKeepsGitignoreMode(unittest.TestCase):
+    """init appended .mythify/ to .gitignore through a 0600 temp file."""
+
+    def test_existing_gitignore_keeps_its_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            project.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+            ignore = project / ".gitignore"
+            ignore.write_text("node_modules/\n", encoding="utf-8")
+            os.chmod(str(ignore), 0o644)
+            env = dict(os.environ, HOME=str(Path(tmp) / "home"))
+            env.pop("MYTHIFY_DIR", None)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "mythify.py"), "init"],
+                cwd=str(project), env=env, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(ignore.read_text(encoding="utf-8"), "node_modules/\n.mythify/\n")
+            self.assertEqual(ignore.stat().st_mode & 0o777, 0o644)
+
+
 class TestUsageErrorsExit64(CliCase):
     """Bug 2: argparse usage errors exited 2, the 'unverified' verdict code."""
 

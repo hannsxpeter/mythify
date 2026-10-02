@@ -30,6 +30,9 @@ class TestUserInstaller(unittest.TestCase):
     def run_cmd(self, args, cwd=None, env=None, input_text=None):
         merged_env = dict(os.environ)
         merged_env["HOME"] = str(self.tmp / "home")
+        # Some system Pythons cache bytecode under $HOME/Library; tests that
+        # snapshot the fake HOME must not see the interpreter's own writes.
+        merged_env["PYTHONDONTWRITEBYTECODE"] = "1"
         if env:
             for key, value in env.items():
                 if value is None:

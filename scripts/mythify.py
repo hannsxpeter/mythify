@@ -33,6 +33,7 @@ from mythify_parser import build_parser as build_cli_parser  # noqa: E402
 from mythify_io import (  # noqa: E402
     JSONL_TAIL_CHUNK_BYTES,
     _write_text_atomic,
+    write_text_keeping_mode,
     append_chained_jsonl,
     append_jsonl,
     configure_durable_io,
@@ -250,7 +251,7 @@ def ensure_default_state_gitignored(project_dir):
         if gitignore_has_state_entry(existing):
             return False
         prefix = "" if existing == "" or existing.endswith("\n") else "\n"
-        _write_text_atomic(path, existing + prefix + WORKSPACE_DIR_NAME + "/\n")
+        write_text_keeping_mode(path, existing + prefix + WORKSPACE_DIR_NAME + "/\n")
         return True
     except OSError as err:
         fail("[WARN] Could not add {0}/ to .gitignore: {1}".format(WORKSPACE_DIR_NAME, err))
@@ -418,9 +419,11 @@ def execute_recorded_verification(
     """Run COMMAND, append an executed verification record, return the record.
 
     When ``context`` (a plan/step_id/step_title/step_status dict) is given it is
-    stamped on the record verbatim; otherwise the active plan's in-progress step
-    is auto-detected. An explicit context lets ``plan verify`` scope evidence to
-    a specific step of any plan, not just the active one.
+    stamped on the record verbatim; otherwise the record is stamped to the
+    in-progress step whose stored verify_command equals COMMAND (active plan
+    first, then every other plan), falling back to the active plan's first
+    in-progress step. An explicit context lets ``plan verify`` scope evidence
+    to a specific step of any plan.
     """
     lineage = capture_lineage(state, parents) if parents else None
     verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
