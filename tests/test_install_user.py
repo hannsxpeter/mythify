@@ -16,6 +16,11 @@ INSTALLER = REPO_ROOT / "scripts" / "install_user.sh"
 CLI_PACKAGER = REPO_ROOT / "scripts" / "package_cli.py"
 SKILLS = ("mythify", "mythify-work", "mythify-route", "mythify-verify")
 
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+# The model, vendor, and host denylist lives in scripts/lint.py.
+import lint  # noqa: E402
+
 
 class TestUserInstaller(unittest.TestCase):
     def setUp(self):
@@ -951,14 +956,6 @@ class TestSkillsAreHostNeutral(unittest.TestCase):
     """Chat skills run on any host: no host invocation syntax, no vendor names."""
 
     HOST_INVOCATION = re.compile(r"(?<![\w./-])[/$]mythify(?:-work|-route|-verify)?\b")
-    VENDOR_NAMES = re.compile(
-        r"claude|codex|(?-i:\bCursor\b)|cursor[-_ ](?:agent|cli|ide|editor|workers?)\b|"
-        r"[/.]cursor/|cursorrules|gpt|openai|anthropic|gemini|haiku|sonnet|\bopus\b|"
-        r"\bkimi\b|opencode|antigravity|ollama|ultracode|fanout|model.profile",
-        re.IGNORECASE,
-    )
-    # License attribution for the adapted prose rules; a URL, not a host choice.
-    ATTRIBUTION = "https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md"
 
     def skill_files(self):
         return sorted(
@@ -971,17 +968,16 @@ class TestSkillsAreHostNeutral(unittest.TestCase):
         self.assertIsNotNone(self.HOST_INVOCATION.search("or $mythify in chat"))
         self.assertIsNone(self.HOST_INVOCATION.search("python3 scripts/mythify.py status"))
         self.assertIsNone(self.HOST_INVOCATION.search("state in .mythify/"))
-        self.assertIsNotNone(self.VENDOR_NAMES.search("spawn a Codex worker"))
-        self.assertIsNotNone(self.VENDOR_NAMES.search("the Cursor agent"))
-        self.assertIsNone(self.VENDOR_NAMES.search("report --cursor chat"))
-        self.assertIsNone(self.VENDOR_NAMES.search("mark a chat cursor first"))
+        self.assertTrue(lint.model_agnostic_hits("spawn a Codex worker"))
+        self.assertTrue(lint.model_agnostic_hits("the Cursor agent"))
+        self.assertEqual(lint.model_agnostic_hits("report --cursor chat"), [])
+        self.assertEqual(lint.model_agnostic_hits("mark a chat cursor first"), [])
 
     def test_skills_name_no_host_syntax_or_vendor(self):
         hits = []
         for path in self.skill_files():
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                line = line.replace(self.ATTRIBUTION, "")
-                if self.HOST_INVOCATION.search(line) or self.VENDOR_NAMES.search(line):
+                if self.HOST_INVOCATION.search(line) or lint.model_agnostic_hits(line):
                     hits.append("{}:{}: {}".format(path.relative_to(REPO_ROOT), number, line.strip()))
         self.assertEqual(hits, [])
 

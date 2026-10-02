@@ -43,8 +43,8 @@ ship inside the standalone CLI archive so the packaged README stays intact.
 ## Keeping docs honest
 
 - Every command and flag a doc names must exist: check it with `--help` before
-  writing it down. `python3 scripts/lint.py` checks links, ASCII, and the
-  model-agnostic rule.
+  writing it down. `python3 scripts/lint.py` checks links, dashes and emoji,
+  and the model-agnostic rule.
 - MCP tool claims follow `TOOL_ALLOWLIST` in `scripts/mythify_mcp.py`;
   `tools/list` is authoritative.
 - `AGENTS.md` and `CLAUDE.md` are generated from `protocol/PROTOCOL.md`. Edit

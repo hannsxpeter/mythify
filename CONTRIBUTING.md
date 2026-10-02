@@ -65,16 +65,16 @@ fail when they disagree. `dist/` is build output and is not committed.
 
 ## Writing rules
 
-Every file in the repository follows these, and the lint fails on
-violations:
+Every file in the repository follows these. The lint `text` check fails on
+dashes and emoji, and its `prose` check runs
+`python3 scripts/check_prose_quality.py` on the docs; review covers the rest.
 
 - ASCII only. No emoji anywhere.
 - No em dashes (U+2014) and no en dashes (U+2013). Use commas, colons,
   parentheses, or plain hyphens.
 - No TODO markers and no placeholder content. Every file ships complete.
 - Concrete prose: name the actor, the action, and the evidence. No promotional
-  language. `python3 scripts/check_prose_quality.py` checks the mechanical
-  part.
+  language.
 - Program output uses the ASCII markers `[OK]`, `[FAIL]`, and `[WARN]`.
 
 ## No model or vendor names in the product
@@ -84,8 +84,8 @@ to, or spawns one. Runtime code, help text, the protocol, the skills, and
 product docs name no AI model, provider, or vendor. The exceptions are host
 setup file locations in `docs/mcp.md` and the installer, historical records
 (`CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`), and the literal file name
-`CLAUDE.md`. `tests/test_model_agnostic.py` and the lint `model-agnostic`
-check enforce it.
+`CLAUDE.md`. The lint `model-agnostic` check enforces it; its denylists live
+in `scripts/lint.py`, and [MAINTAINING.md](MAINTAINING.md) lists their scope.
 
 ## Design changes
 

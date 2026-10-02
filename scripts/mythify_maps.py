@@ -9,8 +9,8 @@ Mythify's contribution over a plain decision board is evidence discipline.
 A ticket worked with a human (grilling, prototype) cannot be resolved from the
 agent's own words: the resolution must carry the human's input, exactly as an
 attested claim never counts as executed proof. A task ticket that carries a
-verify command must show a passing executed run scoped to that ticket before it
-closes, exactly as a plan step must.
+verify command must show a passing executed run of that command recorded since
+the ticket was claimed before it closes, exactly as a plan step must.
 """
 
 import json
@@ -634,7 +634,7 @@ def cmd_map_claim(args, state):
 
 
 def cmd_map_verify(args, state):
-    """Run a ticket's own verify command and scope the evidence to that ticket."""
+    """Run a ticket's own verify command and stamp the evidence with the ticket."""
     if (environ or {}).get("MYTHIFY_DISABLE_RUN") == "1":
         fail(
             "[FAIL] map verify is disabled: MYTHIFY_DISABLE_RUN=1 is set. No "

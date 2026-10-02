@@ -116,7 +116,9 @@ def add_map_parser(sub, symbols):
         help="Run a task ticket's own verify command.",
         description=(
             "Run the ticket's verify_command and record the executed evidence "
-            "scoped to that ticket, satisfying its resolution gate. CLI-only."
+            "with the map and ticket context. The resolve gate accepts any "
+            "passing executed run of that command recorded since the claim, so "
+            "this run satisfies it. CLI-only."
         ),
     )
     p.add_argument("id", help="Ticket id such as T1.")

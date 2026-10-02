@@ -37,8 +37,11 @@ Never edit these by hand. Change the source, regenerate, and commit both.
 
 | Generated | Source | Command | Drift check |
 | :--- | :--- | :--- | :--- |
-| `AGENTS.md`, `CLAUDE.md`, `PROTOCOL_SOURCE_SHA256` in `scripts/mythify_protocol.py` | `protocol/PROTOCOL.md` and `pointer_copy()` | `python3 scripts/build_variants.py` | `python3 scripts/build_variants.py --check` (CI and lint `generated`) |
-| `docs/commands.md` | the argparse tree | `python3 scripts/build_commands_doc.py` | lint `generated` |
+| `AGENTS.md`, `CLAUDE.md`, `PROTOCOL_SOURCE_SHA256` in `scripts/mythify_protocol.py` | `protocol/PROTOCOL.md` and `pointer_copy()` | `python3 scripts/build_variants.py` | `python3 scripts/build_variants.py --check`, run by lint `generated` |
+| `docs/commands.md` | the argparse tree | `python3 scripts/build_commands_doc.py` | `python3 scripts/build_commands_doc.py --check`, run by lint `generated` |
+
+Both generators write byte-identical output on every supported Python, so the
+3.9 and current-Python CI jobs agree on what is stale.
 
 A protocol change is a contract change: keep `protocol/PROTOCOL.md` under its
 byte budget (lint `protocol-budget`), and say in the CHANGELOG what an agent
@@ -47,28 +50,37 @@ following the old text would now do differently.
 ## The lint
 
 ```bash
-python3 scripts/lint.py
+python3 scripts/lint.py                          # every check
+python3 scripts/lint.py --check links --check text
+python3 scripts/lint.py --json                   # findings as JSON
+python3 scripts/lint.py --root /path/to/copy     # lint another tree
 ```
 
-`scripts/lint.py` is the one maintainer entry point for drift. It runs these
-checks and exits nonzero when any fails:
+`scripts/lint.py` is the one maintainer entry point for drift. It exits 0
+when clean and 1 with one line per finding, `path:line: check: message`.
+It covers the repository's tracked files plus untracked files git does not
+ignore, so a new file is linted before its first commit; outside a git work
+tree it covers every file under `--root` except `.git/` and `__pycache__/`.
+CI's `Repository hygiene` job and the release workflow run it.
 
 | Check | Fails when |
 | :--- | :--- |
-| `version` | a place in the version table disagrees with `VERSION` |
-| `generated` | a generated file differs from what its generator would write |
-| `protocol-budget` | `protocol/PROTOCOL.md` exceeds its byte budget |
-| `text` | a tracked file has a non-ASCII character, an em or en dash, or an emoji |
+| `version` | the top `CHANGELOG.md` release heading, the `X.x` row marked Yes in `SECURITY.md`, or the release target in `RELEASE-CHECKLIST.md` disagrees with `VERSION` |
+| `generated` | `build_variants.py --check` or `build_commands_doc.py --check` fails |
+| `protocol-budget` | `protocol/PROTOCOL.md` or `AGENTS.md` exceeds 12,000 bytes, or a `skills/*/SKILL.md` exceeds 16,000 bytes |
+| `text` | a file contains an en dash (U+2013), an em dash (U+2014), U+FE0F, or a code point in U+1F000-1FAFF, U+2600-27BF, or U+2B00-2BFF |
 | `prose` | `scripts/check_prose_quality.py` reports a finding |
-| `model-agnostic` | a shipped product surface names an AI model or vendor outside the allowed exceptions |
-| `dependencies` | a shipped Python file imports a module outside the standard library or the repository |
-| `mcp-surface` | an MCP tool does not map to a parser leaf |
-| `links` | a relative Markdown link does not resolve |
-| `source-size` | a file under `scripts/` exceeds the nonblank line ceiling |
+| `model-agnostic` | a file names a model or a removed model-routing identifier, or a shipped surface names a vendor or host (see below) |
+| `dependencies` | a dependency manifest (`package.json`, `requirements*.txt`, a pyproject dependency list, and similar) or `node_modules` is in the tree, or a `scripts/*.py` or `tests/*.py` file imports a module outside the standard library and those two folders |
+| `mcp-surface` | a `TOOL_ALLOWLIST` entry is not a parser leaf or repeats, the typed tools fail to build, or the `mythify` tool description does not list exactly the other leaves |
+| `links` | a relative Markdown link, reference, or image does not resolve to a file in the tree (anchors are ignored) |
+| `source-size` | `scripts/check_runtime_source_size.py` reports a file over the nonblank line ceiling |
 
-Its self-test proves each check fails on an injected violation. When a check
-is wrong, fix the check and add a self-test case for it. Never loosen a check
-to make a bad tree pass; a check that fails to fail is worse than a red build.
+`tests/test_lint.py` runs the lint on the repository and, for each check,
+copies the tree, injects one violation, and asserts that check reports it.
+When a check is wrong, fix the check and extend its injection. Never loosen
+a check to make a bad tree pass; a check that fails to fail is worse than a
+red build.
 
 ## Adding a command
 
@@ -102,14 +114,29 @@ Mythify never names, ranks, routes to, switches, or spawns a model,
 provider, or vendor CLI. The host chooses any subagent or none, and delegated
 output is material until `verify run` passes on the integrated result.
 
-In practice: runtime code, help text, `protocol/`, the skills, and product
-docs name no AI model or vendor. Allowed exceptions are host setup file
-locations (docs/mcp.md and the installer's skill-root defaults), historical
-records (`CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`), the license
-attribution links in docs/blast-radius.md and docs/prose-quality.md, and the
-literal file name `CLAUDE.md`. `tests/test_model_agnostic.py`
-and the lint `model-agnostic` check enforce it. A feature that seems to need a
-model name is a host feature, not a Mythify feature.
+In practice, the lint `model-agnostic` check enforces two denylists, both
+case-insensitive with word boundaries, and both kept only in
+`scripts/lint.py` (tests import them):
+
+- Model family names (`MODEL_NAMES`) and the identifiers of the removed
+  model-routing layer (`ROUTING_IDENTIFIERS`: its JSON keys, flags, tool
+  names, state file, and environment variables) are forbidden in every file
+  except `CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`,
+  `scripts/lint.py`, and `tests/test_lint.py`. A test that asserts a removed
+  key is absent checks keys with `lint.removed_identifier_keys` instead of
+  spelling the key out.
+- Vendor and host names (`VENDOR_NAMES`) are forbidden in the shipped
+  product surfaces: `scripts/mythify*.py`, `protocol/`, `skills/`,
+  `AGENTS.md`, and `docs/commands.md`. Lower-case "cursor" is an ordinary
+  word there (report cursors), so only the editor's vendor forms match.
+
+Allowed tokens everywhere: the file names `CLAUDE.md` and `.cursorrules`
+(both read by `protocol check`), the MIT attribution URL for the adapted
+prose rules, and the host configuration paths in the docs/mcp.md table.
+Product docs outside the vendor scope still name no vendor except where they
+describe host setup (docs/mcp.md, the installer's skill roots); that part is
+review, not lint. A feature that seems to need a model name is a host
+feature, not a Mythify feature.
 
 ## Logging drift
 

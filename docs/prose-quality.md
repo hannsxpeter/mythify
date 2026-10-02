@@ -39,8 +39,8 @@ Exit codes are:
 - `1`: one or more configured violations were found.
 - `2`: the checker could not load or inspect its inputs.
 
-CI, the release workflow, and the `prose` check in `scripts/lint.py` run this
-command. Its result proves only that the configured mechanical patterns are
+The `prose` check in `scripts/lint.py` runs this command, and CI and the
+release workflow run the lint. Its result proves only that the configured mechanical patterns are
 absent. Voice, clarity, originality, and human authorship remain judgment
 calls.
 

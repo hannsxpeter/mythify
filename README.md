@@ -212,12 +212,15 @@ mythify outcome start "make the suite green" \
 mythify outcome check               # after each attempt
 ```
 
-The loop stops at success, the iteration or cost budget, a change outside
-`--allowed-paths` or inside `--frozen-paths` (checked through git), or
-`--escalate-after` failures in a row handed back to you. Start the loop with
-`--agent "COMMAND"` and run `mythify outcome run` to let Mythify fire that
-command each round; it can be any program, an agent CLI or a plain script.
-`--max-cost` caps the total cost the command reports with `MYTHIFY_COST=<n>`.
+Each `outcome check` runs the verifier and records the attempt. The loop
+ends at success, at the iteration budget, or at a change inside
+`--frozen-paths` (checked through git); a change outside `--allowed-paths`
+is named in the next action. Start the loop with `--agent "COMMAND"` and run
+`mythify outcome run` to let Mythify fire that command each round; it can be
+any program, an agent CLI or a plain script. `outcome run` also stops on a
+change outside `--allowed-paths`, after `--escalate-after` failures in a row
+(handing back to you), and when the total cost the command reports with
+`MYTHIFY_COST=<n>` reaches `--max-cost`.
 
 ### Blast-radius safety cases
 

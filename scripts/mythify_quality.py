@@ -365,17 +365,20 @@ def add_quality_parser(subparsers, symbols):
     review = subparsers.add_parser("review", help="Record blast-radius safety cases and prove them.")
     actions = review.add_subparsers(dest="review_command", metavar="ACTION", required=True)
     blast = actions.add_parser("blast-radius", help="Create a material-only blast-radius safety case.")
-    blast.add_argument("--status", choices=REVIEW_STATUSES, required=True)
+    blast.add_argument("--status", choices=REVIEW_STATUSES, required=True, help="Review verdict.")
     blast.add_argument("--path", action="append", required=True, help="Changed path. Repeat as needed.")
-    blast.add_argument("--safety-fact", required=True)
-    blast.add_argument("--proof-depth", type=int, choices=(1, 2, 3), default=1)
+    blast.add_argument("--safety-fact", required=True, help="The fact that makes the change safe to merge.")
+    blast.add_argument(
+        "--proof-depth", type=int, choices=(1, 2, 3), default=1,
+        help="Recorded proof depth, 1 to 3. Depths 4 and 5 come only from executed proof.",
+    )
     blast.add_argument("--risk", action="append", default=[], help="Risk JSON object; repeat as needed.")
     blast.add_argument("--cleared", action="append", default=[], help="Cleared-risk JSON object; repeat as needed.")
     blast.add_argument("--merge-command", help="Cheapest executable proof to run before merge.")
-    blast.add_argument("--name")
+    blast.add_argument("--name", help="Review name. Defaults to a generated slug.")
     blast.set_defaults(handler=symbols["cmd_blast_radius_review_create"])
     prove = actions.add_parser("prove", help="Run executable proof linked to a blast-radius review.")
-    prove.add_argument("name")
+    prove.add_argument("name", help="Review name.")
     prove.add_argument(
         "--command",
         help=(
@@ -384,10 +387,13 @@ def add_quality_parser(subparsers, symbols):
         ),
     )
     prove.add_argument("--claim", help="Claim label; defaults to the safety fact.")
-    prove.add_argument("--mode", choices=PROOF_MODES, default="executed")
-    prove.add_argument("--timeout", type=float, default=300.0)
+    prove.add_argument(
+        "--mode", choices=PROOF_MODES, default="executed",
+        help="Proof mode: executed proof reaches depth 4, runtime proof depth 5.",
+    )
+    prove.add_argument("--timeout", type=float, default=300.0, help="Timeout in seconds.")
     prove.set_defaults(handler=symbols["cmd_quality_review_prove"])
     show = actions.add_parser("show", help="Show a blast-radius safety case.")
-    show.add_argument("name")
-    show.add_argument("--json", dest="json_output", action="store_true")
+    show.add_argument("name", help="Review name.")
+    show.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     show.set_defaults(handler=symbols["cmd_quality_review_show"])

@@ -57,15 +57,18 @@ python3 -m unittest discover -s tests -v
 python3 scripts/lint.py
 ```
 
+It must print `[OK] lint passed` and exit 0. It covers the version places
+from step 1, the generated files from step 2, the prose check, and the
+runtime source size.
+
 ## 5. Release workflow gates, locally
 
-These are the checks `.github/workflows/release.yml` runs before it publishes:
+These are the checks `.github/workflows/release.yml` runs before it
+publishes, besides the full suite and the step 4 lint:
 
 ```bash
 python3 scripts/package_cli.py --check-release-tag vX.Y.Z
 python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_server tests.test_release_version -v
-python3 scripts/check_prose_quality.py
-python3 scripts/check_runtime_source_size.py
 python3 scripts/mythify.py protocol check AGENTS.md CLAUDE.md
 git diff --check
 ```

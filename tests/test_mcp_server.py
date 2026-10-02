@@ -574,9 +574,10 @@ class TestToolCalls(McpServerCase):
 
     def test_unknown_tool_and_bad_argument_keys(self):
         client = self.start()
-        unknown = client.request("tools/call", {"name": "fanout_start", "arguments": {}})
+        # A 5.x tool name: renamed tools fail loudly instead of running something else.
+        unknown = client.request("tools/call", {"name": "workflow_route", "arguments": {}})
         self.assertEqual(unknown["error"]["code"], -32602)
-        self.assertIn("fanout_start", unknown["error"]["message"])
+        self.assertIn("workflow_route", unknown["error"]["message"])
 
         bad_key = client.call("verify_run", {"command": "true", "cmd": "true"})
         self.assertTrue(bad_key["isError"])

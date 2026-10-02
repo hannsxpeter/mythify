@@ -15,11 +15,13 @@ How drift is caught from 6.0.0 on:
   (the version agrees everywhere it is written), `generated` (AGENTS.md,
   CLAUDE.md, the protocol digest, and docs/commands.md match their
   generators), `protocol-budget` (the protocol spine stays under its byte
-  budget), `text` (ASCII, no dashes, no emoji), `prose` (the prose checker),
-  `model-agnostic` (no model or vendor names in shipped product surfaces),
-  `dependencies` (standard library only), `mcp-surface` (every MCP tool maps to
-  a parser leaf), `links` (Markdown links resolve), and `source-size` (the
-  per-file ceiling). Its self-test proves each check can fail.
+  budget), `text` (no en or em dash, no emoji or symbol code points),
+  `prose` (the prose checker), `model-agnostic` (no model names or removed
+  routing identifiers anywhere, no vendor names in shipped product surfaces),
+  `dependencies` (standard library only), `mcp-surface` (every MCP tool maps
+  to a parser leaf, and the `mythify` tool lists the rest), `links` (Markdown
+  links resolve), and `source-size` (the per-file ceiling).
+  `tests/test_lint.py` proves each check can fail.
 - Facts are derived from code instead of copied: MCP tools and the escape-hatch
   command list come from the argparse tree, and docs/commands.md is generated
   from it.
@@ -41,7 +43,8 @@ the change that resolved it. Drift that is known and not yet fixed goes under
 7. Release and policy docs
 8. Removed features
 9. Found while building 6.0.0
-10. Open at 6.0.0
+10. Found by the 6.0.0 lint sweep
+11. Open at 6.0.0
 
 ## 1. Install and runtime
 
@@ -80,7 +83,7 @@ the change that resolved it. Drift that is known and not yet fixed goes under
 
 | Where | Drift | Resolution |
 | --- | --- | --- |
-| CLAUDE.md, PROTOCOL.md, README.md | Said `model_router` selected provider-neutral profiles. It wrote concrete vendor model ids into `provider_resolution`. | Model routing, policy, and triage are deleted. `tests/test_model_agnostic.py` and the lint `model-agnostic` check scan for model and vendor names. |
+| CLAUDE.md, PROTOCOL.md, README.md | Said `model_router` selected provider-neutral profiles. It wrote concrete vendor model ids into `provider_resolution`. | Model routing, policy, and triage are deleted. The lint `model-agnostic` check scans for model and vendor names; its denylists in `scripts/lint.py` are the only copy. |
 | scripts/mythify_model_routing.py docstring | "Provider-neutral execution topology", while it matched and embedded one vendor's workflow adapter engine. | Module deleted. |
 | README.md, CLAUDE.md native adapter text | Said the adapter failed closed below a host version. `classify` and `route` recommended it with no platform or version check; only the MCP fanout launch checked the version. | Adapter and fanout removed. `route` reports `parallelism` with `chooser: "host"`. |
 | mythify_classification.py, `classify` row | Called classification deterministic, but `classify` output included engine fields that depended on binaries on `PATH` and environment variables. | `classify` is removed. The `classification` block in `route --json` depends only on the prompt and `protocol/classification-rules.json`. |
@@ -144,13 +147,26 @@ These drifted in 5.8 and left with the feature.
 | MCP allowlist after the merges | The design kept a core typed set; merging the feature tracks brought it back to 63 typed tools. | `TOOL_ALLOWLIST` holds 37 paths; everything else goes through the `mythify` tool. |
 | `review prove` no-op check | Refused `true` but accepted `/usr/bin/true`, `true` with arguments, and `: ignored`. | `noop_verifier_reason` flags a path-qualified `true` or `:` and arguments after them. |
 
-## 10. Open at 6.0.0
+## 10. Found by the 6.0.0 lint sweep
 
-Verified against the 6.0.0 code and not yet resolved.
+Found while writing `scripts/lint.py` and running it on the 6.0.0 tree, or
+listed as open in the first draft of this log, and fixed before release.
 
-| Where | Drift | Proposed resolution |
+| Where | Drift | Resolution |
 | --- | --- | --- |
-| scripts/mythify_parser.py `plan` help | "Manage plans: create, import, add-step, list, show, switch, archive." omits `verify`. | Add `verify` to the help string. |
-| scripts/mythify_parser.py `outcome start --allowed-paths` | Says the CLI loop enforces scope and "a check fails if files change outside the scope". Only `outcome run` enforces it; `outcome check` adds the violations to `next_action`. | Say which mode enforces, or enforce in `outcome check`. |
-| scripts/mythify_map_parser.py `map verify`, mythify_maps.py docstring | Say the evidence is scoped to the ticket. The resolve gate accepts any passing run of the ticket's command after the claim anchor and does not check `ticket_id`. | Match on `ticket_id`, or describe the gate as command-scoped. |
-| protocol/workflow-router.json | Carries `priority` and `output_fields`, which the router does not read, and describes itself as shared with an MCP server. | Read the fields or drop them, and fix the description. |
+| scripts/mythify_parser.py `plan` help | "Manage plans: create, import, add-step, list, show, switch, archive." omitted `verify`. | The help and description list `verify`. docs/commands.md is generated from the parser, so the reference cannot omit a subcommand. |
+| scripts/mythify_parser.py `outcome start --allowed-paths` | Said the CLI loop enforces scope and "a check fails if files change outside the scope". Only `outcome run` fails an iteration; `outcome check` adds the out-of-scope files to `next_action` and passes. | The help names which mode enforces and which reports. |
+| README.md outcome loops, `outcome start --escalate-after` help | Said the loop stops after `--escalate-after` failures in a row and at a change outside `--allowed-paths`, beside an `outcome check` example. Only `outcome run` counts consecutive failures and stops on scope; `outcome check` does neither. | README.md and the help say which mode does what. |
+| scripts/mythify_map_parser.py `map verify`, scripts/mythify_maps.py docstrings | Said the evidence is scoped to the ticket. The resolve gate accepts any passing executed run of the ticket's command recorded since the claim and does not read `ticket_id`. | The help and docstrings describe the gate as it runs: command-scoped, after the claim anchor. `map resolve` help already said so. |
+| protocol/workflow-router.json | Carried per-route `priority` numbers and an `output_fields` list that no code read; the selection order lives in `select_workflow_route` and does not follow the numbers. Its description said it was shared with an MCP server. | Both keys are removed, the manifest is version 3, and the description names its one reader. |
+| tests/test_model_agnostic.py, tests/test_protocol_variants.py, tests/test_install_user.py, tests/test_routes.py, tests/test_mythify.py | Five copies of the model and vendor denylist that disagreed: the runtime scan had no `mistral`, `qwen`, or `deepseek`; the spine scan had no `colab` or `llama`; the skills scan had no `fable` or provider profile names but alone banned `fanout`; route and classification tests spelled out removed keys. | One table in `scripts/lint.py` (`MODEL_NAMES`, `ROUTING_IDENTIFIERS`, `VENDOR_NAMES`). The tests import it, `tests/test_model_agnostic.py` is folded into `tests/test_lint.py`, and absence checks use `lint.removed_identifier_keys`. |
+| .github/workflows/ci.yml ASCII step, CONTRIBUTING.md | The inline step exempted `docs/research-report.md`, which had no banned characters and is deleted, and CONTRIBUTING.md said the hygiene job rejected all non-ASCII text while the step banned only dashes, U+FE0F, and three symbol ranges. | The step is the lint `text` check, with no exemptions, and CONTRIBUTING.md and MAINTAINING.md name the exact code points it bans. |
+| protocol/prose-quality.json | Excluded `docs/archive` and `docs/research-report.md`, both deleted, and did not scan MAINTAINING.md, RELEASE-CHECKLIST.md, or ROADMAP.md. | The dead exclusions are gone and the three maintainer docs are scanned. |
+| README.md, docs/start-here.md vs scripts/package_cli.py | Told users to copy AGENTS.md into their project, but the CLI archive shipped neither AGENTS.md nor CLAUDE.md, and its README linked docs the archive did not contain. | The archive ships AGENTS.md, CLAUDE.md, and every doc a shipped doc links to; tests/test_install_user.py checks that each link resolves inside the archive. |
+| `review blast-radius`, `review prove`, `review show`, `lineage attach`, `lineage status` arguments | Fourteen arguments had no help, so their MCP schemas and the generated reference showed bare names. | Each has help text; docs/commands.md shows it. |
+| MAINTAINING.md, CONTRIBUTING.md lint tables (first draft) | Written from the plan before `scripts/lint.py` existed: `text` was described as rejecting any non-ASCII character, `protocol-budget` as covering only PROTOCOL.md, and `tests/test_model_agnostic.py` as an enforcer. | The tables describe the checks as implemented, including the `--check`, `--json`, and `--root` options. |
+
+## 11. Open at 6.0.0
+
+None known. New drift found after release goes here until a release resolves
+it.

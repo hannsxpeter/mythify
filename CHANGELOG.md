@@ -157,6 +157,20 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
 - The no-op verifier check also flags `/usr/bin/true`, `true` with
   arguments, and `: ignored`.
 - The MCP tool listing is about 30 KB, down from about 68 KB.
+- `protocol/workflow-router.json` is version 3: the `priority` and
+  `output_fields` keys, which no code read, are removed. The selection order
+  lives in the router code.
+- Help text matches behavior for `plan` (lists `verify`), `outcome start
+  --allowed-paths` and `--escalate-after` (`outcome run` enforces both,
+  `outcome check` reports scope and counts no failure streak), and `map
+  verify` (the resolve gate accepts any passing run of the ticket's command
+  since the claim). Every `review` and `lineage` argument
+  has help.
+- CI's `Repository hygiene` job runs `scripts/lint.py` in place of the
+  separate generated-file, prose, and inline ASCII steps, and the release
+  workflow runs it before packaging.
+- The CLI archive ships `AGENTS.md`, `CLAUDE.md`, and every doc that a
+  shipped doc links to.
 
 ### Fixed
 

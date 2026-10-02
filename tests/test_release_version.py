@@ -65,10 +65,9 @@ class ReleaseVersionTest(unittest.TestCase):
             'python3 scripts/package_cli.py --check-release-tag "$TAG"',
             "python3 -m unittest discover -s tests -v",
             "python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_server tests.test_release_version -v",
-            "python3 scripts/check_prose_quality.py",
-            "python3 scripts/check_runtime_source_size.py",
             "python3 scripts/mythify.py protocol check AGENTS.md CLAUDE.md",
             "git diff --check",
+            "python3 scripts/lint.py",
             "python3 scripts/build_release_checksums.py",
             "--check dist/release-assets/SHA256SUMS",
         ]

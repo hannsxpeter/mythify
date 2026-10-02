@@ -331,8 +331,9 @@ def build_parser(symbols):
         "--allowed-paths",
         default="",
         help=(
-            "Comma-separated scope paths. The CLI outcome loop enforces this "
-            "post-hoc via git: a check fails if files change outside the scope."
+            "Comma-separated scope paths, checked post-hoc via git. outcome run "
+            "fails an iteration that changes files outside the scope; outcome "
+            "check names those files in its next action without failing."
         ),
     )
     p.add_argument(
@@ -375,7 +376,10 @@ def build_parser(symbols):
         "--escalate-after",
         type=int,
         default=None,
-        help="Stop and hand back to a human after N consecutive failed verifications.",
+        help=(
+            "outcome run stops and hands back to a human after N consecutive "
+            "failed verifications. outcome check does not count them."
+        ),
     )
     p.add_argument("--name", help="Outcome name; defaults to a slug of the goal.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
@@ -466,8 +470,8 @@ def build_parser(symbols):
 
     plan = sub.add_parser(
         "plan",
-        help="Manage plans: create, import, add-step, list, show, switch, archive.",
-        description="Manage plans: create, import, add-step, list, show, switch, archive.",
+        help="Manage plans: create, import, add-step, verify, list, show, switch, archive.",
+        description="Manage plans: create, import, add-step, verify, list, show, switch, archive.",
     )
     plan_sub = plan.add_subparsers(dest="plan_command", metavar="ACTION", required=True)
 

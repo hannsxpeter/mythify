@@ -14,14 +14,15 @@
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",
     "SECURITY.md",
+    "MAINTAINING.md",
+    "RELEASE-CHECKLIST.md",
+    "ROADMAP.md",
     "docs",
     "skills",
     "protocol/PROTOCOL.md"
   ],
   "excluded_paths": [
-    "docs/archive",
-    "docs/evidence",
-    "docs/research-report.md"
+    "docs/evidence"
   ],
   "mechanical_rules": {
     "forbidden_characters": [

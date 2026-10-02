@@ -27,7 +27,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 - `review`: Record blast-radius safety cases and prove them.
 - `loop-fit`: Advise whether a task should be a loop, supervised, or done directly.
 - `outcome`: Run outcome-driven loops with verifier and iteration budget.
-- `plan`: Manage plans: create, import, add-step, list, show, switch, archive.
+- `plan`: Manage plans: create, import, add-step, verify, list, show, switch, archive.
 - `step`: Update a step's status; completed requires RESULT plus passing verify run.
 - `memory`: Persistent key-value memory: set, get, clear.
 - `lesson`: Record and list lessons (project store, or global with --global).
@@ -316,7 +316,7 @@ Options:
 mythify map verify [--map MAP] [--timeout TIMEOUT] id
 ```
 
-Run the ticket's verify_command and record the executed evidence scoped to that ticket, satisfying its resolution gate. CLI-only.
+Run the ticket's verify_command and record the executed evidence with the map and ticket context. The resolve gate accepts any passing executed run of that command recorded since the claim, so this run satisfies it. CLI-only.
 
 Arguments:
 
@@ -630,8 +630,8 @@ Attach current parent revisions to an artifact.
 
 Arguments:
 
-- `{map,plan,outcome,review,product}`
-- `id`
+- `{map,plan,outcome,review,product}`: Artifact kind.
+- `id`: Artifact id.
 
 Options:
 
@@ -647,12 +647,12 @@ Inspect current, stale, missing, or unknown parents.
 
 Arguments:
 
-- `{map,plan,outcome,review,product,verification}`
-- `id`
+- `{map,plan,outcome,review,product,verification}`: Artifact kind.
+- `id`: Artifact id.
 
 Options:
 
-- `--json`
+- `--json`: Print JSON.
 
 ## review
 
@@ -668,14 +668,14 @@ Create a material-only blast-radius safety case.
 
 Options:
 
-- `--status {pass,warn,fail}`: Required.
+- `--status {pass,warn,fail}`: Review verdict. Required.
 - `--path PATH`: Changed path. Repeat as needed. Required. Repeatable.
-- `--safety-fact SAFETY_FACT`: Required.
-- `--proof-depth {1,2,3}`: Default: `1`.
+- `--safety-fact SAFETY_FACT`: The fact that makes the change safe to merge. Required.
+- `--proof-depth {1,2,3}`: Recorded proof depth, 1 to 3. Depths 4 and 5 come only from executed proof. Default: `1`.
 - `--risk RISK`: Risk JSON object; repeat as needed. Repeatable.
 - `--cleared CLEARED`: Cleared-risk JSON object; repeat as needed. Repeatable.
 - `--merge-command MERGE_COMMAND`: Cheapest executable proof to run before merge.
-- `--name NAME`
+- `--name NAME`: Review name. Defaults to a generated slug.
 
 ### review prove
 
@@ -687,14 +687,14 @@ Run executable proof linked to a blast-radius review.
 
 Arguments:
 
-- `name`
+- `name`: Review name.
 
 Options:
 
 - `--command COMMAND`: Command to run; defaults to the review merge gate. A different command records evidence but does not verify the merge gate.
 - `--claim CLAIM`: Claim label; defaults to the safety fact.
-- `--mode {executed,runtime}`: Default: `executed`.
-- `--timeout TIMEOUT`: Default: `300.0`.
+- `--mode {executed,runtime}`: Proof mode: executed proof reaches depth 4, runtime proof depth 5. Default: `executed`.
+- `--timeout TIMEOUT`: Timeout in seconds. Default: `300.0`.
 
 ### review show
 
@@ -706,11 +706,11 @@ Show a blast-radius safety case.
 
 Arguments:
 
-- `name`
+- `name`: Review name.
 
 Options:
 
-- `--json`
+- `--json`: Print JSON.
 
 ## loop-fit
 
@@ -751,12 +751,12 @@ Options:
 - `--metric METRIC`: Optional shell command that emits a metric.
 - `--metric-floor N`: Minimum metric score required for success. Requires --metric; a green verifier with a score below the floor does not succeed.
 - `--max-iterations MAX_ITERATIONS`: Maximum verifier iterations before the outcome fails. Default: `3`.
-- `--allowed-paths ALLOWED_PATHS`: Comma-separated scope paths. The CLI outcome loop enforces this post-hoc via git: a check fails if files change outside the scope.
+- `--allowed-paths ALLOWED_PATHS`: Comma-separated scope paths, checked post-hoc via git. outcome run fails an iteration that changes files outside the scope; outcome check names those files in its next action without failing.
 - `--frozen-paths FROZEN_PATHS`: Comma-separated paths the loop must never touch (e.g. tests/). Enforced in every mode; a change under a frozen prefix stops the loop.
 - `--supersede REASON`: Retire the currently active outcome into this one, recording the reason and lineage. Without it, a second start is refused.
 - `--agent AGENT`: Command that attempts the work each iteration (an agent CLI or a script). When set, outcome run drives the loop autonomously. The command may print MYTHIFY_COST=<n> to report its cost.
 - `--max-cost MAX_COST`: Cost ceiling for the loop. Each iteration costs what the agent reports via MYTHIFY_COST, else one unit; the loop fails when the cumulative cost reaches this ceiling.
-- `--escalate-after ESCALATE_AFTER`: Stop and hand back to a human after N consecutive failed verifications.
+- `--escalate-after ESCALATE_AFTER`: outcome run stops and hands back to a human after N consecutive failed verifications. outcome check does not count them.
 - `--name NAME`: Outcome name; defaults to a slug of the goal.
 - `--json`: Print JSON.
 
@@ -847,7 +847,7 @@ Options:
 
 ## plan
 
-Manage plans: create, import, add-step, list, show, switch, archive.
+Manage plans: create, import, add-step, verify, list, show, switch, archive.
 
 ### plan create
 

@@ -28,14 +28,12 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: Run distribution and MCP server tests
         run: python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_server tests.test_release_version -v
-      - name: Check prose and runtime size
-        run: |
-          python3 scripts/check_prose_quality.py
-          python3 scripts/check_runtime_source_size.py
       - name: Check protocol variants and whitespace
         run: |
           python3 scripts/mythify.py protocol check AGENTS.md CLAUDE.md
           git diff --check
+      - name: Lint
+        run: python3 scripts/lint.py
       - name: Build skill package
         run: python3 scripts/package_skill.py
       - name: Build standalone CLI package

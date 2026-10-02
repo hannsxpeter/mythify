@@ -7,7 +7,6 @@ only inspected through `build_variants.py --check`, which writes nothing.
 
 import hashlib
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -21,14 +20,11 @@ PROTOCOL = REPO_ROOT / "protocol" / "PROTOCOL.md"
 GENERATED = ("AGENTS.md", "CLAUDE.md", "scripts/mythify_protocol.py")
 PROTOCOL_BYTE_BUDGET = 12000
 
-# Model, vendor, and host names the protocol spine must never mention.
-SPINE_DENYLIST = re.compile(
-    r"claude|codex|(?-i:\bCursor\b)|cursor[-_ ](?:agent|cli|ide|editor|workers?)\b|"
-    r"[/.]cursor/|cursorrules|gpt|openai|anthropic|gemini|haiku|"
-    r"sonnet|\bopus\b|\bfable\b|\bkimi\b|opencode|antigravity|ollama|ultracode|"
-    r"\bLuna\b|\bTerra\b|\bSol\b",
-    re.IGNORECASE,
-)
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+# The model, vendor, and host denylist lives in scripts/lint.py, and
+# tests/test_lint.py proves each entry can fire.
+import lint  # noqa: E402
 
 
 def tree_digest(paths):
@@ -158,17 +154,9 @@ class ProtocolSpineTests(unittest.TestCase):
         hits = [
             "{0}: {1}".format(number, line.strip())
             for number, line in enumerate(PROTOCOL.read_text(encoding="utf-8").splitlines(), 1)
-            if SPINE_DENYLIST.search(line)
+            if lint.model_agnostic_hits(line, vendors=True)
         ]
         self.assertEqual(hits, [])
-
-    def test_denylist_can_fire(self):
-        for sample in ("route to Sonnet", "a codex worker", "the cursor agent", "GPT-5"):
-            with self.subTest(sample=sample):
-                self.assertIsNotNone(SPINE_DENYLIST.search(sample))
-        for sample in ("a cursory read", "a solution for Terraform state"):
-            with self.subTest(sample=sample):
-                self.assertIsNone(SPINE_DENYLIST.search(sample))
 
     def test_spine_keeps_the_evidence_gates_and_delegation_rule(self):
         text = PROTOCOL.read_text(encoding="utf-8")

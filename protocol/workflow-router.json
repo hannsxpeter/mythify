@@ -1,67 +1,46 @@
 {
-  "version": 2,
-  "description": "Shared deterministic workflow route metadata for the Mythify CLI and MCP server.",
+  "version": 3,
+  "description": "Workflow route ids, descriptions, and prompt packet kinds read by scripts/mythify_router.py. The selection order lives in select_workflow_route, not in this file.",
   "routes": [
     {
       "id": "failure_recovery",
-      "priority": 10,
       "description": "Recover from the latest failed executed verification before starting unrelated work.",
       "prompt_packet": "failure"
     },
     {
       "id": "outcome",
-      "priority": 30,
       "description": "Use a bounded outcome loop when the user provides success criteria and a verifier, or an active outcome is already in progress.",
       "prompt_packet": "handoff"
     },
     {
       "id": "product",
-      "priority": 33,
       "description": "Frame product-planning work (problem, primary user, measurable outcomes, non-goals, bets, risks) in a product record and get a human's approval before any bet becomes a plan.",
       "prompt_packet": "product"
     },
     {
       "id": "map",
-      "priority": 35,
       "description": "Chart or work a wayfinding decision map when the effort is too big for one session, the route to the destination is not visible yet, or a research-like prompt asks several foggy questions.",
       "prompt_packet": "map"
     },
     {
       "id": "review",
-      "priority": 50,
       "description": "Use review or audit workflow when the user asks for findings, risks, critique, or evaluation.",
       "prompt_packet": "review"
     },
     {
       "id": "handoff",
-      "priority": 60,
       "description": "Resume an active plan or current workflow state without assuming hidden chat context, or render steering material on request.",
       "prompt_packet": "handoff"
     },
     {
       "id": "plan",
-      "priority": 70,
       "description": "Create a verifiable plan for ordinary multi-step implementation work, including full-send requests.",
       "prompt_packet": "handoff"
     },
     {
       "id": "direct",
-      "priority": 90,
       "description": "Answer directly or make a single reversible edit when no durable workflow is needed, including single-question research lookups.",
       "prompt_packet": "next"
     }
-  ],
-  "output_fields": [
-    "route",
-    "reason",
-    "next_command",
-    "prompt_packet",
-    "classification",
-    "loop_fit",
-    "verification_strategy",
-    "chat_policy",
-    "pause_rules",
-    "state_writes",
-    "evidence"
   ]
 }

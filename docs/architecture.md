@@ -59,7 +59,7 @@ Data files in `protocol/`:
 | --- | --- | --- |
 | `PROTOCOL.md` | `build_variants.py`, `protocol check` | the protocol spine, the source of AGENTS.md |
 | `classification-rules.json` | `mythify_classification.py` | schema 4: task types, risk terms, framing, parallelism, and review advisories |
-| `workflow-router.json` | `mythify_router.py` | version 2: route ids and their prompt packet kinds |
+| `workflow-router.json` | `mythify_router.py` | version 3: route ids, descriptions, and their prompt packet kinds |
 | `prose-quality.json` | `check_prose_quality.py` | scanned paths, forbidden characters, forbidden phrases |
 
 Generated files are never edited by hand. `scripts/build_variants.py` reads
@@ -114,8 +114,8 @@ lessons and is never a project workspace.
 
 Global lessons live in `~/.mythify/lessons/`. Folders and files written by
 5.x features that 6.0 removed (`research/`, `campaigns/`, `designs/`,
-`evals/`, `fanout/`, `host-model.json`, `workspace.json`) are never created,
-never read, and never deleted.
+`evals/`, `fanout/`, `workspace.json`, and the host model switch record) are
+never created, never read, and never deleted.
 
 ### Records
 
@@ -355,8 +355,8 @@ calls run serially.
 ### 2026-10-01: model agnostic, host-chosen delegation
 
 Mythify names, ranks, routes to, switches, and spawns no model, provider, or
-vendor CLI. `classify`, `host-model`, model policy, triage, model profiles,
-and fanout are removed. `route` returns three neutral advisories in
+vendor CLI. `classify`, the host model switch, model policy, triage, model
+profiles, and fanout are removed. `route` returns three neutral advisories in
 `classification`: `framing`, `parallelism` (with `chooser: "host"`), and
 `review`. The host may delegate to any subagent or to none; delegated output
 is material until a `verify run` on the integrated result passes. Why: model

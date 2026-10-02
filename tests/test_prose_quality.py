@@ -12,6 +12,7 @@ FIXTURES = ROOT / "tests" / "fixtures" / "prose-quality"
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from check_prose_quality import inspect_paths, inspect_text, load_manifest
+import lint  # noqa: E402
 
 
 class ProseQualityContractTests(unittest.TestCase):
@@ -38,11 +39,15 @@ class ProseQualityContractTests(unittest.TestCase):
         self.assertIn(expected, python_source)
 
     def test_release_workflow_runs_the_mechanical_checker(self):
+        # The release workflow runs scripts/lint.py, whose prose check runs
+        # check_prose_quality.py and reports each of its findings.
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.assertLess(
-            workflow.index("python3 scripts/check_prose_quality.py"),
+            workflow.index("python3 scripts/lint.py"),
             workflow.index("gh release create"),
         )
+        self.assertIn("prose", lint.CHECKS)
+        self.assertIn("scripts/check_prose_quality.py", (ROOT / "scripts" / "lint.py").read_text(encoding="utf-8"))
 
 
 class ProseQualityCheckerTests(unittest.TestCase):
