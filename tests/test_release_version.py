@@ -39,15 +39,13 @@ class ReleaseVersionTest(unittest.TestCase):
     def test_release_identity_is_consistent(self):
         cli = (REPO_ROOT / "scripts" / "mythify.py").read_text(encoding="utf-8")
         version = re.search(r'^VERSION = "([^"]+)"$', cli, re.MULTILINE).group(1)
-        release = (REPO_ROOT / "docs" / "release.md").read_text(encoding="utf-8")
-        roadmap = (REPO_ROOT / "roadmap.md").read_text(encoding="utf-8")
+        release = (REPO_ROOT / "RELEASE-CHECKLIST.md").read_text(encoding="utf-8")
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("Current release target: `v{}`".format(version), release)
-        self.assertIn("Current release target: `v{}`".format(version), roadmap)
         # Date as a pattern, not a literal: a pinned date breaks on every
         # release for reasons unrelated to what this test covers.
         self.assertRegex(

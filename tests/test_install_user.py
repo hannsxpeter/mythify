@@ -128,13 +128,19 @@ class TestUserInstaller(unittest.TestCase):
             root + "/protocol/classification-rules.json",
             root + "/protocol/workflow-router.json",
             root + "/skills/mythify/SKILL.md",
+            root + "/AGENTS.md",
+            root + "/CLAUDE.md",
             root + "/CHANGELOG.md",
             root + "/CONTRIBUTING.md",
-            root + "/docs/design.md",
+            root + "/ROADMAP.md",
+            root + "/docs/architecture.md",
+            root + "/docs/commands.md",
+            root + "/docs/mcp.md",
+            root + "/docs/product-planning.md",
             root + "/docs/start-here.md",
             root + "/docs/prose-quality.md",
             root + "/docs/evidence/efficacy-reproduction.md",
-            root + "/docs/evidence/codex-word-count-2026-07-13.json",
+            root + "/docs/evidence/efficacy-smoke-2026-07-13.json",
         }
         self.assertTrue(required.issubset(names), sorted(required - names))
         removed = {
@@ -144,6 +150,8 @@ class TestUserInstaller(unittest.TestCase):
             root + "/protocol/operation-registry.json",
             root + "/protocol/artifact-hygiene.json",
             root + "/docs/artifact-hygiene.md",
+            root + "/docs/design.md",
+            root + "/docs/release.md",
             root + "/docs/research-report.md",
             root + "/docs/humanlayer-integration-research.md",
         }

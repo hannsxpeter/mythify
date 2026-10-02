@@ -58,6 +58,7 @@ Exit codes are:
   the command is a no-op.
 - `2`: execution was disabled, the command failed, or a passing command changed
   the reviewed source.
+- `64`: the arguments did not parse.
 
 ## Proof ladder
 
@@ -113,17 +114,21 @@ review. The executed verification stores the same provenance plus typed
 `review:<name>` lineage. Status is derived from that append-only evidence at
 read time. The original review JSON is never edited to claim success.
 
-## MCP parity
+## Through MCP
 
-The MCP server exposes the same state contract through:
+The review commands have no typed MCP tool. Call them through the `mythify`
+tool, which runs any CLI command from an argument list:
 
-- `blast_radius_review_create`
-- `blast_radius_review_prove`
-- `blast_radius_review_status`
+```json
+{"args": ["review", "blast-radius", "--status", "warn", "--path", "src/cache.py", "--safety-fact", "eviction removes only expired entries", "--merge-command", "python3 -m unittest tests.test_cache", "--name", "cache-eviction"]}
+{"args": ["review", "prove", "cache-eviction"]}
+{"args": ["review", "show", "cache-eviction", "--json"]}
+```
 
-CLI-created reviews can be proved and read through MCP, and MCP evidence is
-recognized by the CLI. Both runtimes compute the same dirty-worktree digest and
-revision lineage. The `quality` tool profile includes all three tools.
+The MCP server runs the same CLI in the project root, so a review created in
+a terminal can be proved through MCP and the other way around. The result
+ends with `exit_code: N`, using the codes above; exit 2 is a result, not a
+tool error.
 
 ## Security and evidence boundary
 
@@ -141,6 +146,6 @@ revision lineage. The `quality` tool profile includes all three tools.
 
 The workflow selectively adapts ideas from the
 [pstack `blast-radius` skill](https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md),
-which is available in Cursor's MIT-licensed plugins repository. Mythify keeps
-its own immutable state, typed lineage, cross-runtime schema, execution kill
-switch, redacted artifacts, and release-gate integration.
+which is published under the MIT License. Mythify keeps its own immutable
+state, typed lineage, exact-change binding, execution kill switch, and
+redacted artifacts.

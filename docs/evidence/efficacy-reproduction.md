@@ -1,77 +1,74 @@
-# Reproducing the bare versus Mythify comparison
+# Efficacy smoke run, July 13, 2026 (historical record)
 
-## What this evidence shows
+This page records one small comparison run on July 13, 2026, against Mythify
+5.x. It is kept as history. It is not a benchmark, and the harness that
+produced it no longer ships.
 
-The sanitized July 13, 2026 run in `codex-word-count-2026-07-13.json` contains two paired trials of one small Python bug-fix scenario. Each pair used the same Codex CLI installation and the same external verifier.
+The sanitized result is [efficacy-smoke-2026-07-13.json](efficacy-smoke-2026-07-13.json).
+Its field values are unchanged from the original run; only the file name
+changed in 6.0.0 (it was `codex-word-count-2026-07-13.json`).
 
-- Bare control: the model received only the task, scenario, verifier command, and reporting request. Mythify and its protocol files were absent from the workspace.
-- Mythify treatment: the model received the same task and verifier plus the installed Mythify protocol and fast-profile steering.
-- Pair order: bare first, Mythify second.
-- External verifier: `python3 -m unittest` in each isolated task workspace.
-- Result: bare and Mythify both passed 2 of 2 trials. The measured task-success effect was a tie.
-- Evidence recording: both Mythify trials recorded one executed, passing
-  verification for the exact expected command, `python3 -m unittest`. The
-  harness parsed the JSONL records; attested, failed, malformed, or
-  different-command records do not count. Bare trials had no Mythify evidence
-  store by design.
-- Billing posture: authenticated subscription access was used. Monetary dollars and subscription quota consumption were not measured, so no cost value is claimed.
+## What was run
 
-This is a reproducible smoke comparison, not proof that Mythify improves task success. The evidence-recording difference confirms treatment behavior, but it is not an independent efficacy outcome. The observed duration difference is also not a reliable speed claim because the sample is tiny, the order was fixed, and service load can vary.
+- Agent: Codex CLI 0.144.1, using the account's default model. The model
+  identifier was not pinned or recorded.
+- Task: one scenario, `word_count_bugfix`, a small Python function with a
+  whitespace bug and local unit tests.
+- Design: two paired trials. Each pair ran a bare condition, then a Mythify
+  condition, each in a fresh temporary workspace.
+  - Bare: the agent received the task, the scenario, the verifier command, and
+    a reporting request. No Mythify files were present.
+  - Mythify: the agent received the same task and verifier, plus the 5.x
+    protocol file, the CLI, and its `protocol/*.json` manifests. The 5.x
+    `auto` profile resolved to `fast` for this scenario.
+- External verifier: `python3 -m unittest` in each workspace. Its exit code,
+  not the agent's report, decided task success.
+- Billing: subscription login. Neither dollar cost nor subscription quota was
+  measured.
 
-## Reproduction command
+## Result
 
-Prerequisites are an authenticated `codex` CLI and Python 3. Run from the repository root:
+| Measure | Bare | Mythify |
+| :--- | :--- | :--- |
+| Trials | 2 | 2 |
+| External verifier passed | 2 of 2 | 2 of 2 |
+| False completion claims | 0 | 0 |
+| Passing `verify run` recorded for `python3 -m unittest` | 0 (no Mythify store) | 2 of 2 |
+| Mean agent run time | 99.7 s | 37.1 s |
 
-```sh
-python3 scripts/local_model_eval.py \
-  --engine codex-cli \
-  --scenario word_count_bugfix \
-  --repeat 2 \
-  --timeout 120 \
-  --require-pass \
-  --billing-posture subscription_included_authentication \
-  --monetary-cost-status not_measured \
-  --subscription-quota-status not_measured \
-  --summary-output /tmp/mythify-efficacy-summary.json
-```
+Task success was a tie. In both Mythify trials the ledger held one executed,
+passing verification for the exact expected command. The harness counted only
+that record shape; attested, failed, malformed, or different-command records
+would not have counted.
 
-The harness runs each bare and Mythify condition in a fresh temporary workspace. It deletes those workspaces unless `--keep-workspaces` is supplied. The summary is machine-readable JSON with a versioned schema and an explicit evidence status.
+## What it does not show
 
-Do not commit the full console report or a file written with `--json-output`. Full reports contain temporary paths and bounded model and verifier output tails. Only review or publish `--summary-output` after checking that it contains no paths, output tails, prompts, or credentials.
+- It does not show that Mythify improves task success. Both conditions passed
+  every trial.
+- It does not show a speed effect. Two pairs, a fixed bare-then-Mythify order,
+  and variable service load make the time difference descriptive only.
+- The evidence-recording difference confirms that the agent followed the
+  protocol in that run. It is not an independent efficacy outcome, because the
+  Mythify condition was told to record evidence.
+- It says nothing about other agents, other models, other tasks, or cost.
+- One scenario and two pairs are not statistically powered and do not
+  establish generality.
 
-To reproduce the published sanitized bytes from a retained local raw report without rerunning any model, annotate it in memory with the explicit billing posture:
+## The harness is gone
 
-```sh
-python3 scripts/local_model_eval.py \
-  --sanitize-existing-report /tmp/mythify-efficacy-full-local.json \
-  --summary-output docs/evidence/codex-word-count-2026-07-13.json \
-  --billing-posture subscription_included_authentication \
-  --monetary-cost-status not_measured \
-  --subscription-quota-status not_measured
-```
+The 5.x harness, `scripts/local_model_eval.py`, drove named agent CLIs and
+carried model-specific code. Mythify 6.0.0 removed it together with the rest of
+the model, provider, and host routing, so this run cannot be reproduced from
+the current tree. The commands that produced it live in the 5.x history only.
 
-This path reads the raw report, adds the supplied cost metadata in memory, and writes only the sanitized summary. It never modifies the raw report and never starts a model process.
+The JSON stays as data. Its sanitization block records that it holds no raw
+agent output, verifier output, temporary paths, or prompts.
 
-## Published run context
+## What a real study needs
 
-- Date: July 13, 2026
-- Engine: Codex CLI 0.144.1 using the account's default model selection
-- Scenario: `word_count_bugfix`
-- Repeats: 2 paired trials
-- Mythify profile: `auto`, resolved to `fast` for this focused scenario
-- Sanitized artifact status: `available_repeated_trials`
-- Monetary cost: not measured, with no dollar value recorded
-- Subscription quota consumption: not measured
-- Raw report and temporary workspaces: not retained in the repository
-
-The model identifier was not pinned, so a future account default may select a different model. CLI version, model alias resolution, service load, account settings, and platform can all change the result. Two pairs on one scenario are not statistically powered and do not establish generality. A stronger efficacy claim requires more scenarios, randomized or counterbalanced order, more repetitions, pinned model metadata where available, and analysis planned before the run.
-
-## Runtime modularity guard
-
-The first-party runtime guard recursively counts every non-whitespace physical line, including comments and docstrings, in Python descendants under `scripts/` and JavaScript descendants under `mcp-server/src/`. It excludes `.venv`, `__pycache__`, and `node_modules` directories. The ceiling is 1,500 lines per file.
-
-```sh
-python3 scripts/check_runtime_source_size.py
-```
-
-Use `--json` for a stable machine-readable report. The guard covers `scripts/mythify.py`, `mcp-server/src/fanout.js`, and `mcp-server/src/workflow-tools.js` explicitly through repository tests.
+A pre-registered study that works with any agent is a bet on the
+[roadmap](../../ROADMAP.md): more scenarios, counterbalanced or randomized
+order, more repetitions, agent and model metadata recorded where the host
+exposes it, cost measured, and the analysis fixed before the first run. Until
+that exists, the honest claim is the one above: the evidence gate recorded what
+it was built to record, and nothing more was measured.

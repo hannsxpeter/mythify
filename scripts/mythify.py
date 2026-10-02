@@ -157,7 +157,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.8.0"
+VERSION = "6.0.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )

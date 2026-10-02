@@ -4,11 +4,11 @@
 
 | Version | Supported |
 | :--- | :--- |
-| 5.x | Yes |
-| 4.x | Yes |
-| 3.x | Yes |
-| 2.x | Yes |
-| Anything earlier | No (unreleased prototypes) |
+| 6.x | Yes |
+| 5.x and earlier | No |
+
+Fixes land on `main` and ship in the next 6.x release. Earlier lines get no
+backports.
 
 ## Reporting a vulnerability
 
@@ -28,44 +28,51 @@ What to expect:
 
 ## Mythify's execution model (read before reporting)
 
-Some behavior is by design and is not a vulnerability:
+Some behavior is by design and is not a vulnerability.
 
-- `verify run` (CLI) and `verify_run` (MCP tool) execute arbitrary shell
-  commands. That is the feature: verification means running real commands and
-  recording real exit codes. The commands run with the privileges of whoever
-  runs the CLI or the MCP server.
-- `fanout_start` (MCP tool) spawns local worker processes (the `claude-cli`,
-  `claude-ultracode`, `codex-cli`, `cursor-agent`, and `command` engines) or makes outbound API
-  calls (the `anthropic` and `openai` engines). That is the
-  parallel-delegation feature. Claude CLI and UltraCode workers get a curated environment
-  (`HOME`, `TERM`, an augmented `PATH`, and `CLAUDE_CODE_OAUTH_TOKEN` when
-  set), never the rest of the server's environment. `codex-cli` and
-  `cursor-agent` workers get a local-login environment (`HOME`, `TERM`, an
-  augmented `PATH`, `CODEX_HOME` or `XDG_CONFIG_HOME` when set, and the fanout
-  guards); API-key env vars are not passed through by default. `command`
-  engine workers run a command you configured yourself and inherit the
-  server's environment, so what they can see is up to you. All local workers
-  carry the depth-guard variables that prevent nested fanout.
-- Mythify is not a sandbox and does not try to be one. It does not restrict
-  what a model asks it to run. The boundary is the operating-system user the
-  server runs as.
+These commands execute shell commands, because verification means running
+real commands and recording real exit codes:
+
+| Command | What it runs |
+| :--- | :--- |
+| `verify run COMMAND` | `COMMAND` |
+| `plan verify ID` | the step's stored `verify_command` |
+| `outcome check` | the outcome's verify command and optional metric command |
+| `outcome run` | the outcome's agent command, then its verify and metric commands, in a bounded loop |
+| `map verify ID` | the ticket's stored `verify_command` |
+| `review prove NAME` | the review's merge-gate command, or `--command` |
+| `product measure OUTCOME` | the outcome's stored measure command |
+
+Each runs through the system shell with the privileges of whoever runs the
+CLI, in its own process session, with a timeout and an output cap. Mythify
+stores redacted stdout and stderr tails under `.mythify/`, and for every
+command except the outcome loops, redacted full-output artifacts as well.
+
+The MCP server (`mythify mcp`, launched by `bin/mythify-mcp`) runs the CLI in a
+subprocess for every tool call. A tool call can therefore run any of the
+commands above, and the typed tools and the `mythify` escape-hatch tool
+reach the same CLI. The server adds no execution path of its own.
+
+Mythify is not a sandbox. It does not restrict what an agent asks it to run.
+The boundary is the operating-system user that runs the CLI or the MCP
+server. Mythify spawns no model, provider, or agent on its own; the only
+agent command it runs is the one you pass to `outcome start --agent`.
 
 Hardening guidance for users:
 
-- Set `MYTHIFY_DISABLE_RUN=1` in the MCP server environment to disable
-  `verify_run` entirely (the tool refuses and records nothing).
-- Set `MYTHIFY_DISABLE_FANOUT=1` to disable all three fanout tools
-  (`fanout_start`, `fanout_status`, `fanout_results`); they refuse with an
-  explanation.
-- Never run the MCP server with elevated privileges.
+- Set `MYTHIFY_DISABLE_RUN=1` to turn off command execution. Every command in
+  the table above then refuses before running anything, records nothing, and
+  exits 2. Because MCP tools run the CLI, setting it in the MCP server's
+  environment covers every tool.
+- Never run the CLI or the MCP server with elevated privileges.
 - Do not place secrets in commands, verifier output, memory entries, lessons,
-  outcome notes, or worker prompts. Everything under `.mythify/` is plain text
-  on disk, and verification or outcome records store command strings plus
-  stdout and stderr tails.
+  outcome notes, product records, or reflections. Everything under
+  `.mythify/` is plain text on disk. Redaction of common token and password
+  patterns in captured output is best effort, not a guarantee.
 
 A report is in scope when Mythify does something other than what this model
-describes: for example, executing commands while `MYTHIFY_DISABLE_RUN=1` is
-set, spawning workers while `MYTHIFY_DISABLE_FANOUT=1` is set, leaking
-undocumented server environment variables into worker processes, writing
-state outside the resolved `.mythify/` directory, or any path traversal in
-state-file handling.
+describes: for example, executing a command while `MYTHIFY_DISABLE_RUN=1` is
+set, running a command no tool call or CLI invocation asked for, writing
+state outside the resolved `.mythify/` directory, path traversal in
+state-file handling, or a refusal gate (the strict step gate, a human-input
+gate) that a crafted argument bypasses.

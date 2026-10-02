@@ -8,9 +8,9 @@ human authorship.
 
 The packaged skill applies the guidance in
 [`skills/mythify/references/communication-quality.md`](../skills/mythify/references/communication-quality.md)
-before final chat responses and authored documentation. Generated workflow
-prompt packets carry the same compact instruction in both the CLI and MCP
-runtimes.
+before final chat responses and authored documentation. Every packet that
+`mythify prompt` renders carries the same compact instruction, and MCP
+clients receive the same packets because the MCP server runs the CLI.
 
 The pass removes generic or promotional language, replaces vague claims with
 named actions or evidence, and preserves exact technical terms. Quotations,
@@ -28,9 +28,10 @@ python3 scripts/check_prose_quality.py
 The checker reads `protocol/prose-quality.json` and scans the maintained
 Markdown paths listed there. It rejects the project's forbidden dash
 characters, decorative symbols in configured Unicode ranges, and a short list
-of canned phrases. Historical archives, committed evaluation evidence, and the
-preserved legacy research report are outside the default scope. Pass explicit
-Markdown files or directories to inspect them separately.
+of canned phrases, matched without regard to case. Paths listed under
+`excluded_paths` in the manifest, such as committed evaluation evidence in
+`docs/evidence`, are outside the default scope. Pass explicit Markdown files
+or directories to inspect them separately.
 
 Exit codes are:
 
@@ -38,9 +39,10 @@ Exit codes are:
 - `1`: one or more configured violations were found.
 - `2`: the checker could not load or inspect its inputs.
 
-The release workflow runs this command. Its result proves only that the
-configured mechanical patterns are absent. Voice, clarity, originality, and
-human authorship remain judgment calls.
+CI, the release workflow, and the `prose` check in `scripts/lint.py` run this
+command. Its result proves only that the configured mechanical patterns are
+absent. Voice, clarity, originality, and human authorship remain judgment
+calls.
 
 ## Source and license
 

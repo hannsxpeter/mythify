@@ -1,88 +1,55 @@
-# Mythify Documentation
+# Mythify documentation
 
-Start with [start-here.md](start-here.md). It is the shortest path from nothing
-to a working evidence loop, and it assumes no prior knowledge of the project.
+Start with [start-here.md](start-here.md): install, one verified loop, and the
+four workflows worth learning. Come back here for reference material.
 
-Come back here when you need the reference material.
+## Using Mythify
 
-## Where to go next
+| Doc | What it covers |
+| :--- | :--- |
+| [start-here.md](start-here.md) | The shortest path from nothing to a working evidence loop. |
+| [commands.md](commands.md) | Every command and flag, generated from the CLI's parser. |
+| [product-planning.md](product-planning.md) | Product records: problem, user, outcomes, non-goals, bets, risks, and the human gates. |
+| [mcp.md](mcp.md) | MCP setup for any host: the launcher, `MYTHIFY_DIR`, config locations, tools, exit codes. |
+| [blast-radius.md](blast-radius.md) | Safety cases for changes whose risk sits outside the visible diff. |
+| [prose-quality.md](prose-quality.md) | The prose rewrite pass and the mechanical prose check. |
 
-**I want to use Mythify.**
-[start-here.md](start-here.md) covers the one happy path, the four workflows
-worth learning, and what to safely ignore at first.
+## How it works and what is proven
 
-**I want the full command and tool surface.**
-[design.md](design.md) is the complete reference: system architecture, every CLI
-command, every MCP tool, the state model, and version notes.
+| Doc | What it covers |
+| :--- | :--- |
+| [architecture.md](architecture.md) | The runtime, the `.mythify/` state model, and the decisions behind them. |
+| [evidence/efficacy-reproduction.md](evidence/efficacy-reproduction.md) | The July 2026 smoke run, its sanitized data, and what it does not show. |
+| [DRIFT.md](DRIFT.md) | Drift found between docs and code, and how each case was resolved. |
 
-**I want to know what has actually been measured.**
-[evidence/efficacy-reproduction.md](evidence/efficacy-reproduction.md) holds the
-reproducible bare-versus-Mythify smoke comparison, its sanitized result, and an
-explicit statement of what the result does not show.
+## Project files at the repository root
 
-**I am cutting a release.**
-[release.md](release.md) has the release gate, the package artifacts, and the
-publish checks.
-
-## Reference material
-
-- [tool-use-contract.md](tool-use-contract.md): deferred-tool discovery
-  discipline. Adapters must load a tool's real schema before calling it, and must
-  never invoke from a guessed schema.
-- [artifact-hygiene.md](artifact-hygiene.md): optional external
-  watermarks-remover adapter, trust boundaries, finding normalization, and
-  guarded cleaning contract.
-
-## Host setup notes
-
-- [claude-integrations.md](claude-integrations.md)
-- [codex-integrations.md](codex-integrations.md)
-- [desktop-tool-calls.md](desktop-tool-calls.md)
-- [antigravity-mcp-setup.md](antigravity-mcp-setup.md)
-
-## Open research and guarded future work
-
-These describe work that is investigated but not promised. Treat them as notes,
-not as product commitments.
-
-- [local-llm-and-new-host-research.md](local-llm-and-new-host-research.md)
-- [agents-cli-adk-spike-plan.md](agents-cli-adk-spike-plan.md)
-- [colab-cli-spike-plan.md](colab-cli-spike-plan.md)
-- [research-report.md](research-report.md)
-
-## Archived
-
-- `archive/codeaudit-2026-06-14.md`: completed code audit and remediation record.
-- `archive/codeaudit-closed-2026-06-16.md`: the closed remediation tracker that
-  previously lived at the repo root as `codeaudit.md`.
-- `archive/roadmap-completed-2026-06-14.md`: completed roadmap history.
-- `archive/release/`: historical v3 release-readiness and release-decision notes,
-  superseded by `release.md`.
+| File | What it covers |
+| :--- | :--- |
+| [ROADMAP.md](../ROADMAP.md) | Where Mythify is going, written as a product plan. |
+| [CHANGELOG.md](../CHANGELOG.md) | What changed in each release, with migration notes. |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | How to propose and test a change. |
+| [MAINTAINING.md](../MAINTAINING.md) | Maintainer checks, generated files, and repository rules. |
+| [RELEASE-CHECKLIST.md](../RELEASE-CHECKLIST.md) | The steps and checks for cutting a release. |
+| [SECURITY.md](../SECURITY.md) | Supported versions and how to report a vulnerability. |
 
 ## Assets
 
-`assets/banner.svg` and `assets/loop.svg` are the README's visual assets. They
-are self-contained SVG with no external font or network dependencies, because
-GitHub renders README images through `<img>`, which blocks external resource
-loading. Both ship inside the standalone CLI archive so the packaged README is
-not broken.
+`assets/banner.svg` and `assets/loop.svg` are the README images. They are
+self-contained SVG with no external fonts or network requests, because GitHub
+renders README images through `<img>`, which blocks external resources. Both
+ship inside the standalone CLI archive so the packaged README stays intact.
 
-## Drift rules
+## Keeping docs honest
 
-- Keep current setup instructions in sync with the required drop-in files:
-  protocol variant, `scripts/mythify.py`, adjacent `scripts/mythify_*.py`
-  helpers, `protocol/operation-registry.json`,
-  `protocol/classification-rules.json`, and `protocol/workflow-router.json`,
-  plus `protocol/artifact-hygiene.json` when the artifact adapter is installed.
-- Keep first-run instructions focused on one happy path before listing advanced
-  surfaces.
-- Keep MCP tool claims aligned to `TOOL_ALLOWLIST` in `scripts/mythify_mcp.py`
-  plus the `mythify` escape-hatch tool; `tools/list` is authoritative.
-- Keep `tool-use-contract.md` aligned with the `CLAUDE.md` and `AGENTS.md` MCP
-  note and the capability-registry guardrails. It restates their discovery
-  discipline; it does not diverge from them.
-- Keep release claims aligned to `VERSION` in `scripts/mythify.py`,
-  `CHANGELOG.md`, and the latest GitHub release.
-- Keep marketing claims in `README.md` no stronger than
-  `evidence/efficacy-reproduction.md` supports. The project's own rule applies to
-  its own front page: executed evidence beats confident prose.
+- Every command and flag a doc names must exist: check it with `--help` before
+  writing it down. `python3 scripts/lint.py` checks links, ASCII, and the
+  model-agnostic rule.
+- MCP tool claims follow `TOOL_ALLOWLIST` in `scripts/mythify_mcp.py`;
+  `tools/list` is authoritative.
+- `AGENTS.md` and `CLAUDE.md` are generated from `protocol/PROTOCOL.md`. Edit
+  the source and rebuild; never edit the copies.
+- No claim in `README.md` may be stronger than what
+  [evidence/efficacy-reproduction.md](evidence/efficacy-reproduction.md)
+  supports. The project's own rule applies to its front page: executed evidence
+  beats confident prose.

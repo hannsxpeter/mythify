@@ -11,17 +11,30 @@ from pathlib import Path
 
 VERSION_PATTERN = re.compile(r'^VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"$', re.MULTILINE)
 SKILL_NAMES = ("mythify", "mythify-work", "mythify-route", "mythify-verify")
+# The shipped docs set. Every relative link inside a shipped Markdown file must
+# resolve inside the archive (tests/test_install_user.py checks it), so a doc
+# that README.md or another shipped doc links to belongs here.
 STANDALONE_DOCS = (
+    "AGENTS.md",
     "CHANGELOG.md",
+    "CLAUDE.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
+    "MAINTAINING.md",
+    "RELEASE-CHECKLIST.md",
+    "ROADMAP.md",
     "SECURITY.md",
-    "docs/design.md",
-    "docs/start-here.md",
-    "docs/prose-quality.md",
+    "docs/DRIFT.md",
+    "docs/README.md",
+    "docs/architecture.md",
     "docs/blast-radius.md",
-    "docs/evidence/codex-word-count-2026-07-13.json",
+    "docs/commands.md",
+    "docs/mcp.md",
+    "docs/product-planning.md",
+    "docs/prose-quality.md",
+    "docs/start-here.md",
     "docs/evidence/efficacy-reproduction.md",
+    "docs/evidence/efficacy-smoke-2026-07-13.json",
 )
 STANDALONE_ASSETS = (
     "docs/assets/banner.svg",
