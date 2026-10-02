@@ -450,6 +450,127 @@ class TestHostSupervisedFrozenBaseline(CliCase):
         self.assertIn("tests/test_new.py", self.goal()["stop_reason"])
 
 
+class TestGitCannotBeToldToLookAway(CliCase):
+    """Review round 1: frozen paths and the review fingerprint trusted git's
+    index flags and exclude files, so a hidden edit passed as untouched."""
+
+    def setUp(self):
+        super().setUp()
+        self.init_git_repo({"tracked.txt": "tracked\n", "tests/check.sh": "exit 1\n"})
+        self.ok("init")
+
+    def start(self, verify):
+        self.ok(
+            "outcome", "start", "Fix it", "--success", "check passes", "--verify", verify,
+            "--frozen-paths", "tests", "--max-iterations", "3", "--name", "fix",
+        )
+
+    def check_status(self):
+        self.run_cli("outcome", "check")
+        goal = json.loads((self.state / "outcomes" / "fix" / "goal.json").read_text(encoding="utf-8"))
+        return goal["status"], goal.get("stop_reason") or ""
+
+    def test_assume_unchanged_verifier_rewrite_is_caught(self):
+        self.start("sh tests/check.sh")
+        self.git("update-index", "--assume-unchanged", "tests/check.sh")
+        (self.project / "tests" / "check.sh").write_text("exit 0\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/check.sh", reason)
+
+    def test_file_hidden_by_info_exclude_is_caught(self):
+        self.start("test ! -f tests/override")
+        (self.project / "tests" / "override").write_text("x\n", encoding="utf-8")
+        with open(str(self.project / ".git" / "info" / "exclude"), "a", encoding="utf-8") as handle:
+            handle.write("tests/override\n")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/override", reason)
+
+    def test_self_ignoring_gitignore_is_caught(self):
+        self.start("test -f tracked.txt")
+        (self.project / "tests" / ".gitignore").write_text("*\n", encoding="utf-8")
+        (self.project / "tests" / "override").write_text("x\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/.gitignore", reason)
+
+    def test_gitignored_verifier_cache_is_not_a_violation(self):
+        with open(str(self.project / ".gitignore"), "a", encoding="utf-8") as handle:
+            handle.write("__pycache__/\n")
+        self.git("commit", "-qam", "ignore caches")
+        self.start("mkdir -p tests/__pycache__ && echo c > tests/__pycache__/x.pyc && false")
+        self.assertEqual(self.check_status()[0], "active")
+        self.assertEqual(self.check_status()[0], "active")
+
+    def test_a_named_file_is_covered_even_when_gitignored(self):
+        with open(str(self.project / ".gitignore"), "a", encoding="utf-8") as handle:
+            handle.write("verifier.env\n")
+        self.git("commit", "-qam", "ignore the env file")
+        (self.project / "verifier.env").write_text("STRICT=1\n", encoding="utf-8")
+        self.ok(
+            "outcome", "start", "Fix it", "--success", "check passes", "--verify", "true",
+            "--frozen-paths", "verifier.env", "--max-iterations", "3", "--name", "fix",
+        )
+        (self.project / "verifier.env").write_text("STRICT=0\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("verifier.env", reason)
+
+    def test_review_proof_refuses_an_assume_unchanged_edit(self):
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "tracked stays", "--name", "safe",
+        )
+        self.git("update-index", "--assume-unchanged", "tracked.txt")
+        (self.project / "tracked.txt").write_text("rewritten\n", encoding="utf-8")
+        refused = self.run_cli("review", "prove", "safe", "--command", "test -f tracked.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("current_change_fingerprint_unavailable", refused.stderr)
+        view = json.loads(self.ok("review", "show", "safe", "--json").stdout)
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+
+    def test_review_goes_stale_when_info_exclude_changes(self):
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "tracked stays", "--name", "safe",
+        )
+        with open(str(self.project / ".git" / "info" / "exclude"), "a", encoding="utf-8") as handle:
+            handle.write("hidden.txt\n")
+        (self.project / "hidden.txt").write_text("x\n", encoding="utf-8")
+        refused = self.run_cli("review", "prove", "safe", "--command", "test -f tracked.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("worktree_digest_mismatch", refused.stderr)
+
+
+class TestConcurrentOutcomeChecksShareOneBudget(CliCase):
+    """Review round 1: parallel outcome checks each spent the same budget slot."""
+
+    def test_parallel_checks_run_the_verifier_once(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        runs = self.project / "runs.txt"
+        self.ok(
+            "outcome", "start", "Flaky", "--success", "passes",
+            "--verify", "sleep 2; echo run >> runs.txt; false",
+            "--max-iterations", "1", "--name", "flaky",
+        )
+        processes = [
+            subprocess.Popen(
+                [sys.executable, str(CLI), "outcome", "check"],
+                cwd=str(self.project), env=self.env(),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            for _ in range(4)
+        ]
+        results = [(process.wait(timeout=120), process.communicate()) for process in processes]
+        self.assertEqual(runs.read_text(encoding="utf-8").count("run"), 1, results)
+        self.assertEqual(len(self.records("outcomes/flaky/iterations.jsonl")), 1)
+        goal = json.loads((self.state / "outcomes" / "flaky" / "goal.json").read_text(encoding="utf-8"))
+        self.assertEqual((goal["iteration_count"], goal["status"]), (1, "failed"))
+        self.assertFalse(any((self.state / "locks").iterdir()))
+
+
 class TestMcpArgvKeepsPositionals(unittest.TestCase):
     """Bug 8: multi-value options swallowed positionals in build_argv."""
 
@@ -656,8 +777,13 @@ class TestWorktreeDigestBatchesHashing(unittest.TestCase):
             path.write_bytes(("content {0}\n".format(index)).encode("utf-8") + bytes([0, 255]))
 
     def reference_digest(self):
-        """The pre-batching algorithm: one hash-object call per untracked file."""
+        """The pre-batching algorithm: one hash-object call per untracked file.
+
+        The ignore-rules section (review round 1) is computed by the module
+        itself; this test pins the per-file hashing, not the rules digest.
+        """
         env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+        rules = mythify_provenance.git_ignore_rules_digest(self.root)
         diff = subprocess.run(
             ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"],
             cwd=self.root, capture_output=True, env=env, check=True,
@@ -667,6 +793,7 @@ class TestWorktreeDigestBatchesHashing(unittest.TestCase):
             cwd=self.root, capture_output=True, env=env, check=True,
         )
         digest = hashlib.sha256()
+        digest.update(b"rules\0" + rules.encode("ascii") + b"\0")
         digest.update(b"tracked\0")
         digest.update(diff.stdout)
         for raw_path in sorted(item for item in untracked.stdout.split(b"\0") if item):

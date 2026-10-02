@@ -7,14 +7,22 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
+from mythify_evidence_guard import run_disabled
 from mythify_io import (
     _write_text_atomic,
     append_chained_jsonl,
     append_jsonl,
+    jsonl_file_lock,
     read_json,
     read_jsonl,
     write_json_atomic,
+)
+from mythify_provenance import (
+    GIT_FRESH_READ,
+    git_flagged_index_paths,
+    git_ignore_rules_digest,
 )
 
 OUTCOME_CHECK_DISABLED_MESSAGE = (
@@ -138,6 +146,33 @@ def save_outcome(state, slug, goal):
     write_json_atomic(outcome_goal_path(state, slug), goal)
 
 
+def with_outcome_lock(state, slug, action):
+    """Run ACTION(goal) holding the outcome exclusively, with the goal re-read.
+
+    check, run, and audit read the iteration budget, run a verifier, and write
+    the goal back. Without the lock, concurrent calls each spent the same
+    budget slot. A second caller is refused at once rather than queued, since
+    an outcome run can hold the outcome for many iterations.
+    """
+    lock = jsonl_file_lock(outcome_goal_path(state, slug), timeout=0)
+    try:
+        lock.__enter__()
+    except TimeoutError:
+        fail(
+            "[FAIL] Outcome {0} is being checked or run by another process; "
+            "nothing was run. Try again when it finishes.".format(slug)
+        )
+        return 1
+    try:
+        goal = read_json(outcome_goal_path(state, slug), None)
+        if not isinstance(goal, dict):
+            print("[FAIL] No outcome found. Start one with outcome start.")
+            return 1
+        return action(goal)
+    finally:
+        lock.__exit__(None, None, None)
+
+
 def list_outcomes(state):
     root = outcomes_dir(state)
     if not root.exists():
@@ -159,8 +194,6 @@ def parse_allowed_paths(value):
 
 
 def outcome_project_root(state):
-    from pathlib import Path
-
     return state.parent if state.name == ".mythify" else Path.cwd()
 
 
@@ -248,7 +281,7 @@ class ScopeInspectionError(RuntimeError):
 def _run_git_scope(root, args):
     try:
         run = subprocess.run(
-            ["git", "-C", str(root)] + list(args),
+            ["git", "-C", str(root), *GIT_FRESH_READ] + list(args),
             capture_output=True,
             timeout=30,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
@@ -261,6 +294,19 @@ def _run_git_scope(root, args):
     return run.stdout
 
 
+def _require_trusted_index(root):
+    """Raise when git cannot vouch for the worktree: an index entry is flagged
+    assume-unchanged or skip-worktree, so its edits never show in a diff."""
+    flagged = git_flagged_index_paths(root)
+    if flagged is None:
+        raise ScopeInspectionError("git ls-files -v failed")
+    if flagged:
+        raise ScopeInspectionError(
+            "index entries flagged assume-unchanged or skip-worktree hide edits: "
+            "{0}".format(", ".join(flagged[:5]))
+        )
+
+
 def start_scope_baseline(state):
     root = outcome_project_root(state)
     commit = _run_git_scope(root, ["rev-parse", "HEAD"]).decode("ascii", "replace").strip()
@@ -271,7 +317,8 @@ def start_scope_baseline(state):
     )
     if dirty:
         raise ScopeInspectionError("scoped self-driving runs require a clean Git worktree")
-    return {"git_commit": commit}
+    _require_trusted_index(root)
+    return {"git_commit": commit, "ignore_rules": git_ignore_rules_digest(root)}
 
 
 def _diff_name_status_paths(raw):
@@ -315,59 +362,105 @@ def self_driving_changed_paths(state, baseline):
     if not commit:
         raise ScopeInspectionError("scope baseline commit is unavailable")
     _run_git_scope(root, ["merge-base", "--is-ancestor", commit, "HEAD"])
+    _require_trusted_index(root)
+    rules = baseline.get("ignore_rules")
+    if rules and git_ignore_rules_digest(root) != rules:
+        raise ScopeInspectionError(
+            "ignore rules outside the worktree (.git/info/exclude, the global "
+            "excludes file, or a self-ignoring .gitignore) changed since the scope baseline"
+        )
     return _changed_paths_since(root, commit)
 
 
-def _content_digest(root, relative):
-    """sha256 of a path's bytes, or None when it does not exist as a file."""
+def _path_token(path):
+    """sha256 of a file's bytes, or the target of a symlink."""
     try:
-        data = (root / relative).read_bytes()
+        if path.is_symlink():
+            return "symlink:" + os.readlink(str(path))
+        digest = hashlib.sha256()
+        with open(str(path), "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
     except (OSError, ValueError):
-        return None
-    return hashlib.sha256(data).hexdigest()
+        return "unreadable"
 
 
-def start_frozen_baseline(state, frozen):
-    """HEAD at outcome start plus digests of frozen paths already dirty then.
+def frozen_manifest(state, frozen):
+    """Digest of every file under the frozen prefixes, read from disk.
 
-    Host-supervised checks diff against this commit, so a frozen-path change
-    that was committed is still caught, while a frozen file that was already
-    dirty before the loop started only counts once its content changes again.
+    Content is hashed directly, so a git index flag (assume-unchanged,
+    skip-worktree) cannot hide an edit. In a git repository, files ignored by
+    the repository's .gitignore files are left out (verifier caches such as
+    __pycache__ live there); .git/info/exclude and the global excludes file are
+    not applied, and every .gitignore under a frozen prefix is always covered,
+    so a self-ignoring one is caught. A frozen path that names a file is
+    always covered. Off git, every file counts. The state directory never does.
     """
     root = outcome_project_root(state)
-    commit = _run_git_scope(root, ["rev-parse", "HEAD"]).decode("ascii", "replace").strip()
-    if not commit:
-        raise ScopeInspectionError("Git HEAD is unavailable")
-    dirty = frozen_path_violations(_changed_paths_since(root, commit), frozen)
+    state_dir = Path(state).resolve()
+    state_rel = os.path.relpath(str(state_dir), str(root.resolve())).replace(os.sep, "/")
+    prefixes = [item.strip("/") or "." for item in frozen]
+    walked = []
+    named = []
+    for prefix in prefixes:
+        base = root / prefix
+        if base.is_symlink() or base.is_file():
+            named.append(prefix)
+            continue
+        for dirpath, dirnames, filenames in os.walk(str(base)):
+            current = Path(dirpath)
+            kept = []
+            for name in dirnames:
+                child = current / name
+                if child.is_symlink():
+                    filenames.append(name)
+                elif name != ".git" and child.resolve() != state_dir:
+                    kept.append(name)
+            dirnames[:] = kept
+            walked.extend(
+                os.path.relpath(str(current / name), str(root)).replace(os.sep, "/")
+                for name in filenames
+            )
+    try:
+        raw = _run_git_scope(
+            root,
+            ["ls-files", "--cached", "--others", "--exclude-per-directory=.gitignore", "-z", "--"]
+            + prefixes,
+        )
+        files = {item for item in raw.decode("utf-8", "surrogateescape").split("\0") if item}
+        files.update(path for path in walked if path.rsplit("/", 1)[-1] == ".gitignore")
+    except ScopeInspectionError:
+        files = set(walked)
+    files.update(named)
     return {
-        "git_commit": commit,
-        "dirty_frozen": {path: _content_digest(root, path) for path in dirty},
+        path: _path_token(root / path)
+        for path in sorted(files)
+        if os.path.lexists(str(root / path))
+        and path != state_rel
+        and not path.startswith(state_rel + "/")
     }
 
 
-def frozen_changed_paths(state, goal):
-    """Paths changed since the outcome's frozen baseline (host-supervised mode).
+def current_frozen_violations(state, goal, changed_override=None):
+    """Frozen paths added, removed, or changed since the outcome started.
 
-    Outcomes without a baseline (started off-git, or by an older version) fall
-    back to the working-tree status, as does a baseline git can no longer read.
+    A goal with a manifest compares file digests read from disk. A goal
+    started by 5.x has none and falls back to git's changed-path list.
     """
-    root = outcome_project_root(state)
+    frozen = goal.get("frozen_paths") or []
     baseline = goal.get("frozen_baseline")
-    commit = str((baseline or {}).get("git_commit") or "") if isinstance(baseline, dict) else ""
-    if not commit:
-        return git_changed_paths(root) or []
-    try:
-        changed = _changed_paths_since(root, commit)
-    except ScopeInspectionError:
-        return git_changed_paths(root) or []
-    dirty = baseline.get("dirty_frozen")
-    dirty = dirty if isinstance(dirty, dict) else {}
-    paths = []
-    for path in dict.fromkeys(changed + list(dirty)):
-        if path in dirty and _content_digest(root, path) == dirty[path]:
-            continue
-        paths.append(path)
-    return paths
+    manifest = baseline.get("manifest") if isinstance(baseline, dict) else None
+    if isinstance(manifest, dict):
+        current = frozen_manifest(state, frozen)
+        return sorted(
+            path for path in set(manifest) | set(current) if manifest.get(path) != current.get(path)
+        )
+    if changed_override is not None:
+        changed = list(changed_override)
+    else:
+        changed = git_changed_paths(outcome_project_root(state)) or []
+    return frozen_path_violations(changed, frozen)
 
 
 def parse_metric_score(output):
@@ -487,15 +580,7 @@ def cmd_outcome_start(args, state):
         "supersedes": superseded[0] if superseded else None,
     }
     if goal["frozen_paths"]:
-        try:
-            goal["frozen_baseline"] = start_frozen_baseline(state, goal["frozen_paths"])
-        except ScopeInspectionError as exc:
-            goal["frozen_baseline"] = None
-            fail(
-                "[WARN] Frozen-path baseline unavailable ({0}); outcome check "
-                "falls back to the working-tree status and cannot see committed "
-                "changes.".format(exc)
-            )
+        goal["frozen_baseline"] = {"manifest": frozen_manifest(state, goal["frozen_paths"])}
     if superseded:
         old_slug, old_goal = superseded
         old_goal["status"] = "stopped"
@@ -665,14 +750,8 @@ def perform_outcome_iteration(
         else scope_violations(state, goal.get("allowed_paths") or [])
     )
     scope_enforced = scope_violations_override is not None
-    frozen = goal.get("frozen_paths") or []
-    if frozen:
-        changed = (
-            list(changed_paths_override)
-            if changed_paths_override is not None
-            else frozen_changed_paths(state, goal)
-        )
-        frozen_hits = frozen_path_violations(changed, frozen)
+    if goal.get("frozen_paths"):
+        frozen_hits = current_frozen_violations(state, goal, changed_paths_override)
     else:
         frozen_hits = []
     verified = bool(
@@ -897,13 +976,17 @@ def run_outcome_audit(state, slug, goal, timeout, notes, json_output):
 
 
 def cmd_outcome_check(args, state):
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         fail(OUTCOME_CHECK_DISABLED_MESSAGE)
         return 2
     slug, goal = load_outcome(state, args.name)
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")
         return 1
+    return with_outcome_lock(state, slug, lambda locked: _outcome_check_locked(args, state, slug, locked))
+
+
+def _outcome_check_locked(args, state, slug, goal):
     if getattr(args, "audit", False):
         return run_outcome_audit(
             state, slug, goal, args.timeout, args.notes or "", args.json_output
@@ -963,13 +1046,17 @@ def cmd_outcome_run(args, state):
     budget is spent, the scope is violated, or the escalation threshold of
     consecutive red verifications is hit. Bounded and evidence-gated by design.
     """
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         fail(OUTCOME_CHECK_DISABLED_MESSAGE)
         return 2
     slug, goal = load_outcome(state, args.name)
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")
         return 1
+    return with_outcome_lock(state, slug, lambda locked: _outcome_run_locked(args, state, slug, locked))
+
+
+def _outcome_run_locked(args, state, slug, goal):
     agent_command = (goal.get("agent_command") or "").strip()
     if not agent_command:
         fail(

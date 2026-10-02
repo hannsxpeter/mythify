@@ -164,9 +164,13 @@ code:
 | 64 | Usage error from the CLI's argument parser. | true |
 | 124 | The call hit `MYTHIFY_MCP_CALL_TIMEOUT` and was stopped. | true |
 
-Arguments the server cannot turn into a command line (an unknown key, a missing
-required key, a wrong type) return `isError: true` with a `[FAIL]` line and no
-`exit_code`, because no command ran. An unknown tool name is a JSON-RPC error
+Arguments the server rejects before running anything (an unknown key, a
+missing required key, a non-boolean value for a flag, an item of a multi-value
+argument that starts with `-`, or an escape-hatch `args` value that is not an
+array of strings) return `isError: true` with a `[FAIL]` line and no
+`exit_code`, because no command ran. A value of the wrong type for an integer,
+number, or enum argument reaches the CLI, which rejects it as a usage error:
+`isError: true` and `exit_code: 64`. An unknown tool name is a JSON-RPC error
 (`-32602`).
 
 `MYTHIFY_DISABLE_RUN=1` in the server's environment turns off every command

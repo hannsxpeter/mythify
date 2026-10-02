@@ -25,6 +25,7 @@ from mythify_io import read_json, read_jsonl, read_jsonl_since, write_json_atomi
 from mythify_maps import (
     frontier_tickets,
     get_active_map_slug,
+    list_map_records,
     load_map,
     map_is_clear,
     map_next_action,
@@ -32,7 +33,7 @@ from mythify_maps import (
     ungraduated_fog,
 )
 from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
-from mythify_product import active_product_view
+from mythify_product import active_product_view, list_product_records
 
 WORKSPACE_DIR_NAME = ".mythify"
 REPORT_SINCE_MODES = ("last", "start")
@@ -937,6 +938,79 @@ def evidence_attention_from_plan(plan):
                 "MYTHIFY_REQUIRE_VERIFIED_STEP=0 was active; evidence is prose-only",
                 step.get("updated_at", ""),
             ))
+    source = plan.get("source")
+    if isinstance(source, dict) and source.get("kind") == "map":
+        for entry in (source.get("decisions") or []) + (source.get("out_of_scope") or []):
+            if isinstance(entry, dict) and entry.get("human_input_waived"):
+                attention.append(attention_item(
+                    "warning",
+                    "plan",
+                    "plan carries map ticket {0} resolved under a waived human gate".format(
+                        entry.get("ticket_id")
+                    ),
+                    WAIVED_HUMAN_DETAIL,
+                    entry.get("recorded") or entry.get("created", ""),
+                ))
+    return attention
+
+
+WAIVED_HUMAN_DETAIL = "MYTHIFY_REQUIRE_HUMAN_INPUT=0 was active; no human words were recorded"
+
+
+def evidence_attention_from_human_waivers(state):
+    """Name every live human-gate decision recorded without the human's words.
+
+    MYTHIFY_REQUIRE_HUMAN_INPUT=0 only lives in one process, so the
+    human_input_waived stamp on the record is the durable trace; every later
+    status reads it, whatever its own environment. A decision stays listed
+    while the work it governs is live: a map until it is promoted (the active
+    plan then carries it), a product's current approval, a bet until it stops.
+    """
+    detail = WAIVED_HUMAN_DETAIL
+    attention = []
+    for slug, record in list_map_records(state):
+        if record.get("status") == "promoted":
+            continue
+        for ticket in record.get("tickets") or []:
+            if isinstance(ticket, dict) and ticket.get("human_input_waived"):
+                attention.append(attention_item(
+                    "warning",
+                    "map",
+                    "map {0} ticket {1} resolved under a waived human gate".format(
+                        slug, ticket.get("id")
+                    ),
+                    detail,
+                    ticket.get("resolved_at", ""),
+                ))
+    for slug, record in list_product_records(state):
+        approval = record.get("approval")
+        if (
+            record.get("status") == "approved"
+            and isinstance(approval, dict)
+            and approval.get("human_input_waived")
+        ):
+            attention.append(attention_item(
+                "warning",
+                "product",
+                "product {0} approved under a waived human gate".format(slug),
+                detail,
+                approval.get("at", ""),
+            ))
+        for bet in record.get("bets") or []:
+            if (
+                isinstance(bet, dict)
+                and bet.get("human_input_waived")
+                and bet.get("status") != "stopped"
+            ):
+                attention.append(attention_item(
+                    "warning",
+                    "product",
+                    "product {0} bet {1} verdict set under a waived human gate".format(
+                        slug, bet.get("id")
+                    ),
+                    detail,
+                    bet.get("decided_at", ""),
+                ))
     return attention
 
 
@@ -1123,6 +1197,7 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
     god_views = god_artifact_views(project_root_for_state(state))
     attention = sort_attention(
         evidence_attention_from_plan(plan_record)
+        + evidence_attention_from_human_waivers(state)
         + evidence_attention_from_verifications(records, recent)
         + evidence_attention_from_trivial_passes(records, recent)
         + evidence_attention_from_outcomes(recent_tail(outcomes, recent))

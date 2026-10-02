@@ -23,7 +23,7 @@ import re
 import sys
 from datetime import date, datetime
 
-from mythify_evidence_guard import noop_verifier_reason
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
 from mythify_io import _write_text_atomic, read_json, read_jsonl, write_json_atomic
 from mythify_runtime_helpers import now_iso, slugify
 
@@ -719,10 +719,11 @@ def format_product(view):
     for bet in bets:
         bid = item_id(bet)
         lines.append(
-            "- {0} [{1}, verdict {2}, priority {3}]: {4}".format(
+            "- {0} [{1}, verdict {2}{3}, priority {4}]: {5}".format(
                 bid,
                 bet.get("status", "proposed"),
                 bet.get("verdict", "pending"),
+                " (human input waived)" if bet.get("human_input_waived") else "",
                 bet.get("priority", ""),
                 bet.get("hypothesis", ""),
             )
@@ -1221,6 +1222,9 @@ def cmd_product_decide(args, state):
     bet["verdict"] = args.verdict
     bet["verdict_human_input"] = human_input
     bet["decided_at"] = now_iso()
+    # The stamp describes the latest verdict, so a verdict with the human's
+    # words clears a waiver left by an earlier one.
+    bet.pop("human_input_waived", None)
     if waived:
         bet["human_input_waived"] = True
         fail(HUMAN_INPUT_WAIVED_WARNING.format("verdict"))
@@ -1328,7 +1332,7 @@ def mark_shipped_bets(state, slug, record, measured):
 
 
 def cmd_product_measure(args, state):
-    if _env().get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(_env()):
         fail(MEASURE_DISABLED_MESSAGE)
         return 2
     slug, record = require_product(state, args.product)

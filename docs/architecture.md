@@ -129,7 +129,8 @@ Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
 `verify_command`, `verification_anchor` (`{"after_sha256": <hex or null>}`),
 `updated_at`, and `strict_gate_waived`. Imported steps add `source_id`,
-`wave`, and `phase`. A step written before 6.0 may carry an integer
+`wave`, `phase`, and `artifact_checked: true` when the task's box was checked
+in the artifact; such a step still imports as `pending`. A step written before 6.0 may carry an integer
 `verification_cursor`; it is still read and is dropped when the step restarts.
 
 Verification record (`verifications.jsonl`, one JSON object per line):
@@ -167,9 +168,11 @@ Outcome (`outcomes/<slug>/goal.json`): `id`, `goal`, `success_criteria`,
 `max_iterations`, `iteration_count`, `max_cost`, `cost_spent`,
 `escalate_after`, `allowed_paths`, `frozen_paths`, `status` (`active`,
 `succeeded`, `failed`, `stopped`), `created`, `updated`, `last_verified`,
-`best_metric_score`, `stop_reason`, `supersedes`, `frozen_baseline`
-(`git_commit` plus `dirty_frozen` digests at start), and when set
-`scope_baseline`, `superseded_by`, `evidence_stale`, `last_audit`. Each
+`best_metric_score`, `stop_reason`, `supersedes`, and when set
+`frozen_baseline` (written only with `--frozen-paths`: `manifest`, each
+covered path mapped to the sha256 of its bytes at start), `scope_baseline`
+(`git_commit` and `ignore_rules` when `outcome run` first watches paths),
+`superseded_by`, `evidence_stale`, `last_audit`. Each
 `iterations.jsonl` line holds the iteration number, the `verify` and `metric`
 runs, cost, `scope_violations`, `frozen_violations`, `status_after`, and
 `next_action`.
@@ -181,12 +184,15 @@ Map (`maps/<slug>.json`): `id`, `destination`, `notes`, `status` (`charting`,
 `status` (`open`, `closed`, `out_of_scope`), `blocked_by`, `claimed_by`,
 `claimed_at`, `resolution`, `human_input`, `resolved_at`, `created`,
 `verification_anchor`, and optional `verify_command` and
-`human_input_waived`.
+`human_input_waived`. A decision or out-of-scope entry made from a waived
+ticket also carries `human_input_waived`, and `map promote` copies it into
+the plan's `source`.
 
 Product (`products/<slug>.json`, `schema_version` 1): `name`, `title`,
 `status` (`draft`, `approved`, `closed`), `stage` (`prototype`, `pre-launch`,
 `growth`, `enterprise`), `problem`, `user`, `appetite`, `created`, `updated`,
-`approval` (`human_input`, `at`, `stage`) or null, `approval_history`, and:
+`approval` (`human_input`, `at`, `stage`, and `human_input_waived` when
+waived) or null, `approval_history`, and:
 
 - `outcomes`: `id` (`O1`...), `statement`, `metric`, `baseline`, `target`,
   `target_source` (`user`, `cited`, `decided`, `hypothesis`), `measure`.
@@ -195,7 +201,7 @@ Product (`products/<slug>.json`, `schema_version` 1): `name`, `title`,
   `decide_by`, `priority`, `status` (`proposed`, `in_flight`, `shipped`,
   `stopped`), `verdict` (`pending`, `continue`, `pivot`, `stop`),
   `verdict_human_input`, `plan`, and `promoted_at`, `decided_at`,
-  `shipped_at` once set.
+  `shipped_at`, and `human_input_waived` once set.
 - `risks`: `id` (`R1`...), `text`, `kind` (`value`, `usability`,
   `feasibility`, `viability`), `mitigation`, `validation`.
 
@@ -223,7 +229,11 @@ same second are neither dropped nor replayed.
 
 JSON files are written to a temp file and renamed into place. JSONL appends
 take a directory lock under `locks/` whose owner file names the writing
-process; a lock left by a dead process is removed. A JSON file that fails to
+process; a lock left by a dead process is removed. `outcome check`, `outcome
+run`, and `outcome check --audit` take the same kind of lock on the outcome's
+`goal.json` for the whole call and re-read the goal under it, so a concurrent
+call on the same outcome exits 1 without running anything and cannot spend an
+iteration twice. A JSON file that fails to
 parse is moved to `<name>.corrupt-<stamp>` with a warning, and a malformed
 JSONL line is skipped with a warning. `logs compact` copies the whole raw log
 to `logs/archive/` before trimming, keeps retained lines byte for byte so the
@@ -255,8 +265,15 @@ hash chain still links, and leaves every verification artifact in place.
   are advisory for steps; `review prove` and `product measure` refuse them.
 - Human gates. `map resolve` on a `hitl` ticket (`grilling`, `prototype`, or
   `--mode hitl`), `product approve`, and `product decide` refuse without a
-  non-empty `--human-input`. `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives this,
-  stamps `human_input_waived`, and shows in `status` as a warning.
+  non-empty `--human-input`. `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives this and
+  stamps `human_input_waived` on the ticket and its map decision, the
+  approval, or the bet. `status` warns about the opt-out while the variable
+  is set in its environment, and about each waived decision in every later
+  session while the work it governs is live: a ticket until its map is
+  promoted, a decision the active plan carried from its map, a product's
+  current approval, and a bet verdict until the bet stops or a verdict with
+  the human's words replaces it. `map show`, `plan show`, and `product show`
+  mark waived decisions.
 - Fail closed. With `MYTHIFY_DISABLE_RUN=1`, `verify run`, `plan verify`,
   `map verify`, `outcome check`, `outcome run`, `review prove`, and `product
   measure` execute nothing, record nothing, and exit 2.
@@ -265,7 +282,8 @@ hash chain still links, and leaves every verification artifact in place.
   executed record is proof.
 
 `status` runs the attention detectors over durable state: failed checks,
-no-op or zero-test passes, ledger chain breaks, legacy opt-outs, stale or
+no-op or zero-test passes, ledger chain breaks, legacy opt-outs, waived
+strict and human gates, stale or
 drifted outcome evidence, open Critical godaudits findings, and godplans or
 godaudits counter drift. Issues sort before warnings, then the list is
 truncated to `--recent` with the omitted count.
@@ -320,7 +338,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | `MYTHIFY_DIR` | state directory; skips upward discovery |
 | `MYTHIFY_REQUIRE_VERIFIED_STEP` | `0`, `false`, `no`, or `off` waives the strict gate (stamped, warned) |
 | `MYTHIFY_REQUIRE_HUMAN_INPUT` | `0`, `false`, `no`, or `off` waives human gates (stamped, warned) |
-| `MYTHIFY_DISABLE_RUN` | `1` makes every command runner refuse and exit 2 |
+| `MYTHIFY_DISABLE_RUN` | `1` makes every command runner refuse and exit 2; so does any value other than empty, `0`, `false`, `no`, or `off` (case and surrounding space ignored), so a malformed value fails closed |
 | `MYTHIFY_VERIFY_MAX_OUTPUT_BYTES` | output cap per run, default 16 MiB; a run over the cap fails |
 | `MYTHIFY_MAP_CLAIMANT` | default claimant for `map claim` |
 | `MYTHIFY_MCP_CALL_TIMEOUT` | MCP per-call timeout in seconds, default 900 |
@@ -372,6 +390,37 @@ human's words, `product measure` is executable evidence, and `product
 promote` turns a bet into a plan with lineage. Why: design approval was stored
 and never read, and `plan create --design` kept a bare string. Product
 records connect the reason for the work to its plans and measurements.
+
+### 2026-10-01: downsize to the evidence loop
+
+`trace`, `artifact`, `eval`, `campaign`, `research`, and `workspace` are
+removed, with their modules, parsers, manifests, docs, and tests. Why, per
+command:
+
+- `trace` counted tool calls in exported agent traces, sliced them by exact
+  model name, and installed per-model playbooks into a host skill directory.
+  It recorded no evidence, nothing read its output, and comparing named
+  models contradicts the model-agnostic decision above.
+- `eval` grew scenarios for a local benchmark harness that drove named agent
+  CLIs, and its scenario schema carried model and fanout fields. No install
+  shipped the harness, so `eval adopt` printed a command for a file the user
+  did not have.
+- `artifact` was an HTTP client for an optional external service that strips
+  provenance signals from files. By its own contract its output was never
+  evidence. A project that needs that check can run the service's own CLI
+  under `verify run`.
+- `campaign` was a third loop family beside plans and outcome loops, with
+  weaker gates: a task could complete on prose, and without a campaign verify
+  command the verify phase advanced on prose.
+- `research` was a source and claim ledger with no gate and no executed
+  evidence. Map `research` tickets cover the same work.
+- `workspace` validated a shared and a local config file that nothing outside
+  its own module read. Outcome frozen paths come from CLI flags.
+
+The `prompt research`, `prompt analysis`, and `prompt campaign` packets went
+with the research and campaign routes. `route` sends a research-like prompt to
+`map` when it asks several open questions, and to `direct` otherwise.
+[DRIFT.md](DRIFT.md) section 8 lists the drift these features carried in 5.8.
 
 ### 2026-10-01: status replaces seven views
 

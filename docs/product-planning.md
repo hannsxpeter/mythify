@@ -120,8 +120,12 @@ mythify product show --markdown > ROADMAP.md
   to draft and moves the old approval into `approval_history`. A bet the human
   never saw cannot be promoted under an older approval.
 - `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives the human-input requirement the same
-  way it does for HITL map tickets: the waiver is stamped on the record as
-  `human_input_waived`, and `status` lists the opt-out as an attention item.
+  way it does for HITL map tickets: the waiver is stamped on the approval or
+  the bet as `human_input_waived`, and `product show` marks it. `status`
+  lists the opt-out as an attention item while the variable is set in its
+  environment. In every later session it also lists a waived approval while
+  it is the product's current approval, and a waived bet verdict until the
+  bet stops or a `product decide` with `--human-input` replaces it.
 - `product promote` requires an approved product and a bet that is not stopped,
   and refuses a second promote of a bet while its plan file exists.
 - `product measure` refuses an outcome with no measure command and a measure

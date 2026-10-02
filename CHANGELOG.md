@@ -25,8 +25,9 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
 
 ### Breaking changes
 
-- Removed commands. Read [docs/architecture.md](docs/architecture.md) for
-  why each went:
+- Removed commands. The decision log in
+  [docs/architecture.md](docs/architecture.md#decision-log) says why each
+  went:
   - `classify` (read `classification` from `route --json`) and `host-model
     switch|status|clear`
   - `trace analyze|distill|compare|playbook|install-playbook`
@@ -107,6 +108,15 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
 - State folders and files of removed features (`research/`, `campaigns/`,
   `designs/`, `evals/`, `fanout/`, `host-model.json`, `workspace.json`) are
   ignored, not deleted, and `init` no longer creates them.
+- `plan import` imports every task as a pending step. A task already checked
+  in the artifact carries `artifact_checked: true` and completes only after
+  its verify command passes while the step is in progress; 5.8 imported it
+  as completed with no executed evidence.
+- `MYTHIFY_DISABLE_RUN` disables every command runner for any value other
+  than empty, `0`, `false`, `no`, or `off`; 5.8 runners matched only the
+  exact string `1`.
+- A concurrent `outcome check`, `outcome run`, or `outcome check --audit` on
+  an outcome another process holds exits 1 without running anything.
 
 ### Added
 
@@ -192,8 +202,34 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
   proofs. It refuses kinds `review` and `verification`.
 - Host-supervised `outcome check` had no frozen-path baseline, so a
   committed change under a frozen path passed and a file dirty before start
-  stopped the loop. `outcome start` records `frozen_baseline` and checks diff
-  against it.
+  stopped the loop. `outcome start` records `frozen_baseline.manifest`, the
+  sha256 of every covered file on disk, and every check and run iteration
+  compares against it.
+- Frozen paths and the review fingerprint trusted git's view of the
+  worktree, so an edit to a file flagged assume-unchanged or skip-worktree,
+  or a file hidden by `.git/info/exclude`, passed as untouched. Frozen paths
+  hash files on disk; `worktree_digest` is unavailable (proof refused) while
+  a flagged entry exists and covers the exclude files outside the worktree;
+  `outcome run` stops when those change.
+- `map verify` records carried no `plan` or `step_id` keys, so the step gate
+  read them as legacy evidence for every step of every plan. Every executed
+  record carries the step keys, and a record scoped to a map ticket, product,
+  review, or outcome is never legacy evidence.
+- `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waivers showed in `status` only while the
+  variable was set in its own environment. `status` lists every waived
+  decision that still governs live work, and `map show`, `plan show`, and
+  `product show` mark them.
+- `status` reported `MYTHIFY_DISABLE_RUN=" 1"` as active while the runners
+  still executed. Runners and `status` share one parse.
+- Parallel `outcome check` calls each spent the same iteration budget slot.
+  check, run, and audit hold a per-outcome lock.
+- `install_user.sh --project P` ran `init` with the caller's environment, so
+  an exported `MYTHIFY_DIR` or an ancestor `.mythify` received the state
+  outside the install transaction. It pins `MYTHIFY_DIR` to `P/.mythify`,
+  adds `.mythify/` to `P/.gitignore` itself, and fails (rolling back) when
+  the state was not created.
+- `loop-fit` told the agent to fan out builder workers for a quality climb.
+  It leaves delegation to the host.
 - MCP argument building let a multi-value option swallow positionals and
   accepted flag-like items. Options come first, then `--`, then
   positionals.

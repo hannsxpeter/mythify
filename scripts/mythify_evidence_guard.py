@@ -106,6 +106,18 @@ def ledger_chain_breaks(text):
     return breaks
 
 
+def run_disabled(environ):
+    """True when MYTHIFY_DISABLE_RUN asks every command runner to refuse.
+
+    The kill switch fails closed: any value other than empty or a false word
+    (0, false, no, off; case and surrounding space ignored) disables runs.
+    Every runner and the status report share this one parse, so status can
+    never name the switch while a runner still executes.
+    """
+    raw = str((environ or {}).get("MYTHIFY_DISABLE_RUN", "") or "").strip().lower()
+    return bool(raw) and raw not in FALSE_ENV_VALUES
+
+
 def active_legacy_opt_outs(environ):
     """Legacy gate opt-outs currently active in ENVIRON, oldest contract first."""
     active = []
@@ -113,7 +125,7 @@ def active_legacy_opt_outs(environ):
         raw = str((environ or {}).get(name, "")).strip().lower()
         if raw in FALSE_ENV_VALUES:
             active.append({"name": name, "effect": effect})
-    if str((environ or {}).get("MYTHIFY_DISABLE_RUN", "")).strip() == "1":
+    if run_disabled(environ):
         active.append({
             "name": "MYTHIFY_DISABLE_RUN",
             "effect": "verify run refuses to execute; only attested claims can be recorded",

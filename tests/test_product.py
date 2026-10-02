@@ -438,6 +438,25 @@ class TestHumanGates(ProductCase):
         status = json.loads(self.ok("status", "--json", env=waived).stdout)
         self.assertTrue(any("MYTHIFY_REQUIRE_HUMAN_INPUT" in item["summary"] for item in status["attention"]))
 
+    def test_waived_decisions_stay_in_status_without_the_variable(self):
+        # Regression: status only named the opt-out while the variable was set
+        # in its own environment, so a later session read "Attention: none".
+        self.ready_product()
+        waived = {"MYTHIFY_REQUIRE_HUMAN_INPUT": "0"}
+        self.ok("product", "approve", env=waived)
+        self.ok("product", "decide", "B1", "--verdict", "pivot", env=waived)
+        status = json.loads(self.ok("status", "--json").stdout)
+        summaries = [item["summary"] for item in status["attention"]]
+        self.assertIn("product onboarding approved under a waived human gate", summaries)
+        self.assertIn("product onboarding bet B1 verdict set under a waived human gate", summaries)
+        self.assertEqual(status["status"], "needs_attention")
+        self.assertIn("verdict pivot (human input waived)", self.ok("product", "show").stdout)
+        # A verdict with the human's words replaces the waived one.
+        self.ok("product", "decide", "B1", "--verdict", "continue", "--human-input", "Dana: keep going")
+        self.assertNotIn("human_input_waived", self.record()["bets"][0])
+        summaries = [item["summary"] for item in json.loads(self.ok("status", "--json").stdout)["attention"]]
+        self.assertFalse(any("bet B1" in summary for summary in summaries))
+
 
 class TestPromote(ProductCase):
     def test_promote_requires_an_approved_product(self):

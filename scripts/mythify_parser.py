@@ -341,7 +341,10 @@ def build_parser(symbols):
         default="",
         help=(
             "Comma-separated paths the loop must never touch (e.g. tests/). "
-            "Enforced in every mode; a change under a frozen prefix stops the loop."
+            "Enforced in every mode; a change under a frozen prefix stops the loop. "
+            "Files are hashed on disk at start and on every check, so git index "
+            "flags and exclude files cannot hide a change; files under a frozen "
+            "directory that the repository's .gitignore files ignore are not covered."
         ),
     )
     p.add_argument(
@@ -504,6 +507,8 @@ def build_parser(symbols):
             "Convert godplans or godaudits checkbox tasks into a Mythify plan. "
             "Each step keeps the task's exact Verify command, and completion "
             "requires that verification to pass while the step is in progress. "
+            "Every task imports as a pending step, including one already "
+            "checked in the artifact: a checked box is not executed evidence. "
             "Mythify never edits the artifact: checkbox flips stay with the "
             "executing agent per the artifact's embedded rules."
         ),

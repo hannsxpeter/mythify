@@ -8,6 +8,98 @@ import subprocess
 from pathlib import Path
 
 
+# fsmonitor and the untracked cache let git answer from cached state instead of
+# reading the worktree, so every inspection that feeds evidence turns them off.
+GIT_FRESH_READ = ("-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false")
+
+
+def git_environment():
+    return {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+
+
+def _git_bytes(root, args, environment, timeout=30):
+    """stdout of `git ARGS` run in ROOT with fresh reads, or None on failure."""
+    try:
+        run = subprocess.run(
+            ["git", *GIT_FRESH_READ, *args],
+            cwd=str(root), capture_output=True, timeout=timeout, env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return run.stdout if run.returncode == 0 else None
+
+
+def git_flagged_index_paths(root, environment=None):
+    """Index entries git was told to stop checking, or None when git fails.
+
+    An assume-unchanged entry (a lowercase `ls-files -v` tag) or a
+    skip-worktree entry (tag S) hides a worktree edit from `git diff` and
+    `git status`, so no fingerprint built on them is trusted while one exists.
+    A skip-worktree entry counts only when its file is on disk: sparse
+    checkouts flag every file outside the cone, and those files are absent.
+    """
+    raw = _git_bytes(root, ["ls-files", "-v", "-z"], environment or git_environment())
+    if raw is None:
+        return None
+    flagged = []
+    for entry in raw.split(b"\0"):
+        tag, path = entry[:1], os.fsdecode(entry[2:])
+        if len(entry) > 2 and (
+            tag.islower() or (tag == b"S" and os.path.lexists(os.path.join(str(root), path)))
+        ):
+            flagged.append(path)
+    return flagged
+
+
+def git_ignore_rules_digest(root, environment=None):
+    """sha256 over the ignore rules that leave no trace in the diff, or None.
+
+    `.git/info/exclude`, the global excludes file, and an ignored `.gitignore`
+    (one that hides itself) can each hide a new file from every listing
+    without changing tracked content, so a fingerprint covers their bytes.
+    """
+    environment = environment or git_environment()
+    info = _git_bytes(root, ["rev-parse", "--git-path", "info/exclude"], environment)
+    ignored = _git_bytes(
+        root,
+        ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+        environment,
+    )
+    if info is None or ignored is None:
+        return None
+    try:
+        configured = subprocess.run(
+            ["git", "config", "--path", "--get", "core.excludesFile"],
+            cwd=str(root), capture_output=True, timeout=30, env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if configured.returncode == 0:
+        global_path = Path(os.fsdecode(configured.stdout.strip()))
+    elif configured.returncode == 1:
+        config_home = environment.get("XDG_CONFIG_HOME") or os.path.join(
+            environment.get("HOME", ""), ".config"
+        )
+        global_path = Path(config_home) / "git" / "ignore"
+    else:
+        return None
+    sources = [Path(root) / os.fsdecode(info.strip()), global_path]
+    sources.extend(
+        Path(root) / os.fsdecode(entry)
+        for entry in sorted(ignored.split(b"\0"))
+        if entry == b".gitignore" or entry.endswith(b"/.gitignore")
+    )
+    digest = hashlib.sha256()
+    for source in sources:
+        digest.update(os.fsencode(str(source)) + b"\0")
+        try:
+            digest.update(hashlib.sha256(source.read_bytes()).digest())
+        except OSError:
+            digest.update(b"absent")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def project_root_for_state(state):
     state_path = Path(state)
     return state_path.parent if state_path.name == ".mythify" else Path.cwd()
@@ -34,7 +126,7 @@ def git_commit(root):
 def git_worktree_clean(root):
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
+            ["git", *GIT_FRESH_READ, "status", "--porcelain", "--untracked-files=all"],
             cwd=str(root),
             capture_output=True,
             text=True,
@@ -86,28 +178,28 @@ def _hash_objects(root, paths, environment):
 
 
 def git_worktree_digest(root):
-    """Hash tracked changes plus untracked file content for exact-change proof."""
-    environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
-    try:
-        diff = subprocess.run(
-            ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"],
-            cwd=str(root), capture_output=True, timeout=30, env=environment,
-        )
-        untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-            cwd=str(root), capture_output=True, timeout=30, env=environment,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    """Hash tracked changes plus untracked file content for exact-change proof.
+
+    Returns None (fingerprint unavailable, so proof is refused) while an index
+    entry is flagged assume-unchanged or skip-worktree. The ignore rules that
+    live outside the worktree are folded in, so editing them changes the
+    digest; files ignored by the repository's .gitignore files stay outside it.
+    """
+    environment = git_environment()
+    flagged = git_flagged_index_paths(root, environment)
+    rules = git_ignore_rules_digest(root, environment)
+    diff = _git_bytes(root, ["diff", "--binary", "--no-ext-diff", "HEAD", "--"], environment)
+    untracked = _git_bytes(root, ["ls-files", "--others", "--exclude-standard", "-z"], environment)
+    if flagged is None or flagged or rules is None or diff is None or untracked is None:
         return None
-    if diff.returncode != 0 or untracked.returncode != 0:
-        return None
-    raw_paths = sorted(item for item in untracked.stdout.split(b"\0") if item)
+    raw_paths = sorted(item for item in untracked.split(b"\0") if item)
     blob_ids = _hash_objects(root, [os.fsdecode(raw) for raw in raw_paths], environment)
     if blob_ids is None:
         return None
     digest = hashlib.sha256()
+    digest.update(b"rules\0" + rules.encode("ascii") + b"\0")
     digest.update(b"tracked\0")
-    digest.update(diff.stdout)
+    digest.update(diff)
     for raw_path in raw_paths:
         digest.update(b"untracked\0")
         digest.update(raw_path)

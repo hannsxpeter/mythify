@@ -5,7 +5,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
-from mythify_evidence_guard import noop_verifier_reason
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
 
 
 REVIEW_STATUSES = ("pass", "warn", "fail")
@@ -249,7 +249,7 @@ def cmd_quality_review_prove(args, state):
     if record.get("kind") != "blast_radius_review":
         _fail("[FAIL] Review is not a blast-radius safety case: {0}".format(slug))
         return 1
-    if _environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(_environ):
         _fail("[FAIL] review prove is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed.")
         return 2
     freshness = _change_freshness(state, record)

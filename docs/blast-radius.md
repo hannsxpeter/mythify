@@ -109,6 +109,15 @@ The digest does not persist source file contents. It distinguishes two dirty
 worktrees that share the same commit, which the older clean or dirty boolean
 could not do.
 
+Git reads that could hide an edit are closed off. While any index entry is
+flagged assume-unchanged, or skip-worktree with its file on disk, the
+fingerprint is unavailable and proof is refused; clear the flag with `git
+update-index --no-assume-unchanged PATH` or `--no-skip-worktree PATH`. The
+digest also covers `.git/info/exclude`, the global excludes file, and any
+`.gitignore` that git ignores, so editing them changes the digest. Git's
+filesystem monitor and untracked cache are off for these reads. Files ignored
+by the repository's own `.gitignore` files stay outside the fingerprint.
+
 Proof refuses to start when the current commit or digest differs from the
 review. The executed verification stores the same provenance plus typed
 `review:<name>` lineage. Status is derived from that append-only evidence at

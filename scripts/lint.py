@@ -379,8 +379,9 @@ ALLOWED_TOKENS = (
     re.compile(re.escape("CLAUDE.md")),
     # The legacy drop-in file name that `protocol check` flags as a leftover.
     re.compile(re.escape(".cursorrules")),
-    # MIT attribution for the adapted prose rules.
+    # MIT attributions for the adapted prose rules and blast-radius workflow.
     re.compile(re.escape("https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md")),
+    re.compile(re.escape("https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md")),
     # Host configuration file locations in the MCP setup table.
     re.compile(r"~/\.gemini/[\w./-]*"),
 )
@@ -394,8 +395,25 @@ MODEL_AGNOSTIC_EXEMPT = (
     "tests/test_lint.py",
 )
 
-# Shipped product surfaces that must not name a vendor or host either.
-VENDOR_SCOPE = ("scripts/mythify*.py", "protocol/*", "skills/*", "AGENTS.md", "docs/commands.md")
+# Shipped product surfaces that must not name a vendor or host either: the
+# runtime, the protocol, the skills, and every shipped doc. docs/mcp.md (host
+# setup file locations) and the installer (host skill roots) are left out.
+VENDOR_SCOPE = (
+    "scripts/mythify*.py",
+    "scripts/check_prose_quality.py",
+    "protocol/*",
+    "skills/*",
+    "AGENTS.md",
+    "README.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "MAINTAINING.md",
+    "ROADMAP.md",
+    "RELEASE-CHECKLIST.md",
+    "CODE_OF_CONDUCT.md",
+    "docs/*.md",
+)
+VENDOR_SCOPE_EXCLUDED = ("docs/mcp.md",)
 
 
 def strip_allowed(line):
@@ -422,6 +440,8 @@ def is_exempt(path):
 
 
 def in_vendor_scope(path):
+    if path in VENDOR_SCOPE_EXCLUDED:
+        return False
     return any(fnmatch.fnmatch(path, pattern) for pattern in VENDOR_SCOPE)
 
 

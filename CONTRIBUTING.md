@@ -84,8 +84,9 @@ to, or spawns one. Runtime code, help text, the protocol, the skills, and
 product docs name no AI model, provider, or vendor. The exceptions are host
 setup file locations in `docs/mcp.md` and the installer, historical records
 (`CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`), and the literal file name
-`CLAUDE.md`. The lint `model-agnostic` check enforces it; its denylists live
-in `scripts/lint.py`, and [MAINTAINING.md](MAINTAINING.md) lists their scope.
+`CLAUDE.md`. The lint `model-agnostic` check enforces it everywhere except
+those exceptions; its denylists live in `scripts/lint.py`, and
+[MAINTAINING.md](MAINTAINING.md) lists their scope.
 
 ## Design changes
 

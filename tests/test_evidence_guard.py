@@ -6,11 +6,15 @@ a legacy gate opt-out active. They are advisory by contract, so the tests pin
 detection behavior, not any blocking side effect.
 """
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+CLI = SCRIPTS_DIR / "mythify.py"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -21,6 +25,7 @@ from mythify_evidence_guard import (  # noqa: E402
     active_legacy_opt_outs,
     ledger_chain_breaks,
     noop_verifier_reason,
+    run_disabled,
     trivial_pass_reason,
 )
 
@@ -180,6 +185,38 @@ class TestActiveLegacyOptOuts(unittest.TestCase):
         )
         for item in active:
             self.assertTrue(item["effect"])
+
+
+class TestRunDisabledParse(unittest.TestCase):
+    """Regression: the report stripped the value and the runners did not."""
+
+    def test_report_and_runners_share_one_fail_closed_parse(self):
+        for value in ("1", " 1", "1 ", "true", "YES", "on", "2"):
+            env = {"MYTHIFY_DISABLE_RUN": value}
+            self.assertTrue(run_disabled(env), repr(value))
+            self.assertIn(
+                "MYTHIFY_DISABLE_RUN",
+                [item["name"] for item in active_legacy_opt_outs(env)],
+            )
+        for value in ("", " ", "0", " 0 ", "false", "No", "off"):
+            self.assertFalse(run_disabled({"MYTHIFY_DISABLE_RUN": value}), repr(value))
+        self.assertFalse(run_disabled({}))
+        self.assertFalse(run_disabled(None))
+
+    def test_verify_run_refuses_a_padded_or_word_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["MYTHIFY_DIR"] = os.path.join(tmp, ".mythify")
+            env["HOME"] = tmp
+            for value in (" 1", "true"):
+                env["MYTHIFY_DISABLE_RUN"] = value
+                marker = os.path.join(tmp, "ran")
+                result = subprocess.run(
+                    [sys.executable, str(CLI), "verify", "run", "touch " + marker],
+                    cwd=tmp, env=env, capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertFalse(os.path.exists(marker), repr(value))
 
 
 if __name__ == "__main__":

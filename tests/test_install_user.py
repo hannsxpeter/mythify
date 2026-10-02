@@ -403,6 +403,40 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse(skills_root.exists())
         self.assertFalse(second_skills_root.exists())
 
+    def test_project_init_stays_in_the_project(self):
+        # Regression: init ran with the caller's environment, so an exported
+        # MYTHIFY_DIR or an ancestor .mythify received the state, outside the
+        # transaction, while the installer reported PROJECT/.mythify.
+        elsewhere = self.tmp / "elsewhere" / ".mythify"
+        ancestor = self.tmp / "ancestor"
+        (ancestor / ".mythify").mkdir(parents=True)
+        cases = (
+            ("exported", self.tmp / "project-a", {"MYTHIFY_DIR": str(elsewhere)}),
+            ("ancestor", ancestor / "project-b", {"MYTHIFY_DIR": None}),
+        )
+        for label, project, extra in cases:
+            with self.subTest(label):
+                project.mkdir(parents=True)
+                (project / ".gitignore").write_text("node_modules", encoding="utf-8")
+                env = {"XDG_DATA_HOME": str(self.tmp / ("xdg-" + label))}
+                env.update(extra)
+                result = self.run_cmd(
+                    self.install_args(
+                        INSTALLER, self.tmp / ("prefix-" + label), project,
+                        self.tmp / ("skills-" + label),
+                    ),
+                    env=env,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((project / ".mythify" / "memory.json").is_file())
+                self.assertEqual(
+                    (project / ".gitignore").read_text(encoding="utf-8"),
+                    "node_modules\n.mythify/\n",
+                )
+                self.assertIn("MYTHIFY_DIR={0}".format(project.resolve() / ".mythify"), result.stdout)
+        self.assertFalse(elsewhere.exists())
+        self.assertFalse((ancestor / ".gitignore").exists())
+
     def test_mcp_launcher_works_from_checkout_path_with_apostrophe(self):
         source_root = self.tmp / "source's-checkout"
         shutil.copytree(

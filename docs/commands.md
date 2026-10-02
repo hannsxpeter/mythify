@@ -752,7 +752,7 @@ Options:
 - `--metric-floor N`: Minimum metric score required for success. Requires --metric; a green verifier with a score below the floor does not succeed.
 - `--max-iterations MAX_ITERATIONS`: Maximum verifier iterations before the outcome fails. Default: `3`.
 - `--allowed-paths ALLOWED_PATHS`: Comma-separated scope paths, checked post-hoc via git. outcome run fails an iteration that changes files outside the scope; outcome check names those files in its next action without failing.
-- `--frozen-paths FROZEN_PATHS`: Comma-separated paths the loop must never touch (e.g. tests/). Enforced in every mode; a change under a frozen prefix stops the loop.
+- `--frozen-paths FROZEN_PATHS`: Comma-separated paths the loop must never touch (e.g. tests/). Enforced in every mode; a change under a frozen prefix stops the loop. Files are hashed on disk at start and on every check, so git index flags and exclude files cannot hide a change; files under a frozen directory that the repository's .gitignore files ignore are not covered.
 - `--supersede REASON`: Retire the currently active outcome into this one, recording the reason and lineage. Without it, a second start is refused.
 - `--agent AGENT`: Command that attempts the work each iteration (an agent CLI or a script). When set, outcome run drives the loop autonomously. The command may print MYTHIFY_COST=<n> to report its cost.
 - `--max-cost MAX_COST`: Cost ceiling for the loop. Each iteration costs what the agent reports via MYTHIFY_COST, else one unit; the loop fails when the cumulative cost reaches this ceiling.
@@ -873,7 +873,7 @@ Options:
 mythify plan import [--source {godplans,godaudits}] [--name NAME] [path]
 ```
 
-Convert godplans or godaudits checkbox tasks into a Mythify plan. Each step keeps the task's exact Verify command, and completion requires that verification to pass while the step is in progress. Mythify never edits the artifact: checkbox flips stay with the executing agent per the artifact's embedded rules.
+Convert godplans or godaudits checkbox tasks into a Mythify plan. Each step keeps the task's exact Verify command, and completion requires that verification to pass while the step is in progress. Every task imports as a pending step, including one already checked in the artifact: a checked box is not executed evidence. Mythify never edits the artifact: checkbox flips stay with the executing agent per the artifact's embedded rules.
 
 Arguments:
 

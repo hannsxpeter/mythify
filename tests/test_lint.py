@@ -85,8 +85,10 @@ def inject_prose(root):
 def inject_model_agnostic(root):
     append(root / "docs" / "start-here.md", "\nSend the review to Sonnet.\n")
     append(root / "skills" / "mythify" / "SKILL.md", "\nSpawn a codex worker.\n")
-    # README.md is outside the vendor scope, so this line is not a finding.
+    # Shipped docs are in the vendor scope (review round 1).
     append(root / "README.md", "\nTested in a codex terminal.\n")
+    # docs/mcp.md documents host setup, so this line is not a finding.
+    append(root / "docs" / "mcp.md", "\nTested in a codex terminal.\n")
 
 
 def inject_dependencies(root):
@@ -112,7 +114,7 @@ INJECTIONS = {
     "protocol-budget": (inject_protocol_budget, ["protocol/PROTOCOL.md"]),
     "text": (inject_text, ["README.md"]),
     "prose": (inject_prose, ["docs/start-here.md"]),
-    "model-agnostic": (inject_model_agnostic, ["docs/start-here.md", "skills/mythify/SKILL.md"]),
+    "model-agnostic": (inject_model_agnostic, ["README.md", "docs/start-here.md", "skills/mythify/SKILL.md"]),
     "dependencies": (inject_dependencies, ["package.json", "scripts/mythify_io.py"]),
     "mcp-surface": (inject_mcp_surface, ["scripts/mythify_mcp.py"]),
     "links": (inject_links, ["README.md"]),
@@ -227,7 +229,13 @@ class TestDenylistEntriesFire(unittest.TestCase):
         self.assertEqual(lint.model_agnostic_hits("codex fast mode", vendors=False), [])
         self.assertTrue(lint.in_vendor_scope("scripts/mythify_router.py"))
         self.assertTrue(lint.in_vendor_scope("skills/mythify/references/chat-experience.md"))
-        self.assertFalse(lint.in_vendor_scope("README.md"))
+        for path in (
+            "README.md", "SECURITY.md", "CONTRIBUTING.md", "MAINTAINING.md", "ROADMAP.md",
+            "RELEASE-CHECKLIST.md", "CODE_OF_CONDUCT.md", "docs/start-here.md",
+            "docs/architecture.md", "scripts/check_prose_quality.py",
+        ):
+            self.assertTrue(lint.in_vendor_scope(path), path)
+        self.assertFalse(lint.in_vendor_scope("docs/mcp.md"))
         self.assertFalse(lint.in_vendor_scope("scripts/install_user.sh"))
 
     def test_every_routing_identifier_fires(self):
@@ -250,6 +258,7 @@ class TestDenylistEntriesFire(unittest.TestCase):
             "the console prints a summary",
             "protocol check CLAUDE.md AGENTS.md .cursorrules",
             "https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md",
+            "https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md",
             "a gptq-free path",
         ):
             with self.subTest(line=line):

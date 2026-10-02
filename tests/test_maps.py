@@ -225,6 +225,52 @@ class TestResolutionEvidence(MapCase):
         self.assertTrue(ticket["human_input_waived"])
         self.assertIn("Human-input gate waived", result.stderr)
 
+    def status_summaries(self):
+        status = json.loads(self.ok("status", "--json").stdout)
+        return [item["summary"] for item in status["attention"]]
+
+    def test_waived_resolution_stays_visible_after_the_session(self):
+        # Regression: status named the waiver only while the variable was set
+        # in its own environment, and promote copied the decision as ordinary.
+        self.ok("map", "create", "Pick a database", "--name", "db")
+        self.ok("map", "ticket", "Which database", "--type", "grilling")
+        self.ok("map", "claim", "T1")
+        self.ok(
+            "map", "resolve", "T1", "--answer", "postgres",
+            env={"MYTHIFY_REQUIRE_HUMAN_INPUT": "0"},
+        )
+        self.assertIn(
+            "map db ticket T1 resolved under a waived human gate", self.status_summaries()
+        )
+        self.assertIn("postgres (human input waived)", self.ok("map", "show").stdout)
+        self.ok("map", "promote")
+        self.assertIn("postgres (human input waived)", self.ok("plan", "show").stdout)
+        self.assertEqual(
+            self.status_summaries(),
+            ["plan carries map ticket T1 resolved under a waived human gate"],
+        )
+        self.ok("plan", "archive")
+        self.assertEqual(self.status_summaries(), [])
+
+    def test_map_verify_evidence_cannot_complete_a_plan_step(self):
+        # Regression: map verify records carried no plan or step_id keys, so
+        # the step gate read them as legacy evidence matching every step.
+        self.ok("plan", "create", "other", "--steps", json.dumps([{"title": "deploy to prod"}]))
+        self.ok("step", "1", "in_progress", "--plan", "other")
+        self.ok("plan", "create", "second", "--steps", json.dumps([{"title": "x"}]))
+        self.ok("map", "create", "Pick a database", "--name", "db")
+        self.ok("map", "ticket", "Probe the schema", "--type", "task", "--verify", "test -d .mythify")
+        self.ok("map", "claim", "T1")
+        self.ok("map", "verify", "T1")
+        record = json.loads(
+            (self.project / ".mythify" / "verifications.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+        )
+        self.assertIsNone(record["plan"])
+        self.assertIsNone(record["step_id"])
+        result = self.run_cli("step", "1", "completed", "done", "--plan", "other")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Verified evidence required", result.stderr)
+
     def test_afk_ticket_needs_no_human_input(self):
         self.chart()
         self.ok("map", "ticket", "Confirm refunds API", "--type", "research")

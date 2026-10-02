@@ -60,10 +60,19 @@ agent command it runs is the one you pass to `outcome start --agent`.
 
 Hardening guidance for users:
 
+- Keep anything a review or a frozen path must cover out of `.gitignore`.
+  The review fingerprint (`worktree_digest`) refuses a worktree with
+  assume-unchanged or skip-worktree index entries and covers
+  `.git/info/exclude` and the global excludes file, and outcome
+  `--frozen-paths` hash the files on disk, but both leave out files that the
+  repository's own `.gitignore` files ignore (a frozen path that names a
+  file is covered even then).
 - Set `MYTHIFY_DISABLE_RUN=1` to turn off command execution. Every command in
   the table above then refuses before running anything, records nothing, and
-  exits 2. Because MCP tools run the CLI, setting it in the MCP server's
-  environment covers every tool.
+  exits 2. Any value other than empty, `0`, `false`, `no`, or `off` has the
+  same effect, so a stray space or a word form fails closed. Because MCP
+  tools run the CLI, setting it in the MCP server's environment covers every
+  tool.
 - Never run the CLI or the MCP server with elevated privileges.
 - Do not place secrets in commands, verifier output, memory entries, lessons,
   outcome notes, product records, or reflections. Everything under

@@ -214,7 +214,7 @@ mythify outcome check               # after each attempt
 
 Each `outcome check` runs the verifier and records the attempt. The loop
 ends at success, at the iteration budget, or at a change inside
-`--frozen-paths` (checked through git); a change outside `--allowed-paths`
+`--frozen-paths` (checked by hashing the files on disk); a change outside `--allowed-paths`
 is named in the next action. Start the loop with `--agent "COMMAND"` and run
 `mythify outcome run` to let Mythify fire that command each round; it can be
 any program, an agent CLI or a plain script. `outcome run` also stops on a

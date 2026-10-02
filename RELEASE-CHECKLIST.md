@@ -57,9 +57,10 @@ python3 -m unittest discover -s tests -v
 python3 scripts/lint.py
 ```
 
-It must print `[OK] lint passed` and exit 0. It covers the version places
-from step 1, the generated files from step 2, the prose check, and the
-runtime source size.
+It must print `[OK] lint passed` and exit 0. It covers the CHANGELOG
+heading, the SECURITY.md supported line, and the release target from step 1
+(the step 3 suite covers the asset names and the test pins), the generated
+files from step 2, the prose check, and the runtime source size.
 
 ## 5. Release workflow gates, locally
 

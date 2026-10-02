@@ -16,7 +16,7 @@ the ticket was claimed before it closes, exactly as a plan step must.
 import json
 import sys
 
-from mythify_evidence_guard import noop_verifier_reason
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
 from mythify_io import (
     _write_text_atomic,
     jsonl_append_anchor,
@@ -239,6 +239,11 @@ def ungraduated_fog(record):
     return [item for item in record.get("fog") or [] if not item.get("graduated_to")]
 
 
+def waived_mark(entry):
+    """Suffix naming a decision recorded under MYTHIFY_REQUIRE_HUMAN_INPUT=0."""
+    return " (human input waived)" if entry.get("human_input_waived") else ""
+
+
 def ticket_name(ticket):
     """Refer by name. The id rides inside the name; it never stands in for it."""
     return "{0} ({1})".format(ticket.get("title", ""), ticket.get("id", ""))
@@ -327,10 +332,11 @@ def format_map(slug, record):
         lines.append("- none")
     for decision in decisions:
         lines.append(
-            "- {0} ({1}) - {2}".format(
+            "- {0} ({1}) - {2}{3}".format(
                 decision.get("title", ""),
                 decision.get("ticket_id", ""),
                 decision.get("gist", ""),
+                waived_mark(decision),
             )
         )
     lines.append("Frontier ({0}):".format(len(frontier)))
@@ -358,7 +364,7 @@ def format_map(slug, record):
         text = "- {0}: {1}".format(item.get("id"), item.get("note", ""))
         if item.get("reason"):
             text += " (why: {0})".format(item.get("reason"))
-        lines.append(text)
+        lines.append(text + waived_mark(item))
     if map_is_clear(record) and record.get("status") != "promoted":
         lines.append(
             "The way is clear: no open tickets and no fog. Hand off with map promote."
@@ -635,7 +641,7 @@ def cmd_map_claim(args, state):
 
 def cmd_map_verify(args, state):
     """Run a ticket's own verify command and stamp the evidence with the ticket."""
-    if (environ or {}).get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(environ):
         fail(
             "[FAIL] map verify is disabled: MYTHIFY_DISABLE_RUN=1 is set. No "
             "command was executed and nothing was recorded."
@@ -663,6 +669,10 @@ def cmd_map_verify(args, state):
         )
         return 1
     context = {
+        "plan": None,
+        "step_id": None,
+        "step_title": None,
+        "step_status": None,
         "map": slug,
         "ticket_id": ticket.get("id"),
         "ticket_title": ticket.get("title"),
@@ -759,14 +769,18 @@ def cmd_map_resolve(args, state):
             "ticket_id": ticket.get("id"),
             "created": stamp,
         }
-        record.setdefault("out_of_scope", []).append(entry)
     else:
-        record.setdefault("decisions", []).append({
+        entry = {
             "ticket_id": ticket.get("id"),
             "title": ticket.get("title", ""),
             "gist": args.gist or answer,
             "recorded": stamp,
-        })
+        }
+    # The waiver rides on the decision too, so map show and the plan that map
+    # promote creates both name a decision the human never made.
+    if ticket.get("human_input_waived"):
+        entry["human_input_waived"] = True
+    record.setdefault("out_of_scope" if out_of_scope else "decisions", []).append(entry)
     for note in args.fog or []:
         record.setdefault("fog", []).append({
             "id": next_map_id(record.get("fog") or [], "F"),

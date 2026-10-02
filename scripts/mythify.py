@@ -82,7 +82,7 @@ from mythify_product import (  # noqa: E402
     product_summary_rows,
 )
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
-from mythify_evidence_guard import noop_verifier_reason  # noqa: E402
+from mythify_evidence_guard import noop_verifier_reason, run_disabled  # noqa: E402
 from mythify_lineage import (  # noqa: E402
     capture_lineage,
     cmd_lineage_attach,
@@ -450,6 +450,9 @@ def execute_recorded_verification(
         record["test_count"] = test_count
     if lineage is not None:
         record["lineage"] = lineage
+    # Every executed record carries the step keys, null unless the caller or the
+    # active plan sets them, so no record can pass as pre-6.0 legacy evidence.
+    record.update(null_step_context())
     record.update(context if context is not None else verification_step_context(state))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
@@ -526,24 +529,14 @@ def next_pending_step(plan):
     return None
 
 
+def null_step_context():
+    return {"plan": None, "step_id": None, "step_title": None, "step_status": None}
+
+
 def verification_step_context(state):
     slug = get_active_slug(state)
-    if not slug:
-        return {
-            "plan": None,
-            "step_id": None,
-            "step_title": None,
-            "step_status": None,
-        }
-    plan = load_plan(state, slug)
-    if plan is None:
-        return {
-            "plan": None,
-            "step_id": None,
-            "step_title": None,
-            "step_status": None,
-        }
-    for step in plan.get("steps", []):
+    plan = load_plan(state, slug) if slug else None
+    for step in (plan or {}).get("steps", []):
         if step.get("status") == "in_progress":
             return {
                 "plan": slug,
@@ -551,16 +544,20 @@ def verification_step_context(state):
                 "step_title": step.get("title"),
                 "step_status": step.get("status"),
             }
-    return {
-        "plan": None,
-        "step_id": None,
-        "step_title": None,
-        "step_status": None,
-    }
+    return null_step_context()
+
+
+# Keys that scope a record to a map ticket, product, review, or outcome. A
+# record carrying one is never pre-6.0 legacy evidence, even without step keys.
+SCOPED_RECORD_KEYS = ("map", "ticket_id", "product", "review", "outcome")
 
 
 def verification_record_matches_step(record, slug, step_id):
-    has_legacy_context = "plan" not in record and "step_id" not in record
+    has_legacy_context = (
+        "plan" not in record
+        and "step_id" not in record
+        and not any(key in record for key in SCOPED_RECORD_KEYS)
+    )
     if has_legacy_context:
         return True
     return record.get("plan") == slug and record.get("step_id") == step_id
@@ -800,7 +797,7 @@ def cmd_plan_verify(args, state):
     verify_command can prove its own definition of done. On success the step's
     strict-evidence gate is satisfied, so `step ID completed` will pass.
     """
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         fail(VERIFY_RUN_DISABLED_MESSAGE)
         return 2
     try:
@@ -907,10 +904,11 @@ def cmd_plan_show(args, state):
             print("Decisions carried from the map:")
             for decision in decisions:
                 print(
-                    "  - {0} ({1}): {2}".format(
+                    "  - {0} ({1}): {2}{3}".format(
                         decision.get("title", ""),
                         decision.get("ticket_id", ""),
                         decision.get("gist", ""),
+                        " (human input waived)" if decision.get("human_input_waived") else "",
                     )
                 )
         if out_of_scope:
@@ -1111,7 +1109,7 @@ def _read_file_tail_text(path, char_limit=TAIL_CHARS, redactor=None):
     except OSError:
         return ""
     # Redact the wider read window before the final char slice so a secret that
-    # straddles the char boundary is caught whole, matching the Node order.
+    # straddles the char boundary is caught whole.
     if redactor is not None:
         window = redactor(window)
     return window[-char_limit:]

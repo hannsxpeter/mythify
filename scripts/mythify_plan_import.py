@@ -158,13 +158,16 @@ def cmd_plan_import(args, state):
     stamp = now_iso()
     steps = []
     for index, task in enumerate(live_tasks):
+        # A checked box is the artifact's claim, not executed evidence, so a
+        # checked task imports pending and completes only through the strict
+        # gate, like every other step.
         step = {
             "id": index + 1,
             "title": "{0} {1}".format(task["id"], task["title"]).strip(),
             "success_criteria": task.get("acceptance") or "verify command passes",
-            "status": "completed" if task["checked"] else "pending",
+            "status": "pending",
             "result": (
-                "imported: checkbox already checked in {0}".format(path.name)
+                "checked in {0}; re-verify".format(path.name)
                 if task["checked"]
                 else None
             ),
@@ -178,6 +181,8 @@ def cmd_plan_import(args, state):
             step["depends_on"] = task["depends_on"]
         if task.get("fixes"):
             step["fixes"] = task["fixes"]
+        if task["checked"]:
+            step["artifact_checked"] = True
         steps.append(step)
     plan = {
         "name": slug,
@@ -195,11 +200,17 @@ def cmd_plan_import(args, state):
     }
     save_plan(state, slug, plan)
     set_active_slug(state, slug)
-    done = sum(1 for step in steps if step["status"] == "completed")
+    checked = sum(1 for step in steps if step.get("artifact_checked"))
     print(
-        "[OK] Imported {0} tasks from {1} into plan {2} ({3} already completed). "
-        "Active plan set to {2}.".format(len(steps), path.name, slug, done)
+        "[OK] Imported {0} tasks from {1} into plan {2} as pending steps. "
+        "Active plan set to {2}.".format(len(steps), path.name, slug)
     )
+    if checked:
+        print(
+            "{0} task(s) are checked in {1}, which is not executed evidence: "
+            "each still completes only after its verify command passes while "
+            "the step is in progress.".format(checked, path.name)
+        )
     if digest.get("counter_drift"):
         print(
             "[WARN] Frontmatter counters disagree with the checkboxes in {0}; "

@@ -293,8 +293,9 @@ class TestPlanImportCli(unittest.TestCase):
         result = self.run_cli("plan", "import")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Imported 5 tasks from PLAN.mdx", result.stdout)
-        self.assertIn("2 already completed", result.stdout)
-        self.assertIn("Next verify: npm run db:migrate && npm run db:check", result.stdout)
+        self.assertIn("as pending steps", result.stdout)
+        self.assertIn("2 task(s) are checked in PLAN.mdx", result.stdout)
+        self.assertIn("Next verify: npm test && npm run lint", result.stdout)
         plan = self.load_plan_json("taskboard-godplans")
         self.assertTrue(plan["strict_context"])
         self.assertEqual(plan["source"]["kind"], "godplans")
@@ -305,7 +306,26 @@ class TestPlanImportCli(unittest.TestCase):
         self.assertEqual(step["wave"], "2.1")
         self.assertEqual(step["phase"], "Auth and boards")
         self.assertEqual(step["depends_on"], ["GP-102"])
-        self.assertEqual(plan["steps"][0]["status"], "completed")
+        self.assertEqual(plan["steps"][0]["status"], "pending")
+        self.assertTrue(plan["steps"][0]["artifact_checked"])
+        self.assertNotIn("artifact_checked", step)
+
+    def test_checked_task_still_needs_executed_evidence(self):
+        # Regression: a checked box imported as a completed step, so editing an
+        # artifact produced completed steps with no executed verification.
+        self.init_with_artifacts(plan=True)
+        self.assertEqual(self.run_cli("plan", "import").returncode, 0)
+        plan = self.load_plan_json("taskboard-godplans")
+        self.assertEqual(
+            [step["status"] for step in plan["steps"]], ["pending"] * 5
+        )
+        status = self.run_cli("status", "--json")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(json.loads(status.stdout)["active_plan"]["completed_steps"], 0)
+        self.assertEqual(self.run_cli("step", "1", "in_progress").returncode, 0)
+        prose = self.run_cli("step", "1", "completed", "checked in the artifact")
+        self.assertEqual(prose.returncode, 1)
+        self.assertIn("strict step context", prose.stderr)
 
     def test_import_audit_maps_fixes(self):
         self.init_with_artifacts(plan=False, audit=True)

@@ -20,7 +20,7 @@ workflow runs:
 | :--- | :--- | :--- |
 | `CHANGELOG.md` | top release heading `## [X.Y.Z] - YYYY-MM-DD`, with the `[Unreleased]` and `[X.Y.Z]` compare links | lint `version`; `tests/test_release_version.py` checks the heading and every compare link |
 | `SECURITY.md` | supported line `X.x` | lint `version` |
-| `RELEASE-CHECKLIST.md` | ``Current release target: `vX.Y.Z` `` and the asset names | lint `version` |
+| `RELEASE-CHECKLIST.md` | ``Current release target: `vX.Y.Z` `` and the asset names | lint `version` (target line); `tests/test_release_version.py` and `tests/test_release_metadata.py` (asset names) |
 | release tag | `vX.Y.Z` | `python3 scripts/package_cli.py --check-release-tag vX.Y.Z`, run by the release workflow before anything is built |
 
 `tests/test_release_metadata.py` also pins the version and the release date
@@ -126,17 +126,20 @@ case-insensitive with word boundaries, and both kept only in
   key is absent checks keys with `lint.removed_identifier_keys` instead of
   spelling the key out.
 - Vendor and host names (`VENDOR_NAMES`) are forbidden in the shipped
-  product surfaces: `scripts/mythify*.py`, `protocol/`, `skills/`,
-  `AGENTS.md`, and `docs/commands.md`. Lower-case "cursor" is an ordinary
-  word there (report cursors), so only the editor's vendor forms match.
+  product surfaces (`VENDOR_SCOPE`): `scripts/mythify*.py`,
+  `scripts/check_prose_quality.py`, `protocol/`, `skills/`, `AGENTS.md`,
+  `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `MAINTAINING.md`,
+  `ROADMAP.md`, `RELEASE-CHECKLIST.md`, `CODE_OF_CONDUCT.md`, and every
+  `docs/*.md` except `docs/mcp.md`. Lower-case "cursor" is an ordinary word
+  there (report cursors), so only the editor's vendor forms match.
 
 Allowed tokens everywhere: the file names `CLAUDE.md` and `.cursorrules`
-(both read by `protocol check`), the MIT attribution URL for the adapted
-prose rules, and the host configuration paths in the docs/mcp.md table.
-Product docs outside the vendor scope still name no vendor except where they
-describe host setup (docs/mcp.md, the installer's skill roots); that part is
-review, not lint. A feature that seems to need a model name is a host
-feature, not a Mythify feature.
+(both read by `protocol check`), the MIT attribution URLs for the adapted
+prose rules and the blast-radius workflow, and the host configuration paths
+in the docs/mcp.md table. `docs/mcp.md` and `scripts/install_user.sh` stay
+outside the vendor scope because they name host setup locations; keeping
+vendor names there to setup locations is review, not lint. A feature that
+seems to need a model name is a host feature, not a Mythify feature.
 
 ## Logging drift
 
@@ -170,3 +173,10 @@ Mythify has no package dependencies. GitHub Actions in `.github/workflows/`
 are pinned by commit SHA with the version in a trailing comment; Dependabot
 proposes updates weekly. When you accept one, keep the comment in step with
 the SHA.
+
+Every job in `ci.yml` and `release.yml` runs on `ubuntu-24.04`, not
+`ubuntu-latest`. The `Python 3.9` job needs a runner image for which
+`actions/setup-python` publishes a 3.9 build; when `ubuntu-latest` moves to
+an image without one, that job fails at setup and blocks every release (step
+10 of the release checklist). Keep the pin until 3.9 support is dropped, then
+move all jobs to the next image together.
