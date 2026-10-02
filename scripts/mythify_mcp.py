@@ -68,6 +68,7 @@ TOOL_ALLOWLIST = (
     ("prompt", "failure"),
     ("prompt", "review"),
     ("prompt", "map"),
+    ("prompt", "product"),
     ("plan", "create"),
     ("plan", "import"),
     ("plan", "add-step"),
@@ -101,6 +102,17 @@ TOOL_ALLOWLIST = (
     ("map", "show"),
     ("map", "list"),
     ("map", "promote"),
+    ("product", "create"),
+    ("product", "outcome"),
+    ("product", "non-goal"),
+    ("product", "bet"),
+    ("product", "risk"),
+    ("product", "check"),
+    ("product", "approve"),
+    ("product", "decide"),
+    ("product", "promote"),
+    ("product", "measure"),
+    ("product", "show"),
     ("review", "blast-radius"),
     ("review", "prove"),
     ("review", "show"),
@@ -116,8 +128,10 @@ INSTRUCTIONS = (
     "2 is a recorded unverified verdict, not a tool error. Exit 1 is a refusal "
     "or failure; exit 64 is a usage error. Run verify_run before any "
     "completion claim: step with status completed is refused until a passing "
-    "verify run is recorded since the step started. Use the mythify tool with "
-    "an args array for commands that have no typed tool."
+    "verify run is recorded since the step started. product_approve and "
+    "product_decide are human decisions and are refused without human_input "
+    "carrying the human's words. Use the mythify tool with an args array for "
+    "commands that have no typed tool."
 )
 
 

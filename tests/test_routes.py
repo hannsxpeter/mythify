@@ -1,7 +1,7 @@
 """End-to-end coverage of the workflow router decision tree.
 
-Asserts every route id the router can emit (direct, plan, map, outcome,
-review, failure_recovery, handoff), the documented precedence order (outcome
+Asserts every route id the router can emit (direct, plan, map, product,
+outcome, review, failure_recovery, handoff), the documented precedence order (outcome
 terms outrank full-send language), and the active-state resume branches. Routing is read-only: each case sets up only the durable state it
 needs, then asserts the chosen route and next command. Companion coverage:
 tests/test_godfiles.py owns god-artifact routing, import, and the strict gate;
@@ -73,10 +73,10 @@ class TestRouteMatrix(RouteCase):
         ids = {route["id"] for route in manifest["routes"]}
         self.assertEqual(
             ids,
-            {"direct", "plan", "map", "outcome", "review", "failure_recovery", "handoff"},
+            {"direct", "plan", "map", "product", "outcome", "review", "failure_recovery", "handoff"},
         )
         packets = {route["prompt_packet"] for route in manifest["routes"]}
-        self.assertLessEqual(packets, {"next", "handoff", "failure", "review", "map"})
+        self.assertLessEqual(packets, {"next", "handoff", "failure", "review", "map", "product"})
 
     def test_single_question_research_routes_direct(self):
         for task in (

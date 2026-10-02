@@ -9,6 +9,7 @@ from mythify_lineage import add_lineage_parser
 from mythify_quality import add_quality_parser
 from mythify_verification_commands import add_verification_parsers
 from mythify_map_parser import add_map_parser
+from mythify_product_parser import add_product_parser
 from mythify_mcp import serve as serve_mcp
 
 # EX_USAGE from sysexits.h. Exit 2 is the recorded "unverified" verdict, so a
@@ -40,13 +41,13 @@ def build_parser(symbols):
         ),
         epilog=(
             "Recommended front door:\n"
-            "  mythify route \"TASK\"        choose direct, plan, map, outcome, review, failure_recovery, or handoff\n"
+            "  mythify route \"TASK\"        choose direct, plan, map, product, outcome, review, failure_recovery, or handoff\n"
             "  mythify status              reorient from durable state, evidence, and attention items\n"
             "  mythify verify run ...      record executed proof before a completion claim\n"
             "  mythify report ...          show chat-ready progress and issue reports\n"
             "\n"
             "Workflow primitives:\n"
-            "  plan, step, outcome, map, prompt\n"
+            "  plan, step, outcome, map, product, prompt\n"
             "\n"
             "Advanced surfaces:\n"
             "  history, summary, loop-fit, memory, lesson, logs, reflect, review, lineage,\n"
@@ -92,10 +93,11 @@ def build_parser(symbols):
 
     p = sub.add_parser(
         "status",
-        help="Orient: active plan, outcome, and map, evidence breakdown, and attention items.",
+        help="Orient: active plan, outcome, map, and product, evidence breakdown, and attention items.",
         description=(
             "Read-only orientation: the active plan with step icons and the next "
-            "pending step, the active outcome and map, counts, the executed and "
+            "pending step, the active outcome, map, and product (with readiness "
+            "and traceability flag count), counts, the executed and "
             "attested evidence breakdown, recent verification records, and "
             "attention items (failed checks, no-op or zero-test passes, ledger "
             "chain breaks, legacy opt-outs, stale or drifted outcome evidence) "
@@ -183,7 +185,7 @@ def build_parser(symbols):
         help="Choose the next workflow route from prompt text and durable state.",
         description=(
             "Read-only workflow quarterback: classify a prompt, inspect durable "
-            "state, and choose direct, plan, map, outcome, review, "
+            "state, and choose direct, plan, map, product, outcome, review, "
             "failure_recovery, or handoff routing. The JSON output carries the "
             "deterministic classification with neutral framing, parallelism, and "
             "review advisories plus the loop-fit assessment; the host chooses "
@@ -248,6 +250,14 @@ def build_parser(symbols):
     p.set_defaults(handler=cmd_prompt_packet, packet_kind="map")
 
     p = prompt_sub.add_parser(
+        "product",
+        help="Render a product planning prompt packet from a product manager and director lens.",
+    )
+    p.add_argument("name", nargs="?", help="Product name. Defaults to the active product.")
+    add_prompt_common(p)
+    p.set_defaults(handler=cmd_prompt_packet, packet_kind="product")
+
+    p = prompt_sub.add_parser(
         "next",
         help="Select and render the next useful prompt packet.",
     )
@@ -255,6 +265,7 @@ def build_parser(symbols):
     p.set_defaults(handler=cmd_prompt_packet, packet_kind="next")
 
     add_map_parser(sub, symbols)
+    add_product_parser(sub, symbols)
     add_lineage_parser(sub, symbols)
     add_quality_parser(sub, symbols)
 
@@ -723,10 +734,10 @@ def build_parser(symbols):
 
     p = sub.add_parser(
         "summary",
-        help="Full session report: plans, outcomes, maps, memory, lessons, evidence, reflections.",
+        help="Full session report: plans, outcomes, maps, products, memory, lessons, evidence, reflections.",
         description=(
             "Full session report: plans and progress, outcome loops, decision "
-            "maps, memory count, project and global lesson counts, verification "
+            "maps, product records, memory count, project and global lesson counts, verification "
             "stats (executed passed, executed failed, attested count), and "
             "reflection count."
         ),

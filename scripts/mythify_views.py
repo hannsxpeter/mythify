@@ -1,9 +1,9 @@
 """Read-only status, history, and report views for the Mythify CLI.
 
-`status` is the single orientation view: active plan, outcome, and map, the
-executed and attested evidence breakdown, recent verification records, and
-attention items from the evidence detectors, sorted so issues come before
-warnings. Every view reads durable state only; none reruns checks.
+`status` is the single orientation view: active plan, outcome, map, and
+product, the executed and attested evidence breakdown, recent verification
+records, and attention items from the evidence detectors, sorted so issues come
+before warnings. Every view reads durable state only; none reruns checks.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from mythify_maps import (
     ungraduated_fog,
 )
 from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
+from mythify_product import active_product_view
 
 WORKSPACE_DIR_NAME = ".mythify"
 REPORT_SINCE_MODES = ("last", "start")
@@ -1138,6 +1139,7 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
         "active_plan": active_plan,
         "active_outcome": active_outcome,
         "active_map": active_map,
+        "active_product": active_product_view(state),
         "god_artifacts": god_views,
         "counts": {
             "memory": len(memory["entries"]),
@@ -1208,6 +1210,19 @@ def format_status_view(view):
         lines.append("Map next: {0}".format(active_map["next_action"]))
     else:
         lines.append("Active map: none")
+    product = view.get("active_product")
+    if product:
+        lines.append(
+            "Active product: {0} ({1}, {2}, {3} flag(s)) - {4}".format(
+                product["id"],
+                product["status"],
+                "ready" if product["ready"] else "{0} gap(s)".format(product["gap_count"]),
+                product["flag_count"],
+                product["title"],
+            )
+        )
+    else:
+        lines.append("Active product: none")
     god = view.get("god_artifacts") or {}
     for label, key in (("Godplans plan", "godplans"), ("Godaudits audit", "godaudits")):
         summary = god.get(key)

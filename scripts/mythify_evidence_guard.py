@@ -36,7 +36,7 @@ LEGACY_OPT_OUTS = (
     ),
     (
         "MYTHIFY_REQUIRE_HUMAN_INPUT",
-        "HITL tickets resolve without the human's words",
+        "HITL tickets, product approvals, and bet verdicts proceed without the human's words",
     ),
 )
 

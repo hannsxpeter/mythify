@@ -77,6 +77,10 @@ from mythify_maps import (  # noqa: E402
     list_map_records,
     open_tickets,
 )
+from mythify_product import (  # noqa: E402
+    configure_product_store,
+    product_summary_rows,
+)
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
 from mythify_evidence_guard import noop_verifier_reason  # noqa: E402
 from mythify_lineage import (  # noqa: E402
@@ -498,6 +502,17 @@ configure_map_store(
 )
 
 
+configure_product_store(
+    fail_func=fail,
+    execute_verification_func=execute_recorded_verification,
+    create_plan_record_func=lambda state, goal, name, steps, extra: create_plan_record(
+        state, goal, name=name, steps=steps, extra=extra
+    ),
+    attach_plan_lineage_func=attach_plan_lineage,
+    environ_map=os.environ,
+)
+
+
 def plan_progress(plan):
     steps = plan.get("steps", [])
     done = sum(1 for step in steps if step.get("status") == "completed")
@@ -667,11 +682,14 @@ def cmd_plan_create(args, state):
     return 0
 
 
-def create_plan_record(state, goal, name=None, steps=None, source=None, parents=None):
+def create_plan_record(
+    state, goal, name=None, steps=None, source=None, parents=None, extra=None
+):
     """Write a new plan, set it active, and return (slug, error_message).
 
-    Shared by `plan create` and `map promote`, so a promoted map produces the
-    same plan shape as a hand-written one, plus a `source` provenance block.
+    Shared by `plan create`, `map promote`, and `product promote`, so a promoted
+    map or bet produces the same plan shape as a hand-written one, plus a
+    `source` provenance block or the EXTRA top-level fields (product_ref).
     Step objects keep title, success_criteria, and verify_command; other keys
     are ignored.
     """
@@ -713,6 +731,8 @@ def create_plan_record(state, goal, name=None, steps=None, source=None, parents=
             return None, "[FAIL] Invalid lineage: {0}.".format(exc)
     if source is not None:
         plan["source"] = source
+    for key, value in (extra or {}).items():
+        plan.setdefault(key, value)
     save_plan(state, slug, plan)
     set_active_slug(state, slug)
     return slug, None
@@ -903,6 +923,15 @@ def cmd_plan_show(args, state):
                 source.get("kind"),
                 source.get("path", "unknown"),
                 source.get("imported_at", "unknown"),
+            )
+        )
+    product_ref = plan.get("product_ref")
+    if isinstance(product_ref, dict):
+        print(
+            "Product: {0} bet {1} (outcomes: {2})".format(
+                product_ref.get("product", ""),
+                product_ref.get("bet", ""),
+                ", ".join(product_ref.get("outcomes") or []) or "none",
             )
         )
     print("Created: {0}".format(plan.get("created", "")))
@@ -1311,7 +1340,7 @@ configure_verification_commands(
 
 
 def build_summary(state):
-    """Session report data: plans, outcomes, maps, memory, lessons, evidence."""
+    """Session report data: plans, outcomes, maps, products, memory, lessons, evidence."""
     active_plan = get_active_slug(state)
     plans = []
     for slug in list_plan_slugs(state):
@@ -1365,6 +1394,7 @@ def build_summary(state):
         "archived_plans": count_archived(state),
         "outcomes": outcomes,
         "maps": maps,
+        "products": product_summary_rows(state),
         "memory_entries": len(memory["entries"]),
         "lessons": {"project": len(project_lessons), "global": len(global_lessons)},
         "verifications": {
@@ -1421,6 +1451,22 @@ def format_summary(summary):
                 record["open_tickets"],
                 record["decisions"],
                 record["destination"],
+            )
+        )
+    lines.append("Products ({0}):".format(len(summary["products"])))
+    if not summary["products"]:
+        lines.append("  none")
+    for record in summary["products"]:
+        lines.append(
+            "  {0}{1}: {2}, stage {3}, {4} outcome(s), {5} bet(s), {6} - {7}".format(
+                record["id"],
+                " (active)" if record["active"] else "",
+                record["status"],
+                record["stage"],
+                record["outcomes"],
+                record["bets"],
+                "ready" if record["ready"] else "gaps",
+                record["title"],
             )
         )
     lines.append("Memory entries: {0}".format(summary["memory_entries"]))

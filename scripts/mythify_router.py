@@ -1,8 +1,8 @@
 """Prompt packet and workflow route helpers for the Mythify CLI.
 
-Prompt packet kinds: next, handoff, failure, review, map. Route ids come from
-protocol/workflow-router.json: direct, plan, map, outcome, review,
-failure_recovery, handoff.
+Prompt packet kinds: next, handoff, failure, review, map, product. Route ids
+come from protocol/workflow-router.json: direct, plan, map, product, outcome,
+review, failure_recovery, handoff.
 """
 
 import json
@@ -24,10 +24,11 @@ from mythify_maps import (
     ticket_name,
     ungraduated_fog,
 )
+from mythify_product import active_product_view, build_product_prompt_packet
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_ROUTER_PATH = REPO_ROOT / "protocol" / "workflow-router.json"
-PROMPT_PACKET_KINDS = ("next", "handoff", "failure", "review", "map")
+PROMPT_PACKET_KINDS = ("next", "handoff", "failure", "review", "map", "product")
 
 
 def load_workflow_router():
@@ -108,6 +109,18 @@ ROUTE_MAP_TERMS = (
 )
 ROUTE_GODPLANS_TERMS = ("godplans", "god plans")
 ROUTE_GODAUDITS_TERMS = ("godaudits", "god audits")
+# Terms that select a route on their own. A short prompt that carries one is
+# not trivial. Resume, outcome, and verify terms are left out: they steer only
+# together with durable state or with each other.
+ROUTE_SELECTING_TERMS = (
+    ROUTE_FULL_SEND_TERMS
+    + ROUTE_PROMPT_TERMS
+    + ROUTE_RESEARCH_TERMS
+    + ROUTE_REVIEW_TERMS
+    + ROUTE_MAP_TERMS
+    + ROUTE_GODPLANS_TERMS
+    + ROUTE_GODAUDITS_TERMS
+)
 WORKSPACE_DIR_NAME = ".mythify"
 
 
@@ -330,6 +343,10 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
         return add_prose_quality_instruction(build_review_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "map":
         return add_prose_quality_instruction(build_map_prompt_packet(state, name=name, goal=goal))
+    if kind == "product":
+        return add_prose_quality_instruction(
+            build_product_prompt_packet(state, name=name, goal=goal, guardrail=PROMPT_PACKET_GUARDRAIL)
+        )
     return {"error": "[FAIL] Unknown prompt packet kind: {0}".format(kind)}
 
 def build_map_prompt_packet(state, name=None, goal=""):
@@ -772,6 +789,7 @@ def workflow_route_state(state):
         "active_plan": plan_view,
         "active_outcome": outcome_view,
         "active_map": map_view,
+        "active_product": active_product_view(state),
         "latest_executed_verification": latest_view,
         "godplans_plan": godplans_view if godplans_view.get("present") else None,
         "godaudits_audit": godaudits_view if godaudits_view.get("present") else None,
@@ -823,6 +841,11 @@ def route_command_for(route, task, state_view):
                 return "mythify map promote"
             return "mythify prompt map"
         return "mythify map create {0}".format(quoted_task)
+    if route == "product":
+        product = state_view.get("active_product")
+        if not product:
+            return 'mythify product create "TITLE" --problem "..." --user "..."'
+        return "mythify product show" if product.get("ready") else "mythify product check"
     if route == "review":
         if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
             return "mythify plan import --source godaudits"
@@ -862,6 +885,26 @@ def route_state_writes(route, state_view):
             "map create with the destination",
             "map ticket for each decision you can already state",
             "map fog for what you cannot state sharply yet",
+        ]
+    if route == "product":
+        product = state_view.get("active_product")
+        if not product:
+            return [
+                "product create with the problem in the user's words and one primary user",
+                "product outcome, non-goal, bet, and risk entries",
+                "product check until it exits 0",
+                "product approve with the human's words before any promote",
+            ]
+        if not product.get("ready"):
+            return [
+                "product outcome, non-goal, bet, or risk entries that close the check gaps",
+                "product check until it exits 0",
+            ]
+        return [
+            "product approve with the human's words",
+            "product promote for the top-priority bet",
+            "product measure after the plan ships",
+            "product decide with the decider's words",
         ]
     if route == "review":
         if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
@@ -906,6 +949,7 @@ def workflow_route_evidence(route, state_view, classification):
         "active_plan",
         "active_outcome",
         "active_map",
+        "active_product",
         "godplans_plan",
         "godaudits_audit",
     ):
@@ -979,8 +1023,13 @@ def select_workflow_route(task, state_view, classification):
             "plan",
             "The prompt uses full-send language, so plan the whole job with verifiable steps and drive it to done step by step.",
         )
-    # Seam: the product route is added in a later stage. It slots in here,
-    # ahead of map and plan, for product-planning prompts.
+    if classification.get("task_type") == "product":
+        return (
+            "product",
+            "The prompt asks product-planning questions (problem, users, outcomes, "
+            "priorities), so frame them in a product record and get a human's "
+            "approval before any execution plan.",
+        )
     if route_has(text, ROUTE_MAP_TERMS):
         return (
             "map",
@@ -1176,7 +1225,7 @@ def format_workflow_route(payload):
 
 
 def cmd_route(args, state):
-    classification = classify_task_text(args.task)
+    classification = classify_task_text(args.task, route_terms=ROUTE_SELECTING_TERMS)
     payload = build_workflow_route(args.task, state, classification)
     if args.json_output:
         print(json.dumps(payload, indent=2))

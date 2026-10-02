@@ -4,7 +4,8 @@
   "thresholds": {
     "trivial_word_count": 12,
     "high_ambiguity_word_count": 18,
-    "medium_ambiguity_word_count": 22
+    "medium_ambiguity_word_count": 22,
+    "risk_window_words": 5
   },
   "question_prefixes": [
     "what ",
@@ -31,9 +32,6 @@
   ],
   "risk": {
     "high_terms": [
-      "delete",
-      "remove",
-      "drop",
       "destructive",
       "production",
       "payment",
@@ -47,10 +45,140 @@
       "release",
       "deploy",
       "migration",
-      "schema",
       "data loss",
       "permission",
-      "permissions"
+      "permissions",
+      "credentials",
+      "secrets",
+      "database schema",
+      "db schema",
+      "table schema",
+      "schema migration",
+      "schema change",
+      "drop table",
+      "drop database",
+      "truncate table",
+      "force push",
+      "rm -rf",
+      "password",
+      "passwords",
+      "jwt",
+      "session token",
+      "session tokens",
+      "token storage"
+    ],
+    "destructive_verbs": [
+      "delete",
+      "remove",
+      "drop",
+      "wipe",
+      "purge",
+      "truncate",
+      "erase",
+      "destroy"
+    ],
+    "destructive_objects": [
+      "data",
+      "database",
+      "databases",
+      "db",
+      "production",
+      "prod",
+      "user",
+      "users",
+      "customer",
+      "customers",
+      "account",
+      "accounts",
+      "record",
+      "records",
+      "backup",
+      "backups",
+      "bucket",
+      "buckets",
+      "repo",
+      "repository",
+      "everything",
+      "table",
+      "tables",
+      "column",
+      "columns",
+      "collection",
+      "collections",
+      "history",
+      "session",
+      "sessions",
+      "email",
+      "emails",
+      "volume",
+      "volumes",
+      "disk",
+      "disks",
+      "cluster",
+      "clusters",
+      "namespace",
+      "namespaces",
+      "keys",
+      "password",
+      "passwords"
+    ],
+    "code_local_objects": [
+      "import",
+      "imports",
+      "comment",
+      "comments",
+      "typo",
+      "typos",
+      "whitespace",
+      "trailing comma",
+      "trailing commas",
+      "trailing whitespace",
+      "dead code",
+      "unused code",
+      "variable",
+      "variables",
+      "unused function",
+      "unused functions",
+      "unused parameter",
+      "unused parameters",
+      "debug print",
+      "debug prints",
+      "debug log",
+      "debug logs",
+      "debug logging",
+      "debug statement",
+      "debug statements",
+      "print statement",
+      "print statements",
+      "console log",
+      "log line",
+      "log lines",
+      "else branch",
+      "blank line",
+      "blank lines",
+      "docstring",
+      "todo",
+      "todos",
+      "semicolon"
+    ],
+    "near_terms": [
+      {
+        "task_type": "migration",
+        "terms": [
+          "schema",
+          "schemas"
+        ],
+        "near": [
+          "table",
+          "tables",
+          "column",
+          "columns",
+          "database",
+          "databases",
+          "db",
+          "sql"
+        ]
+      }
     ],
     "high_task_types": [
       "security",
@@ -119,7 +247,8 @@
       "security",
       "migration",
       "release",
-      "performance"
+      "performance",
+      "product"
     ],
     "full_task_type_reason": "This problem type benefits from an explicit framing pass before execution.",
     "light_task_types": [
@@ -230,6 +359,7 @@
     "feature": "Run targeted tests for the feature plus the nearest broader suite.",
     "docs": "Run docs generation, link checks, or a text/build check when available.",
     "design": "Use verify claim for the design rationale, then create executable checks for implementation steps.",
+    "product": "Run product check until it exits 0, get the human's approval before promote, and record product measure for each outcome after shipping.",
     "question": "No executable check is required unless the answer makes a factual or time-sensitive claim.",
     "trivial": "Use the smallest available check, or no protocol command for a one-line answer."
   },
@@ -249,7 +379,20 @@
         "permissions",
         "sandbox",
         "exploit",
-        "token"
+        "secrets",
+        "credentials",
+        "access token",
+        "auth token",
+        "api token",
+        "bearer token",
+        "refresh token",
+        "token leak",
+        "password",
+        "passwords",
+        "jwt",
+        "session token",
+        "session tokens",
+        "token storage"
       ]
     },
     {
@@ -273,8 +416,13 @@
         "upgrade",
         "dependency",
         "dependencies",
-        "schema",
-        "breaking"
+        "breaking",
+        "database schema",
+        "db schema",
+        "table schema",
+        "schema migration",
+        "schema change",
+        "alter table"
       ]
     },
     {
@@ -429,6 +577,29 @@
         "approach",
         "proposal",
         "spec"
+      ]
+    },
+    {
+      "id": "product",
+      "terms": [
+        "product plan",
+        "product planning",
+        "prd",
+        "roadmap",
+        "product roadmap",
+        "prioritize",
+        "prioritise",
+        "product strategy",
+        "target users",
+        "target user",
+        "kill criteria",
+        "kill criterion",
+        "north star",
+        "go-to-market",
+        "positioning",
+        "what should we build",
+        "product requirements",
+        "outcomes and metrics"
       ]
     }
   ]
