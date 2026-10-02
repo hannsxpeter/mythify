@@ -307,6 +307,24 @@ class TestResolutionEvidence(MapCase):
         self.assertEqual(refused.returncode, 1)
         self.assertIn("Verified evidence required", refused.stderr)
 
+    def test_a_later_failing_run_cancels_an_earlier_pass(self):
+        # Review round 3: the first passing run closed the ticket even after
+        # the same command failed.
+        self.chart()
+        self.ok("map", "ticket", "Provision sandbox", "--type", "task", "--verify", "test -f flag")
+        self.ok("map", "claim", "T1")
+        flag = self.project / "flag"
+        flag.write_text("x\n", encoding="utf-8")
+        self.ok("map", "verify", "T1")
+        flag.unlink()
+        self.assertEqual(self.run_cli("map", "verify", "T1").returncode, 2)
+        refused = self.run_cli("map", "resolve", "T1", "--answer", "provisioned")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("Verified evidence required", refused.stderr)
+        flag.write_text("x\n", encoding="utf-8")
+        self.ok("map", "verify", "T1")
+        self.ok("map", "resolve", "T1", "--answer", "sandbox provisioned")
+
     def test_evidence_recorded_before_the_claim_cannot_be_reused(self):
         self.chart()
         self.ok("verify", "run", "true", "--claim", "unrelated earlier green run")

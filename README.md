@@ -290,7 +290,11 @@ list, and how exit codes map to tool errors.
 `AGENTS.md` is the protocol your agent reads: a short spine of rules, the loop,
 and the command list. Copy it into your project root. `CLAUDE.md` is a short
 pointer that imports it with an `@AGENTS.md` line, for hosts that look for that
-name; copy it too if your host reads it. Both are generated from
+name; copy it too if your host reads it. If your project already has a
+`CLAUDE.md`, do not overwrite it. Add an `@AGENTS.md` line to it if you want
+it to load the protocol, and check with `mythify protocol check AGENTS.md`,
+because a bare `protocol check` also checks `CLAUDE.md` and fails on any file
+that is not the generated pointer. Both files are generated from
 `protocol/PROTOCOL.md`, and `mythify protocol check`, run in your project,
 exits 1 when a copy no longer matches your installed CLI.
 

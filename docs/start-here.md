@@ -30,8 +30,12 @@ project directory instead of `mythify COMMAND`.
 
 To have your agent follow the protocol, copy `AGENTS.md` from the Mythify
 repository into your project root. If your host reads `CLAUDE.md` instead, copy
-that file too: it is a short pointer that imports `AGENTS.md`. Run
-`mythify protocol check` in the project to confirm the copies match your
+that file too: it is a short pointer that imports `AGENTS.md`. If your project
+already has a `CLAUDE.md`, do not overwrite it. Add an `@AGENTS.md` line to it
+if you want it to load the protocol, and check with
+`mythify protocol check AGENTS.md`, because a bare `protocol check` also checks
+`CLAUDE.md` and fails on any file that is not the generated pointer. Otherwise
+run `mythify protocol check` in the project to confirm the copies match your
 installed CLI.
 
 ## 2. Run one loop
@@ -51,8 +55,10 @@ mythify step 1 completed "verify run exit 0: parser tests pass"
 ```
 
 `verify_command` is the step's definition of done, written as a command.
-`plan verify 1` runs it and records the exit code against step 1. Only then does
-`step 1 completed` succeed. Try the last line before `plan verify` and Mythify
+`plan verify 1` runs it and records the exit code against step 1.
+`step 1 completed` succeeds only when the latest run of that exact command,
+recorded while the step is in progress (`plan verify 1`, or `verify run` with
+the same command), passed. Try the last line before `plan verify` and Mythify
 refuses with exit 1:
 
 ```text

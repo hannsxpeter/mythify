@@ -120,7 +120,9 @@ never created, never read, and never deleted.
 ### Records
 
 Plan (`plans/<slug>.json`): `name`, `goal`, `steps`, `created`,
-`last_updated`, and when present `lineage`, `source` (map promote: `kind`
+`last_updated`, `verification_anchor` (the ledger position when the plan was
+created; plans written before this field existed have none), and when present
+`lineage`, `source` (map promote: `kind`
 `map`, `map`, `destination`, `decisions`, `out_of_scope`; plan import: `kind`,
 `path`, `version`, `imported_at`), `product_ref` (`product`, `bet`,
 `outcomes`), and `strict_context: true` for imported plans.
@@ -170,7 +172,9 @@ Outcome (`outcomes/<slug>/goal.json`): `id`, `goal`, `success_criteria`,
 `succeeded`, `failed`, `stopped`), `created`, `updated`, `last_verified`,
 `best_metric_score`, `stop_reason`, `supersedes`, and when set
 `frozen_baseline` (written only with `--frozen-paths`: `manifest`, each
-covered path mapped to the sha256 of its bytes at start), `scope_baseline`
+covered path mapped to the sha256 of its bytes at start; `outcome start`
+stores frozen paths relative to the project root and refuses one outside the
+root or naming no existing file or directory), `scope_baseline`
 (`git_commit` and `ignore_rules` when `outcome run` first watches paths),
 `superseded_by`, `evidence_stale`, `last_audit`, and `attempt_started`
 (`iteration`, `started`, `prior_cost_spent`). `outcome run` writes
@@ -256,12 +260,17 @@ hash chain still links, and leaves every verification artifact in place.
   carrying this plan and step id (context-free records from older versions
   still match on a non-imported plan), and running the stored
   `verify_command` exactly. A waived completion is stamped
-  `strict_gate_waived: true` with a warning. When the commit or worktree
-  digest moved after the passing run, completion warns, and on an imported
-  (`strict_context`) plan it refuses.
+  `strict_gate_waived: true` with a warning. Only the latest matching run
+  of each command counts, so a pass followed by a failing run of the same
+  command is refused until the command passes again. When the commit or
+  worktree digest moved after the passing run, completion warns, and on an
+  imported (`strict_context`) plan it refuses. The digest leaves the resolved
+  state directory out, so ledger writes never move it.
 - Anchors. `step ID in_progress`, `plan verify`, and `map claim` store
   `verification_anchor`, the hash of the ledger's last line; only later
-  records count. Compaction keeps lines byte for byte, and an anchor found
+  records count. Every new plan stores one too, and a step completed straight
+  from `pending` uses it. A plan slug is never reused while a live or
+  archived plan holds it, so records keyed by slug belong to one plan. Compaction keeps lines byte for byte, and an anchor found
   only in an archive means every live record is newer, so anchors survive
   `logs compact`. With no placeable marker, only records strictly after the
   step or claim timestamp count.
@@ -274,14 +283,16 @@ hash chain still links, and leaves every verification artifact in place.
   `exit 0`, a bare `exit`, and `echo` or `printf` without a pipe or
   redirection, also behind `env`, `command`, or `sh -c`, so `true;`,
   `pytest || true`, and `pytest; echo done` are flagged. It is a heuristic
-  that catches common forms, not a guarantee: a group, a conditional, a
-  background job, `set -e`, or a backslash outside single quotes makes it
-  answer "not a no-op". A pass whose output says no tests ran is flagged the
-  same way. These are advisory for steps; `review prove` and
-  `product measure` refuse a command it flags.
+  that catches common forms, not a guarantee: a group that does not wrap the
+  whole command (a wrapping `( ... )` or `{ ...; }` is unwrapped first), a
+  conditional, a background job, `set -e`, or a backslash outside single
+  quotes makes it answer "not a no-op". A pass whose output says no tests
+  ran is flagged the same way. These are advisory for steps; `review prove`
+  and `product measure` refuse a command it flags.
 - Human gates. `map resolve` on a `hitl` ticket (`grilling`, `prototype`, or
   `--mode hitl`), `product approve`, and `product decide` refuse without a
-  non-empty `--human-input`. `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives this and
+  non-empty `--human-input`. Mythify records the words but cannot verify who
+  supplied them. `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives this and
   stamps `human_input_waived` on the ticket and its map decision, the
   approval, or the bet. `status` warns about the opt-out while the variable
   is set in its environment, and about each waived decision in every later
@@ -331,8 +342,9 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 - Results. One text block: stdout, stderr when non-empty, `exit_code: N`.
   Exit 0 and 2 are results; every other code sets `isError`.
 - Timeouts. `MYTHIFY_MCP_CALL_TIMEOUT` (default 900 seconds) bounds a call;
-  on timeout or cancel the server kills the child's process group and reports
-  exit 124. The CLI forwards SIGTERM and SIGINT to the verify child's tree and
+  on timeout the server kills the child's process group and returns exit 124;
+  on `notifications/cancelled` it kills the group the same way and sends no
+  response for that request. The CLI forwards SIGTERM and SIGINT to the verify child's tree and
   exits 128 plus the signal number. Calls run one at a time on a worker
   thread, so `ping` answers during a long call.
 

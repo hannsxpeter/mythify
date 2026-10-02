@@ -100,9 +100,33 @@ def git_ignore_rules_digest(root, environment=None):
     return digest.hexdigest()
 
 
+def git_inside_worktree(root):
+    """True when ROOT is inside a git work tree."""
+    output = _git_bytes(root, ["rev-parse", "--is-inside-work-tree"], git_environment())
+    return output is not None and output.strip() == b"true"
+
+
 def project_root_for_state(state):
     state_path = Path(state)
     return state_path.parent if state_path.name == ".mythify" else Path.cwd()
+
+
+def state_exclude_pathspec(state, root):
+    """A git pathspec that leaves STATE out, or [] when STATE is outside ROOT.
+
+    Every ledger append writes under the state directory, so a fingerprint
+    that covered it would move on each record whenever `.mythify/` is tracked
+    or not ignored. An exclude-only pathspec keeps git's default scope.
+    """
+    if state is None:
+        return []
+    try:
+        relative = os.path.relpath(str(Path(state).resolve()), str(Path(root).resolve()))
+    except (OSError, ValueError):
+        return []
+    if relative == "." or relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        return []
+    return ["--", ":(exclude)" + relative.replace(os.sep, "/")]
 
 
 def git_commit(root):
@@ -123,10 +147,10 @@ def git_commit(root):
     return value or None
 
 
-def git_worktree_clean(root):
+def git_worktree_clean(root, exclude=()):
     try:
         result = subprocess.run(
-            ["git", *GIT_FRESH_READ, "status", "--porcelain", "--untracked-files=all"],
+            ["git", *GIT_FRESH_READ, "status", "--porcelain", "--untracked-files=all", *exclude],
             cwd=str(root),
             capture_output=True,
             text=True,
@@ -177,19 +201,24 @@ def _hash_objects(root, paths, environment):
     return ids
 
 
-def git_worktree_digest(root):
+def git_worktree_digest(root, exclude=()):
     """Hash tracked changes plus untracked file content for exact-change proof.
 
     Returns None (fingerprint unavailable, so proof is refused) while an index
     entry is flagged assume-unchanged or skip-worktree. The ignore rules that
     live outside the worktree are folded in, so editing them changes the
     digest; files ignored by the repository's .gitignore files stay outside it.
+    EXCLUDE is a pathspec from state_exclude_pathspec.
     """
     environment = git_environment()
     flagged = git_flagged_index_paths(root, environment)
     rules = git_ignore_rules_digest(root, environment)
-    diff = _git_bytes(root, ["diff", "--binary", "--no-ext-diff", "HEAD", "--"], environment)
-    untracked = _git_bytes(root, ["ls-files", "--others", "--exclude-standard", "-z"], environment)
+    diff = _git_bytes(
+        root, ["diff", "--binary", "--no-ext-diff", "HEAD", *(exclude or ["--"])], environment
+    )
+    untracked = _git_bytes(
+        root, ["ls-files", "--others", "--exclude-standard", "-z", *exclude], environment
+    )
     if flagged is None or flagged or rules is None or diff is None or untracked is None:
         return None
     raw_paths = sorted(item for item in untracked.split(b"\0") if item)
@@ -211,10 +240,11 @@ def git_worktree_digest(root):
 
 def current_verification_provenance(version, state=None, root=None):
     project_root = Path(root) if root is not None else project_root_for_state(state)
+    exclude = state_exclude_pathspec(state, project_root)
     return {
         "git_commit": git_commit(project_root),
-        "worktree_clean": git_worktree_clean(project_root),
-        "worktree_digest": git_worktree_digest(project_root),
+        "worktree_clean": git_worktree_clean(project_root, exclude),
+        "worktree_digest": git_worktree_digest(project_root, exclude),
         "mythify_version": str(version),
     }
 

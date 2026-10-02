@@ -188,10 +188,16 @@ def format_protocol_check_failure(result):
         ).format(path, result["target"], result["target_status"], REFRESH_HINT)
     if status == "missing_header":
         shape = "a full protocol copy"
+        hint = REFRESH_HINT
         if Path(path).name != CANONICAL_COPY_NAME:
             shape += " or the generated {0} pointer".format(POINTER_IMPORT_LINE)
+            hint = (
+                "If it holds your own instructions, keep it and run "
+                "`protocol check {0}` instead; to load the protocol from it, "
+                "add an {1} line."
+            ).format(CANONICAL_COPY_NAME, POINTER_IMPORT_LINE)
         return "[FAIL] Protocol handshake missing from {0}: it is not {1}. {2}".format(
-            path, shape, REFRESH_HINT
+            path, shape, hint
         )
     if status == "body_drift":
         return (

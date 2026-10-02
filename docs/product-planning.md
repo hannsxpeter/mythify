@@ -114,8 +114,9 @@ mythify product show --markdown > ROADMAP.md
 ## Human gates
 
 - `product approve` and `product decide` refuse to run without a non-empty
-  `--human-input`. The agent cannot approve product direction or set a bet
-  verdict from its own words. The refusal exits 1 on the CLI and returns
+  `--human-input`. Mythify records the words but cannot verify who supplied
+  them, so an agent must never write them itself: ask the human, wait, and
+  pass their answer through. The refusal exits 1 on the CLI and returns
   `isError` through MCP.
 - `product approve` also refuses while `product check` reports gaps.
 - Adding an outcome, non-goal, bet, or risk to an approved product returns it

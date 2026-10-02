@@ -142,7 +142,24 @@ The staging directory mirrors the flat GitHub release download layout. The
 checker rejects repository-relative names, duplicate basenames, missing
 assets, and digest mismatches.
 
-## 10. Tag
+## 10. Repository metadata
+
+The GitHub About description and topics are a public product surface that no
+lint or test reaches. Read them:
+
+```bash
+gh repo view hannsxpeter/mythify --json description,repositoryTopics
+```
+
+Confirm that neither names a model, provider, or vendor, under the same rule
+the `model-agnostic` lint enforces in the tree. The repository owner removes
+any topic that does, after approving the change:
+
+```bash
+gh repo edit hannsxpeter/mythify --remove-topic NAME
+```
+
+## 11. Tag
 
 Push the release commit first and wait for CI on it (`Python 3.9`,
 `Python 3.13`, and `Repository hygiene`) to pass. Then:
@@ -152,7 +169,7 @@ git tag -a vX.Y.Z -m "Mythify X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-## 11. Release workflow
+## 12. Release workflow
 
 The tag push starts `.github/workflows/release.yml`. It checks out the tagged
 commit, runs the step 5 gates and the full suite, builds both packages,

@@ -351,7 +351,7 @@ class TestHumanGates(ProductCase):
         for argv in (("product", "approve"), ("product", "approve", "--human-input", "   ")):
             result = self.refused(*argv)
             self.assertIn("Human input required", result.stderr)
-            self.assertIn("cannot approve it from its own words", result.stderr)
+            self.assertIn("cannot verify who supplied them", result.stderr)
         record = self.record()
         self.assertEqual(record["status"], "draft")
         self.assertIsNone(record["approval"])

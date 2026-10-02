@@ -83,6 +83,8 @@ Hardening guidance for users:
 A report is in scope when Mythify does something other than what this model
 describes: for example, executing a command while `MYTHIFY_DISABLE_RUN=1` is
 set, running a command no tool call or CLI invocation asked for, writing
-state outside the resolved `.mythify/` directory, path traversal in
+state outside the resolved `.mythify/` directory (other than global lessons
+under `~/.mythify/lessons` from `lesson add --global` and the `.mythify/` line
+that `init` adds to the project `.gitignore`), path traversal in
 state-file handling, or a refusal gate (the strict step gate, a human-input
 gate) that a crafted argument bypasses.

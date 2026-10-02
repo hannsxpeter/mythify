@@ -23,6 +23,7 @@ CLI = REPO_ROOT / "scripts" / "mythify.py"
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import lint  # noqa: E402
 import mythify_mcp  # noqa: E402
 
 RESPONSE_TIMEOUT_SECONDS = 60
@@ -40,7 +41,6 @@ CUT_COMMAND_TOOLS = (
     "research_start",
     "design_create",
     "workspace_show",
-    "host_model_switch",
     "artifact_probe",
     "trace_analyze",
     "eval_scan",
@@ -358,6 +358,8 @@ class TestToolList(McpServerCase):
         self.assertEqual(len(names), len(set(names)))
         for cut in CUT_COMMAND_TOOLS:
             self.assertNotIn(cut, names)
+        # Tools of the removed routing layer, such as the host model switch.
+        self.assertEqual(lint.removed_identifier_keys(names), [])
         for tool in tools:
             name = tool["name"]
             self.assertRegex(name, r"^[a-z][a-z0-9_]*$")

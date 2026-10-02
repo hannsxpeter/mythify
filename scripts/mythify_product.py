@@ -9,9 +9,10 @@ are executable: `product check` lints readiness deterministically per stage,
 and `product measure` runs an outcome's measure command through the same
 recorded-verification path as `verify run`.
 
-Two decisions belong to a human and are refused from the agent's own words:
-approving product direction and setting a bet verdict. Both require
---human-input, exactly as a HITL map ticket does, and approval also requires a
+Two decisions belong to a human: approving product direction and setting a
+bet verdict. Both are refused without a non-empty --human-input, exactly as a
+HITL map ticket is; Mythify records the words but cannot verify who supplied
+them, so an agent must never write them itself. Approval also requires a
 clean readiness check. Editing outcomes, non-goals, bets, or risks after
 approval returns the product to draft, so a bet the human never saw cannot be
 promoted under an older approval.
@@ -65,15 +66,17 @@ PRODUCT_GUARDRAIL = (
 )
 APPROVE_HUMAN_INPUT_MESSAGE = (
     "[FAIL] Human input required: approving product direction is a human "
-    "decision, so the agent cannot approve it from its own words. Show the "
-    "human the one-pager (mythify product show), then pass --human-input with "
-    "what the human actually said. Set MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for "
-    "legacy self-approved records."
+    "decision. Show the human the one-pager (mythify product show), then pass "
+    "--human-input with what the human actually said. Mythify records those "
+    "words but cannot verify who supplied them, so an agent must never write "
+    "them itself. Set MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy "
+    "self-approved records."
 )
 DECIDE_HUMAN_INPUT_MESSAGE = (
-    "[FAIL] Human input required: a bet verdict is the decider's call, so the "
-    "agent cannot set it from its own words. Bring the evidence to the "
-    "decider, then pass --human-input with what they decided. Set "
+    "[FAIL] Human input required: a bet verdict is the decider's call. Bring "
+    "the evidence to the decider, then pass --human-input with what they "
+    "decided. Mythify records those words but cannot verify who supplied "
+    "them, so an agent must never write them itself. Set "
     "MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy self-decided verdicts."
 )
 HUMAN_INPUT_WAIVED_WARNING = (

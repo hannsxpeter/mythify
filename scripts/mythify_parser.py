@@ -340,8 +340,10 @@ def build_parser(symbols):
         "--frozen-paths",
         default="",
         help=(
-            "Comma-separated paths the loop must never touch (e.g. tests/). "
-            "Enforced in every mode; a change under a frozen prefix stops the loop. "
+            "Comma-separated paths the loop must never touch (e.g. tests/), "
+            "relative to the project root. An absolute path must be inside the "
+            "root, and a path that names no existing file or directory is "
+            "refused. Enforced in every mode; a change under a frozen prefix stops the loop. "
             "Files are hashed on disk at start and on every check, so git index "
             "flags and exclude files cannot hide a change; files under a frozen "
             "directory that the repository's .gitignore files ignore are not covered."
@@ -610,7 +612,8 @@ def build_parser(symbols):
             "Update step ID to STATUS (pending, in_progress, completed, failed, "
             "skipped). completed and failed require the RESULT argument: evidence "
             "or a failure description. By default, completed also requires a "
-            "passing verify run since the step started. Set "
+            "passing verify run since the step started; a later failing run of "
+            "the same command cancels an earlier pass. Set "
             "MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only "
             "completion. Prints the next pending step afterward."
         ),

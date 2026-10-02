@@ -106,6 +106,7 @@ from mythify_protocol import cmd_protocol_check  # noqa: E402,F401
 from mythify_provenance import (  # noqa: E402
     current_verification_provenance,
     evidence_moved_since_run,
+    git_inside_worktree,
 )
 from mythify_runtime_helpers import (  # noqa: E402
     ChildTerminationGuard,
@@ -314,6 +315,26 @@ def plan_path(state, slug):
     return plans_dir(state) / (slug + ".json")
 
 
+def plan_slug_taken(state, slug):
+    """True when SLUG names a live plan or an archived one.
+
+    Verification records are keyed by plan slug, so an archived plan's slug is
+    never reused: the new plan would inherit the old plan's evidence.
+    `plan archive` writes plans/archive/SLUG.json, or SLUG-YYYYMMDDHHMMSS.json
+    when that name is taken.
+    """
+    if plan_path(state, slug).exists():
+        return True
+    archive = plans_dir(state) / "archive"
+    if (archive / (slug + ".json")).exists():
+        return True
+    for path in archive.glob(slug + "-*.json") if archive.is_dir() else ():
+        stamp = path.stem[len(slug) + 1:]
+        if len(stamp) == 14 and stamp.isdigit():
+            return True
+    return False
+
+
 def active_pointer_path(state):
     return plans_dir(state) / "active"
 
@@ -485,7 +506,7 @@ configure_plan_import(
     slugify_func=slugify,
     list_plan_slugs_func=list_plan_slugs,
     load_plan_func=load_plan,
-    plan_path_func=plan_path,
+    plan_slug_taken_func=plan_slug_taken,
     save_plan_func=save_plan,
     set_active_slug_func=set_active_slug,
     describe_next_pending_func=lambda plan: describe_next_pending(plan),
@@ -611,6 +632,8 @@ def cmd_init(args, _state):
         state = Path(env_dir).expanduser()
         already_initialized = (state / "memory.json").exists()
         ensure_layout(state)
+        if state.name == WORKSPACE_DIR_NAME and git_inside_worktree(state.parent):
+            ensure_default_state_gitignored(state.parent)
         if already_initialized:
             print("[WARN] Workspace already initialized at {0}. Nothing to do.".format(state))
             return 0
@@ -696,7 +719,7 @@ def create_plan_record(
     base = slugify(name if name else goal) or "plan"
     slug = base
     suffix = 2
-    while plan_path(state, slug).exists():
+    while plan_slug_taken(state, slug):
         slug = "{0}-{1}".format(base, suffix)
         suffix += 1
     stamp = now_iso()
@@ -720,6 +743,9 @@ def create_plan_record(
         "steps": plan_steps,
         "created": stamp,
         "last_updated": stamp,
+        # Where this plan's evidence window starts in the ledger, so a step
+        # completed straight from pending never counts an older plan's records.
+        "verification_anchor": jsonl_append_anchor(state / "verifications.jsonl"),
     }
     if parents:
         try:
@@ -1026,31 +1052,47 @@ def cmd_step(args, state):
         lower_bound = step.get("updated_at") or plan.get("created", "")
         records = read_jsonl_after_marker(
             state / "verifications.jsonl",
-            anchor=step.get("verification_anchor"),
+            # A step completed straight from pending has no anchor of its own;
+            # the plan's anchor keeps an older plan's records out.
+            anchor=step.get("verification_anchor") or plan.get("verification_anchor"),
             legacy_cursor=step.get("verification_cursor"),
             lower_bound=lower_bound,
         )
         if records is None:
             records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
+        # Only the latest run of each command counts, so a pass followed by a
+        # failure of the same command never completes the step on red.
+        latest = {}
+        for record in records:
+            command = str(record.get("command") or "").strip()
+            if (
+                record.get("kind") == "executed"
+                and (not expected_command or command == expected_command)
+                and verification_record_counts_for_step(record, slug, step_id, strict_context)
+                and timestamp_at_or_after(
+                    record.get("timestamp", ""),
+                    lower_bound,
+                    verification_record_has_explicit_step_context(record, slug, step_id),
+                )
+            ):
+                latest.pop(command, None)
+                latest[command] = record
         satisfying = [
             record
-            for record in records
-            if record.get("kind") == "executed"
-            and record.get("verified") is True
-            and record.get("exit_code") == 0
-            and (
-                not expected_command
-                or str(record.get("command") or "").strip() == expected_command
-            )
-            and verification_record_counts_for_step(record, slug, step_id, strict_context)
-            and timestamp_at_or_after(
-                record.get("timestamp", ""),
-                lower_bound,
-                verification_record_has_explicit_step_context(record, slug, step_id),
-            )
+            for record in latest.values()
+            if record.get("verified") is True and record.get("exit_code") == 0
         ]
         if not satisfying:
             fail(VERIFIED_EVIDENCE_MESSAGE)
+            if latest:
+                last = list(latest.values())[-1]
+                fail(
+                    "The latest run of '{0}' since this step started exited {1}; "
+                    "a failing run cancels an earlier pass of the same command. "
+                    "Fix the cause, then re-run it.".format(
+                        last.get("command"), last.get("exit_code")
+                    )
+                )
             if strict_context:
                 fail(STRICT_CONTEXT_NOTICE)
             return 1

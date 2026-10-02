@@ -132,13 +132,18 @@ kept only in `scripts/lint.py` (tests import them):
   `docs/*.md` except `docs/mcp.md`. Lower-case "cursor" is an ordinary word
   there (report cursors), so only the editor's vendor forms match.
 
-Most entries match case-insensitively as whole words. Five vendor names match
-as substrings, so they are caught inside longer identifiers. One vendor
-abbreviation matches only in upper case, and the three removed
-provider-profile names match only when capitalized or written after a
-hyphen, because their lower-case forms are ordinary words. A lower-case
-profile name in code therefore passes the lint, and review has to catch it.
-The patterns in `scripts/lint.py` are the exact rule.
+A routing identifier matches case-insensitively as a prefix after any
+character that is not a letter or digit, with `_` and `-` treated alike, so
+a longer name that starts with it, its environment-variable family, and its
+`--flag-form` are all caught. Most model and vendor names match
+case-insensitively between letter-only boundaries, so `_`, digits, and `-`
+count as separators and a name inside an environment variable or followed
+by a version number is caught. Five vendor names match as plain substrings. One vendor abbreviation matches only
+in upper case, and the three removed provider-profile names and the editor's
+vendor forms keep their narrower patterns, because their lower-case forms are
+ordinary words. A lower-case profile name in code therefore passes the lint,
+and review has to catch it. The patterns in `scripts/lint.py` are the exact
+rule.
 
 Allowed tokens everywhere: the file names `CLAUDE.md` and `.cursorrules`
 (both read by `protocol check`), the MIT attribution URLs for the adapted

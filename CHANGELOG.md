@@ -267,6 +267,29 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
 - MCP `verify_run`, `outcome_check`, and `blast_radius_review_prove` ran
   commands in the MCP server's working directory instead of the project
   root. Every call now runs the CLI in the project root.
+- The strict step gate and the task-ticket gate of `map resolve` accepted
+  any passing run since the step started or the ticket was claimed, so a
+  pass followed by a failing run of the same command still completed the
+  step or closed the ticket. Only the latest matching run of each command
+  counts.
+- A new plan reused an archived plan's slug, and a step completed straight
+  from `pending` counted the archived plan's records from the same second.
+  Every new plan stores `verification_anchor`, and a slug held by a live or
+  archived plan is never reused.
+- The worktree fingerprint covered the state directory whenever `.mythify/`
+  was tracked or not ignored, as after `init` with `MYTHIFY_DIR` set. Every
+  ledger write moved it, so `review prove` always failed and an imported
+  plan's steps could never complete. The fingerprint leaves the state
+  directory out, and `init` with `MYTHIFY_DIR` adds `.mythify/` to the
+  parent's `.gitignore` inside a git work tree.
+- `outcome start --frozen-paths` with an absolute or misspelled path
+  protected nothing while printing that it was enforced. An absolute path
+  inside the project root is stored relative to it, and a path outside the
+  root or naming no existing file or directory is refused.
+- The `model-agnostic` lint missed prefix, flag, and environment-variable
+  forms of the removed routing names, and vendor names inside identifiers.
+  Routing identifiers match as prefixes with `_` and `-` alike, and model
+  and vendor names match between letter-only boundaries.
 
 ### Removed
 

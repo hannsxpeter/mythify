@@ -143,10 +143,11 @@ for constraint blocks to paste into delegated prompts.
 
 ## Human decisions stay human
 
-Mythify refuses these without the person's own words in `--human-input`:
+Mythify refuses these without a non-empty `--human-input`:
 `map resolve` on a `grilling` or `prototype` ticket (or a task ticket added
-with `--mode hitl`), `product approve`, and `product decide`. Never write
-those words yourself. Ask, wait, then record what the person said.
+with `--mode hitl`), `product approve`, and `product decide`. It records the
+words but cannot verify who supplied them. Never write those words yourself.
+Ask, wait, then record what the person said.
 
 ## Pause rules
 

@@ -222,7 +222,7 @@ Options:
 
 ## map
 
-Chart work that is too big for one session as a decision map: a destination, decision tickets on a blocking frontier, fog for what cannot be specified yet, and an out-of-scope register. Tickets resolve decisions, not build slices. A human-in-the-loop ticket cannot be resolved from the agent's own words, and a task ticket with a verify command needs a passing executed run.
+Chart work that is too big for one session as a decision map: a destination, decision tickets on a blocking frontier, fog for what cannot be specified yet, and an out-of-scope register. Tickets resolve decisions, not build slices. A human-in-the-loop ticket is refused without --human-input, which Mythify records but cannot attribute, so an agent must never write it itself; a task ticket with a verify command needs a passing executed run.
 
 ### map create
 
@@ -316,7 +316,7 @@ Options:
 mythify map verify [--map MAP] [--timeout TIMEOUT] id
 ```
 
-Run the ticket's verify_command and record the executed evidence with the map and ticket context. The resolve gate accepts any passing executed run of that command recorded since the claim, so this run satisfies it. CLI-only.
+Run the ticket's verify_command and record the executed evidence with the map and ticket context. The resolve gate reads the latest executed run of that command recorded since the claim, so a passing run here satisfies it and a failing one cancels an earlier pass. CLI-only.
 
 Arguments:
 
@@ -333,7 +333,7 @@ Options:
 mythify map resolve --answer ANSWER [--gist GIST] [--human-input HUMAN_INPUT] [--out-of-scope] [--fog FOG] [--scope-out SCOPE_OUT] [--map MAP] id
 ```
 
-Close a claimed ticket with the decision it reached. HITL tickets require --human-input; task tickets with a verify command require a passing executed run recorded since the claim. Use --out-of-scope for a ticket that turns out to sit past the destination.
+Close a claimed ticket with the decision it reached. HITL tickets require --human-input; task tickets with a verify command require the latest executed run of it since the claim to pass. Use --out-of-scope for a ticket that turns out to sit past the destination.
 
 Arguments:
 
@@ -524,7 +524,7 @@ Options:
 mythify product approve [--human-input HUMAN_INPUT] [name]
 ```
 
-Approve the product direction. Refused without --human-input carrying what the human said, and refused while product check has gaps: the agent cannot approve product direction from its own words.
+Approve the product direction. Refused without a non-empty --human-input carrying what the human said, and refused while product check has gaps. Mythify records the words but cannot verify who supplied them; an agent must never write them itself.
 
 Arguments:
 
@@ -540,7 +540,7 @@ Options:
 mythify product decide --verdict {continue,pivot,stop} [--human-input HUMAN_INPUT] [--product PRODUCT] bet
 ```
 
-Record continue, pivot, or stop for a bet. Only a human sets a verdict, so --human-input is required; stop also stops the bet.
+Record continue, pivot, or stop for a bet. Refused without a non-empty --human-input carrying the decider's verdict. Mythify records the words but cannot verify who supplied them; an agent must never write them itself. stop also stops the bet.
 
 Arguments:
 
@@ -752,7 +752,7 @@ Options:
 - `--metric-floor N`: Minimum metric score required for success. Requires --metric; a green verifier with a score below the floor does not succeed.
 - `--max-iterations MAX_ITERATIONS`: Maximum verifier iterations before the outcome fails. Default: `3`.
 - `--allowed-paths ALLOWED_PATHS`: Comma-separated scope paths, checked post-hoc via git. outcome run fails an iteration that changes files outside the scope; outcome check names those files in its next action without failing.
-- `--frozen-paths FROZEN_PATHS`: Comma-separated paths the loop must never touch (e.g. tests/). Enforced in every mode; a change under a frozen prefix stops the loop. Files are hashed on disk at start and on every check, so git index flags and exclude files cannot hide a change; files under a frozen directory that the repository's .gitignore files ignore are not covered.
+- `--frozen-paths FROZEN_PATHS`: Comma-separated paths the loop must never touch (e.g. tests/), relative to the project root. An absolute path must be inside the root, and a path that names no existing file or directory is refused. Enforced in every mode; a change under a frozen prefix stops the loop. Files are hashed on disk at start and on every check, so git index flags and exclude files cannot hide a change; files under a frozen directory that the repository's .gitignore files ignore are not covered.
 - `--supersede REASON`: Retire the currently active outcome into this one, recording the reason and lineage. Without it, a second start is refused.
 - `--agent AGENT`: Command that attempts the work each iteration (an agent CLI or a script). When set, outcome run drives the loop autonomously. The command may print MYTHIFY_COST=<n> to report its cost.
 - `--max-cost MAX_COST`: Cost ceiling for the loop. Each iteration costs what the agent reports via MYTHIFY_COST, else one unit; the loop fails when the cumulative cost reaches this ceiling.
@@ -969,7 +969,7 @@ Arguments:
 mythify step [--plan PLAN] id status [result]
 ```
 
-Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run since the step started. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
+Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run since the step started; a later failing run of the same command cancels an earlier pass. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
 
 Arguments:
 

@@ -82,6 +82,16 @@ def inject_prose(root):
     append(root / "docs" / "start-here.md", "\nI hope this helps.\n")
 
 
+# Prefix, flag, and environment forms of removed names (review round 3): a
+# word boundary missed each one, because `_` is a word character.
+ROUTING_PREFIX_FORMS = (
+    "MYTHIFY_TRIAGE_COMMAND",
+    "host_model_switch",
+    "--model-profile",
+    "OPENAI_API_KEY",
+)
+
+
 def inject_model_agnostic(root):
     append(root / "docs" / "start-here.md", "\nSend the review to Sonnet.\n")
     append(root / "skills" / "mythify" / "SKILL.md", "\nSpawn a codex worker.\n")
@@ -89,6 +99,10 @@ def inject_model_agnostic(root):
     append(root / "README.md", "\nTested in a codex terminal.\n")
     # docs/mcp.md documents host setup, so this line is not a finding.
     append(root / "docs" / "mcp.md", "\nTested in a codex terminal.\n")
+    append(
+        root / "scripts" / "mythify_io.py",
+        "".join("\n# reads {0}".format(form) for form in ROUTING_PREFIX_FORMS) + "\n",
+    )
 
 
 def inject_dependencies(root):
@@ -114,7 +128,10 @@ INJECTIONS = {
     "protocol-budget": (inject_protocol_budget, ["protocol/PROTOCOL.md"]),
     "text": (inject_text, ["README.md"]),
     "prose": (inject_prose, ["docs/start-here.md"]),
-    "model-agnostic": (inject_model_agnostic, ["README.md", "docs/start-here.md", "skills/mythify/SKILL.md"]),
+    "model-agnostic": (
+        inject_model_agnostic,
+        ["README.md", "docs/start-here.md", "scripts/mythify_io.py", "skills/mythify/SKILL.md"],
+    ),
     "dependencies": (inject_dependencies, ["package.json", "scripts/mythify_io.py"]),
     "mcp-surface": (inject_mcp_surface, ["scripts/mythify_mcp.py"]),
     "links": (inject_links, ["README.md"]),
@@ -182,6 +199,21 @@ class TestEveryCheckCanFail(LintTestCase):
                 self.assertTrue(findings, check)
                 self.assertEqual({item["check"] for item in findings}, {check})
                 self.assertEqual({item["path"] for item in findings}, set(paths))
+
+
+class TestPrefixFormsAreFindings(LintTestCase):
+    def test_each_prefix_flag_and_env_form_is_a_finding(self):
+        root = self.copy_repo()
+        before = len((root / "scripts" / "mythify_io.py").read_text(encoding="utf-8").splitlines())
+        inject_model_agnostic(root)
+        lines = {
+            item["line"]
+            for item in self.findings(root, "model-agnostic")
+            if item["path"] == "scripts/mythify_io.py"
+        }
+        # The injection adds a blank line, then one line per form.
+        expected = {before + 2 + index for index in range(len(ROUTING_PREFIX_FORMS))}
+        self.assertEqual(lines, expected)
 
 
 class TestDenylistEntriesFire(unittest.TestCase):

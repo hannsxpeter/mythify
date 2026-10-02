@@ -299,18 +299,29 @@ def check_prose(root, files):
 # This block is the single source of truth for the model-agnostic rule:
 # tests import these tables instead of keeping their own lists.
 
+
+
+def word(pattern):
+    """PATTERN between letter-only boundaries, case-insensitive.
+
+    `_`, digits, and `-` count as separators, so a name is caught inside an
+    identifier (OPENAI_API_KEY, MYTHIFY_VLLM_MODEL) or a version (llama3.1).
+    """
+    return re.compile(r"(?<![A-Za-z])(?:" + pattern + r")(?![A-Za-z])", re.IGNORECASE)
+
+
 # Model names. Forbidden in every file outside MODEL_AGNOSTIC_EXEMPT.
 MODEL_NAMES = (
-    ("haiku", re.compile(r"\bhaiku\b", re.IGNORECASE)),
-    ("sonnet", re.compile(r"\bsonnet\b", re.IGNORECASE)),
-    ("opus", re.compile(r"\bopus\b", re.IGNORECASE)),
-    ("fable", re.compile(r"\bfable\b", re.IGNORECASE)),
-    ("gpt", re.compile(r"\bgpt\b|\bgpt-?[0-9]|\bchatgpt\b", re.IGNORECASE)),
-    ("gemini", re.compile(r"\bgemini\b", re.IGNORECASE)),
-    ("llama", re.compile(r"\bllama\b", re.IGNORECASE)),
-    ("mistral", re.compile(r"\bmistral\b", re.IGNORECASE)),
-    ("qwen", re.compile(r"\bqwen\b", re.IGNORECASE)),
-    ("deepseek", re.compile(r"\bdeepseek\b", re.IGNORECASE)),
+    ("haiku", word("haiku")),
+    ("sonnet", word("sonnet")),
+    ("opus", word("opus")),
+    ("fable", word("fable")),
+    ("gpt", word("(?:chat)?gpt")),
+    ("gemini", word("gemini")),
+    ("llama", word("llama")),
+    ("mistral", word("mistral")),
+    ("qwen", word("qwen")),
+    ("deepseek", word("deepseek")),
     # Removed provider-profile names. They collide with ordinary words in
     # lower case, so only the capitalized and suffix forms match.
     ("luna", re.compile(r"\bLuna\b|-luna\b")),
@@ -340,6 +351,7 @@ ROUTING_IDENTIFIERS = (
     "fanout_status",
     "fanout_results",
     "MYTHIFY_TRIAGE",
+    "MYTHIFY_FANOUT_",
     "MYTHIFY_SESSION_MODEL",
     "MYTHIFY_SPAWN_CEILING",
     "MYTHIFY_REVIEWER_STRENGTH",
@@ -347,9 +359,22 @@ ROUTING_IDENTIFIERS = (
     "MYTHIFY_MCP_TOOL_PROFILE",
     "MYTHIFY_DISABLE_FANOUT",
 )
-ROUTING_PATTERNS = tuple(
-    (name, re.compile(r"\b" + re.escape(name) + r"\b", re.IGNORECASE)) for name in ROUTING_IDENTIFIERS
-) + (("mythify_model_*", re.compile(r"\bmythify_model_\w+", re.IGNORECASE)),)
+
+
+def identifier_pattern(name):
+    """NAME as a prefix after a non-alphanumeric boundary, `_` and `-` alike.
+
+    No trailing boundary: the removed layer spelled its names as prefixes of
+    longer ones (MYTHIFY_TRIAGE_COMMAND, the host model switch tool), and its
+    flags use `-` where its keys use `_`.
+    """
+    body = "".join("[-_]" if char in "-_" else re.escape(char) for char in name)
+    return re.compile(r"(?<![A-Za-z0-9])" + body, re.IGNORECASE)
+
+
+ROUTING_PATTERNS = tuple((name, identifier_pattern(name)) for name in ROUTING_IDENTIFIERS) + (
+    ("mythify_model_*", re.compile(r"(?<![A-Za-z0-9])mythify[-_]model[-_]\w+", re.IGNORECASE)),
+)
 
 # Vendor and host names. Forbidden only in VENDOR_SCOPE. Lower-case `cursor`
 # is an ordinary word here (report cursors), so only its vendor forms match.
@@ -360,16 +385,16 @@ VENDOR_NAMES = (
         r"\bcursor[-_ ](?:agent|desktop|cli|ide|editor|workers?)\b|[/.]cursor/|cursorrules",
         re.IGNORECASE,
     )),
-    ("kimi", re.compile(r"\bkimi\b", re.IGNORECASE)),
+    ("kimi", word("kimi")),
     ("opencode", re.compile(r"opencode", re.IGNORECASE)),
     ("antigravity", re.compile(r"antigravity", re.IGNORECASE)),
-    ("colab", re.compile(r"\bcolab\b", re.IGNORECASE)),
+    ("colab", word("colab")),
     ("ollama", re.compile(r"ollama", re.IGNORECASE)),
-    ("anthropic", re.compile(r"\banthropic\b", re.IGNORECASE)),
-    ("openai", re.compile(r"\bopenai\b", re.IGNORECASE)),
-    ("lm studio", re.compile(r"\blm ?studio\b", re.IGNORECASE)),
-    ("vllm", re.compile(r"\bvllm\b", re.IGNORECASE)),
-    ("adk", re.compile(r"\bADK\b")),
+    ("anthropic", word("anthropic")),
+    ("openai", word("openai")),
+    ("lm studio", word("lm[-_ ]?studio")),
+    ("vllm", word("vllm")),
+    ("adk", re.compile(r"(?<![A-Za-z])ADK(?![A-Za-z])")),
 )
 
 # Exact text removed from a line before matching: file names and a license

@@ -165,10 +165,11 @@ code:
 | 124 | The call hit `MYTHIFY_MCP_CALL_TIMEOUT` and was stopped. | true |
 
 Arguments the server rejects before running anything (an unknown key, a
-missing required key, a non-boolean value for a flag, an item of a multi-value
-argument that starts with `-`, or an escape-hatch `args` value that is not an
-array of strings) return `isError: true` with a `[FAIL]` line and no
-`exit_code`, because no command ran. A value of the wrong type for an integer,
+missing required key, a non-boolean value for a flag, or an escape-hatch
+`args` value that is not an array of strings) return `isError: true` with a
+`[FAIL]` line and no `exit_code`, because no command ran. Array items are
+passed as `--flag=value`, so an item that starts with `-` is never read as an
+option. A value of the wrong type for an integer,
 number, or enum argument reaches the CLI, which rejects it as a usage error:
 `isError: true` and `exit_code: 64`. An unknown tool name is a JSON-RPC error
 (`-32602`).
@@ -183,9 +184,15 @@ print `[FAIL] ... is disabled`, run nothing, and exit 2.
 MCP changes how the agent calls Mythify, not who may decide. `product_approve`
 and `product_decide` are refused without `human_input`, and `map_resolve` on a
 `grilling` or `prototype` ticket, or a task ticket added with mode `hitl`, is
-refused without `human_input`. The value must be the person's actual words.
-An agent that writes its own approval has recorded nothing a reviewer can
-trust. Ask, wait for the answer, then pass it through.
+refused without `human_input`. The server checks only that the value is not
+empty: it records the words but cannot verify who supplied them. The value
+must be the person's actual words. An agent that writes its own approval has
+recorded nothing a reviewer can trust. Ask, wait for the answer, then pass it
+through.
+
+Keep `product_approve`, `product_decide`, and `map_resolve` on per-call user
+confirmation in your host's tool permissions, never auto-approved, so the host
+puts a person in front of every call that records a human decision.
 
 ## Protocol versions
 

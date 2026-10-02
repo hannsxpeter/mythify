@@ -200,6 +200,31 @@ def outcome_project_root(state):
     return state.parent if state.name == ".mythify" else Path.cwd()
 
 
+def normalize_frozen_paths(state, frozen):
+    """Frozen paths relative to the project root, or (None, refusal).
+
+    A deny-list that matches nothing protects nothing, so an absolute path is
+    made relative to the root, and a path outside the root or naming no
+    existing file or directory is refused instead of silently passing.
+    """
+    root = outcome_project_root(state).resolve()
+    normalized = []
+    for item in frozen:
+        path = Path(item).expanduser()
+        relative = os.path.relpath(str(path.resolve()), str(root)) if path.is_absolute() else item
+        clean = os.path.normpath(relative.replace(os.sep, "/").strip("/") or ".").replace(os.sep, "/")
+        if clean == ".." or clean.startswith("../"):
+            return None, "[FAIL] Frozen path {0} is outside the project root {1}.".format(item, root)
+        if not os.path.lexists(str(root / clean)):
+            return None, (
+                "[FAIL] Frozen path {0} matches no file or directory under the "
+                "project root {1}, so it would protect nothing. Frozen paths are "
+                "relative to the project root; check the spelling."
+            ).format(item, root)
+        normalized.append(clean)
+    return normalized, None
+
+
 def git_changed_paths(root):
     """Return the working-tree paths git reports as changed, or None off-git.
 
@@ -560,6 +585,12 @@ def cmd_outcome_start(args, state):
                 )
                 return 1
             superseded = (active_slug, active_goal)
+    frozen_paths, frozen_error = normalize_frozen_paths(
+        state, parse_allowed_paths(getattr(args, "frozen_paths", ""))
+    )
+    if frozen_error:
+        print(frozen_error)
+        return 1
     base = args.name or args.goal
     slug = slugify(base) or "outcome"
     original = slug
@@ -582,7 +613,7 @@ def cmd_outcome_start(args, state):
         "cost_spent": 0.0,
         "escalate_after": escalate_after,
         "allowed_paths": parse_allowed_paths(args.allowed_paths),
-        "frozen_paths": parse_allowed_paths(getattr(args, "frozen_paths", "")),
+        "frozen_paths": frozen_paths,
         "status": "active",
         "created": now,
         "updated": now,
