@@ -474,7 +474,7 @@ def execute_recorded_verification(
     # Every executed record carries the step keys, null unless the caller or the
     # active plan sets them, so no record can pass as pre-6.0 legacy evidence.
     record.update(null_step_context())
-    record.update(context if context is not None else verification_step_context(state))
+    record.update(context if context is not None else verification_step_context(state, command))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
 
@@ -554,18 +554,27 @@ def null_step_context():
     return {"plan": None, "step_id": None, "step_title": None, "step_status": None}
 
 
-def verification_step_context(state):
-    slug = get_active_slug(state)
-    plan = load_plan(state, slug) if slug else None
-    for step in (plan or {}).get("steps", []):
-        if step.get("status") == "in_progress":
-            return {
-                "plan": slug,
-                "step_id": step.get("id"),
-                "step_title": step.get("title"),
-                "step_status": step.get("status"),
-            }
-    return null_step_context()
+def verification_step_context(state, command=None):
+    """Step keys for a run of COMMAND: the in-progress step whose stored
+    verify_command equals it, searching the active plan first and then every
+    other plan, else the first in-progress step of the active plan."""
+    active = get_active_slug(state)
+    wanted = str(command or "").strip()
+    slugs = [active] if active else []
+    if wanted:
+        slugs += [slug for slug in list_plan_slugs(state) if slug != active]
+    fallback = null_step_context()
+    for slug in slugs:
+        for step in (load_plan(state, slug) or {}).get("steps", []):
+            if step.get("status") != "in_progress":
+                continue
+            context = {"plan": slug, "step_id": step.get("id"),
+                       "step_title": step.get("title"), "step_status": "in_progress"}
+            if wanted and str(step.get("verify_command") or "").strip() == wanted:
+                return context
+            if slug == active and fallback["plan"] is None:
+                fallback = context
+    return fallback
 
 
 # Keys that scope a record to a map ticket, product, review, or outcome. A
@@ -591,6 +600,24 @@ def verification_record_has_explicit_step_context(record, slug, step_id):
         and record.get("plan") == slug
         and record.get("step_id") == step_id
     )
+
+
+def verification_record_passed(record):
+    return record.get("verified") is True and record.get("exit_code") == 0
+
+
+def describe_record_scope(record):
+    parts = []
+    if record.get("plan") is not None:
+        parts.append("plan {0} step {1}".format(record["plan"], record.get("step_id")))
+    if record.get("map") is not None:
+        parts.append("map {0} ticket {1}".format(record["map"], record.get("ticket_id")))
+    parts.extend(
+        "{0} {1}".format(key, record[key])
+        for key in ("review", "product", "outcome")
+        if record.get(key) is not None
+    )
+    return ", ".join(parts) or "no plan step"
 
 
 def verification_record_counts_for_step(record, slug, step_id, strict_context):
@@ -1060,14 +1087,21 @@ def cmd_step(args, state):
         )
         if records is None:
             records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
-        # Only the latest run of each command counts, so a pass followed by a
-        # failure of the same command never completes the step on red.
-        latest = {}
+        # The latest run of each command since the step started decides it,
+        # whatever plan, step, ticket, review, or outcome the run is stamped
+        # to, so a pass followed by a failing run never completes on red. Only
+        # a passing run scoped to this step can satisfy the gate.
+        latest, scoped = {}, set()
         for record in records:
             command = str(record.get("command") or "").strip()
+            if record.get("kind") != "executed" or (
+                expected_command and command != expected_command
+            ) or not timestamp_at_or_after(record.get("timestamp", ""), lower_bound, True):
+                continue
+            latest.pop(command, None)
+            latest[command] = record
             if (
-                record.get("kind") == "executed"
-                and (not expected_command or command == expected_command)
+                verification_record_passed(record)
                 and verification_record_counts_for_step(record, slug, step_id, strict_context)
                 and timestamp_at_or_after(
                     record.get("timestamp", ""),
@@ -1075,22 +1109,40 @@ def cmd_step(args, state):
                     verification_record_has_explicit_step_context(record, slug, step_id),
                 )
             ):
-                latest.pop(command, None)
-                latest[command] = record
+                scoped.add(command)
         satisfying = [
             record
-            for record in latest.values()
-            if record.get("verified") is True and record.get("exit_code") == 0
+            for command, record in latest.items()
+            if command in scoped and verification_record_passed(record)
         ]
         if not satisfying:
             fail(VERIFIED_EVIDENCE_MESSAGE)
-            if latest:
-                last = list(latest.values())[-1]
+            failing = [
+                record for command, record in latest.items()
+                if (command in scoped or expected_command)
+                and not verification_record_passed(record)
+            ]
+            elsewhere = [r for r in latest.values() if verification_record_passed(r)]
+            if failing:
                 fail(
-                    "The latest run of '{0}' since this step started exited {1}; "
-                    "a failing run cancels an earlier pass of the same command. "
-                    "Fix the cause, then re-run it.".format(
-                        last.get("command"), last.get("exit_code")
+                    "The latest run of '{0}' since this step started exited {1} "
+                    "(recorded for {2}); a failing run cancels an earlier pass of "
+                    "the same command wherever it was recorded. Fix the cause, then "
+                    "re-run it.".format(
+                        failing[-1].get("command"), failing[-1].get("exit_code"),
+                        describe_record_scope(failing[-1]),
+                    )
+                )
+            elif elsewhere:
+                fail(
+                    "The passing run of '{0}' since this step started was recorded "
+                    "for {1}, not plan {2} step {3}: a run counts for the "
+                    "in-progress step whose verify_command matches it, else the "
+                    "first in-progress step of the active plan.{4}".format(
+                        elsewhere[-1].get("command"), describe_record_scope(elsewhere[-1]),
+                        slug, step_id,
+                        " Record one for this step with: plan verify {0} --plan {1}".format(
+                            step_id, slug) if expected_command else "",
                     )
                 )
             if strict_context:

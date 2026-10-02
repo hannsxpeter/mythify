@@ -612,8 +612,9 @@ def build_parser(symbols):
             "Update step ID to STATUS (pending, in_progress, completed, failed, "
             "skipped). completed and failed require the RESULT argument: evidence "
             "or a failure description. By default, completed also requires a "
-            "passing verify run since the step started; a later failing run of "
-            "the same command cancels an earlier pass. Set "
+            "passing verify run recorded for this step since it started; a later "
+            "failing run of the same command cancels an earlier pass, whatever "
+            "step or ticket it was recorded for. Set "
             "MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only "
             "completion. Prints the next pending step afterward."
         ),

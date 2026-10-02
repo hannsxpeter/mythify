@@ -197,6 +197,20 @@ def owned_directories(install_root, skill_roots, skill_names):
     return unique(directories)
 
 
+def owned_launchers(manifest, prefix):
+    """Launchers at PREFIX the manifest records; a 5.x --skip-mcp install has no mythify-mcp."""
+    recorded = manifest.get("files", {})
+    return [path for path in launcher_files(prefix) if str(path.resolve()) in recorded]
+
+
+def runtime_directories(manifest, install_root):
+    """cli plus each other directory the manifest records directly under
+    INSTALL_ROOT that still exists (the 5.x mcp-server)."""
+    listed = [Path(raw) for raw in manifest.get("directories", [])]
+    extra = [path for path in listed if path.parent == install_root and os.path.lexists(path)]
+    return unique([install_root / "cli"] + extra)
+
+
 def manifest_skill_roots(config):
     """Skill roots a manifest owns. Schema 1 (5.x) kept two host-specific keys."""
     if "skills_roots" in config:
@@ -379,8 +393,11 @@ def uninstall(install_root, prefix, roots_text, explicit):
         requested = unique(str(Path(root).resolve()) for root in split_roots(roots_text))
         if sorted(requested) != sorted(recorded):
             fail("does not match this uninstall request")
-    files = launcher_files(prefix)
-    directories = owned_directories(install_root, recorded, manifest.get("skill_names", []))
+    files = owned_launchers(manifest, prefix)
+    directories = unique(
+        runtime_directories(manifest, install_root)
+        + owned_directories(install_root, recorded, manifest.get("skill_names", []))
+    )
     for path in files:
         problem = file_problem(manifest, path)
         if problem:
@@ -406,8 +423,9 @@ def find_previous(data_base, install_root, prefix):
 
     An older install is removable only when every launcher its manifest owns
     still matches the recorded content hash, which proves the launchers about
-    to be replaced are that install's own. Installs at other prefixes are in
-    use and are not listed.
+    to be replaced are that install's own. A launcher the manifest does not
+    record (mythify-mcp after a 5.x --skip-mcp install) is not that install's.
+    Installs at other prefixes are in use and are not listed.
     """
     base = Path(data_base)
     if not base.is_dir():
@@ -432,7 +450,7 @@ def find_previous(data_base, install_root, prefix):
         config = manifest["config"]
         if config.get("prefix") != str(prefix) or config.get("install_root") != str(root):
             continue
-        problems = [file_problem(manifest, path) for path in launcher_files(prefix)]
+        problems = [file_problem(manifest, path) for path in owned_launchers(manifest, prefix)]
         problems = [problem for problem in problems if problem]
         if problems:
             print("keep\t{}\t{}".format(root, problems[0]))
@@ -455,11 +473,16 @@ def cleanup_previous(listing):
         except ValueError as error:
             print("[WARN] Left previous Mythify install in place: {} (manifest {}).".format(root, error))
             continue
-        problem = directory_problem(manifest, root / "cli")
-        if problem:
-            print("[WARN] Left previous Mythify install in place: {} ({}).".format(root, problem))
+        # Every runtime directory the manifest owns (cli, and a 5.x
+        # mcp-server) goes before the manifest that proves the ownership.
+        directories = runtime_directories(manifest, root)
+        problems = [directory_problem(manifest, path) for path in directories]
+        problems = [problem for problem in problems if problem]
+        if problems:
+            print("[WARN] Left previous Mythify install in place: {} ({}).".format(root, problems[0]))
             continue
-        shutil.rmtree(root / "cli")
+        for path in directories:
+            shutil.rmtree(path)
         (root / MANIFEST_NAME).unlink()
         leftovers = sorted(path.name for path in root.iterdir())
         if leftovers:

@@ -290,6 +290,25 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
   forms of the removed routing names, and vendor names inside identifiers.
   Routing identifiers match as prefixes with `_` and `-` alike, and model
   and vendor names match between letter-only boundaries.
+- The strict step gate filtered runs by step scope before it picked the
+  latest run of a command, so a failing run of the step's own
+  `verify_command` stamped to another step, a map ticket, a review, or an
+  outcome left an earlier pass standing, and the step completed on red. The
+  latest run of the command since the step started decides, wherever it was
+  recorded; only the passing run must be scoped to the step.
+- `verify run` and `outcome check` stamped the first in-progress step of the
+  active plan, so with two steps in progress (godplans `[P]` tasks) or a step
+  of a non-active plan, `step N completed` was refused after a passing run of
+  that step's exact `verify_command`. A run is stamped to the in-progress
+  step whose `verify_command` equals the command, searching the active plan
+  first and then every other plan, and the refusal names the step a passing
+  run was recorded for.
+- Upgrading from 5.8.0 left part of the old install behind. A default
+  install's `mcp-server/` (its Node code and `node_modules`) was reported as
+  files Mythify does not own and never removed, and a `--skip-mcp` install
+  was kept whole because it had no `bin/mythify-mcp`. The installer reads the
+  launchers and runtime directories from the old manifest and removes each
+  one whose marker matches; `--uninstall` on a 5.8.0 data root does the same.
 
 ### Removed
 

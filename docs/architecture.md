@@ -149,6 +149,10 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   for `review prove`; `product` and `outcome_id` for `product measure`.
   Outcome iterations append an executed record without `id` that carries
   `outcome`, `iteration`, `outcome_verify`, and `outcome_metric`.
+  `plan verify` stamps its own step. `verify run` and outcome records stamp
+  the in-progress step whose stored `verify_command` equals the command,
+  searching the active plan first and then every other plan, and otherwise
+  the first in-progress step of the active plan.
 - attested: `kind: "attested"`, `claim`, `evidence`, `verified: null`,
   `timestamp`, and the step context.
 
@@ -260,8 +264,9 @@ hash chain still links, and leaves every verification artifact in place.
   carrying this plan and step id (context-free records from older versions
   still match on a non-imported plan), and running the stored
   `verify_command` exactly. A waived completion is stamped
-  `strict_gate_waived: true` with a warning. Only the latest matching run
-  of each command counts, so a pass followed by a failing run of the same
+  `strict_gate_waived: true` with a warning. Only the latest run of each
+  command after the anchor counts, whatever plan, step, ticket, review, or
+  outcome it is stamped to, so a pass followed by a failing run of the same
   command is refused until the command passes again. When the commit or
   worktree digest moved after the passing run, completion warns, and on an
   imported (`strict_context`) plan it refuses. The digest leaves the resolved

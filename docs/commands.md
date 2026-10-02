@@ -969,7 +969,7 @@ Arguments:
 mythify step [--plan PLAN] id status [result]
 ```
 
-Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run since the step started; a later failing run of the same command cancels an earlier pass. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
+Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run recorded for this step since it started; a later failing run of the same command cancels an earlier pass, whatever step or ticket it was recorded for. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
 
 Arguments:
 
@@ -1097,7 +1097,7 @@ Verification: run a command (executed) or record a claim (attested).
 mythify verify run [--claim CLAIM] [--parent PARENT] [--output {compact,full}] [--timeout N] command
 ```
 
-Execute COMMAND and record an executed verification.
+Execute COMMAND and record an executed verification. The record counts for the in-progress step whose verify_command equals COMMAND, searching the active plan first and then every other plan; with no such step, for the first in-progress step of the active plan.
 
 Arguments:
 

@@ -1012,5 +1012,189 @@ class TestFrozenPathsMustMatchSomething(CliCase):
                 self.assertFalse((self.state / "outcomes" / "fix").exists())
 
 
+
+class StepGateCase(CliCase):
+    """Two-step plans for the final-review step gate findings."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("init")
+        self.flag = self.base / "flag"
+        self.flag.write_text("x\n", encoding="utf-8")
+        self.flag_check = "test -f {0}".format(self.flag)
+
+    def plan(self, first, second, name="gate"):
+        self.ok(
+            "plan", "create", name, "--steps",
+            json.dumps([{"title": "s1", "verify_command": first},
+                        {"title": "s2", "verify_command": second}]),
+        )
+
+    def import_plan(self, first, second):
+        plan_dir = self.project / ".godplans"
+        plan_dir.mkdir()
+        (plan_dir / "PLAN.mdx").write_text(
+            "---\nname: parallel\nstatus: executing\n---\n"
+            "- [ ] GP-101 [W1.1] [P] First\n  - Verify: `{0}`\n"
+            "- [ ] GP-102 [W1.2] [P] Second\n  - Verify: `{1}`\n".format(first, second),
+            encoding="utf-8",
+        )
+        self.ok("plan", "import")
+        plan = json.loads((self.state / "plans" / "parallel-godplans.json").read_text(encoding="utf-8"))
+        self.assertTrue(plan.get("strict_context"))
+
+    def refused(self, *args):
+        result = self.run_cli(*args)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Verified evidence required", result.stderr)
+        return result
+
+    def failing_map_verify(self):
+        self.ok("map", "create", "Elsewhere")
+        self.ok("map", "ticket", "t", "--type", "task", "--verify", self.flag_check)
+        self.ok("map", "claim", "T1")
+        self.assertEqual(self.run_cli("map", "verify", "T1").returncode, 2)
+
+    def mcp(self):
+        client = McpClient(self.project, self.env())
+        self.addCleanup(client.close)
+        client.request("initialize", {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "mythify-bugs", "version": "1.0.0"},
+        })
+        client.notify("notifications/initialized")
+        return client
+
+
+class TestAFailingRunElsewhereCancelsTheStepPass(StepGateCase):
+    """Final review: the step gate filtered by step scope before it picked the
+    latest run, so a failing run of the step's own command stamped to another
+    step or a map ticket left the earlier pass standing."""
+
+    def test_failing_verify_run_while_another_step_is_in_progress(self):
+        self.plan("test -f {0}".format(self.project), self.flag_check)
+        self.ok("step", "1", "in_progress")
+        self.ok("plan", "verify", "2")
+        self.flag.unlink()
+        self.assertEqual(self.run_cli("verify", "run", self.flag_check).returncode, 2)
+        self.assertEqual(self.records()[-1]["step_id"], 2)
+        refused = self.refused("step", "2", "completed", "done")
+        self.assertIn("cancels an earlier pass", refused.stderr)
+
+    def test_failing_run_stamped_to_another_step_cancels_the_pass(self):
+        self.plan(self.flag_check, self.flag_check)
+        self.ok("step", "1", "in_progress")
+        self.ok("plan", "verify", "2")
+        self.flag.unlink()
+        self.assertEqual(self.run_cli("verify", "run", self.flag_check).returncode, 2)
+        self.assertEqual(self.records()[-1]["step_id"], 1)
+        refused = self.refused("step", "2", "completed", "done")
+        self.assertIn("(recorded for plan gate step 1)", refused.stderr)
+        self.flag.write_text("x\n", encoding="utf-8")
+        self.ok("verify", "run", self.flag_check)
+        self.ok("step", "2", "completed", "verify run exit 0")
+
+    def test_failing_map_verify_cancels_the_pass(self):
+        self.ok("plan", "create", "G", "--steps",
+                json.dumps([{"title": "s1", "verify_command": self.flag_check}]))
+        self.ok("plan", "verify", "1")
+        self.flag.unlink()
+        self.failing_map_verify()
+        refused = self.refused("step", "1", "completed", "done")
+        self.assertIn("(recorded for map elsewhere ticket T1)", refused.stderr)
+
+    def test_strict_imported_plan_refuses_after_a_failing_run(self):
+        self.import_plan(self.flag_check, "test -f two.txt")
+        self.ok("plan", "verify", "1")
+        self.flag.unlink()
+        self.failing_map_verify()
+        refused = self.refused("step", "1", "completed", "done")
+        self.assertIn("cancels an earlier pass", refused.stderr)
+
+    def test_failing_run_through_mcp_cancels_the_pass(self):
+        client = self.mcp()
+        self.assertEqual(exit_code(client.call("plan_create", {
+            "goal": "G", "name": "gate",
+            "steps": [{"title": "s1", "verify_command": "test -f {0}".format(self.project)},
+                      {"title": "s2", "verify_command": self.flag_check}],
+        })), 0)
+        self.assertEqual(exit_code(client.call("step", {"id": "1", "status": "in_progress"})), 0)
+        self.assertEqual(exit_code(client.call("plan_verify", {"id": "2"})), 0)
+        self.flag.unlink()
+        self.assertEqual(exit_code(client.call("verify_run", {"command": self.flag_check})), 2)
+        refused = client.call("step", {"id": "2", "status": "completed", "result": "done"})
+        self.assertEqual(exit_code(refused), 1, result_text(refused))
+        self.assertIn("cancels an earlier pass", result_text(refused))
+
+
+class TestARunCountsForTheStepWhoseCommandItRuns(StepGateCase):
+    """Final review: verify run and outcome check stamped the first in-progress
+    step of the active plan, so the documented loop failed for a second
+    in-progress step and for a step of a non-active plan."""
+
+    def test_second_in_progress_step_completes(self):
+        self.plan("test -f one.txt", "test -f two.txt")
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "run", "test -f two.txt")
+        self.assertEqual(self.records()[-1]["step_id"], 2)
+        self.ok("step", "2", "completed", "verify run exit 0")
+
+    def test_imported_parallel_task_completes(self):
+        self.import_plan("test -f one.txt", "test -f two.txt")
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "run", "test -f two.txt", "--claim", "GP-102")
+        self.ok("step", "2", "completed", "verify run exit 0")
+
+    def test_step_of_a_non_active_plan_completes(self):
+        (self.project / "a.txt").write_text("a\n", encoding="utf-8")
+        self.ok("plan", "create", "A", "--steps",
+                json.dumps([{"title": "a1", "verify_command": "test -f a.txt"}]))
+        self.ok("plan", "create", "B", "--steps",
+                json.dumps([{"title": "b1", "verify_command": "test -f b.txt"}]))
+        self.ok("step", "1", "in_progress", "--plan", "a")
+        self.ok("verify", "run", "test -f a.txt")
+        self.assertEqual(self.records()[-1]["plan"], "a")
+        self.ok("step", "1", "completed", "ok", "--plan", "a")
+
+    def test_outcome_check_counts_for_the_matching_step(self):
+        self.plan("test -f one.txt", "test -f two.txt")
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.ok("outcome", "start", "Two", "--success", "two exists", "--verify", "test -f two.txt")
+        self.ok("outcome", "check")
+        self.assertEqual(self.records()[-1]["step_id"], 2)
+        self.ok("step", "2", "completed", "outcome check exit 0")
+
+    def test_refusal_names_the_step_the_run_counted_for(self):
+        self.plan(self.flag_check, self.flag_check)
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        self.ok("verify", "run", self.flag_check)
+        refused = self.refused("step", "2", "completed", "done")
+        self.assertIn("was recorded for plan gate step 1, not plan gate step 2", refused.stderr)
+        self.assertIn("plan verify 2 --plan gate", refused.stderr)
+        self.ok("plan", "verify", "2")
+        self.ok("step", "2", "completed", "plan verify exit 0")
+
+    def test_parallel_steps_complete_through_mcp(self):
+        client = self.mcp()
+        self.assertEqual(exit_code(client.call("plan_create", {
+            "goal": "G", "name": "gate",
+            "steps": [{"title": "s1", "verify_command": "test -f one.txt"},
+                      {"title": "s2", "verify_command": "test -f two.txt"}],
+        })), 0)
+        for step_id in ("1", "2"):
+            self.assertEqual(exit_code(client.call("step", {"id": step_id, "status": "in_progress"})), 0)
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.assertEqual(exit_code(client.call("verify_run", {"command": "test -f two.txt"})), 0)
+        completed = client.call("step", {"id": "2", "status": "completed", "result": "verify run exit 0"})
+        self.assertEqual(exit_code(completed), 0, result_text(completed))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1003,6 +1003,120 @@ class TestUserInstaller(unittest.TestCase):
         self.assertIn("Left previous Mythify install in place: {}".format(previous.resolve()), result.stdout)
         self.assertIn("file content does not match", result.stdout)
 
+    def make_58_install(self, data_home, prefix, skip_mcp):
+        """Write the 5.8.0 shape as its write_ownership_manifest did with
+        --skip-skills: the default install also owns mcp-server/ and
+        bin/mythify-mcp; a --skip-mcp install records neither."""
+        install_root = data_home / "mythify" / "5.8.0"
+        (install_root / "cli" / "scripts").mkdir(parents=True)
+        (install_root / "cli" / "scripts" / "mythify.py").write_text("# 5.8\n", encoding="utf-8")
+        (prefix / "bin").mkdir(parents=True, exist_ok=True)
+        names = ["mythify", "mythify-uninstall"]
+        directories = [install_root / "cli"]
+        if not skip_mcp:
+            names.append("mythify-mcp")
+            directories.append(install_root / "mcp-server")
+            module = install_root / "mcp-server" / "node_modules" / "dep" / "index.js"
+            module.parent.mkdir(parents=True)
+            module.write_text("module.exports = 1;\n", encoding="utf-8")
+        files = {}
+        for name in names:
+            launcher = prefix / "bin" / name
+            launcher.write_text("#!/usr/bin/env sh\nexec node-era-{}\n".format(name), encoding="utf-8")
+            files[str(launcher.resolve())] = hashlib.sha256(launcher.read_bytes()).hexdigest()
+        token = "5-8-token"
+        for directory in directories:
+            (directory / ".mythify-owned").write_text(token + "\n", encoding="utf-8")
+        home = self.tmp / "home"
+        manifest = {
+            "schema": 1,
+            "token": token,
+            "skill_names": list(SKILLS),
+            "config": {
+                "install_root": str(install_root.resolve()),
+                "prefix": str(prefix.resolve()),
+                "skills_root": str(home / ".codex" / "skills"),
+                "claude_skills_root": str(home / ".claude" / "skills"),
+                "hook_root": str(home / ".codex" / "hooks"),
+                "skip_mcp": skip_mcp,
+                "skip_skills": True,
+                "skip_claude_skills": False,
+                "install_chat_hook": False,
+                "protocol_profile": "full",
+            },
+            "files": files,
+            "directories": [str(directory.resolve()) for directory in directories],
+        }
+        (install_root / "install-manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return install_root
+
+    def install_over(self, data_home, prefix):
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skip-skills"],
+            env={"XDG_DATA_HOME": str(data_home)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def test_upgrade_removes_a_58_install_with_its_mcp_server(self):
+        for stray in (False, True):
+            with self.subTest(stray_file=stray):
+                base = self.tmp / ("stray" if stray else "clean")
+                data_home, prefix = base / "xdg-data", base / "prefix"
+                previous = self.make_58_install(data_home, prefix, skip_mcp=False)
+                if stray:
+                    (previous / "notes.txt").write_text("mine\n", encoding="utf-8")
+                result = self.install_over(data_home, prefix)
+                self.assertFalse((previous / "mcp-server").exists())
+                self.assertFalse((previous / "cli").exists())
+                self.assertFalse((previous / "install-manifest.json").exists())
+                if stray:
+                    self.assertIn(
+                        "left files Mythify does not own: notes.txt.", result.stdout
+                    )
+                else:
+                    self.assertFalse(previous.exists())
+                    self.assertIn(
+                        "Removed previous Mythify install: {}".format(previous.resolve()),
+                        result.stdout,
+                    )
+                    self.assertNotIn("does not own", result.stdout)
+
+    def test_upgrade_removes_a_58_skip_mcp_install(self):
+        data_home, prefix = self.tmp / "xdg-data", self.tmp / "prefix"
+        previous = self.make_58_install(data_home, prefix, skip_mcp=True)
+        result = self.install_over(data_home, prefix)
+        self.assertFalse(previous.exists())
+        self.assertNotIn("Left previous Mythify install", result.stdout)
+        self.assertTrue((prefix / "bin" / "mythify-mcp").is_file())
+        again = self.install_over(data_home, prefix)
+        self.assertNotIn("previous Mythify", again.stdout)
+
+    def test_upgrade_keeps_a_58_install_whose_mcp_server_marker_changed(self):
+        data_home, prefix = self.tmp / "xdg-data", self.tmp / "prefix"
+        previous = self.make_58_install(data_home, prefix, skip_mcp=False)
+        (previous / "mcp-server" / ".mythify-owned").write_text("other\n", encoding="utf-8")
+        result = self.install_over(data_home, prefix)
+        self.assertIn("directory marker does not match", result.stdout)
+        self.assertTrue((previous / "cli" / "scripts" / "mythify.py").is_file())
+        self.assertTrue((previous / "install-manifest.json").is_file())
+
+    def test_uninstall_removes_both_58_shapes(self):
+        for skip_mcp in (False, True):
+            with self.subTest(skip_mcp=skip_mcp):
+                base = self.tmp / ("skip-mcp" if skip_mcp else "default")
+                data_home, prefix = base / "xdg-data", base / "prefix"
+                previous = self.make_58_install(data_home, prefix, skip_mcp=skip_mcp)
+                result = self.run_cmd([
+                    "sh", str(INSTALLER), "--uninstall", "--data-root", str(previous),
+                    "--prefix", str(prefix),
+                ])
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(previous.exists())
+                self.assertEqual(list((prefix / "bin").iterdir()), [])
+
 
 class TestSkillsAreHostNeutral(unittest.TestCase):
     """Chat skills run on any host: no host invocation syntax, no vendor names."""
