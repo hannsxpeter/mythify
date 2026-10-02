@@ -100,9 +100,11 @@ the same parent and claim wording does not.
 mythify product measure O1
 ```
 
-When an in-flight bet's plan is complete and every outcome it targets has a
-passing measurement, the bet is marked shipped. Take the evidence to the
-decider and record their verdict:
+When an in-flight bet's plan is complete and the latest measurement of every
+outcome it targets, recorded after the bet was promoted, passes, the bet is
+marked shipped. A measurement taken before the promotion (for example while
+the product was still a draft) never ships a bet; measure again after the
+work. Take the evidence to the decider and record their verdict:
 
 ```bash
 mythify product decide B1 --verdict continue --human-input "Dana: numbers hold, keep going"
@@ -129,7 +131,9 @@ mythify product show --markdown > ROADMAP.md
 - `product promote` requires an approved product and a bet that is not stopped,
   and refuses a second promote of a bet while its plan file exists.
 - `product measure` refuses an outcome with no measure command and a measure
-  command that cannot fail (`true`, `exit 0`, a bare `echo`).
+  command it recognizes as unable to fail (`true`, `exit 0`, a bare `echo`,
+  `true;`, `measure || true`). The check is a heuristic that catches common
+  no-op forms, not a guarantee.
 
 ## Stage rules for check
 
@@ -150,7 +154,7 @@ Rules are cumulative: each stage adds to the ones before it.
 - `approved_bet_without_plan`: the product is approved but a bet is still
   proposed with no plan.
 - `completed_plan_unmeasured`: a bet's plan is complete, but an outcome it
-  targets has no passing measurement.
+  targets has no passing measurement recorded after the bet was promoted.
 - `verdict_overdue`: a bet's verdict is still pending and its `decide_by`
   parses as an ISO date earlier than today.
 

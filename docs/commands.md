@@ -766,7 +766,7 @@ Options:
 mythify outcome run [--notes NOTES] [--timeout N] [name]
 ```
 
-Autonomously run an outcome started with --agent: each iteration runs the agent command, then the verifier, records evidence, and repeats until the outcome is met, the iteration or cost budget is spent, the scope is violated, or the escalation threshold of consecutive failures is reached. Bounded and evidence-gated. Exits 0 on success, 2 otherwise. CLI-only.
+Autonomously run an outcome started with --agent: each iteration runs the agent command, then the verifier, records evidence, and repeats until the outcome is met, the iteration or cost budget is spent, the scope is violated, or the escalation threshold of consecutive failures is reached. Each iteration and one cost unit are charged before the agent starts, so a killed or timed-out run still spends them. Bounded and evidence-gated. Exits 0 on success, 2 otherwise. CLI-only.
 
 Arguments:
 

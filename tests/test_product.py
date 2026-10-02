@@ -177,7 +177,7 @@ class TestAuthoring(ProductCase):
         self.create()
         self.refused("product", "outcome", "x", "--metric", " ", "--target", "t")
         self.refused("product", "outcome", "x", "--metric", "m", "--target", "")
-        for noop in ("true", "echo 35%", "exit 0"):
+        for noop in ("true", "echo 35%", "exit 0", "true;", "env true", "measure || true"):
             result = self.refused("product", "outcome", "x", "--metric", "m", "--target", "t", "--measure", noop)
             self.assertIn("no-op", result.stderr)
         self.assertEqual(self.record()["outcomes"], [])
@@ -593,6 +593,38 @@ class TestMeasure(ProductCase):
         self.write_record(record)
         self.assertNotIn("O2", self.show_json()["measurements"])
 
+    def test_measurement_before_promotion_cannot_ship_a_bet(self):
+        # Review round 2: O1 measured green while the product was a draft,
+        # went red after promotion, and the bet still shipped on the old run.
+        (self.project / "invites-ok").write_text("yes", encoding="utf-8")
+        reads_marker = "{0} -c {1}".format(
+            json.dumps(sys.executable),
+            json.dumps("import os; raise SystemExit(0 if os.path.exists('invites-ok') else 3)"),
+        )
+        self.ready_product(measure=reads_marker)
+        self.ok(
+            "product", "outcome", "Fewer setup tickets", "--metric", "setup tickets",
+            "--target", "2", "--measure", PASS,
+        )
+        self.ok("product", "measure", "O1")
+        self.ok("product", "approve", "--human-input", "Dana: go")
+        steps = json.dumps([{"title": "Add invite step", "verify_command": PASS}])
+        self.ok("product", "promote", "B1", "--steps", steps)
+        (self.project / "invites-ok").unlink()
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "verify run exit 0")
+        measured = self.ok("product", "measure", "O2")
+        self.assertNotIn("Shipped", measured.stdout)
+        self.assertEqual(self.record()["bets"][0]["status"], "in_flight")
+        flags = [(item["code"], item["item"]) for item in self.show_json()["flags"]]
+        self.assertIn(("completed_plan_unmeasured", "B1"), flags)
+        self.refused("product", "measure", "O1", code=2)
+        self.assertEqual(self.record()["bets"][0]["status"], "in_flight")
+        (self.project / "invites-ok").write_text("yes", encoding="utf-8")
+        shipped = self.ok("product", "measure", "O1")
+        self.assertIn("Shipped: B1", shipped.stdout)
+        self.assertEqual(self.record()["bets"][0]["status"], "shipped")
+
     def test_measure_respects_the_timeout(self):
         slow = "{0} -c {1}".format(json.dumps(sys.executable), json.dumps("import time; time.sleep(5)"))
         self.ready_product(measure=slow)
@@ -646,7 +678,7 @@ class TestShowAndFlags(ProductCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             flags = mythify_product.traceability_flags(
-                Path(tmp), "p", record, measured={}, today=date(2026, 10, 1)
+                Path(tmp), "p", record, today=date(2026, 10, 1)
             )
         self.assertEqual(
             [(item["code"], item["item"]) for item in flags],

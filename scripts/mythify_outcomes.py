@@ -30,6 +30,9 @@ OUTCOME_CHECK_DISABLED_MESSAGE = (
     "executed and nothing was recorded. Unset it to enable execution."
 )
 OUTCOME_STATUSES = ("active", "succeeded", "failed", "stopped")
+# Cost charged for an agent attempt that reports no MYTHIFY_COST, and the cost
+# reserved before every attempt runs.
+DEFAULT_ATTEMPT_COST = 1.0
 
 
 def _missing_dependency(*_args, **_kwargs):
@@ -464,8 +467,14 @@ def current_frozen_violations(state, goal, changed_override=None):
 
 
 def parse_metric_score(output):
+    """First number in OUTPUT, or None. A number too large for a float (it
+    parses as inf) is unparseable, so it can neither pass a metric floor nor
+    crash the JSON record."""
     match = re.search(r"-?\d+(?:\.\d+)?", str(output or ""))
-    return float(match.group(0)) if match else None
+    if not match:
+        return None
+    score = float(match.group(0))
+    return score if math.isfinite(score) else None
 
 
 def format_outcome_status(slug, goal, iterations=None):
@@ -531,6 +540,9 @@ def cmd_outcome_start(args, state):
     if metric_floor is not None and not args.metric:
         print("[FAIL] outcome start requires --metric when --metric-floor is set.")
         return 1
+    if metric_floor is not None and not math.isfinite(metric_floor):
+        print("[FAIL] outcome start requires --metric-floor to be a finite number.")
+        return 1
     # Two live loops fight each other and neither owns the trade-off, so a
     # second start needs an explicit supersession instead of silently stealing
     # the active pointer.
@@ -581,6 +593,9 @@ def cmd_outcome_start(args, state):
     }
     if goal["frozen_paths"]:
         goal["frozen_baseline"] = {"manifest": frozen_manifest(state, goal["frozen_paths"])}
+    # The new outcome is written before the old one is retired, so a failed
+    # write leaves the old loop active instead of superseded by nothing.
+    save_outcome(state, slug, goal)
     if superseded:
         old_slug, old_goal = superseded
         old_goal["status"] = "stopped"
@@ -588,7 +603,6 @@ def cmd_outcome_start(args, state):
         old_goal["superseded_by"] = slug
         old_goal["updated"] = now
         save_outcome(state, old_slug, old_goal)
-    save_outcome(state, slug, goal)
     set_active_outcome_slug(state, slug)
     if args.json_output:
         print(json.dumps(goal, indent=2))
@@ -703,20 +717,116 @@ def cmd_outcome_status(args, state):
 
 
 def parse_reported_cost(output):
-    """Read a MYTHIFY_COST=<number> line an agent may emit; None if absent."""
+    """Read a MYTHIFY_COST=<number> line an agent may emit; None if absent.
+
+    A number too large for a float parses as inf. The caller treats it as
+    spending the whole cost budget, never as a value to store.
+    """
     match = re.search(r"MYTHIFY_COST\s*=\s*(-?\d+(?:\.\d+)?)", str(output or ""))
     return float(match.group(1)) if match else None
+
+
+def agent_attempt_record(command, attempt):
+    """The JSON-safe record of one agent attempt, with its reported cost."""
+    reported = parse_reported_cost(
+        (attempt.get("stdout_tail") or "") + "\n" + (attempt.get("stderr_tail") or "")
+    )
+    unbounded = reported is not None and not math.isfinite(reported)
+    return {
+        "command": command,
+        "exit_code": attempt["exit_code"],
+        "duration_seconds": attempt["duration_seconds"],
+        "stdout_tail": attempt["stdout_tail"],
+        "stderr_tail": attempt["stderr_tail"],
+        "cost": None if unbounded else reported,
+        "cost_unbounded": unbounded,
+    }
+
+
+def reserve_agent_attempt(state, slug, goal):
+    """Charge one iteration and the default cost before the agent runs.
+
+    The charge is saved before the agent starts, so a process that is killed,
+    times out, or crashes while writing the record still spends the slot.
+    perform_outcome_iteration reconciles the cost with what the agent
+    reported; settle_interrupted_attempt counts a reservation that was never
+    reconciled.
+    """
+    reservation = {
+        "iteration": int(goal.get("iteration_count", 0)) + 1,
+        "started": now_iso(),
+        "prior_cost_spent": float(goal.get("cost_spent", 0.0)),
+    }
+    goal["iteration_count"] = reservation["iteration"]
+    goal["cost_spent"] = reservation["prior_cost_spent"] + DEFAULT_ATTEMPT_COST
+    goal["attempt_started"] = reservation
+    goal["updated"] = reservation["started"]
+    save_outcome(state, slug, goal)
+    return reservation
+
+
+def settle_interrupted_attempt(state, slug, goal):
+    """Record a reserved attempt whose process ended before recording it.
+
+    Callers hold the outcome lock, so a reservation found here belongs to a
+    process that is gone. Its iteration and default cost stay spent; the
+    iteration is logged as interrupted, and an exhausted budget ends the loop.
+    """
+    reservation = goal.pop("attempt_started", None)
+    if not isinstance(reservation, dict):
+        return None
+    stamp = now_iso()
+    cost_spent = float(goal.get("cost_spent", 0.0))
+    max_cost = goal.get("max_cost")
+    status = goal.get("status", "active")
+    if status == "active":
+        if max_cost is not None and cost_spent >= float(max_cost):
+            status = "failed"
+            goal["stop_reason"] = "cost budget exhausted"
+        elif int(goal.get("iteration_count", 0)) >= int(goal.get("max_iterations", 1)):
+            status = "failed"
+            goal["stop_reason"] = "iteration budget exhausted"
+    record = {
+        "iteration": reservation.get("iteration"),
+        "timestamp": stamp,
+        "notes": "",
+        "interrupted": True,
+        "attempt_started": reservation.get("started"),
+        "agent": {"command": goal.get("agent_command", "")},
+        "cost": DEFAULT_ATTEMPT_COST,
+        "cost_spent": cost_spent,
+        "verify": None,
+        "metric": None,
+        "verified": False,
+        "status_after": status,
+        "next_action": (
+            "The process running this attempt ended before it recorded a "
+            "result. The iteration and its default cost stay spent."
+        ),
+    }
+    append_jsonl(outcome_iterations_path(state, slug), record)
+    goal["status"] = status
+    goal["last_verified"] = False
+    goal["updated"] = stamp
+    save_outcome(state, slug, goal)
+    fail(
+        "[WARN] Outcome {0}: iteration {1} ended before it recorded a result "
+        "and stays counted (status {2}).".format(slug, record["iteration"], status)
+    )
+    return record
 
 
 def perform_outcome_iteration(
     state, slug, goal, timeout, notes="", agent_record=None,
     scope_violations_override=None, changed_paths_override=None,
+    reservation=None,
 ):
     """Run one verifier (and optional metric) iteration, enforce scope, frozen
     paths, the metric floor, and the cost budget, append the iteration and
     executed-verification records, update the goal, and return the iteration
     record. Shared by outcome check (the host made the attempt) and outcome run
-    (the loop invoked the agent)."""
+    (the loop invoked the agent, after reserve_agent_attempt charged the slot
+    named by RESERVATION)."""
     verify = run_shell_capture(goal["verify_command"], timeout)
     metric_record = None
     metric_ok = True
@@ -761,22 +871,40 @@ def perform_outcome_iteration(
         and not (scope_enforced and violations)
         and not frozen_hits
     )
-    iteration_count = int(goal.get("iteration_count", 0))
     max_iterations = int(goal.get("max_iterations", 1))
-    next_iteration = iteration_count + 1
+    if reservation is not None:
+        next_iteration = int(reservation["iteration"])
+        prior_cost = float(reservation["prior_cost_spent"])
+    else:
+        next_iteration = int(goal.get("iteration_count", 0)) + 1
+        prior_cost = float(goal.get("cost_spent", 0.0))
 
     # Cost ledger applies only to the self-driving loop (an agent ran this
     # iteration). The host-driven `outcome check` path burns no cost, matching
     # the MCP outcome_check. Reported cost is clamped non-negative so a bad or
     # adversarial agent cannot drive the ledger down and neutralize --max-cost.
+    # A cost too large to add up spends the whole budget.
+    max_cost = goal.get("max_cost")
     iteration_cost = 0.0
+    cost_unbounded = False
     if agent_record is not None:
         reported = agent_record.get("cost")
-        iteration_cost = max(0.0, float(reported)) if reported is not None else 1.0
-    cost_spent = float(goal.get("cost_spent", 0.0)) + iteration_cost
-    max_cost = goal.get("max_cost")
-    budget_exhausted = (
-        agent_record is not None and max_cost is not None and cost_spent >= float(max_cost)
+        if reported is not None:
+            iteration_cost = max(0.0, float(reported))
+        else:
+            iteration_cost = DEFAULT_ATTEMPT_COST
+        cost_unbounded = bool(agent_record.get("cost_unbounded")) or not math.isfinite(
+            prior_cost + iteration_cost
+        )
+        if cost_unbounded:
+            iteration_cost = (
+                max(DEFAULT_ATTEMPT_COST, float(max_cost) - prior_cost)
+                if max_cost is not None
+                else DEFAULT_ATTEMPT_COST
+            )
+    cost_spent = prior_cost + iteration_cost
+    budget_exhausted = agent_record is not None and max_cost is not None and (
+        cost_unbounded or cost_spent >= float(max_cost)
     )
 
     if frozen_hits:
@@ -824,6 +952,7 @@ def perform_outcome_iteration(
         "notes": notes,
         "agent": agent_record,
         "cost": iteration_cost,
+        "cost_unbounded": cost_unbounded,
         "cost_spent": cost_spent,
         "verify": {
             "command": verify["command"],
@@ -843,6 +972,7 @@ def perform_outcome_iteration(
         "next_action": next_action,
     }
     append_jsonl(outcome_iterations_path(state, slug), record)
+    goal.pop("attempt_started", None)
     goal["iteration_count"] = next_iteration
     goal["status"] = status_after
     goal["last_verified"] = verified
@@ -987,6 +1117,7 @@ def cmd_outcome_check(args, state):
 
 
 def _outcome_check_locked(args, state, slug, goal):
+    settle_interrupted_attempt(state, slug, goal)
     if getattr(args, "audit", False):
         return run_outcome_audit(
             state, slug, goal, args.timeout, args.notes or "", args.json_output
@@ -1064,6 +1195,7 @@ def _outcome_run_locked(args, state, slug, goal):
             "outcome start --agent \"CMD\" to run it autonomously.".format(slug)
         )
         return 1
+    settle_interrupted_attempt(state, slug, goal)
     if goal.get("status") in ("succeeded", "failed", "stopped"):
         print("[OK] Outcome {0} is already {1}.".format(slug, goal.get("status")))
         return 0 if goal.get("status") == "succeeded" else 2
@@ -1094,17 +1226,9 @@ def _outcome_run_locked(args, state, slug, goal):
             save_outcome(state, slug, goal)
             final = "failed"
             break
+        reservation = reserve_agent_attempt(state, slug, goal)
         attempt = run_shell_capture(agent_command, args.timeout)
-        agent_record = {
-            "command": agent_command,
-            "exit_code": attempt["exit_code"],
-            "duration_seconds": attempt["duration_seconds"],
-            "stdout_tail": attempt["stdout_tail"],
-            "stderr_tail": attempt["stderr_tail"],
-            "cost": parse_reported_cost(
-                (attempt.get("stdout_tail") or "") + "\n" + (attempt.get("stderr_tail") or "")
-            ),
-        }
+        agent_record = agent_attempt_record(agent_command, attempt)
         try:
             changed = (
                 self_driving_changed_paths(state, scope_baseline)
@@ -1115,6 +1239,8 @@ def _outcome_run_locked(args, state, slug, goal):
                 paths_outside_scope(changed, allowed_paths) if allowed_paths else []
             )
         except ScopeInspectionError as exc:
+            # The attempt ran and keeps its reserved iteration and cost.
+            goal.pop("attempt_started", None)
             goal["status"] = "stopped"
             goal["stop_reason"] = "scope inspection unavailable: {0}".format(exc)
             goal["updated"] = now_iso()
@@ -1130,6 +1256,7 @@ def _outcome_run_locked(args, state, slug, goal):
             agent_record,
             strict_violations,
             changed,
+            reservation,
         )
         print(
             "iteration {0}/{1}: agent exit {2}, verify {3}, status {4}".format(

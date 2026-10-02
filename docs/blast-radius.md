@@ -45,9 +45,13 @@ mythify review show cache-eviction --json
 `review prove` accepts `--command` to run a different check for that run,
 `--claim` to label the verification, `--mode executed|runtime`, and `--timeout`.
 A `--command` run is evidence for the safety fact, but only a run of the stored
-merge-gate command sets `merge_gate.verified`. A no-op command such as `true`,
-`exit 0`, or a bare `echo` is refused, because a check that cannot fail proves
-nothing.
+merge-gate command sets `merge_gate.verified`. A command that cannot fail
+proves nothing, so `review prove` refuses one it recognizes as a no-op: `true`,
+`:`, `exit 0`, a bare `echo` or `printf`, the same behind `;`, `env`,
+`command`, or `sh -c`, and a list such as `pytest || true` whose exit status is
+0 on every path. The check is a heuristic that catches common forms, not a
+guarantee: a command it cannot read (a group, a conditional, `set -e`) is let
+through.
 Runtime mode represents a running-app or integration reproduction and produces
 proof depth 5 when it passes. Ordinary executed mode produces depth 4.
 

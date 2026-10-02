@@ -74,6 +74,54 @@ class TestNoopVerifierReason(unittest.TestCase):
         self.assertIsNone(noop_verifier_reason("echo payload | grep expected"))
         self.assertIsNone(noop_verifier_reason("echo x > expected.txt"))
 
+    def test_flags_separator_group_and_wrapper_variants(self):
+        # Each of these always exits 0. The first cut compared the whole text
+        # against a short list, so a trailing `;` or a wrapper slipped past
+        # review prove and product measure.
+        for command in (
+            "true;",
+            "exit 0;",
+            ":;",
+            "(true)",
+            "{ true; }",
+            "exit",
+            "true || false",
+            "sh -c true",
+            "bash -c 'exit 0'",
+            "env true",
+            "env FOO=1 true",
+            "command true",
+            "/bin/echo ok",
+            "pytest || true",
+            "pytest; true",
+            "pytest; echo done",
+            "exit 0; pytest",
+        ):
+            self.assertIsNotNone(noop_verifier_reason(command), command)
+
+    def test_commands_that_can_fail_are_not_flagged(self):
+        # The reader answers "not a no-op" when a path can exit non-zero or
+        # when it cannot read the control flow (groups, conditionals, set -e).
+        for command in (
+            "pytest || exit 1; true",
+            "pytest || exit; true",
+            "pytest; exit",
+            "cd build && exit 0",
+            "set -e; pytest; true",
+            "if ! pytest; then exit 1; fi; echo ok",
+            "pytest && (echo ok; true)",
+            "pytest && { echo ok; exit 0; }; false",
+            "exec pytest; true",
+            "echo 'a;b'; pytest",
+            "pytest ';' true",
+            "pytest \\; true",
+            "pytest # ; true",
+            "pytest & true",
+            "true &&",
+            "exit 1",
+        ):
+            self.assertIsNone(noop_verifier_reason(command), command)
+
     def test_real_verifiers_are_not_flagged(self):
         for command in (
             "python3 -m unittest discover -s tests",

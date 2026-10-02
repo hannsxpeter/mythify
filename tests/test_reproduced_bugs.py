@@ -365,6 +365,19 @@ class TestReviewProveMergeGate(CliCase):
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
         self.assertFalse(self.view("noop-gate")["merge_gate"].get("verified"))
 
+    def test_noop_variants_cannot_prove_the_merge_gate(self):
+        # Review round 2: `true;` passed the first no-op check and reached
+        # depth 5 with merge_gate.verified true.
+        for index, command in enumerate(("true;", "exit 0;", "sh -c true", "/bin/echo ok")):
+            name = "variant-{0}".format(index)
+            self.assertEqual(self.create(name, command).returncode, 0)
+            refused = self.run_cli("review", "prove", name, "--mode", "runtime")
+            self.assertEqual(refused.returncode, 1, command + refused.stdout + refused.stderr)
+            self.assertIn("no-op", refused.stderr)
+            view = self.view(name)
+            self.assertFalse(view["merge_gate"].get("verified"), command)
+            self.assertEqual(view["safety_fact"]["status"], "unproven", command)
+
     def test_different_command_records_evidence_but_not_the_merge_gate(self):
         self.assertEqual(self.create("gate", "test -f tracked.txt").returncode, 0)
         proved = self.run_cli("review", "prove", "gate", "--command", "test -d .")

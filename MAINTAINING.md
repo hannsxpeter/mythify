@@ -115,8 +115,7 @@ provider, or vendor CLI. The host chooses any subagent or none, and delegated
 output is material until `verify run` passes on the integrated result.
 
 In practice, the lint `model-agnostic` check enforces two denylists, both
-case-insensitive with word boundaries, and both kept only in
-`scripts/lint.py` (tests import them):
+kept only in `scripts/lint.py` (tests import them):
 
 - Model family names (`MODEL_NAMES`) and the identifiers of the removed
   model-routing layer (`ROUTING_IDENTIFIERS`: its JSON keys, flags, tool
@@ -132,6 +131,14 @@ case-insensitive with word boundaries, and both kept only in
   `ROADMAP.md`, `RELEASE-CHECKLIST.md`, `CODE_OF_CONDUCT.md`, and every
   `docs/*.md` except `docs/mcp.md`. Lower-case "cursor" is an ordinary word
   there (report cursors), so only the editor's vendor forms match.
+
+Most entries match case-insensitively as whole words. Five vendor names match
+as substrings, so they are caught inside longer identifiers. One vendor
+abbreviation matches only in upper case, and the three removed
+provider-profile names match only when capitalized or written after a
+hyphen, because their lower-case forms are ordinary words. A lower-case
+profile name in code therefore passes the lint, and review has to catch it.
+The patterns in `scripts/lint.py` are the exact rule.
 
 Allowed tokens everywhere: the file names `CLAUDE.md` and `.cursorrules`
 (both read by `protocol check`), the MIT attribution URLs for the adapted

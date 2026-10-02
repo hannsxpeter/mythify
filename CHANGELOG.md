@@ -197,7 +197,11 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
   keys it has seen.
 - `review prove --command true` satisfied the merge gate. No-op proof
   commands are refused, and only a run of the recorded merge-gate command
-  sets `merge_gate.verified`.
+  sets `merge_gate.verified`. The no-op check reads the command's `;`,
+  `&&`, and `||` list and unwraps `env`, `command`, and `sh -c`, so `true;`,
+  `exit 0;`, `(true)`, `sh -c true`, `/bin/echo ok`, and `pytest || true`
+  are refused by `review prove` and `product measure` too. It stays a
+  heuristic.
 - `lineage attach` rewrote immutable blast-radius reviews, orphaning their
   proofs. It refuses kinds `review` and `verification`.
 - Host-supervised `outcome check` had no frozen-path baseline, so a
@@ -223,6 +227,23 @@ bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
   still executed. Runners and `status` share one parse.
 - Parallel `outcome check` calls each spent the same iteration budget slot.
   check, run, and audit hold a per-outcome lock.
+- `outcome run` charged the iteration and cost only after the agent, the
+  verifier, and the record write finished. A killed or timed-out run, or an
+  agent printing a `MYTHIFY_COST` too large for a float, spent nothing, so
+  the agent ran past `--max-iterations` and `--max-cost`. The iteration and
+  a default cost of 1.0 are reserved before the agent starts, an attempt
+  whose process ended early is logged as interrupted and stays counted, and
+  an unrepresentable cost spends the whole budget.
+- A metric that printed a number too large for a float crashed
+  `outcome check` before it recorded anything. It is recorded as no score.
+- `outcome start --metric-floor nan --supersede REASON` retired the active
+  loop, then crashed before writing the new one. A non-finite floor is
+  refused first, and the new outcome is written before the old one is
+  retired.
+- `product measure` shipped a bet on a green measurement recorded before
+  the bet was promoted, even while the product was a draft. `product
+  promote` stores `promoted_anchor`, and shipping and the
+  `completed_plan_unmeasured` flag count only measurements after it.
 - `install_user.sh --project P` ran `init` with the caller's environment, so
   an exported `MYTHIFY_DIR` or an ancestor `.mythify` received the state
   outside the install transaction. It pins `MYTHIFY_DIR` to `P/.mythify`,

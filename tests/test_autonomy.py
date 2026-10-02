@@ -4,9 +4,11 @@ evidence-gated (the verifier decides success) and bounded at all times."""
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -148,6 +150,92 @@ class TestDispatchLoop(LoopCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("scope violation", result.stdout)
         self.assertIn("AAA_escape.txt", result.stdout)
+
+
+
+class TestBudgetCannotBeDodged(LoopCase):
+    """Review round 2: the iteration and cost budgets were charged only after
+    the agent, verifier, and record write all finished."""
+
+    def goal(self, name):
+        return json.loads(self.run_cli("outcome", "status", name, "--json").stdout)["goal"]
+
+    def test_unrepresentable_reported_cost_spends_the_whole_budget(self):
+        # float() of a 320-digit number is inf, which crashed the record write
+        # before anything was charged, so the loop never stopped.
+        self.start("--max-iterations", "3", "--max-cost", "5", name="inf",
+                   verify="false", agent="echo MYTHIFY_COST=" + "9" * 320)
+        result = self.run_cli("outcome", "run", "inf")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("cost budget exhausted", result.stdout)
+        goal = self.goal("inf")
+        self.assertEqual(goal["status"], "failed")
+        self.assertEqual(goal["iteration_count"], 1)
+        self.assertEqual(goal["cost_spent"], 5.0)
+        again = self.run_cli("outcome", "run", "inf")
+        self.assertEqual(again.returncode, 2)
+        self.assertEqual(self.goal("inf")["iteration_count"], 1)
+
+    def test_killed_run_keeps_its_iteration(self):
+        agent = "{0} -c {1}".format(
+            json.dumps(sys.executable),
+            json.dumps("import time; open('attempts', 'a').write('x'); time.sleep(30)"),
+        )
+        self.start("--max-iterations", "1", name="kill", verify="false", agent=agent)
+        env = dict(os.environ)
+        env.pop("MYTHIFY_DIR", None)
+        env["HOME"] = str(self.home)
+        attempts = self.project / "attempts"
+        process = subprocess.Popen(
+            [sys.executable, str(CLI), "outcome", "run", "kill"],
+            cwd=str(self.project), env=env, start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            while not attempts.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(attempts.exists(), "the agent never started")
+        finally:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=30)
+        reserved = self.goal("kill")
+        self.assertEqual(reserved["iteration_count"], 1)
+        self.assertIn("attempt_started", reserved)
+        for _ in range(2):
+            result = self.run_cli("outcome", "run", "kill")
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(attempts.read_text(encoding="utf-8"), "x")
+        goal = self.goal("kill")
+        self.assertEqual(goal["status"], "failed")
+        self.assertNotIn("attempt_started", goal)
+        iterations = json.loads(self.run_cli("outcome", "results", "kill", "--json").stdout)["iterations"]
+        self.assertEqual([item.get("interrupted") for item in iterations], [True])
+
+    def test_unrepresentable_metric_is_unparseable_not_a_crash(self):
+        result = self.run_cli(
+            "outcome", "start", "g", "--name", "metric", "--success", "x", "--verify", "true",
+            "--metric", "echo " + "9" * 320, "--metric-floor", "1", "--max-iterations", "2",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        check = self.run_cli("outcome", "check", "metric")
+        self.assertEqual(check.returncode, 2, check.stdout + check.stderr)
+        self.assertEqual(self.goal("metric")["iteration_count"], 1)
+        iterations = json.loads(self.run_cli("outcome", "results", "metric", "--json").stdout)["iterations"]
+        self.assertIsNone(iterations[0]["metric"]["score"])
+        self.assertTrue(iterations[0]["metric_floor_unmet"])
+
+    def test_non_finite_metric_floor_is_refused_before_superseding(self):
+        self.start("--max-iterations", "2", name="old", verify="false", agent="true")
+        result = self.run_cli(
+            "outcome", "start", "g", "--name", "new", "--success", "x", "--verify", "true",
+            "--metric", "echo 1", "--metric-floor", "nan", "--supersede", "replace it",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("finite", result.stdout)
+        old = self.goal("old")
+        self.assertEqual(old["status"], "active")
+        self.assertNotIn("superseded_by", old)
 
 
 if __name__ == "__main__":

@@ -172,10 +172,17 @@ Outcome (`outcomes/<slug>/goal.json`): `id`, `goal`, `success_criteria`,
 `frozen_baseline` (written only with `--frozen-paths`: `manifest`, each
 covered path mapped to the sha256 of its bytes at start), `scope_baseline`
 (`git_commit` and `ignore_rules` when `outcome run` first watches paths),
-`superseded_by`, `evidence_stale`, `last_audit`. Each
-`iterations.jsonl` line holds the iteration number, the `verify` and `metric`
-runs, cost, `scope_violations`, `frozen_violations`, `status_after`, and
-`next_action`.
+`superseded_by`, `evidence_stale`, `last_audit`, and `attempt_started`
+(`iteration`, `started`, `prior_cost_spent`). `outcome run` writes
+`attempt_started` and charges the iteration and a default cost of 1.0 before
+the agent runs, then reconciles the cost with the reported one; a check or run
+that finds the marker left by a process that ended early logs that iteration
+with `interrupted: true` and keeps it counted. Each `iterations.jsonl` line
+holds the iteration number, the `verify` and `metric` runs, cost,
+`cost_unbounded` (the agent reported a cost too large for a float, which
+spends the whole `max_cost`), `scope_violations`, `frozen_violations`,
+`status_after`, and `next_action`. A metric number too large for a float is
+recorded as no score.
 
 Map (`maps/<slug>.json`): `id`, `destination`, `notes`, `status` (`charting`,
 `clear`, `promoted`), `tickets`, `fog`, `out_of_scope`, `decisions`,
@@ -200,8 +207,10 @@ waived) or null, `approval_history`, and:
 - `bets`: `id` (`B1`...), `hypothesis`, `outcomes`, `kill`, `decider`,
   `decide_by`, `priority`, `status` (`proposed`, `in_flight`, `shipped`,
   `stopped`), `verdict` (`pending`, `continue`, `pivot`, `stop`),
-  `verdict_human_input`, `plan`, and `promoted_at`, `decided_at`,
-  `shipped_at`, and `human_input_waived` once set.
+  `verdict_human_input`, `plan`, and `promoted_at`, `promoted_anchor` (the
+  `verifications.jsonl` position at promotion; only measurements after it
+  can ship the bet), `decided_at`, `shipped_at`, and `human_input_waived`
+  once set.
 - `risks`: `id` (`R1`...), `text`, `kind` (`value`, `usability`,
   `feasibility`, `viability`), `mitigation`, `validation`.
 
@@ -258,11 +267,18 @@ hash chain still links, and leaves every verification artifact in place.
   step or claim timestamp count.
 - Executed versus attested. `verify claim` records a self-report with
   `verified: null`. It never satisfies a gate.
-- No-op warnings. A verify command such as `true`, `/usr/bin/true`, `:`,
-  `exit 0`, or a bare `echo` or `printf` with no shell operator draws a
-  `[WARN]` when stored on a step and an attention item in `status` when it
-  passes. A pass whose output says no tests ran is flagged the same way. These
-  are advisory for steps; `review prove` and `product measure` refuse them.
+- No-op warnings. A verify command whose exit status is 0 on every path draws
+  a `[WARN]` when stored on a step and an attention item in `status` when it
+  passes. `noop_verifier_reason` reads the command's `;`, newline, `&&`, and
+  `||` list without running it and recognizes `true`, `/usr/bin/true`, `:`,
+  `exit 0`, a bare `exit`, and `echo` or `printf` without a pipe or
+  redirection, also behind `env`, `command`, or `sh -c`, so `true;`,
+  `pytest || true`, and `pytest; echo done` are flagged. It is a heuristic
+  that catches common forms, not a guarantee: a group, a conditional, a
+  background job, `set -e`, or a backslash outside single quotes makes it
+  answer "not a no-op". A pass whose output says no tests ran is flagged the
+  same way. These are advisory for steps; `review prove` and
+  `product measure` refuse a command it flags.
 - Human gates. `map resolve` on a `hitl` ticket (`grilling`, `prototype`, or
   `--mode hitl`), `product approve`, and `product decide` refuse without a
   non-empty `--human-input`. `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives this and
@@ -345,7 +361,9 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | `HOME` | locates `~/.mythify/lessons` |
 
 `MYTHIFY_COST=<n>` is not an environment variable: an `outcome run` agent
-prints it on stdout to report the cost of an iteration.
+prints it on stdout to report the cost of an iteration. A negative value
+counts as 0, a missing one as 1.0, and a value too large for a float spends
+the rest of `--max-cost`.
 
 ## Decision log
 

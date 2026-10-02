@@ -70,9 +70,10 @@ Hardening guidance for users:
 - Set `MYTHIFY_DISABLE_RUN=1` to turn off command execution. Every command in
   the table above then refuses before running anything, records nothing, and
   exits 2. Any value other than empty, `0`, `false`, `no`, or `off` has the
-  same effect, so a stray space or a word form fails closed. Because MCP
-  tools run the CLI, setting it in the MCP server's environment covers every
-  tool.
+  same effect. Case and surrounding whitespace are ignored, so `1 `, `TRUE`,
+  `yes`, or a typo fails closed, and a value made only of spaces counts as
+  empty and leaves execution on. Because MCP tools run the CLI, setting it in
+  the MCP server's environment covers every tool.
 - Never run the CLI or the MCP server with elevated privileges.
 - Do not place secrets in commands, verifier output, memory entries, lessons,
   outcome notes, product records, or reflections. Everything under

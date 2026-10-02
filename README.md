@@ -125,9 +125,13 @@ and run its `scripts/install_user.sh`. The archive is deterministic: the same
 source tree always produces the same bytes (`python3 scripts/package_cli.py`).
 
 `mythify-uninstall` removes what the installer added and nothing else. An
-ownership manifest binds every installed file by content hash; if that evidence
-is missing or changed, uninstall stops without deleting anything. Project
-`.mythify` folders are never touched.
+ownership manifest records a content hash for each launcher and a per-install
+token in each directory the installer owns (the runtime and each skill
+folder). If a launcher's hash or a directory's token is missing or changed,
+uninstall stops without deleting anything. Files you edit inside an owned
+directory are not hashed: uninstall removes them with the directory, so copy
+out any skill you customized first. Project `.mythify` folders are never
+touched.
 
 The installer also copies four chat skills (`mythify`, `mythify-work`,
 `mythify-route`, `mythify-verify`) into the `skills` folder of each agent
@@ -220,7 +224,9 @@ is named in the next action. Start the loop with `--agent "COMMAND"` and run
 any program, an agent CLI or a plain script. `outcome run` also stops on a
 change outside `--allowed-paths`, after `--escalate-after` failures in a row
 (handing back to you), and when the total cost the command reports with
-`MYTHIFY_COST=<n>` reaches `--max-cost`.
+`MYTHIFY_COST=<n>` reaches `--max-cost`. Each round's iteration and a default
+cost of 1 are charged before the command starts, so a run that is killed or
+times out still spends its round.
 
 ### Blast-radius safety cases
 
