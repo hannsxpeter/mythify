@@ -30,9 +30,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Generated protocol files are in sync
-        run: |
-          python scripts/build_variants.py
-          git diff --exit-code CLAUDE.md AGENTS.md .cursorrules scripts/mythify_protocol.py
+        run: python scripts/build_variants.py --check
       - name: Prose quality
         run: python scripts/check_prose_quality.py
       - name: Installer and MCP server smoke

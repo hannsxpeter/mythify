@@ -3,23 +3,24 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--skip-skills] [--skills-root PATH] [--skip-claude-skills] [--claude-skills-root PATH] [--uninstall]
+Usage: scripts/install_user.sh [--prefix PATH] [--project PATH] [--skills-root PATH]... [--skip-skills] [--uninstall]
 
 Installs a versioned, self-contained Mythify CLI runtime and user-local
 launchers: mythify, mythify-mcp (the zero-dependency MCP stdio server), and
-mythify-uninstall. Mythify chat skills are installed for both runtimes: invoke
-them with $skill in Codex and /skill in Claude Code.
+mythify-uninstall. Mythify chat skills are copied into each skills root;
+invoke them the way your host runs skills.
 
 Options:
-  --prefix PATH               Install launchers under PATH/bin. Default: $HOME/.local
-  --project PATH              Initialize Mythify state for that project and print MCP setup.
-  --skip-mcp                  Accepted for older install commands; has no effect.
-  --skip-skills               Do not install Mythify chat skills (Codex or Claude).
-  --skills-root PATH          Install Codex chat skills under PATH. Default: $CODEX_HOME/skills or $HOME/.codex/skills
-  --skip-claude-skills        Do not install the Claude Code copy of the chat skills.
-  --claude-skills-root PATH   Install Claude chat skills under PATH. Default: $CLAUDE_HOME/skills or $HOME/.claude/skills
-  --uninstall                 Remove installed Mythify runtime files and launchers. Project .mythify state is preserved.
-  --help                      Show this help.
+  --prefix PATH       Install launchers under PATH/bin. Default: $HOME/.local
+  --project PATH      Initialize Mythify state for that project.
+  --skills-root PATH  Install chat skills under PATH. Repeat for several roots.
+                      Default: DIR/skills for each existing DIR among
+                      $CLAUDE_CONFIG_DIR or ~/.claude, $CODEX_HOME or ~/.codex,
+                      ~/.cursor, and ~/.agents; ~/.agents/skills when none exist.
+  --skip-skills       Do not install Mythify chat skills.
+  --skip-mcp          Accepted for older install commands; has no effect.
+  --uninstall         Remove installed Mythify runtime files and launchers. Project .mythify state is preserved.
+  --help              Show this help.
 USAGE
 }
 
@@ -61,16 +62,72 @@ preflight_file() {
   fi
 }
 
+# Skill roots are kept as one newline-separated list of absolute paths.
+newline='
+'
+
+add_skills_root() {
+  asr_path="$1"
+  [ -n "$asr_path" ] || fail "--skills-root requires a path"
+  case "$asr_path" in
+    *"$newline"*) fail "Skills root must not contain a newline: $asr_path" ;;
+    /*) ;;
+    *) asr_path="$PWD/$asr_path" ;;
+  esac
+  case "$newline$skills_roots$newline" in
+    *"$newline$asr_path$newline"*) return 0 ;;
+  esac
+  skills_roots="${skills_roots:+$skills_roots$newline}$asr_path"
+}
+
+detect_default_skills_roots() {
+  for dsr_base in \
+    "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" \
+    "${CODEX_HOME:-$HOME/.codex}" \
+    "$HOME/.cursor" \
+    "$HOME/.agents"; do
+    if [ -d "$dsr_base" ]; then
+      add_skills_root "$dsr_base/skills"
+    fi
+  done
+  if [ -z "$skills_roots" ]; then
+    add_skills_root "$HOME/.agents/skills"
+  fi
+}
+
+for_each_skills_root() {
+  fe_callback="$1"
+  fe_rest="$skills_roots"
+  while [ -n "$fe_rest" ]; do
+    case "$fe_rest" in
+      *"$newline"*)
+        fe_root=${fe_rest%%"$newline"*}
+        fe_rest=${fe_rest#*"$newline"}
+        ;;
+      *)
+        fe_root=$fe_rest
+        fe_rest=""
+        ;;
+    esac
+    "$fe_callback" "$fe_root"
+  done
+}
+
+preflight_skills_root() {
+  preflight_directory "Skill destination" "$1"
+  for skill_name in $mythify_skill_names; do
+    preflight_directory "Skill destination" "$1/$skill_name"
+  done
+}
+
 install_skills_into() {
-  sk_label="$1"
-  sk_root="$2"
+  sk_root="$1"
   mkdir -p "$sk_root"
   for skill_name in $mythify_skill_names; do
-    skill_dir="$repo_root/skills/$skill_name"
     destination="$sk_root/$skill_name"
     rm -rf "$destination"
-    cp -R "$skill_dir" "$destination"
-    printf '%s\n' "[OK] Installed $sk_label Mythify chat skill: $destination"
+    cp -R "$repo_root/skills/$skill_name" "$destination"
+    printf '%s\n' "[OK] Installed Mythify chat skill: $destination"
     if [ "${MYTHIFY_INSTALL_TEST_FAIL_AFTER_SKILL_COPY:-0}" = "1" ] && [ "$skill_failure_injected" -eq 0 ]; then
       skill_failure_injected=1
       fail "injected failure after skill copy"
@@ -78,16 +135,352 @@ install_skills_into() {
   done
 }
 
-remove_skills_from() {
-  sk_label="$1"
-  sk_root="$2"
-  [ -d "$sk_root" ] || return 0
-  for skill_name in $mythify_skill_names; do
-    skill_dir="$sk_root/$skill_name"
-    [ -e "$skill_dir" ] || continue
-    rm -rf "$skill_dir"
-    printf '%s\n' "[OK] Removed $sk_label Mythify chat skill: $skill_dir"
-  done
+# One Python helper owns every ownership-manifest and transaction rule, so the
+# launcher list, the owned-directory list, and the digest are written once.
+install_helper() {
+  "$python_bin" - "$@" <<'PY'
+import hashlib
+import json
+import os
+import re
+import secrets
+import shutil
+import sys
+from pathlib import Path
+
+LAUNCHERS = ("mythify", "mythify-mcp", "mythify-uninstall")
+MANIFEST_NAME = "install-manifest.json"
+MARKER_NAME = ".mythify-owned"
+VERSION_DIR = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def fail(message):
+    raise SystemExit("[FAIL] Ownership manifest " + message)
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def unique(items):
+    seen = set()
+    result = []
+    for item in items:
+        if str(item) not in seen:
+            seen.add(str(item))
+            result.append(item)
+    return result
+
+
+def split_roots(text):
+    return unique(line for line in text.split("\n") if line)
+
+
+def launcher_files(prefix):
+    return [prefix / "bin" / name for name in LAUNCHERS]
+
+
+def owned_directories(install_root, skill_roots, skill_names):
+    directories = [install_root / "cli"]
+    for root in skill_roots:
+        directories.extend(Path(root) / name for name in skill_names)
+    return unique(directories)
+
+
+def manifest_skill_roots(config):
+    """Skill roots a manifest owns. Schema 1 (5.x) kept two host-specific keys."""
+    if "skills_roots" in config:
+        return [str(root) for root in config.get("skills_roots") or []]
+    if config.get("skip_skills"):
+        return []
+    roots = [config.get("skills_root")]
+    if not config.get("skip_claude_skills"):
+        roots.append(config.get("claude_skills_root"))
+    return [str(root) for root in roots if root]
+
+
+def load_manifest(path):
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("is missing or unsafe: {}".format(path))
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("is unreadable: {}".format(error))
+    if manifest.get("schema") not in (1, 2) or not isinstance(manifest.get("config"), dict):
+        raise ValueError("has an unknown schema: {}".format(path))
+    return manifest
+
+
+def file_problem(manifest, path):
+    if path.is_symlink() or not path.is_file():
+        return "file target is missing or unsafe: {}".format(path)
+    if manifest.get("files", {}).get(str(path.resolve())) != digest(path):
+        return "file content does not match: {}".format(path)
+    return None
+
+
+def directory_problem(manifest, path):
+    marker = path / MARKER_NAME
+    recorded = set(manifest.get("directories", []))
+    if path.is_symlink() or not path.is_dir() or str(path.resolve()) not in recorded:
+        return "directory target is missing or unsafe: {}".format(path)
+    if marker.is_symlink() or not marker.is_file():
+        return "directory marker is missing or unsafe: {}".format(path)
+    if marker.read_text(encoding="utf-8").strip() != manifest.get("token", ""):
+        return "directory marker does not match: {}".format(path)
+    return None
+
+
+def atomic_write(path, text, mode):
+    temporary = path.with_name(".{}.tmp-{}".format(path.name, os.getpid()))
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def begin_transaction(backup_root, install_root, prefix, roots_text, names, project):
+    backup_root = Path(backup_root)
+    install_root = Path(os.path.abspath(install_root))
+    prefix = Path(os.path.abspath(prefix))
+    roots = [os.path.abspath(root) for root in split_roots(roots_text)]
+    directories = owned_directories(install_root, roots, names.split())
+    targets = [install_root] + launcher_files(prefix) + directories[1:]
+    if project:
+        project_dir = Path(os.path.abspath(project))
+        targets.append(project_dir / ".gitignore")
+        if not (project_dir / ".mythify").exists():
+            targets.append(project_dir / ".mythify")
+    entries_dir = backup_root / "entries"
+    entries_dir.mkdir()
+    entries = []
+    missing_parents = set()
+    for path in unique(Path(os.path.abspath(str(item))) for item in targets):
+        parent = path.parent
+        while not parent.exists() and not parent.is_symlink():
+            missing_parents.add(str(parent))
+            if parent == parent.parent:
+                break
+            parent = parent.parent
+        if path.is_symlink():
+            raise SystemExit("[FAIL] Transaction target must not be a symlink: {}".format(path))
+        entry = {"path": str(path), "existed": path.exists(), "kind": None, "backup": None}
+        if entry["existed"]:
+            backup = entries_dir / str(len(entries))
+            if path.is_dir():
+                entry["kind"] = "directory"
+                shutil.copytree(path, backup, symlinks=True, copy_function=shutil.copy2)
+            elif path.is_file():
+                entry["kind"] = "file"
+                shutil.copy2(path, backup)
+            else:
+                raise SystemExit("[FAIL] Unsupported transaction target: {}".format(path))
+            entry["backup"] = str(backup.relative_to(backup_root))
+        entries.append(entry)
+    transaction = {
+        "entries": entries,
+        "missing_parents": sorted(
+            missing_parents, key=lambda value: (len(Path(value).parts), value), reverse=True
+        ),
+    }
+    (backup_root / "transaction.json").write_text(
+        json.dumps(transaction, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def remove_path(path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def rollback_transaction(backup_root):
+    backup_root = Path(backup_root)
+    transaction = json.loads((backup_root / "transaction.json").read_text(encoding="utf-8"))
+    for entry in transaction["entries"]:
+        path = Path(entry["path"])
+        if os.path.lexists(path):
+            remove_path(path)
+    for entry in transaction["entries"]:
+        if not entry["existed"]:
+            continue
+        path = Path(entry["path"])
+        backup = backup_root / entry["backup"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if entry["kind"] == "directory":
+            shutil.copytree(backup, path, symlinks=True, copy_function=shutil.copy2)
+        elif entry["kind"] == "file":
+            shutil.copy2(backup, path)
+        else:
+            raise SystemExit("Invalid transaction entry kind")
+    for raw_path in transaction["missing_parents"]:
+        try:
+            Path(raw_path).rmdir()
+        except OSError:
+            pass
+
+
+def write_manifest(install_root, prefix, roots_text, names):
+    install_root = Path(install_root).resolve()
+    prefix = Path(prefix).resolve()
+    skill_names = names.split()
+    roots = unique(str(Path(root).resolve()) for root in split_roots(roots_text))
+    files = launcher_files(prefix)
+    directories = owned_directories(install_root, roots, skill_names)
+    token = secrets.token_hex(16)
+    for directory in directories:
+        (directory / MARKER_NAME).write_text(token + "\n", encoding="utf-8")
+    manifest = {
+        "schema": 2,
+        "token": token,
+        "skill_names": skill_names,
+        "config": {
+            "install_root": str(install_root),
+            "prefix": str(prefix),
+            "skills_roots": roots,
+        },
+        "files": {str(path.resolve()): digest(path) for path in files},
+        "directories": [str(path.resolve()) for path in directories],
+    }
+    atomic_write(
+        install_root / MANIFEST_NAME,
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        0o600,
+    )
+
+
+def uninstall(install_root, prefix, roots_text, explicit):
+    install_root = Path(install_root).resolve()
+    prefix = Path(prefix).resolve()
+    manifest_path = install_root / MANIFEST_NAME
+    try:
+        manifest = load_manifest(manifest_path)
+    except ValueError as error:
+        fail(str(error))
+    config = manifest["config"]
+    if config.get("install_root") != str(install_root) or config.get("prefix") != str(prefix):
+        fail("does not match this uninstall request")
+    recorded = unique(str(Path(root).resolve()) for root in manifest_skill_roots(config))
+    if explicit == "1":
+        requested = unique(str(Path(root).resolve()) for root in split_roots(roots_text))
+        if sorted(requested) != sorted(recorded):
+            fail("does not match this uninstall request")
+    files = launcher_files(prefix)
+    directories = owned_directories(install_root, recorded, manifest.get("skill_names", []))
+    for path in files:
+        problem = file_problem(manifest, path)
+        if problem:
+            fail(problem)
+    for path in directories:
+        problem = directory_problem(manifest, path)
+        if problem:
+            fail(problem)
+    for path in files:
+        path.unlink()
+    for path in directories:
+        shutil.rmtree(path)
+    manifest_path.unlink()
+    for directory in (install_root, install_root.parent):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def find_previous(data_base, install_root, prefix):
+    """Print `remove ROOT` or `keep ROOT REASON` for older installs at PREFIX.
+
+    An older install is removable only when every launcher its manifest owns
+    still matches the recorded content hash, which proves the launchers about
+    to be replaced are that install's own. Installs at other prefixes are in
+    use and are not listed.
+    """
+    base = Path(data_base)
+    if not base.is_dir():
+        return
+    current = Path(install_root).resolve()
+    prefix = Path(prefix).resolve()
+    for candidate in sorted(base.iterdir()):
+        if not VERSION_DIR.match(candidate.name) or candidate.is_symlink():
+            continue
+        if not candidate.is_dir() or candidate.resolve() == current:
+            continue
+        root = candidate.resolve()
+        manifest_path = root / MANIFEST_NAME
+        if not os.path.lexists(manifest_path):
+            print("keep\t{}\thas no ownership manifest".format(root))
+            continue
+        try:
+            manifest = load_manifest(manifest_path)
+        except ValueError as error:
+            print("keep\t{}\townership manifest {}".format(root, error))
+            continue
+        config = manifest["config"]
+        if config.get("prefix") != str(prefix) or config.get("install_root") != str(root):
+            continue
+        problems = [file_problem(manifest, path) for path in launcher_files(prefix)]
+        problems = [problem for problem in problems if problem]
+        if problems:
+            print("keep\t{}\t{}".format(root, problems[0]))
+        else:
+            print("remove\t{}".format(root))
+
+
+def cleanup_previous(listing):
+    for line in listing.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        root = Path(parts[1])
+        if parts[0] != "remove":
+            print("[WARN] Left previous Mythify install in place: {} ({}).".format(
+                root, parts[2] if len(parts) > 2 else "not verified"))
+            continue
+        try:
+            manifest = load_manifest(root / MANIFEST_NAME)
+        except ValueError as error:
+            print("[WARN] Left previous Mythify install in place: {} (manifest {}).".format(root, error))
+            continue
+        problem = directory_problem(manifest, root / "cli")
+        if problem:
+            print("[WARN] Left previous Mythify install in place: {} ({}).".format(root, problem))
+            continue
+        shutil.rmtree(root / "cli")
+        (root / MANIFEST_NAME).unlink()
+        leftovers = sorted(path.name for path in root.iterdir())
+        if leftovers:
+            print("[WARN] Removed the previous Mythify runtime from {}, but left files Mythify does not own: {}.".format(
+                root, ", ".join(leftovers)))
+        else:
+            root.rmdir()
+            print("[OK] Removed previous Mythify install: {}".format(root))
+        skill_roots = manifest_skill_roots(manifest["config"])
+        for directory in owned_directories(root, skill_roots, manifest.get("skill_names", []))[1:]:
+            marker = directory / MARKER_NAME
+            if marker.is_file() and not marker.is_symlink() and (
+                marker.read_text(encoding="utf-8").strip() == manifest.get("token")
+            ):
+                print("[WARN] Left previous-version skill directory: {} (this install did not replace it; remove it if no longer wanted).".format(directory))
+
+
+ACTIONS = {
+    "begin": begin_transaction,
+    "rollback": rollback_transaction,
+    "manifest": write_manifest,
+    "uninstall": uninstall,
+    "find-previous": find_previous,
+    "cleanup-previous": cleanup_previous,
+}
+ACTIONS[sys.argv[1]](*sys.argv[2:])
+PY
 }
 
 write_exec_launcher() {
@@ -150,233 +543,16 @@ install_cli_runtime() {
   cli_backup=""
 }
 
-write_ownership_manifest() {
-  "$python_bin" - \
-    "$install_root/install-manifest.json" \
-    "$install_root" \
-    "$prefix" \
-    "$skills_root" \
-    "$claude_skills_root" \
-    "$skip_skills" \
-    "$skip_claude_skills" \
-    "$mythify_skill_names" \
-    "$project_dir" <<'PY'
-import hashlib
-import json
-import os
-import secrets
-import sys
-from pathlib import Path
-
-
-def digest(path):
-    value = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
-
-
-manifest_path = Path(sys.argv[1])
-install_root = Path(sys.argv[2]).resolve()
-prefix = Path(sys.argv[3]).resolve()
-skills_root = Path(sys.argv[4]).resolve()
-claude_skills_root = Path(sys.argv[5]).resolve()
-skip_skills, skip_claude = (value == "1" for value in sys.argv[6:8])
-skill_names = sys.argv[8].split()
-project_dir = Path(os.path.abspath(sys.argv[9])) if sys.argv[9] else None
-token = secrets.token_hex(16)
-
-files = [
-    prefix / "bin" / "mythify",
-    prefix / "bin" / "mythify-mcp",
-    prefix / "bin" / "mythify-uninstall",
-]
-directories = [install_root / "cli"]
-if not skip_skills:
-    directories.extend(skills_root / name for name in skill_names)
-    if not skip_claude:
-        directories.extend(claude_skills_root / name for name in skill_names)
-
-for directory in directories:
-    marker = directory / ".mythify-owned"
-    marker.write_text(token + "\n", encoding="utf-8")
-
-manifest = {
-    "schema": 1,
-    "token": token,
-    "skill_names": skill_names,
-    "config": {
-        "install_root": str(install_root),
-        "prefix": str(prefix),
-        "skills_root": str(skills_root),
-        "claude_skills_root": str(claude_skills_root),
-        "skip_skills": skip_skills,
-        "skip_claude_skills": skip_claude,
-    },
-    "files": {str(path.resolve()): digest(path) for path in files},
-    "directories": [str(path.resolve()) for path in directories],
-}
-
-temporary = manifest_path.with_name(".install-manifest.tmp-{}".format(os.getpid()))
-try:
-    temporary.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os.chmod(temporary, 0o600)
-    os.replace(temporary, manifest_path)
-finally:
-    if temporary.exists():
-        temporary.unlink()
-PY
-}
-
 begin_install_transaction() {
   transaction_backup_dir=$(mktemp -d "${TMPDIR:-/tmp}/mythify-install-rollback.XXXXXX")
-  "$python_bin" - \
+  install_helper begin \
     "$transaction_backup_dir" \
     "$install_root" \
-    "$bin_dir" \
-    "$skills_root" \
-    "$claude_skills_root" \
-    "$skip_skills" \
-    "$skip_claude_skills" \
+    "$prefix" \
+    "$skills_roots" \
     "$mythify_skill_names" \
-    "$project_dir" <<'PY'
-import json
-import os
-import shutil
-import sys
-from pathlib import Path
-
-
-backup_root = Path(sys.argv[1])
-install_root = Path(os.path.abspath(sys.argv[2]))
-bin_dir = Path(os.path.abspath(sys.argv[3]))
-skills_root = Path(os.path.abspath(sys.argv[4]))
-claude_skills_root = Path(os.path.abspath(sys.argv[5]))
-skip_skills, skip_claude = (value == "1" for value in sys.argv[6:8])
-skill_names = sys.argv[8].split()
-project_dir = Path(os.path.abspath(sys.argv[9])) if sys.argv[9] else None
-
-targets = [
-    install_root,
-    bin_dir / "mythify",
-    bin_dir / "mythify-mcp",
-    bin_dir / "mythify-uninstall",
-]
-if not skip_skills:
-    targets.extend(skills_root / name for name in skill_names)
-    if not skip_claude:
-        targets.extend(claude_skills_root / name for name in skill_names)
-if project_dir is not None:
-    targets.append(project_dir / ".gitignore")
-    project_state = project_dir / ".mythify"
-    if not project_state.exists():
-        targets.append(project_state)
-
-entries_dir = backup_root / "entries"
-entries_dir.mkdir()
-entries = []
-missing_parents = set()
-seen = set()
-for raw_path in targets:
-    path = Path(os.path.abspath(str(raw_path)))
-    key = str(path)
-    if key in seen:
-        continue
-    seen.add(key)
-    parent = path.parent
-    while not parent.exists() and not parent.is_symlink():
-        missing_parents.add(str(parent))
-        if parent == parent.parent:
-            break
-        parent = parent.parent
-    if path.is_symlink():
-        raise SystemExit("[FAIL] Transaction target must not be a symlink: {}".format(path))
-    existed = path.exists()
-    entry = {
-        "path": str(path),
-        "existed": existed,
-        "kind": None,
-        "backup": None,
-    }
-    if existed:
-        backup = entries_dir / str(len(entries))
-        if path.is_dir():
-            entry["kind"] = "directory"
-            shutil.copytree(path, backup, symlinks=True, copy_function=shutil.copy2)
-        elif path.is_file():
-            entry["kind"] = "file"
-            shutil.copy2(path, backup)
-        else:
-            raise SystemExit("[FAIL] Unsupported transaction target: {}".format(path))
-        entry["backup"] = str(backup.relative_to(backup_root))
-    entries.append(entry)
-
-manifest = {
-    "entries": entries,
-    "missing_parents": sorted(
-        missing_parents,
-        key=lambda value: (len(Path(value).parts), value),
-        reverse=True,
-    ),
-}
-(backup_root / "transaction.json").write_text(
-    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8",
-)
-PY
+    "$project_dir"
   transaction_active=1
-}
-
-rollback_install_transaction() {
-  "$python_bin" - "$transaction_backup_dir" <<'PY'
-import json
-import os
-import shutil
-import sys
-from pathlib import Path
-
-
-def remove_path(path):
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-    elif path.is_dir():
-        shutil.rmtree(path)
-
-
-backup_root = Path(sys.argv[1])
-manifest = json.loads(
-    (backup_root / "transaction.json").read_text(encoding="utf-8")
-)
-
-for entry in manifest["entries"]:
-    path = Path(entry["path"])
-    if os.path.lexists(path):
-        remove_path(path)
-
-for entry in manifest["entries"]:
-    if not entry["existed"]:
-        continue
-    path = Path(entry["path"])
-    backup = backup_root / entry["backup"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if entry["kind"] == "directory":
-        shutil.copytree(backup, path, symlinks=True, copy_function=shutil.copy2)
-    elif entry["kind"] == "file":
-        shutil.copy2(backup, path)
-    else:
-        raise SystemExit("Invalid transaction entry kind")
-
-for raw_path in manifest["missing_parents"]:
-    path = Path(raw_path)
-    try:
-        path.rmdir()
-    except OSError:
-        pass
-PY
 }
 
 commit_install_transaction() {
@@ -409,7 +585,7 @@ cleanup_temporary_dirs() {
     fi
   fi
   if [ "$transaction_active" -eq 1 ] && [ -n "$transaction_backup_dir" ]; then
-    if rollback_install_transaction; then
+    if install_helper rollback "$transaction_backup_dir"; then
       rm -rf "$transaction_backup_dir"
       transaction_backup_dir=""
       transaction_active=0
@@ -428,14 +604,10 @@ prefix="${PREFIX:-$HOME/.local}"
 project=""
 project_dir=""
 skip_skills=0
-skip_claude_skills=0
+skills_roots=""
 uninstall=0
 data_root=""
 mythify_skill_names="mythify mythify-work mythify-route mythify-verify"
-codex_home="${CODEX_HOME:-$HOME/.codex}"
-skills_root="${MYTHIFY_SKILLS_ROOT:-$codex_home/skills}"
-claude_home="${CLAUDE_HOME:-$HOME/.claude}"
-claude_skills_root="${MYTHIFY_CLAUDE_SKILLS_ROOT:-$claude_home/skills}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -459,16 +631,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skills-root)
       [ "$#" -ge 2 ] || fail "--skills-root requires a path"
-      skills_root="$2"
-      shift 2
-      ;;
-    --skip-claude-skills)
-      skip_claude_skills=1
-      shift
-      ;;
-    --claude-skills-root)
-      [ "$#" -ge 2 ] || fail "--claude-skills-root requires a path"
-      claude_skills_root="$2"
+      add_skills_root "$2"
       shift 2
       ;;
     --uninstall)
@@ -496,6 +659,14 @@ bin_dir="$prefix/bin"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 require_command python3
 python_bin=$(command -v python3)
+
+explicit_skills_roots=0
+if [ "$skip_skills" -eq 1 ]; then
+  skills_roots=""
+  explicit_skills_roots=1
+elif [ -n "$skills_roots" ]; then
+  explicit_skills_roots=1
+fi
 
 if [ "$uninstall" -eq 1 ]; then
   if [ -n "$data_root" ]; then
@@ -532,104 +703,9 @@ if [ "$uninstall" -eq 1 ]; then
   case "$version_major:$version_minor:$version_patch" in
     *[!0-9:]*|:*|*::|*:) fail "Unsafe Mythify data root: $install_root" ;;
   esac
-  "$python_bin" - \
-    "$install_root/install-manifest.json" \
-    "$install_root" \
-    "$prefix" \
-    "$skills_root" \
-    "$claude_skills_root" \
-    "$skip_skills" \
-    "$skip_claude_skills" <<'PY'
-import hashlib
-import json
-import os
-import shutil
-import sys
-from pathlib import Path
-
-
-def fail(message):
-    raise SystemExit("[FAIL] Ownership manifest " + message)
-
-
-def digest(path):
-    value = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
-
-
-manifest_path = Path(sys.argv[1])
-install_root = Path(sys.argv[2]).resolve()
-prefix = Path(sys.argv[3]).resolve()
-skills_root = Path(sys.argv[4]).resolve()
-claude_skills_root = Path(sys.argv[5]).resolve()
-skip_skills, skip_claude = (value == "1" for value in sys.argv[6:8])
-
-if not manifest_path.is_file() or manifest_path.is_symlink():
-    fail("is missing or unsafe: {}".format(manifest_path))
-try:
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-except (OSError, ValueError) as error:
-    fail("is unreadable: {}".format(error))
-
-config = {
-    "install_root": str(install_root),
-    "prefix": str(prefix),
-    "skills_root": str(skills_root),
-    "claude_skills_root": str(claude_skills_root),
-    "skip_skills": skip_skills,
-    "skip_claude_skills": skip_claude,
-}
-if manifest.get("schema") != 1 or manifest.get("config") != config:
-    fail("does not match this uninstall request")
-
-files = [
-    prefix / "bin" / "mythify",
-    prefix / "bin" / "mythify-mcp",
-    prefix / "bin" / "mythify-uninstall",
-]
-directories = [install_root / "cli"]
-if not skip_skills:
-    directories.extend(skills_root / name for name in manifest["skill_names"])
-    if not skip_claude:
-        directories.extend(claude_skills_root / name for name in manifest["skill_names"])
-
-recorded_files = manifest.get("files", {})
-for path in files:
-    resolved = str(path.resolve())
-    if path.is_symlink() or not path.is_file():
-        fail("file target is missing or unsafe: {}".format(path))
-    if recorded_files.get(resolved) != digest(path):
-        fail("file content does not match: {}".format(path))
-
-token = manifest.get("token", "")
-recorded_directories = set(manifest.get("directories", []))
-for path in directories:
-    resolved = str(path.resolve())
-    marker = path / ".mythify-owned"
-    if path.is_symlink() or not path.is_dir() or resolved not in recorded_directories:
-        fail("directory target is missing or unsafe: {}".format(path))
-    if marker.is_symlink() or not marker.is_file():
-        fail("directory marker is missing or unsafe: {}".format(path))
-    if marker.read_text(encoding="utf-8").strip() != token:
-        fail("directory marker does not match: {}".format(path))
-
-for path in files:
-    path.unlink()
-for path in directories:
-    shutil.rmtree(path)
-manifest_path.unlink()
-try:
-    install_root.rmdir()
-except OSError:
-    pass
-try:
-    install_root.parent.rmdir()
-except OSError:
-    pass
-PY
+  # Without --skills-root or --skip-skills, remove the skill roots the
+  # ownership manifest recorded, including the two roots a 5.x manifest kept.
+  install_helper uninstall "$install_root" "$prefix" "$skills_roots" "$explicit_skills_roots"
   printf '%s\n' "[OK] Removed Mythify user installation."
   if [ -n "$project" ]; then
     printf '%s\n' "[OK] Preserved project state: $project/.mythify"
@@ -637,6 +713,10 @@ PY
     printf '%s\n' "[OK] Project .mythify state was not modified."
   fi
   exit 0
+fi
+
+if [ "$skip_skills" -eq 0 ] && [ -z "$skills_roots" ]; then
+  detect_default_skills_roots
 fi
 
 if [ -n "$project" ]; then
@@ -672,18 +752,12 @@ preflight_directory "Data destination" "$data_home"
 preflight_directory "Versioned data destination" "$install_root"
 preflight_directory "CLI data destination" "$cli_dir"
 preflight_file "Ownership manifest" "$install_root/install-manifest.json"
-if [ "$skip_skills" -eq 0 ]; then
-  preflight_directory "Skill destination" "$skills_root"
-  for skill_name in $mythify_skill_names; do
-    preflight_directory "Skill destination" "$skills_root/$skill_name"
-  done
-  if [ "$skip_claude_skills" -eq 0 ]; then
-    preflight_directory "Claude skill destination" "$claude_skills_root"
-    for skill_name in $mythify_skill_names; do
-      preflight_directory "Claude skill destination" "$claude_skills_root/$skill_name"
-    done
-  fi
-fi
+for_each_skills_root preflight_skills_root
+
+# Decide which older installs this one replaces before their launchers are
+# overwritten: only then can their recorded content hashes still be checked.
+previous_installs=$(install_helper find-previous "$data_home/mythify" "$install_root" "$prefix")
+
 begin_install_transaction
 
 if [ -n "$project_dir" ]; then
@@ -700,14 +774,24 @@ set -- \
   "$cli_dir/scripts/install_user.sh" \
   --uninstall \
   --data-root "$install_root" \
-  --prefix "$prefix" \
-  --skills-root "$skills_root" \
-  --claude-skills-root "$claude_skills_root"
+  --prefix "$prefix"
 if [ "$skip_skills" -eq 1 ]; then
   set -- "$@" --skip-skills
-fi
-if [ "$skip_claude_skills" -eq 1 ]; then
-  set -- "$@" --skip-claude-skills
+else
+  launcher_rest="$skills_roots"
+  while [ -n "$launcher_rest" ]; do
+    case "$launcher_rest" in
+      *"$newline"*)
+        launcher_root=${launcher_rest%%"$newline"*}
+        launcher_rest=${launcher_rest#*"$newline"}
+        ;;
+      *)
+        launcher_root=$launcher_rest
+        launcher_rest=""
+        ;;
+    esac
+    set -- "$@" --skills-root "$launcher_root"
+  done
 fi
 if [ -n "$project_dir" ]; then
   set -- "$@" --project "$project_dir"
@@ -721,22 +805,29 @@ printf '%s\n' "[OK] Installed uninstaller: $bin_dir/mythify-uninstall"
 
 if [ "$skip_skills" -eq 0 ]; then
   [ -d "$repo_root/skills" ] || fail "Missing skills directory"
-  install_skills_into "Codex" "$skills_root"
-  if [ "$skip_claude_skills" -eq 0 ]; then
-    install_skills_into "Claude" "$claude_skills_root"
-  fi
+  for_each_skills_root install_skills_into
 fi
 
-write_ownership_manifest
+install_helper manifest "$install_root" "$prefix" "$skills_roots" "$mythify_skill_names"
 
-if [ -n "$project" ]; then
+commit_install_transaction
+
+if [ -n "$previous_installs" ]; then
+  install_helper cleanup-previous "$previous_installs" ||
+    printf '%s\n' "[WARN] Could not finish removing the previous Mythify install; see the messages above." >&2
+fi
+
+if [ -n "$project_dir" ]; then
   printf '%s\n' "[OK] Initialized project state: $project_dir/.mythify"
-  cat <<EOF
-[OK] MCP setup: register this stdio server with your MCP client:
-  command: $bin_dir/mythify-mcp
-  env: MYTHIFY_DIR=$project_dir/.mythify
-EOF
+  mcp_state_dir="$project_dir/.mythify"
+else
+  mcp_state_dir="/path/to/your/project/.mythify"
 fi
+cat <<EOF
+[OK] MCP setup: register this stdio server in your host's MCP configuration:
+  command: $bin_dir/mythify-mcp
+  env: MYTHIFY_DIR=$mcp_state_dir
+EOF
 
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
@@ -744,5 +835,3 @@ case ":$PATH:" in
     printf '%s\n' "[WARN] Add $bin_dir to PATH if your shell cannot find mythify."
     ;;
 esac
-
-commit_install_transaction

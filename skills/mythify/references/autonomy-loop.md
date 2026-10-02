@@ -35,7 +35,7 @@ Create the plan with steps up front when you can:
 "verify_command": str}` (success_criteria and verify_command optional).
 Without `--steps`, an empty plan is created; grow it with:
 
-    plan add-step TITLE [--criteria TEXT] [--plan NAME]
+    plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]
 
 Write success criteria as checkable outcomes ("tests pass", "endpoint
 returns 200"), not activities ("work on tests"). Orient with `status`: it
@@ -53,12 +53,20 @@ define done.
 
 ## Stage 3: VERIFY
 
-Prove the outcome before claiming it:
+Prove the outcome before claiming it. When the step stores a
+`verify_command`, run the step's own check; it records the result against
+that step:
+
+    plan verify ID [--plan NAME] [--timeout N]
+
+Otherwise run any check directly:
 
     verify run COMMAND [--claim TEXT] [--timeout N]
 
-Exit 0 means verified, exit 2 means unverified. Details and the executed
-versus attested distinction are in `self-verification.md`.
+Exit 0 means verified, exit 2 means unverified. A check that cannot fail
+(`true`, `exit 0`, a bare `echo`) proves nothing: Mythify warns when a step
+stores one, and `status` flags the pass. Details and the executed versus
+attested distinction are in `self-verification.md`.
 
 ## Stage 4: REFLECT
 

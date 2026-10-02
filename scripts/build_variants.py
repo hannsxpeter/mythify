@@ -1,61 +1,101 @@
 #!/usr/bin/env python3
-"""Generate CLAUDE.md, AGENTS.md, and .cursorrules from protocol/PROTOCOL.md.
+"""Generate the protocol drop-in files from protocol/PROTOCOL.md.
 
-Each generated file is the canonical protocol body prefixed with a header line
-marking it as generated and a protocol-sha256 handshake line, followed by a
-blank line. The embedded PROTOCOL_SOURCE_SHA256 constant in
-scripts/mythify_protocol.py is rewritten to the new digest in the same run, so
-a protocol edit cannot leave the handshake stale.
+AGENTS.md is the canonical drop-in: a generated header line, a
+protocol-sha256 handshake line, a blank line, then the full protocol body.
+CLAUDE.md is a short pointer: the generated header line, a blank line, an
+`@AGENTS.md` import line, and one sentence naming AGENTS.md as the home of the
+protocol. The pointer text comes from scripts/mythify_protocol.py, the same
+text `protocol check` compares a pointer against. The embedded
+PROTOCOL_SOURCE_SHA256 constant in scripts/mythify_protocol.py is rewritten to
+the new digest in the same run, so a protocol edit cannot leave the handshake
+stale.
+
 The script is idempotent: running it twice produces byte-identical output.
-Standard library only.
+With --check it writes nothing and exits 1 when any generated file is out of
+date. Standard library only.
 """
 
+import argparse
 import hashlib
 import re
 import sys
 from pathlib import Path
 
-HEADER = (
-    "<!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. "
-    "Edit the source, then rebuild. -->"
-)
-HASH_HEADER = "<!-- Mythify protocol-sha256: {0} -->"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from mythify_protocol import GENERATED_HEADER, PROTOCOL_HASH_PREFIX, pointer_copy  # noqa: E402
+
+HASH_HEADER = PROTOCOL_HASH_PREFIX + "{0} -->"
 CLI_HASH_PATTERN = re.compile(r'^PROTOCOL_SOURCE_SHA256 = "[0-9a-f]{64}"$', re.M)
-
-TARGETS = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
-
-
-def sync_cli_hash_constant(repo_root, digest):
-    cli_path = repo_root / "scripts" / "mythify_protocol.py"
-    text = cli_path.read_text(encoding="utf-8")
-    replacement = 'PROTOCOL_SOURCE_SHA256 = "{0}"'.format(digest)
-    updated, count = CLI_HASH_PATTERN.subn(replacement, text, count=1)
-    if count != 1:
-        print(
-            "[FAIL] PROTOCOL_SOURCE_SHA256 constant not found in scripts/mythify_protocol.py",
-            file=sys.stderr,
-        )
-        return False
-    if updated != text:
-        cli_path.write_text(updated, encoding="utf-8")
-        print("[OK] Updated PROTOCOL_SOURCE_SHA256 in scripts/mythify_protocol.py")
-    return True
+CLI_MODULE = Path("scripts") / "mythify_protocol.py"
 
 
-def main():
-    repo_root = Path(__file__).resolve().parent.parent
+def full_copy(body, digest):
+    return GENERATED_HEADER + "\n" + HASH_HEADER.format(digest) + "\n\n" + body
+
+
+def expected_outputs(repo_root):
+    """Map each generated path to its expected text, or raise ValueError."""
     source = repo_root / "protocol" / "PROTOCOL.md"
     if not source.is_file():
-        print("[FAIL] Protocol source not found: " + str(source), file=sys.stderr)
-        return 1
+        raise ValueError("Protocol source not found: " + str(source))
     body = source.read_text(encoding="utf-8")
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    content = HEADER + "\n" + HASH_HEADER.format(digest) + "\n\n" + body
-    for name in TARGETS:
-        (repo_root / name).write_text(content, encoding="utf-8")
-    if not sync_cli_hash_constant(repo_root, digest):
+    cli_path = repo_root / CLI_MODULE
+    cli_text = cli_path.read_text(encoding="utf-8")
+    replacement = 'PROTOCOL_SOURCE_SHA256 = "{0}"'.format(digest)
+    cli_updated, count = CLI_HASH_PATTERN.subn(replacement, cli_text, count=1)
+    if count != 1:
+        raise ValueError("PROTOCOL_SOURCE_SHA256 constant not found in " + CLI_MODULE.as_posix())
+    return {
+        repo_root / "AGENTS.md": full_copy(body, digest),
+        repo_root / "CLAUDE.md": pointer_copy(),
+        cli_path: cli_updated,
+    }
+
+
+def stale_paths(outputs):
+    stale = []
+    for path, text in outputs.items():
+        current = path.read_text(encoding="utf-8") if path.is_file() else None
+        if current != text:
+            stale.append(path)
+    return stale
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing; exit 1 when any generated file is out of date.",
+    )
+    args = parser.parse_args(argv)
+    repo_root = Path(__file__).resolve().parent.parent
+    try:
+        outputs = expected_outputs(repo_root)
+    except (OSError, ValueError) as exc:
+        print("[FAIL] {0}".format(exc), file=sys.stderr)
         return 1
-    print("[OK] Wrote " + ", ".join(TARGETS) + " from protocol/PROTOCOL.md")
+    stale = stale_paths(outputs)
+    names = [path.relative_to(repo_root).as_posix() for path in stale]
+    if args.check:
+        if stale:
+            print(
+                "[FAIL] Generated protocol files are out of date: {0}. Run "
+                "python3 scripts/build_variants.py and commit the result.".format(", ".join(names)),
+                file=sys.stderr,
+            )
+            return 1
+        print("[OK] Generated protocol files match protocol/PROTOCOL.md")
+        return 0
+    for path in stale:
+        path.write_text(outputs[path], encoding="utf-8")
+    if names:
+        print("[OK] Wrote " + ", ".join(names) + " from protocol/PROTOCOL.md")
+    else:
+        print("[OK] Generated protocol files already match protocol/PROTOCOL.md")
     return 0
 
 
