@@ -98,7 +98,8 @@ def assess_loop_fit(task, is_git_repo, has_check):
         reason = (
             "Open-ended quality climb toward a reference bar, with no "
             "machine-checkable done-condition. A checkable loop has nothing to "
-            "stop on, but a builder fan-out with one separate harsh critic that "
+            "stop on, but builder work (split across whatever subagents your "
+            "host offers, or none) plus one separate harsh critic that "
             "blind-compares the integrated deliverable side by side with the "
             "named reference keeps quality climbing; an explicit budget or the "
             "human is the brake."
@@ -141,8 +142,9 @@ def assess_loop_fit(task, is_git_repo, has_check):
     quoted = shlex.quote(str(task or "").strip() or "task")
     if recommendation == "quality_loop":
         suggested = (
-            "State a round budget in chat, then fan out builder workers on {0}. "
-            "Run a separate harsh-critic pass that blind-compares the integrated "
+            "State a round budget in chat, then build {0}; your host may split "
+            "builder work across any subagents it offers, or none. Run a "
+            "separate harsh-critic pass that blind-compares the integrated "
             "deliverable side by side with the named reference (pick one if the "
             "task names none) and says which is better. Record critic verdicts "
             "with verify claim (material, second-class), keep any executable "

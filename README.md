@@ -6,7 +6,8 @@
   <a href="https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml"><img src="https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/hannsxpeter/mythify/releases/latest"><img src="https://img.shields.io/github/v/release/hannsxpeter/mythify?sort=semver&label=release&color=FF4F59" alt="Release"></a>
   <img src="https://img.shields.io/badge/python-3.9%2B-201A33.svg" alt="Python 3.9+">
-  <img src="https://img.shields.io/badge/node-20%2B-201A33.svg" alt="Node 20+">
+  <img src="https://img.shields.io/badge/dependencies-none-201A33.svg" alt="No dependencies">
+  <img src="https://img.shields.io/badge/models-any-201A33.svg" alt="Works with any model">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-24C3C0.svg" alt="License: MIT"></a>
 </p>
 
@@ -19,11 +20,12 @@ Quite often, no test was run. The agent read the code, decided the change looked
 right, and told you what it believed. Sometimes that belief is correct.
 Sometimes it is not. From the message alone, you cannot tell which.
 
-**Mythify closes that gap.** It sits between the agent and the claim. Before any
-piece of work can be marked finished, the agent has to run a real command and
-show you what came back. It passed, or it did not. Nobody's opinion is involved.
+**Mythify closes that gap.** Before any piece of work can be marked finished,
+the agent has to run a real command and record what came back. It passed, or it
+did not. Nobody's opinion is involved.
 
-Mythify does not make the model smarter. It makes it accountable.
+Mythify does not make the model smarter. It makes it accountable, whichever
+model you use.
 
 ## How it works
 
@@ -31,46 +33,48 @@ Mythify does not make the model smarter. It makes it accountable.
   <img src="docs/assets/loop.svg" alt="The Mythify loop: plan, act, verify. A passing check completes the step. Any other result sends the work back to be fixed and re-run." width="100%">
 </p>
 
-That is the whole idea. Everything else in this repository is convenience built
-around that loop.
+That is the whole idea. Everything else in this repository is built around that
+loop.
 
 ## Is this for you?
 
 **You use an AI coding assistant** and you have been burned by a "done" that was
 not done. Mythify turns that claim into something you can check at a glance.
 
-**You are shipping software without being an engineer yourself.** A lot of
-people now build real things with AI and no team to review the output. Mythify
-gives you a second opinion that cannot be talked out of its position, because it
-is not an opinion. It is an exit code.
+**You are shipping software without being an engineer yourself.** Mythify gives
+you a second opinion that cannot be talked out of its position, because it is
+not an opinion. It is an exit code.
 
-**You manage people who build with AI.** Mythify leaves a written trail on disk:
-what the goal was, what was attempted, what was actually checked, and what is
-still unproven. You can read it without reading any code.
+**You lead a product or a team that builds with AI.** Mythify keeps a written
+trail on disk: why the work exists, who it is for, what outcome it should move,
+what was attempted, what was actually checked, and what is still unproven. You
+can read it without reading any code.
 
 **You run long or multi-session work.** Chats forget. Mythify writes the plan,
 the decisions, and the evidence into a folder in your project, so tomorrow's
 session opens exactly where today's stopped.
 
-## What you actually get
+## What you get
 
-**A refusal you can rely on.** Try to mark a task complete with nothing but a
-sentence and Mythify says no. That refusal is the product.
-
-**A record anyone can read.** Every check, every exit code, every reversal is
-written down in plain files. Nothing important lives only in the chat scrollback.
-
-**Memory that survives the session.** Facts, decisions, and hard-won lessons are
-stored on disk and read back at the start of the next session.
-
-**A leash on autonomy.** When you do want the agent to keep working on its own,
-you give it a finish line, a budget, and a fence. It stops at the first one it
-hits.
+- **A refusal you can rely on.** Try to mark a step complete with nothing but a
+  sentence and Mythify says no. That refusal is the product.
+- **A record anyone can read.** Every check, exit code, and reversal is written
+  to plain files in `.mythify/`.
+- **Product plans with teeth.** Problem, user, measurable outcomes, non-goals,
+  bets with kill criteria, and the four product risks, approved by a human
+  before any of it becomes an execution plan.
+- **Memory that survives the session.** Facts, decisions, and lessons stay on
+  disk, and the protocol tells the agent to read them back when the next
+  session starts.
+- **A leash on autonomy.** Give the agent a finish line, a budget, and a fence.
+  It stops at the first one it hits.
+- **Any model, any host, nothing to install but Python.** No dependencies, no
+  account, no API key, no model routing. Your agent picks its own tools and
+  helpers; Mythify only asks for proof.
 
 ## Get started in five minutes
 
-Mythify needs Python 3.9 or newer. Node 20+ is optional and only used for the
-server that plugs Mythify directly into agent tooling.
+Mythify needs Python 3.9 or newer and nothing else.
 
 ```bash
 git clone https://github.com/hannsxpeter/mythify.git
@@ -78,24 +82,22 @@ cd mythify
 ./scripts/install_user.sh --project /path/to/your/project
 ```
 
-There is no account to create, no API key, and no `npm install`. Mythify is
-zero-dependency Python plus one small optional Node server. The installer copies
-a self-contained runtime into your home directory, so you can delete the clone
-afterwards and everything keeps working.
-
-Now run your first loop from inside your own project:
+The installer puts `mythify`, `mythify-mcp`, and `mythify-uninstall` in
+`~/.local/bin`, copies a self-contained runtime under `~/.local/share/mythify/`,
+and runs `mythify init` in the project you named. Copy `AGENTS.md` from the
+clone into your project root so your agent reads the protocol (see
+[Drop-in protocol files](#drop-in-protocol-files)); after that you can delete
+the clone. Then, inside your project:
 
 ```bash
-mythify init                       # create the .mythify/ folder (once per project)
+mythify init                       # once per project; --project already did it
 
-# Describe the work, and how you will know it is finished:
 mythify plan create "Fix the failing parser test" \
   --steps '[{"title":"Reproduce and fix","success_criteria":"parser tests pass","verify_command":"python3 -m unittest discover -s tests"}]'
 
 mythify step 1 in_progress          # start
-# ... you, or your agent, do the actual work ...
-
-mythify plan verify 1               # Mythify runs the check for you
+# ... you, or your agent, do the work ...
+mythify plan verify 1               # Mythify runs the step's own check
 mythify step 1 completed "verify run exit 0: parser tests pass"
 ```
 
@@ -105,397 +107,262 @@ Mythify refuses.
 Three commands cover most days:
 
 ```bash
-mythify status      # where am I, what is next
+mythify status      # where am I, what is next, what needs attention
 mythify report      # a plain-language play-by-play of recent progress
-mythify summary     # the whole session: plans, evidence, lessons
+mythify summary     # the whole session: plans, products, evidence, lessons
 ```
 
-Prefer not to install anything? Run it straight from the clone with
-`python3 scripts/mythify.py ...` inside your project.
-
-### Other ways to install
+Prefer not to install anything? From your project directory, run
+`python3 /path/to/mythify/scripts/mythify.py ...` wherever this page says
+`mythify ...`.
 
 <details>
-<summary>Standalone CLI archive, no clone required</summary>
+<summary>Standalone archive, uninstalling, and skills</summary>
 
 Download `mythify-cli-VERSION.tar.gz` from a
-[release](https://github.com/hannsxpeter/mythify/releases/latest), then:
+[release](https://github.com/hannsxpeter/mythify/releases/latest), unpack it,
+and run its `scripts/install_user.sh`. The archive is deterministic: the same
+source tree always produces the same bytes (`python3 scripts/package_cli.py`).
 
-```bash
-tar -xzf mythify-cli-VERSION.tar.gz
-./mythify-cli-VERSION/scripts/install_user.sh \
-  --skip-mcp \
-  --project /path/to/your/project
-```
+`mythify-uninstall` removes what the installer added and nothing else. An
+ownership manifest records a content hash for each launcher and a per-install
+token in each directory the installer owns (the runtime and each skill
+folder). If a launcher's hash or a directory's token is missing or changed,
+uninstall stops without deleting anything. Files you edit inside an owned
+directory are not hashed: uninstall removes them with the directory, so copy
+out any skill you customized first. Project `.mythify` folders are never
+touched.
 
-To build that same archive from a source clone, run
-`python3 scripts/package_cli.py`. The archive holds the Python runtime, protocol
-manifests, chat skills, and its own installer. Its contents and gzip metadata
-are deterministic, so the same source tree always produces the same bytes.
-
-</details>
-
-<details>
-<summary>Agent tooling support (MCP server)</summary>
-
-Releases also ship `mythify-mcp-VERSION.tgz`. Create a small runtime directory,
-run `npm install /path/to/mythify-mcp-VERSION.tgz` there, and point your MCP
-client at `node node_modules/mythify-mcp/src/index.js` with `MYTHIFY_DIR` set to
-your project's `.mythify` directory. This is a local tarball install; Mythify is
-not published to an npm registry.
+The installer also copies four chat skills (`mythify`, `mythify-work`,
+`mythify-route`, `mythify-verify`) into the `skills` folder of each agent
+config directory it finds in your home directory, or into `~/.agents/skills`
+when it finds none. Name the folders yourself with `--skills-root PATH`, or
+skip them with `--skip-skills`. Invoke the skills the way your host runs
+skills.
 
 </details>
 
-<details>
-<summary>Uninstalling</summary>
+## The pieces
 
-```bash
-mythify-uninstall
-```
-
-This removes the launchers, the versioned runtime, the chat skills, and the
-optional hook that installation selected. It leaves alone anything it did not
-install, other installed versions, and every project's `.mythify` folder. An
-ownership manifest binds installed files by content hash, so if that evidence is
-missing or has changed, uninstall stops without deleting anything.
-
-</details>
-
-## The pieces, one at a time
-
-You do not need all of these on day one. Reach for them as the work gets bigger.
+You do not need all of these on day one. Reach for them as the work grows.
 
 ### Plans and steps
 
 A **plan** is a goal plus ordered **steps**. Each step can carry a
-`verify_command`: the exact command that proves it is done. `plan verify ID` runs
-that command and files the result against the step, which is what lets
-`step ID completed` succeed. "Definition of done is a check you can run" made
-literal.
+`verify_command`: the exact command that proves it is done. `plan verify ID`
+runs that command and files the result against the step, which is what lets
+`step ID completed` succeed. Definition of done is a check you can run.
 
 ### Verification: proof, not promises
 
-- `verify run "COMMAND"` runs a command and records the exit code as evidence.
-- `verify claim "..."` records a plain-English claim when genuinely nothing is
-  runnable. It is permanently marked second-class and never counts as proof.
+- `verify run "COMMAND"` runs a command and records the exit code as evidence,
+  with the output, the git commit and a fingerprint of uncommitted changes, and
+  a hash chain that makes later edits to the ledger visible in `status`.
+- `verify claim "CLAIM" "EVIDENCE"` records a statement when nothing can run.
+  It is marked second-class forever and never counts as proof.
 
-Completing a step requires a real `verify run` that exited 0 after the step
-started. If the step stores a `verify_command`, the recorded command has to match
-it. `MYTHIFY_REQUIRE_VERIFIED_STEP=0` restores the old prose-only behavior, and you should
-only reach for it knowing exactly what you are giving up.
+### Product planning: why before what
 
-### Memory and lessons
+Most agent work starts at "build X". A product manager or director starts
+earlier: whose problem is this, what outcome should move, how will we know,
+what are we not doing, and what would make us stop. Mythify records those
+answers and gates them.
 
-`memory set` and `memory get` hold facts, decisions, and discoveries.
-`lesson add` records something learned the hard way. Both live on disk, so a
-fresh session starts informed instead of blank.
+```bash
+mythify product create "Self-serve onboarding" \
+  --problem "New teams wait two days for a manual account setup" \
+  --user "Team admin signing up without a sales call" --stage pre-launch
+mythify product outcome "Admins reach a working workspace the same day" \
+  --metric "share of signups with a workspace within 24h" \
+  --baseline "12%" --target "60%" --target-source decided \
+  --measure "python3 scripts/onboarding_metric.py --min 0.60"
+mythify product non-goal "Enterprise SSO" --reason "Needs sales-led contracts" \
+  --revisit-when "three enterprise requests in a quarter"
+mythify product bet "A guided setup wizard removes the manual step" \
+  --outcome O1 --kill "under 30% same-day setup after 200 signups" \
+  --decider "Head of Product"
+mythify product risk "Admins would rather wait for a person than set up alone" \
+  --kind value --validation "interview five admins who stalled in setup"
+mythify product check                       # exit 2 lists gaps; exit 0 when ready
+mythify product approve --human-input "Approved by the Head of Product"
+mythify product promote B1                  # the bet becomes an execution plan
+mythify product measure O1                  # executed evidence for the outcome
+```
 
-### Routing: "what should I even do here?"
+Two things only a person can do: approve the product plan, and decide a bet's
+fate (continue, pivot, or stop). Mythify refuses both without the person's
+words. `product show --markdown` renders the whole plan as a one-page brief.
+See [docs/product-planning.md](docs/product-planning.md).
 
-`mythify route "your task"` reads your request alongside your current state and
-recommends the next move: just answer it, make a plan, start a loop, run a
-review. It advises only. It never acts on its own.
+### Maps: deciding before planning
 
-`mythify loop-fit "your task"` answers a narrower question: should this run
-hands-off, run supervised, or just get done by hand? It checks five things.
-Is there a real pass or fail check? Does the work repeat? Is there a repository
-to work in? Does it need human taste? Is it an open-ended quality climb toward
-a reference, like "as good as Linear"? Work with no objective check is never a
-hands-off loop. A quality climb gets its own shape instead: builders fan out,
-one separate harsh critic judges the result blind against the reference, and
-you state the budget up front, because the bar never says done and you are the
-brake.
+When the route to the finish is not visible yet, a plan is the wrong tool. A
+**map** holds the questions to settle instead. Each ticket is a question with a
+type that decides who may answer it: `research` and `task` tickets the agent
+can close; `grilling` and `prototype` tickets, and task tickets added with
+`--mode hitl`, need `--human-input` with the person's words. When no open
+ticket and no fog remain, `map promote` hands the settled destination, its
+decisions, and its out-of-scope list to a plan.
+The design is adapted from Matt Pocock's
+[wayfinder skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/wayfinder/SKILL.md).
 
-## Autonomous loops
-
-Sometimes you want the agent to keep trying on its own until a check passes.
-Mythify allows that, on a leash:
+### Outcome loops: autonomy on a leash
 
 ```bash
 mythify outcome start "make the suite green" \
   --success "all tests pass" \
   --verify "python3 -m unittest discover -s tests" \
-  --agent "your-agent-cli --do-the-work" \
-  --max-iterations 5 \
-  --max-cost 100 \
-  --escalate-after 3 \
-  --allowed-paths "src,tests"
-
-mythify outcome run                 # drives the loop by itself
+  --max-iterations 5 --escalate-after 3 --allowed-paths "src,tests"
+mythify outcome check               # after each attempt
 ```
 
-Each round fires your `--agent` command, runs the verifier, records the evidence,
-and repeats. It stops at whichever of these comes first:
+Each `outcome check` runs the verifier and records the attempt. The loop
+ends at success, at the iteration budget, or at a change inside
+`--frozen-paths` (checked by hashing the files on disk); a change outside `--allowed-paths`
+is named in the next action. Start the loop with `--agent "COMMAND"` and run
+`mythify outcome run` to let Mythify fire that command each round; it can be
+any program, an agent CLI or a plain script. `outcome run` also stops on a
+change outside `--allowed-paths`, after `--escalate-after` failures in a row
+(handing back to you), and when the total cost the command reports with
+`MYTHIFY_COST=<n>` reaches `--max-cost`. Each round's iteration and a default
+cost of 1 are charged before the command starts, so a run that is killed or
+times out still spends its round.
 
-| Stop condition | What happened |
-| :--- | :--- |
-| Success | The verifier passed. |
-| Iteration budget | It reached `--max-iterations`. |
-| Cost budget | Cumulative cost hit `--max-cost`. Your agent reports cost with a `MYTHIFY_COST=<n>` line; otherwise each round counts as one. |
-| Scope violation | The agent touched files outside `--allowed-paths`. Enforced through git, not on trust. |
-| Escalation | It failed the verifier `--escalate-after` times in a row and handed the problem back to you. |
+### Blast-radius safety cases
 
-The loop cannot declare success without the verifier, and it cannot run
-unbounded.
+When the dangerous behavior sits outside the visible diff, `review blast-radius`
+records one safety fact, an exact source fingerprint, the risks, and the
+cheapest command that would catch the real failure. `review prove` runs that
+command and links the evidence only while the reviewed tree is unchanged. See
+[docs/blast-radius.md](docs/blast-radius.md).
 
-## Wayfinding: deciding before planning
+### Memory and lessons
 
-Some work is too big for one session and the route to the finish is not visible
-yet. A plan is the wrong tool, because you cannot write steps for decisions you
-have not made. Mythify's **map** holds those decisions instead:
+`memory set` and `memory get` hold facts, decisions, and discoveries.
+`lesson add` records something learned the hard way. A fresh session starts
+informed instead of blank.
 
-```bash
-mythify map create "Ship a billing revamp spec" \
-  --fog "how do existing subscriptions migrate"
+### Routing: "what should I even do here?"
 
-mythify map ticket "Pick the proration model" --type grilling
-mythify map ticket "Confirm the gateway supports partial refunds" --type research
-mythify map ticket "Provision a sandbox account" --type task \
-  --verify "curl -sf https://sandbox.example/health" --blocked-by T2
+`mythify route "your task"` reads your request alongside your current state and
+recommends one move: just do it, plan, map, product, outcome loop, review,
+recover from a failure, or resume. It advises only. `mythify loop-fit` answers a
+narrower question: should this run hands-off, supervised, or by hand?
 
-mythify map show          # destination, decisions so far, frontier, fog, out of scope
+## Works with any model
+
+Mythify never names, ranks, picks, or switches a model, and it never spawns a
+helper on its own initiative. When `route` sees work that splits into
+independent parts, it says so (`parallelism.fit`), and your agent decides
+whether to use subagents, which ones, and on which models. Whatever comes back
+is material, not proof: it gets merged, and the merged result is verified like
+anything else.
+
+The protocol file names no model, so the same file applies to whatever model
+your host runs.
+
+## Agent tooling (MCP)
+
+`mythify mcp`, installed as `mythify-mcp`, serves Mythify as MCP tools over
+stdio, written in standard-library Python. The core loop (plans, steps,
+verification, memory, outcomes, maps, product) has typed tools, and one
+`mythify` tool runs any other command by argument list. Every tool runs the CLI
+underneath, so the evidence rules are identical by construction. Exit 2, an
+unverified verdict, comes back as a result, not a tool error.
+
+```json
+{
+  "mcpServers": {
+    "mythify": {
+      "command": "/home/you/.local/bin/mythify-mcp",
+      "env": { "MYTHIFY_DIR": "/path/to/your/project/.mythify" }
+    }
+  }
+}
 ```
 
-A ticket is a **question**, not a slice of the build. Its type decides who is
-allowed to answer it, and Mythify enforces that:
+Use absolute paths; the installer prints both values when it finishes. See
+[docs/mcp.md](docs/mcp.md) for where common hosts keep this file, the tool
+list, and how exit codes map to tool errors.
 
-| Type | Who answers | To close it |
-| :--- | :--- | :--- |
-| `research` | the agent alone | an answer; these run in parallel |
-| `task` | the agent alone | an answer, plus a passing `map verify` if it stores a check |
-| `grilling` | a human | an answer **and** `--human-input` recording what the human decided |
-| `prototype` | a human reacting to something rough | the same |
+## Drop-in protocol files
 
-That last rule is the evidence rule applied to decisions. An agent that answers
-its own question has proved nothing, exactly like an agent that says the tests
-pass without running them. `mythify map resolve T1 --answer "..."` on a
-`grilling` ticket is **refused** until a real person has weighed in.
-
-Everything else follows from that:
-
-- **Claim before you work.** One decision ticket at a time, so parallel sessions
-  cannot collide. Research is exempt.
-- **Fog is first class.** What you cannot yet state sharply goes into
-  `Not yet specified` and graduates into a ticket once it is sharp.
-- **Out of scope is recorded, not forgotten.** Work ruled past the destination is
-  closed with a reason and never creeps back.
-- **The map ends where the plan begins.** When no ticket and no fog remain,
-  `mythify map promote` creates a plan whose goal is the destination and whose
-  provenance carries every decision and boundary you settled.
-
-`mythify route "I have a loose idea and need to work out what we decide first"`
-picks this route on its own, and `mythify prompt map` renders the whole map plus
-its rules for a fresh session.
-
-The design is adapted from Matt Pocock's
-[wayfinder skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/wayfinder/SKILL.md),
-with Mythify's evidence gates layered on top.
-
-## Working from existing plans and audits
-
-If you use [godplans](https://github.com/hannsxpeter/godplans) or
-[godaudits](https://github.com/hannsxpeter/godaudits), Mythify reads their
-`.godplans/PLAN.mdx` and `.godaudits/AUDIT.mdx` files directly:
-
-```bash
-mythify plan import --source godplans
-```
-
-Each imported task keeps its exact verify command, so executing the plan is the
-same verify-gated loop as everything else. Mythify never edits those files. It
-reads them and holds the evidence trail.
-
-## Running several agents at once
-
-The optional Node MCP server exposes Mythify's state to agent tooling and adds
-**fanout**: several independent agent tasks running in parallel. Writing tasks
-can use `isolation: "worktree"` so each one gets its own git worktree on a fresh
-branch and cannot collide with the others. You merge the branches you want.
-
-The server shares the exact same `.mythify/` folder as the CLI, so a plan made in
-one is visible in the other. It exposes Mythify through 63 MCP tools by default,
-or a smaller capability profile selected with `MYTHIFY_MCP_TOOL_PROFILE`. The
-full list and profile budgets are in [docs/design.md](docs/design.md).
-
-Fanout results are material, not proof. Merge the work, then verify the merged
-result the same way as anything else.
-
-## Inspecting owned artifacts for watermark signals
-
-Mythify can use
-[`watermarks-remover`](https://github.com/guillaumemeyer/watermarks-remover)
-through an optional external service. The integration probes service health and
-capabilities, separates deterministic findings from heuristic advisory signals,
-and can clean an owned or authorized artifact to a separate output file.
-
-```bash
-mythify artifact probe
-mythify artifact inspect ./document.pdf
-mythify artifact clean ./document.pdf \
-  --output ./document.cleaned.pdf \
-  --confirm-authorized
-```
-
-Loopback is the default trust boundary. Remote use needs explicit service and
-data-upload acknowledgements. Cleaning refuses in-place and symbolic-link
-outputs, inspects the returned bytes before writing atomically, and never counts
-service output as Mythify verification evidence. See
-[docs/artifact-hygiene.md](docs/artifact-hygiene.md) for the service contract,
-false-positive policy, licensing boundaries, and residual risks.
-
-## Writing that names the work
-
-The packaged Mythify skill applies a final rewrite pass to user-facing prose.
-It removes boilerplate and vague claims, asks for the actor and evidence, and
-keeps exact technical terms when they carry real meaning. CLI and MCP prompt
-packets include the same compact instruction.
-
-The repository also runs a narrow mechanical check:
-
-```bash
-python3 scripts/check_prose_quality.py
-```
-
-That command rejects only configured characters, decorative symbols, and
-canned phrases. It does not score voice, originality, or human authorship. See
-[docs/prose-quality.md](docs/prose-quality.md) for the rewrite process, check
-scope, evidence boundary, and source attribution.
-
-## Proving what a change could break
-
-Use a blast-radius safety case when the dangerous behavior sits outside the
-visible diff. The review records one safety fact, an exact source fingerprint,
-confirmed, cleared, and unproven risks, and the cheapest command that would
-catch the real failure before merge.
-
-```bash
-mythify review blast-radius \
-  --status warn \
-  --path src/cache.py \
-  --safety-fact "eviction removes only expired entries" \
-  --risk '{"failure_mode":"live entries are removed","path":"src/cache.py","line":42,"likelihood":"low","impact":"high","disposition":"unproven","check":"python3 -m unittest tests.test_cache"}' \
-  --merge-command "python3 -m unittest tests.test_cache" \
-  --name cache-eviction
-mythify review prove cache-eviction
-mythify review show cache-eviction
-```
-
-The review itself stays material-only. `review prove` runs real code, appends
-verification parented to the immutable review, and raises proof depth to 4 or
-5 only when the reviewed worktree still matches exactly. See
-[docs/blast-radius.md](docs/blast-radius.md) for the proof ladder, data model,
-MCP tools, security boundary, and source attribution.
-
-## Feeling native in chat
-
-Three chat skills make Mythify feel like a built-in command inside your agent:
-
-- `/mythify-work` in Claude Code, or `$mythify-work` in Codex: a visible
-  step-by-step work loop.
-- `/mythify-route`: show the recommended next move.
-- `/mythify-verify`: turn a claim into real evidence and report the verdict.
+`AGENTS.md` is the protocol your agent reads: a short spine of rules, the loop,
+and the command list. Copy it into your project root. `CLAUDE.md` is a short
+pointer that imports it with an `@AGENTS.md` line, for hosts that look for that
+name; copy it too if your host reads it. If your project already has a
+`CLAUDE.md`, do not overwrite it. Add an `@AGENTS.md` line to it if you want
+it to load the protocol, and check with `mythify protocol check AGENTS.md`,
+because a bare `protocol check` also checks `CLAUDE.md` and fails on any file
+that is not the generated pointer. Both files are generated from
+`protocol/PROTOCOL.md`, and `mythify protocol check`, run in your project,
+exits 1 when a copy no longer matches your installed CLI.
 
 ## Command reference
 
-The everyday commands:
-
 | Command | What it does |
 | :--- | :--- |
-| `init` | Create the `.mythify/` folder. Run once per project. |
-| `route "TASK"` | Recommend the next workflow move. Read-only. |
-| `map create DESTINATION` | Chart a decision map when the route is not visible yet. |
-| `map ticket TITLE --type ...` | Add a decision ticket: research, prototype, grilling, or task. |
-| `map claim ID` / `map resolve ID --answer ...` | Take one ticket, then close it with its decision. |
-| `map promote` | Hand a settled map to a plan, decisions and scope included. |
-| `plan create GOAL [--steps JSON] [--archetype ...]` | Create a plan. Steps may include an explicit phase, vertical slice, and `verify_command`. |
-| `plan add-step TITLE [--phase ...] [--vertical-slice JSON] [--verify CMD]` | Add a step with optional phase, vertical result, and check. |
-| `plan verify ID` | Run a step's own check and record scoped evidence. |
-| `plan import [--source godplans\|godaudits]` | Import a PLAN.mdx or AUDIT.mdx as a plan. |
-| `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing exit-0 verify matching any stored command. |
-| `verify run "CMD" [--claim ...]` | Run a command and record the exit code as evidence. |
-| `design create`, `design alternative`, `design approve` | Record product, system, program, and bounded interface decisions as material. |
-| `lineage attach`, `lineage status` | Capture typed parent revisions and inspect staleness. |
-| `review create`, `review show` | Record structured material-only maintainability judgment. |
-| `review blast-radius`, `review prove` | Record one exact-change safety case, then link executed proof without mutating it. |
-| `workspace show` | Validate merged shared and local multi-repository configuration. |
-| `outcome start GOAL --success ... --verify ...` | Start a verifier-backed loop. Add `--agent` to self-drive. |
-| `outcome run` | Drive a self-driving loop to success or a bounded stop. |
-| `memory set/get`, `lesson add/list` | Persist facts, decisions, and lessons. |
-| `artifact probe`, `artifact inspect`, `artifact clean` | Use the optional external artifact-hygiene adapter. Direct results are material, not verification evidence. |
-| `status`, `report`, `summary` | Orient, narrate progress, and wrap up. |
+| `init` | Create the `.mythify/` folder. Once per project. |
+| `status`, `report`, `history`, `summary` | Orient, narrate progress, list evidence, wrap up. |
+| `route "TASK"`, `loop-fit "TASK"` | Recommend the next move. Read-only. |
+| `plan create\|add-step\|verify\|show\|list\|switch\|archive\|import` | Execution plans with checks per step. |
+| `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing check. |
+| `verify run "CMD"`, `verify claim`, `reflect` | Record executed or attested evidence and reflections. |
+| `product create\|outcome\|non-goal\|bet\|risk\|check\|approve\|decide\|promote\|measure\|show\|list` | Product planning with human gates. |
+| `map create\|ticket\|claim\|verify\|resolve\|fog\|scope-out\|show\|list\|promote` | Decision maps. |
+| `outcome start\|check\|run\|status\|results\|stop` | Verifier-backed loops with budgets. |
+| `review blast-radius\|prove\|show`, `lineage attach\|status` | Safety cases and artifact lineage. |
+| `memory set\|get\|clear`, `lesson add\|list`, `logs compact` | Durable memory and housekeeping. |
+| `prompt KIND`, `protocol check`, `mcp` | Prompt packets, drop-in checks, the MCP server. |
 
-There is more underneath: campaigns, research, dashboards, model policy, trace
-analysis, and the full MCP tool set. The complete reference is in
-[docs/design.md](docs/design.md), and a guided tour is in
-[docs/start-here.md](docs/start-here.md).
-
-## Choosing a model for the job
-
-`classify` and `route` return a `model_policy.model_router`. It picks a
-provider-neutral profile, `utility`, `balanced`, `strong`, or explicit-only
-`max`, while keeping autonomy, topology, reasoning effort, independent review,
-and executable verification as separate decisions.
-
-OpenAI resolves these to Luna, Terra, Sol, and Sol in max or pro mode. Claude
-resolves them to Haiku, Sonnet, Opus, and Fable. Cursor workers inspect their
-live model catalog and pick a matching available model without crossing
-providers.
-
-Pass `--model-profile` to override the default for a task. Pass `--failure-count`
-only from real verifier failures; escalation then moves one profile per failure
-and stops at `strong`. The older `fast`, `standard`, and `frontier` inputs still
-work as aliases.
-
-A stronger model is still just a stronger opinion. Executable checks decide
-completion.
-
-For independently parallel research, design, migration, security, release, or
-benchmark work, the router can recommend the native `claude-ultracode` adapter.
-The MCP host launches exactly one Claude dynamic workflow through `fanout_start`,
-watches it with `fanout_status`, and ingests its final material with
-`fanout_results`. The adapter needs Claude Code 2.1.203 or newer, keeps
-permissions with the host, and never promotes workflow output into evidence.
+Every command takes `--help`. The full reference, generated from the code, is
+[docs/commands.md](docs/commands.md).
 
 ## Evidence, honestly
 
 Mythify is a product about not overclaiming, so here is exactly what has been
-measured and what has not.
+measured.
 
-A [reproducible Codex smoke comparison](docs/evidence/efficacy-reproduction.md)
-ran two paired trials of one small Python bug fix. Bare and Mythify both passed
-2 of 2 external verifiers. The Mythify condition additionally produced executed,
-passing evidence for the expected verifier command.
+A [small smoke comparison](docs/evidence/efficacy-reproduction.md) in July 2026
+ran two paired trials of one Python bug fix with one agent CLI, against
+Mythify 5.x. With and without Mythify, both conditions passed 2 of 2 external
+verifiers. The Mythify condition also left executed, passing evidence for the
+expected command.
 
-That confirms the evidence mechanism works in that small run. It is **not** a
-demonstrated improvement in task success or speed. The sample was tiny, the order
-was fixed, the account default model was not pinned, and neither monetary cost
-nor subscription quota was measured.
-
-If someone shows you a bigger claim than that about this project, it did not come
-from here.
+That confirms the evidence mechanism worked in that run. It is **not** a
+demonstrated improvement in task success or speed: the sample was tiny, the
+order was fixed, the model was not pinned, and cost was not measured. The
+harness that ran it was removed in 6.0.0 with the rest of the model-specific
+code. A larger, pre-registered study that works with any agent is a bet on the
+[roadmap](ROADMAP.md). If someone shows you a bigger claim about this project,
+it did not come from here.
 
 ## How it is built
 
-Two runtimes over one state folder:
+- One runtime: `scripts/mythify.py` and its `scripts/mythify_*.py` modules,
+  standard-library Python 3.9+. The MCP server is one more module.
+- One state folder per project: `.mythify/`, plain JSON and JSONL.
+- One protocol source: `protocol/PROTOCOL.md`, generated into `AGENTS.md` and
+  `CLAUDE.md`.
+- One maintainer check: `python3 scripts/lint.py` keeps the version, the
+  generated files, the docs links, the protocol size, and the model-agnostic
+  rule from drifting.
 
-- **CLI** (`scripts/mythify.py` and friends): zero-dependency Python 3.9+.
-- **MCP server** (`mcp-server/`): Node 20+, exposing the same state as MCP tools
-  plus fanout.
-
-Both read and write the same `.mythify/` directory. Shared manifests, semantic
-contract checks, and interop tests keep the two independent implementations
-aligned. The protocol text itself (`protocol/PROTOCOL.md`) is the source for the
-drop-in rules files `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`.
+See [docs/architecture.md](docs/architecture.md) for the state model and the
+decisions behind it.
 
 ## Learn more
 
-- [docs/start-here.md](docs/start-here.md): the shortest path to using Mythify.
-- [docs/design.md](docs/design.md): the complete design and command reference.
-- [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the reproducible smoke run and its limits.
-- [docs/humanlayer-integration-research.md](docs/humanlayer-integration-research.md): source-backed HumanLayer repository and philosophy study behind the v5.6 quality controls.
-- [docs/prose-quality.md](docs/prose-quality.md): the user-facing rewrite pass and mechanical prose check.
-- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.
+- [docs/start-here.md](docs/start-here.md): the shortest path to a working loop.
+- [docs/product-planning.md](docs/product-planning.md): product plans from a PM and director lens.
+- [docs/commands.md](docs/commands.md): every command and flag.
+- [docs/mcp.md](docs/mcp.md): MCP setup for any host.
+- [docs/blast-radius.md](docs/blast-radius.md): safety cases for changes whose risk sits outside the diff.
+- [docs/prose-quality.md](docs/prose-quality.md): the prose rewrite pass and the mechanical prose check.
+- [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the July 2026 smoke run and what it does not show.
+- [docs/architecture.md](docs/architecture.md): state model, runtime, decisions.
+- [ROADMAP.md](ROADMAP.md): where Mythify is going, written as a product plan.
+- [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [MAINTAINING.md](MAINTAINING.md).
 
 ## License
 

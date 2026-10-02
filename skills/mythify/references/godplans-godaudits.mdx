@@ -20,17 +20,19 @@ rules embedded in each artifact. Mythify holds the executed evidence trail.
 - `plan import [PATH] [--source godplans|godaudits] [--name NAME]`: converts
   the artifact's live tasks into a Mythify plan. Task Acceptance becomes the
   step success criteria, the task `Verify:` command is kept on the step as
-  `verify_command`, and checked boxes import as completed steps. Superseded
+  `verify_command`. Every task imports as a pending step; a checked box is
+  the artifact's claim, not executed evidence, so a checked task carries
+  `artifact_checked: true` and completes through the same gate. Superseded
   (struck-through) tasks are skipped. Frontmatter counter drift against the
   checkboxes is reported; the checkboxes are trusted.
 - Strict step context: imported plans set `strict_context`, so a step completes
   only when a passing exit-0 `verify run` for its exact stored `verify_command`
   was recorded while that step was `in_progress`. Context-free or unrelated
   verifications do not count.
-- `readiness` and `harness`: surface artifact status, task progress, open
-  Critical findings, and counter drift beside git and roadmap state.
-- `phase`: imported steps keep the artifact's phase and wave, so the phase view
-  groups them without keyword guessing.
+- `status`: surfaces artifact status, task progress, open Critical findings,
+  and counter drift as attention items, and suggests `plan import` when no plan
+  is active.
+- Imported steps keep the artifact's phase and wave as step fields.
 
 ## The execution loop for an imported plan
 

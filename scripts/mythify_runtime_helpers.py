@@ -1,6 +1,7 @@
-"""Small stateless helpers shared by the Mythify CLI runtime."""
+"""Small helpers shared by the Mythify CLI runtime."""
 
 import re
+import signal
 from datetime import datetime, timezone
 
 REDACTED_SECRET = "[REDACTED]"
@@ -68,10 +69,6 @@ def slugify(text):
     return "".join(chars).strip("-")[:40]
 
 
-def tail_text(text, limit=4000):
-    return str(text or "")[-limit:]
-
-
 def redact_sensitive_output(text):
     value = str(text or "")
     if not value:
@@ -111,3 +108,59 @@ def redact_sensitive_output(text):
         value,
     )
     return value
+
+
+class ChildTerminationGuard:
+    """Forward SIGTERM and SIGINT to a verify child's whole process tree.
+
+    The child runs in its own session so a timeout can kill its tree, which
+    also hides it from signals sent to the CLI's process group (an MCP call
+    timeout or cancel, or Ctrl-C). While the guard is active, either signal
+    runs TERMINATE on the attached child, then exits 128 + signum. A signal
+    that lands before the child is attached is held and acted on at attach
+    time. Off the main thread handlers cannot be installed and the guard is
+    inert.
+    """
+
+    SIGNALS = ("SIGTERM", "SIGINT")
+
+    def __init__(self, terminate):
+        self._terminate = terminate
+        self._attached = False
+        self._process = None
+        self._pending = None
+        self._previous = {}
+
+    def _handle(self, signum, _frame):
+        if not self._attached:
+            self._pending = signum
+            return
+        self._terminate(self._process)
+        raise SystemExit(128 + signum)
+
+    def attach(self, process):
+        """Register the spawned child (None when spawning failed)."""
+        self._process = process
+        self._attached = True
+        if self._pending is not None:
+            self._terminate(process)
+            raise SystemExit(128 + self._pending)
+
+    def __enter__(self):
+        for name in self.SIGNALS:
+            signum = getattr(signal, name, None)
+            if signum is None:
+                continue
+            try:
+                self._previous[signum] = signal.signal(signum, self._handle)
+            except (ValueError, OSError):
+                pass
+        return self
+
+    def __exit__(self, *_exc):
+        for signum, handler in self._previous.items():
+            try:
+                signal.signal(signum, handler if handler is not None else signal.SIG_DFL)
+            except (ValueError, OSError, TypeError):
+                pass
+        return False

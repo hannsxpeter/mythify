@@ -3,7 +3,6 @@
 
 import argparse
 import gzip
-import json
 import os
 import re
 import tarfile
@@ -12,22 +11,30 @@ from pathlib import Path
 
 VERSION_PATTERN = re.compile(r'^VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"$', re.MULTILINE)
 SKILL_NAMES = ("mythify", "mythify-work", "mythify-route", "mythify-verify")
+# The shipped docs set. Every relative link inside a shipped Markdown file must
+# resolve inside the archive (tests/test_install_user.py checks it), so a doc
+# that README.md or another shipped doc links to belongs here.
 STANDALONE_DOCS = (
+    "AGENTS.md",
     "CHANGELOG.md",
+    "CLAUDE.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
+    "MAINTAINING.md",
+    "RELEASE-CHECKLIST.md",
+    "ROADMAP.md",
     "SECURITY.md",
-    "docs/artifact-hygiene.md",
-    "docs/claude-integrations.md",
-    "docs/design.md",
-    "docs/desktop-tool-calls.md",
-    "docs/start-here.md",
-    "docs/research-report.md",
-    "docs/humanlayer-integration-research.md",
-    "docs/prose-quality.md",
+    "docs/DRIFT.md",
+    "docs/README.md",
+    "docs/architecture.md",
     "docs/blast-radius.md",
-    "docs/evidence/codex-word-count-2026-07-13.json",
+    "docs/commands.md",
+    "docs/mcp.md",
+    "docs/product-planning.md",
+    "docs/prose-quality.md",
+    "docs/start-here.md",
     "docs/evidence/efficacy-reproduction.md",
+    "docs/evidence/efficacy-smoke-2026-07-13.json",
 )
 STANDALONE_ASSETS = (
     "docs/assets/banner.svg",
@@ -45,14 +52,6 @@ def read_version(repo_root):
 
 def check_release_tag(repo_root, tag):
     cli_version = read_version(repo_root)
-    package_path = repo_root / "mcp-server" / "package.json"
-    package_version = json.loads(package_path.read_text(encoding="utf-8"))["version"]
-    if package_version != cli_version:
-        raise RuntimeError(
-            "CLI version {} does not match MCP package version {}".format(
-                cli_version, package_version
-            )
-        )
     expected = "v" + cli_version
     if tag != expected:
         raise RuntimeError(
@@ -67,7 +66,6 @@ def artifact_files(repo_root):
         repo_root / "README.md",
         repo_root / "scripts" / "install_user.sh",
         repo_root / "scripts" / "mythify.py",
-        repo_root / "scripts" / "mythify_chat_report_hook.sh",
         repo_root / "scripts" / "check_prose_quality.py",
     }
     files.update(repo_root / relative for relative in STANDALONE_DOCS)
@@ -95,7 +93,6 @@ def archive_mode(relative_path):
     if relative_path.as_posix() in (
         "scripts/install_user.sh",
         "scripts/mythify.py",
-        "scripts/mythify_chat_report_hook.sh",
     ):
         return 0o755
     return 0o644
@@ -158,7 +155,7 @@ def main(argv=None):
         "--check-release-tag",
         default="",
         metavar="TAG",
-        help="Fail unless TAG is v plus the matching CLI and MCP package version.",
+        help="Fail unless TAG is v plus the CLI version.",
     )
     args = parser.parse_args(argv)
 
@@ -166,10 +163,10 @@ def main(argv=None):
     if args.check_release_tag:
         try:
             version = check_release_tag(repo_root, args.check_release_tag)
-        except (OSError, KeyError, ValueError, RuntimeError) as exc:
+        except (OSError, RuntimeError) as exc:
             print("[FAIL] {}".format(exc))
             return 1
-        print("[OK] Release tag v{} matches CLI and MCP package version.".format(version))
+        print("[OK] Release tag v{} matches the CLI version.".format(version))
         return 0
     output_dir = args.output_dir or (repo_root / "dist")
     destination = build_archive(repo_root, output_dir.resolve())

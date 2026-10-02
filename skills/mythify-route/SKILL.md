@@ -1,56 +1,69 @@
 ---
 name: mythify-route
 description: |
-  Chat-native Mythify router front door. Use when the user asks for
-  /mythify-route, "mythify route", "what should Mythify do next", or wants a
-  visible workflow decision before execution. Invoke with /mythify-route in
-  Claude Code or $mythify-route in Codex.
+  Mythify router front door. Use when the user asks for mythify-route,
+  "mythify route", "what should Mythify do next", or wants a visible workflow
+  decision before any work starts.
 ---
 
-> Invocation: type `/mythify-route` in Claude Code or `$mythify-route` in Codex to run this skill. Treat any text after it as the task to route.
+Invoke this skill the way your host runs skills. Treat any text after the
+skill name as the task to route.
 
-# /mythify-route
+# mythify-route
 
-Choose the next Mythify workflow path in chat without hiding the decision in
-the ledger.
+Choose the next Mythify workflow in chat, and show the decision instead of
+hiding it in the ledger.
+
+Run commands through the host's Mythify MCP tools when they exist, else the
+`mythify` launcher, else `python3 scripts/mythify.py`.
 
 ## Process
 
-1. Restate the user's requested outcome in one sentence.
-2. Run the router:
+1. Restate the requested outcome in one sentence.
+2. Route and orient. Both are read-only:
 
        mythify route "TASK"
-
-   Prefer MCP `workflow_route` when available.
-3. Run orientation:
-
        mythify status
 
-   Prefer MCP `workflow_status` when available.
-4. Report the route decision in chat:
+   Add `--json` to `route` when you need the classification: risk,
+   ambiguity, the `parallelism` and `review` advisories, and the loop-fit
+   assessment.
+3. Report the decision in chat:
 
-   - Recommended path: direct, plan, research, review, outcome, campaign,
-     failure recovery, handoff, or prompt packet.
-   - Why: the risk, ambiguity, active state, or failed evidence that drove it.
-   - Next: the exact first action you will take.
+   - Route: one of the ids below.
+   - Why: the risk, ambiguity, active state, or failed check that drove it.
+   - Next: the exact first command.
 
-   The router is godplans and godaudits aware: when `.godplans/PLAN.mdx` or
-   `.godaudits/AUDIT.mdx` exists with open tasks, the route reason names the
-   artifact and the next command becomes `plan import` so the artifact's own
-   tasks and verify commands drive the work instead of a freshly drafted plan.
+   | Route | Meaning |
+   | :--- | :--- |
+   | `direct` | Answer or make one reversible edit; verify if it changes code. |
+   | `plan` | Multi-step work: `plan create` with verifiable steps. |
+   | `map` | Decisions are not settled yet: `map create`, one ticket at a time. |
+   | `product` | Why, for whom, and what outcome are open: `product create`. |
+   | `outcome` | A verifier and a budget exist: `outcome start`, then `outcome check`. |
+   | `review` | Findings, risks, or an audit are wanted. |
+   | `failure_recovery` | The latest executed check failed; fix it first. |
+   | `handoff` | Resume active state without assuming hidden chat context. |
 
-5. If the route selects multi-step work, mark the chat cursor before mutating
+   When `.godplans/PLAN.mdx` or `.godaudits/AUDIT.mdx` has open tasks, the
+   next command becomes `plan import`, so the artifact's own tasks and verify
+   commands drive the work.
+4. If the route starts multi-step work, mark the chat cursor before changing
    state:
 
        mythify report --cursor chat --mark
 
-6. Continue only when the next step is clear and reversible. Ask only when the
-   route reveals destructive work, a real scope change, or missing user-only
-   input.
+5. Continue only when the next step is clear and reversible. Ask only when
+   the route reveals destructive work, a real scope change, or input only the
+   user can give.
 
-## Output Rule
+## Delegation
 
-The user should not have to inspect `.mythify/` to know the route. Bring the
-router's decision and next action into the transcript. Remove boilerplate and
-vague claims, name the constraint that drove the route, and preserve exact
-command and domain terms.
+`parallelism.fit` of `possible` or `strong` means independent parts exist.
+Whether to delegate, and to which subagent or model, is the host's choice;
+Mythify never picks one.
+
+## Output rule
+
+The user should not need to open `.mythify/` to know the route. Name the
+constraint that drove it and keep exact command names.

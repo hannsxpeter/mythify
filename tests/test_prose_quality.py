@@ -12,15 +12,12 @@ FIXTURES = ROOT / "tests" / "fixtures" / "prose-quality"
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from check_prose_quality import inspect_paths, inspect_text, load_manifest
+import lint  # noqa: E402
 
 
 class ProseQualityContractTests(unittest.TestCase):
     def test_manifest_separates_mechanical_and_advisory_rules(self):
         manifest = load_manifest()
-        package_manifest = json.loads(
-            (ROOT / "mcp-server" / "protocol" / "prose-quality.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(manifest, package_manifest)
         self.assertEqual(manifest["evidence_status"], "mechanical_check_only_subjective_judgment_is_material")
         self.assertIn("forbidden_characters", manifest["mechanical_rules"])
         self.assertIn("Preserve precise domain terms", " ".join(manifest["advisory_rules"]))
@@ -33,29 +30,24 @@ class ProseQualityContractTests(unittest.TestCase):
         self.assertIn("references/communication-quality.md", skill)
         self.assertIn("Keep those judgments material", reference.read_text(encoding="utf-8"))
 
-    def test_prompt_packet_runtimes_share_the_instruction(self):
+    def test_prompt_packets_carry_the_instruction(self):
         expected = (
             "Before delivering user-facing prose, remove boilerplate and vague claims; "
             "name the actor, action, evidence, or measurement, and preserve exact technical terms."
         )
         python_source = (ROOT / "scripts" / "mythify_router.py").read_text(encoding="utf-8")
-        node_source = (ROOT / "mcp-server" / "src" / "prompt-packets.js").read_text(encoding="utf-8")
         self.assertIn(expected, python_source)
-        self.assertIn(expected, node_source)
 
-    def test_release_gate_runs_the_mechanical_checker(self):
-        gates = json.loads((ROOT / "protocol" / "release-gates.json").read_text(encoding="utf-8"))
-        package_gates = json.loads(
-            (ROOT / "mcp-server" / "protocol" / "release-gates.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(gates, package_gates)
-        prose_gate = next(gate for gate in gates["gates"] if gate["id"] == "prose_quality")
-        self.assertEqual(prose_gate["commands"], ["python3 scripts/check_prose_quality.py"])
+    def test_release_workflow_runs_the_mechanical_checker(self):
+        # The release workflow runs scripts/lint.py, whose prose check runs
+        # check_prose_quality.py and reports each of its findings.
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.assertLess(
-            workflow.index("python3 scripts/check_prose_quality.py"),
+            workflow.index("python3 scripts/lint.py"),
             workflow.index("gh release create"),
         )
+        self.assertIn("prose", lint.CHECKS)
+        self.assertIn("scripts/check_prose_quality.py", (ROOT / "scripts" / "lint.py").read_text(encoding="utf-8"))
 
 
 class ProseQualityCheckerTests(unittest.TestCase):

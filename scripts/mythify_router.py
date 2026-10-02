@@ -1,4 +1,9 @@
-"""Prompt packet and workflow route helpers for the Mythify CLI."""
+"""Prompt packet and workflow route helpers for the Mythify CLI.
+
+Prompt packet kinds: next, handoff, failure, review, map, product. Route ids
+come from protocol/workflow-router.json: direct, plan, map, product, outcome,
+review, failure_recovery, handoff.
+"""
 
 import json
 import shlex
@@ -7,8 +12,7 @@ from pathlib import Path
 
 from mythify_classification import classify_task_text
 from mythify_godfiles import godaudits_summary, godplans_summary
-from mythify_model_policy import build_model_policy, run_model_triage
-from mythify_plan_horizon import route_plan_horizon
+from mythify_loopfit import assess_loop_fit, loopfit_project_context, project_has_runnable_check
 from mythify_maps import (
     format_ticket_line,
     frontier_tickets,
@@ -20,19 +24,11 @@ from mythify_maps import (
     ticket_name,
     ungraduated_fog,
 )
-from mythify_workflows import (
-    build_campaign_prompt_payload,
-    campaign_next_action,
-    campaign_progress,
-    current_campaign_task,
-    get_active_campaign_slug,
-    get_active_research_slug,
-    load_campaign,
-    load_research,
-)
+from mythify_product import active_product_view, build_product_prompt_packet
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_ROUTER_PATH = REPO_ROOT / "protocol" / "workflow-router.json"
+PROMPT_PACKET_KINDS = ("next", "handoff", "failure", "review", "map", "product")
 
 
 def load_workflow_router():
@@ -43,7 +39,11 @@ def load_workflow_router():
     for entry in routes:
         route_id = str(entry.get("id", "")).strip()
         prompt_packet = str(entry.get("prompt_packet", "")).strip()
-        if not route_id or route_id in seen or not prompt_packet:
+        if (
+            not route_id
+            or route_id in seen
+            or prompt_packet not in PROMPT_PACKET_KINDS
+        ):
             raise ValueError("Invalid workflow router entry")
         seen.add(route_id)
     if not routes:
@@ -66,10 +66,11 @@ WORKFLOW_ROUTE_GUARDRAIL = (
     "Workflow route output is steering material for the host agent, not verification evidence. "
     "The host must do the work, run checks when available, report issues in chat, and record evidence."
 )
+# "keep going" alone is a resume term; only "keep going until done" is full send.
 ROUTE_FULL_SEND_TERMS = (
     "one shot", "one-shot", "one go", "in one go", "all in one go",
     "address all", "fix all", "do all", "do everything", "execute all",
-    "continuous run", "keep going", "keep going until done", "until no issues remain",
+    "continuous run", "keep going until done", "until no issues remain",
     "yolo", "full send", "ship it", "run it through",
 )
 ROUTE_PROMPT_TERMS = (
@@ -80,6 +81,7 @@ ROUTE_RESEARCH_TERMS = (
     "research", "look up", "latest", "find sources", "source-backed",
     "online", "internet", "web search",
 )
+ROUTE_QUESTION_WORDS = ("what", "which", "how", "why", "whether", "where", "when", "who")
 ROUTE_REVIEW_TERMS = (
     "audit", "review", "assess", "evaluate", "find issues", "code review",
     "risks", "risk sweep", "blast radius", "what could this break",
@@ -107,6 +109,18 @@ ROUTE_MAP_TERMS = (
 )
 ROUTE_GODPLANS_TERMS = ("godplans", "god plans")
 ROUTE_GODAUDITS_TERMS = ("godaudits", "god audits")
+# Terms that select a route on their own. A short prompt that carries one is
+# not trivial. Resume, outcome, and verify terms are left out: they steer only
+# together with durable state or with each other.
+ROUTE_SELECTING_TERMS = (
+    ROUTE_FULL_SEND_TERMS
+    + ROUTE_PROMPT_TERMS
+    + ROUTE_RESEARCH_TERMS
+    + ROUTE_REVIEW_TERMS
+    + ROUTE_MAP_TERMS
+    + ROUTE_GODPLANS_TERMS
+    + ROUTE_GODAUDITS_TERMS
+)
 WORKSPACE_DIR_NAME = ".mythify"
 
 
@@ -132,7 +146,6 @@ git_status_summary = _missing_dependency
 compact_report_detail = _missing_dependency
 build_work_report = _missing_dependency
 load_outcome = _missing_dependency
-read_host_model_state = _missing_dependency
 
 
 def fail(message):
@@ -152,13 +165,12 @@ def configure_prompt_router(
     compact_report_detail_func=None,
     build_work_report_func=None,
     load_outcome_func=None,
-    read_host_model_state_func=None,
     fail_func=None,
 ):
     global get_active_slug, load_plan, plan_progress, next_pending_step
     global read_jsonl, build_verification_history_view, verification_label
     global git_status_summary, compact_report_detail, build_work_report
-    global load_outcome, read_host_model_state, fail
+    global load_outcome, fail
     if get_active_slug_func is not None:
         get_active_slug = get_active_slug_func
     if load_plan_func is not None:
@@ -181,8 +193,6 @@ def configure_prompt_router(
         build_work_report = build_work_report_func
     if load_outcome_func is not None:
         load_outcome = load_outcome_func
-    if read_host_model_state_func is not None:
-        read_host_model_state = read_host_model_state_func
     if fail_func is not None:
         fail = fail_func
 
@@ -325,24 +335,6 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
             payload.get("next_prompt", ""),
         )
         return payload
-    if kind == "campaign":
-        slug, record = load_campaign(state, name)
-        if record is None:
-            return {"error": "[FAIL] Campaign not found. Start one with: campaign start GOAL"}
-        campaign_payload = build_campaign_prompt_payload(slug, record)
-        return add_prose_quality_instruction({
-            "kind": "campaign",
-            "selected_kind": "campaign",
-            "title": "Campaign prompt packet",
-            "source": {"type": "campaign", "id": slug},
-            "context": campaign_payload,
-            "next_prompt": campaign_payload.get("next_prompt", ""),
-            "guardrail": PROMPT_PACKET_GUARDRAIL,
-        })
-    if kind == "research":
-        return add_prose_quality_instruction(build_research_prompt_packet(state, name=name, goal=goal, verify_command=verify_command))
-    if kind == "analysis":
-        return add_prose_quality_instruction(build_analysis_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "failure":
         return add_prose_quality_instruction(build_failure_prompt_packet(state, verify_command=verify_command))
     if kind == "handoff":
@@ -351,8 +343,11 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
         return add_prose_quality_instruction(build_review_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "map":
         return add_prose_quality_instruction(build_map_prompt_packet(state, name=name, goal=goal))
+    if kind == "product":
+        return add_prose_quality_instruction(
+            build_product_prompt_packet(state, name=name, goal=goal, guardrail=PROMPT_PACKET_GUARDRAIL)
+        )
     return {"error": "[FAIL] Unknown prompt packet kind: {0}".format(kind)}
-
 
 def build_map_prompt_packet(state, name=None, goal=""):
     slug, record = load_map(state, name)
@@ -442,106 +437,6 @@ def build_map_prompt_packet(state, name=None, goal=""):
     }
 
 
-def build_research_prompt_packet(state, name=None, goal="", verify_command=""):
-    slug, record = load_research(state, name)
-    if record is None:
-        return {"error": "[FAIL] Research not found. Start one with: research start QUESTION"}
-    sources = record.get("sources") or []
-    claims = record.get("claims") or []
-    questions = record.get("open_questions") or []
-    decision = record.get("decision") or ""
-    lines = [
-        "Research to implementation prompt packet: {0}".format(slug),
-        "Question: {0}".format(record.get("question", "")),
-        "Status: {0}".format(record.get("status", "active")),
-        "Sources: {0}; claims: {1}; open questions: {2}".format(len(sources), len(claims), len(questions)),
-    ]
-    if goal:
-        lines.append("Implementation goal: {0}".format(goal))
-    if decision:
-        lines.append("Decision: {0}".format(decision))
-    if claims:
-        lines.append("Key claims:")
-        for claim in claims[-5:]:
-            source = " source={0}".format(claim.get("source_id")) if claim.get("source_id") else ""
-            lines.append("- {0}: {1}{2}".format(claim.get("id"), claim.get("claim"), source))
-            lines.append("  evidence: {0}".format(claim.get("evidence", "")))
-    if questions:
-        lines.append("Open questions:")
-        for item in questions[-5:]:
-            lines.append("- {0}: {1}".format(item.get("id"), item.get("question")))
-    lines.extend([
-        "",
-        "Instructions:",
-        "- Treat this research as material for direction, not proof of completion.",
-        "- If a decision exists, implement the smallest next step consistent with it.",
-        "- If open questions block implementation, answer those first and update the research record.",
-        "- Convert implementation work into a plan, campaign, or outcome loop before claiming done.",
-    ])
-    if verify_command:
-        lines.append("- Suggested verifier: {0}".format(verify_command))
-    lines.append("Guardrail: {0}".format(PROMPT_PACKET_GUARDRAIL))
-    return {
-        "kind": "research",
-        "selected_kind": "research",
-        "title": "Research to implementation prompt packet",
-        "source": {"type": "research", "id": slug},
-        "context": {
-            "question": record.get("question", ""),
-            "status": record.get("status", "active"),
-            "decision": decision,
-            "sources": sources[-5:],
-            "claims": claims[-5:],
-            "open_questions": questions[-5:],
-            "goal": goal,
-            "verify_command": verify_command,
-        },
-        "next_prompt": "\n".join(lines),
-        "guardrail": PROMPT_PACKET_GUARDRAIL,
-    }
-
-
-def build_analysis_prompt_packet(state, goal="", verify_command=""):
-    plan_context = active_plan_packet_context(state)
-    recent = prompt_recent_evidence(state, limit=3)
-    lines = [
-        "Analysis prompt packet",
-        "Goal: {0}".format(goal or (plan_context or {}).get("goal") or "infer from current project context"),
-    ]
-    lines.extend(prompt_plan_lines(plan_context))
-    if recent:
-        lines.append("Recent evidence:")
-        for item in recent:
-            exit_text = "" if item.get("exit_code") is None else " exit {0}".format(item.get("exit_code"))
-            lines.append("- {0}: {1}{2}".format(item.get("verdict"), item.get("label"), exit_text))
-    lines.extend([
-        "",
-        "Instructions:",
-        "- Read the smallest useful project context before editing.",
-        "- Identify likely files, constraints, hidden risks, and the first reversible step.",
-        "- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs, name the one that looks good but is not and why, then recommend one.",
-        "- Produce or update a plan with checkable success criteria.",
-        "- Do not implement until the first step and verifier are explicit.",
-    ])
-    if verify_command:
-        lines.append("- Candidate verifier: {0}".format(verify_command))
-    lines.append("Guardrail: {0}".format(PROMPT_PACKET_GUARDRAIL))
-    return {
-        "kind": "analysis",
-        "selected_kind": "analysis",
-        "title": "Analysis prompt packet",
-        "source": {"type": "workflow_state", "id": (plan_context or {}).get("slug")},
-        "context": {
-            "goal": goal,
-            "active_plan": plan_context,
-            "recent_evidence": recent,
-            "verify_command": verify_command,
-        },
-        "next_prompt": "\n".join(lines),
-        "guardrail": PROMPT_PACKET_GUARDRAIL,
-    }
-
-
 def failed_command_streak(state, record):
     """Consecutive failed executed runs of RECORD's command, latest first."""
     if not record:
@@ -625,20 +520,36 @@ def build_failure_prompt_packet(state, verify_command=""):
 
 def build_handoff_prompt_packet(state, goal="", verify_command=""):
     plan_context = active_plan_packet_context(state)
-    campaign_slug, campaign_record = load_campaign(state, None)
-    research_slug, research_record = load_research(state, None)
+    outcome_slug, outcome_record = load_outcome(state)
     report = build_work_report(state, since="start", recent=5, cursor="handoff-prompt", peek=True, mark=False)
+    recent = prompt_recent_evidence(state, limit=3)
     lines = [
         "Handoff prompt packet",
         "Goal: {0}".format(goal or (plan_context or {}).get("goal") or "continue current Mythify work"),
     ]
     lines.extend(prompt_plan_lines(plan_context))
-    if campaign_record:
-        lines.append("Active campaign: {0}".format(campaign_slug))
-        lines.append("Campaign next action: {0}".format(campaign_next_action(campaign_record)))
-    if research_record:
-        lines.append("Active research: {0}".format(research_slug))
-        lines.append("Research question: {0}".format(research_record.get("question", "")))
+    active_outcome = None
+    if outcome_record and outcome_record.get("status") == "active":
+        active_outcome = {
+            "id": outcome_slug,
+            "goal": outcome_record.get("goal", ""),
+            "iteration_count": outcome_record.get("iteration_count", 0),
+            "max_iterations": outcome_record.get("max_iterations", 1),
+            "verify_command": outcome_record.get("verify_command", ""),
+        }
+        lines.append(
+            "Active outcome: {0} ({1}/{2} iterations); verifier: {3}".format(
+                outcome_slug,
+                active_outcome["iteration_count"],
+                active_outcome["max_iterations"],
+                active_outcome["verify_command"],
+            )
+        )
+    if recent:
+        lines.append("Recent evidence:")
+        for item in recent:
+            exit_text = "" if item.get("exit_code") is None else " exit {0}".format(item.get("exit_code"))
+            lines.append("- {0}: {1}{2}".format(item.get("verdict"), item.get("label"), exit_text))
     if report.get("attention_events"):
         lines.append("Attention items:")
         for event in report["attention_events"][-5:]:
@@ -652,29 +563,45 @@ def build_handoff_prompt_packet(state, goal="", verify_command=""):
         "Instructions:",
         "- Resume from this packet without assuming hidden chat context.",
         "- Re-read files before editing if the packet mentions uncertainty.",
-        "- Continue the current step or campaign phase, then verify before claiming completion.",
-        "- Surface any failed checks or warnings in chat.",
     ])
+    if plan_context or active_outcome:
+        lines.extend([
+            "- Continue the current step or outcome attempt, then verify before claiming completion.",
+            "- Surface any failed checks or warnings in chat.",
+        ])
+    else:
+        lines.extend([
+            "- Read the smallest useful project context before editing.",
+            "- Identify likely files, constraints, hidden risks, and the first reversible step.",
+            "- For any hard-to-reverse fix, lay out 2-3 labeled approaches with tradeoffs, name the one that looks good but is not and why, then recommend one.",
+            "- Produce or update a plan with checkable success criteria.",
+            "- Do not implement until the first step and verifier are explicit.",
+        ])
     if verify_command:
         lines.append("- Suggested verifier: {0}".format(verify_command))
     lines.append("Guardrail: {0}".format(PROMPT_PACKET_GUARDRAIL))
+    if plan_context:
+        source = {"type": "plan", "id": plan_context.get("slug")}
+    elif active_outcome:
+        source = {"type": "outcome", "id": outcome_slug}
+    else:
+        source = {"type": "workflow_state", "id": None, "detail": "no active plan or outcome"}
     return {
         "kind": "handoff",
         "selected_kind": "handoff",
         "title": "Handoff prompt packet",
-        "source": {"type": "workflow_state", "id": (plan_context or {}).get("slug")},
+        "source": source,
         "context": {
             "goal": goal,
             "active_plan": plan_context,
-            "active_campaign": {"id": campaign_slug, "next_action": campaign_next_action(campaign_record)} if campaign_record else None,
-            "active_research": {"id": research_slug, "question": research_record.get("question", "")} if research_record else None,
+            "active_outcome": active_outcome,
+            "recent_evidence": recent,
             "recent_report": report,
             "verify_command": verify_command,
         },
         "next_prompt": "\n".join(lines),
         "guardrail": PROMPT_PACKET_GUARDRAIL,
     }
-
 
 def build_review_prompt_packet(state, goal="", verify_command=""):
     plan_context = active_plan_packet_context(state)
@@ -725,7 +652,11 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
         "kind": "review",
         "selected_kind": "review",
         "title": "Review prompt packet",
-        "source": {"type": "git", "id": git_state.get("branch")},
+        "source": (
+            {"type": "git", "id": git_state.get("branch")}
+            if git_state.get("branch")
+            else {"type": "git", "id": None, "detail": "no git branch detected"}
+        ),
         "context": {
             "goal": goal,
             "git": git_state,
@@ -743,16 +674,9 @@ def select_next_prompt_packet_kind(state):
     _, latest = latest_executed_verification(state)
     if latest is not None and latest.get("verified") is False:
         return "failure"
-    if get_active_campaign_slug(state):
-        return "campaign"
     if get_active_map_slug(state):
         return "map"
-    if get_active_research_slug(state):
-        return "research"
-    if get_active_slug(state):
-        return "handoff"
-    return "analysis"
-
+    return "handoff"
 
 def format_prompt_packet(payload):
     lines = [
@@ -763,7 +687,12 @@ def format_prompt_packet(payload):
     ]
     if payload.get("source"):
         source = payload["source"]
-        lines.append("Source: {0} {1}".format(source.get("type", ""), source.get("id", "")))
+        line = "Source: {0}".format(source.get("type", ""))
+        if source.get("id") not in (None, ""):
+            line += " {0}".format(source["id"])
+        elif source.get("detail"):
+            line += " ({0})".format(source["detail"])
+        lines.append(line)
     lines.append("Next prompt:")
     lines.append(payload.get("next_prompt", ""))
     lines.append("Guardrail: {0}".format(payload.get("guardrail", PROMPT_PACKET_GUARDRAIL)))
@@ -797,16 +726,12 @@ def workflow_route_state(state):
         active_plan_slug = None
         active_plan = None
         active_outcome_slug, active_outcome = None, None
-        active_campaign_slug, active_campaign = None, None
-        active_research_slug, active_research = None, None
         active_map_slug, active_map = None, None
         latest_index, latest = None, None
     else:
         active_plan_slug = get_active_slug(state)
         active_plan = load_plan(state, active_plan_slug) if active_plan_slug else None
         active_outcome_slug, active_outcome = load_outcome(state)
-        active_campaign_slug, active_campaign = load_campaign(state)
-        active_research_slug, active_research = load_research(state)
         active_map_slug, active_map = load_map(state)
         latest_index, latest = latest_executed_verification(state)
     latest_view = None
@@ -835,7 +760,7 @@ def workflow_route_state(state):
         }
     outcome_view = None
     # Only an outcome that is still active steers routing; a finished loop stays
-    # visible in status and background views but must not be a routing target.
+    # visible in status and outcome status but must not be a routing target.
     if active_outcome and active_outcome.get("status") == "active":
         outcome_view = {
             "id": active_outcome_slug,
@@ -843,26 +768,6 @@ def workflow_route_state(state):
             "status": active_outcome.get("status", ""),
             "iteration_count": active_outcome.get("iteration_count", 0),
             "max_iterations": active_outcome.get("max_iterations", 0),
-        }
-    campaign_view = None
-    if active_campaign:
-        done, total = campaign_progress(active_campaign)
-        current_task = current_campaign_task(active_campaign)
-        campaign_view = {
-            "id": active_campaign_slug,
-            "goal": active_campaign.get("goal", ""),
-            "status": active_campaign.get("status", ""),
-            "phase": (current_task or {}).get("phase", ""),
-            "progress": {"completed": done, "total": total},
-        }
-    research_view = None
-    if active_research:
-        research_view = {
-            "id": active_research_slug,
-            "question": active_research.get("question", ""),
-            "status": active_research.get("status", ""),
-            "claim_count": len(active_research.get("claims") or []),
-            "source_count": len(active_research.get("sources") or []),
         }
     map_view = None
     # A promoted map has handed its destination to a plan, so it stops steering.
@@ -883,9 +788,8 @@ def workflow_route_state(state):
     return {
         "active_plan": plan_view,
         "active_outcome": outcome_view,
-        "active_campaign": campaign_view,
-        "active_research": research_view,
         "active_map": map_view,
+        "active_product": active_product_view(state),
         "latest_executed_verification": latest_view,
         "godplans_plan": godplans_view if godplans_view.get("present") else None,
         "godaudits_audit": godaudits_view if godaudits_view.get("present") else None,
@@ -920,54 +824,10 @@ def route_has(text, terms):
     return bool(_contains_any(text, terms))
 
 
-def route_plan_archetype(route, classification):
-    archetype = (classification or {}).get("plan_archetype", "direct")
-    if route == "plan" and archetype == "direct":
-        return "rpi"
-    return archetype
-
-
-def maintainability_review_packet(route, classification):
-    task_type = (classification or {}).get("task_type")
-    archetype = route_plan_archetype(route, classification)
-    recommended = archetype == "design-heavy" or task_type == "refactor"
-    return {
-        "recommended": recommended,
-        "reason": (
-            "The route changes an expensive seam or emphasizes maintainability."
-            if recommended
-            else "The route does not require advisory maintainability judgment."
-        ),
-        "command": (
-            "mythify review create --status pass --path CHANGED_PATH "
-            "--interface-depth NOTE --locality NOTE --seam-count NOTE "
-            "--deletion-cost NOTE --invalid-state-exclusion NOTE --test-validity NOTE"
-            if recommended
-            else None
-        ),
-        "dimensions": [
-            "interface_depth",
-            "locality",
-            "seam_count",
-            "deletion_cost",
-            "invalid_state_exclusion",
-            "test_validity",
-        ],
-        "evidence_status": "material_not_verification",
-    }
-
-
-def route_command_for(route, task, state_view, classification=None):
+def route_command_for(route, task, state_view):
     quoted_task = shlex.quote(str(task or "").strip() or "task")
-    packet = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
-    if route == "failure":
+    if route == "failure_recovery":
         return "mythify prompt failure"
-    if route == "campaign":
-        if state_view.get("active_campaign"):
-            return "mythify campaign prompt"
-        return (
-            "mythify campaign start {0} --success {1}"
-        ).format(quoted_task, shlex.quote("done criteria are verified"))
     if route == "outcome":
         if state_view.get("active_outcome"):
             return "mythify outcome status"
@@ -981,10 +841,11 @@ def route_command_for(route, task, state_view, classification=None):
                 return "mythify map promote"
             return "mythify prompt map"
         return "mythify map create {0}".format(quoted_task)
-    if route == "research":
-        if state_view.get("active_research"):
-            return "mythify prompt research"
-        return "mythify research start {0}".format(quoted_task)
+    if route == "product":
+        product = state_view.get("active_product")
+        if not product:
+            return 'mythify product create "TITLE" --problem "..." --user "..."'
+        return "mythify product show" if product.get("ready") else "mythify product check"
     if route == "review":
         if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
             return "mythify plan import --source godaudits"
@@ -994,31 +855,17 @@ def route_command_for(route, task, state_view, classification=None):
     if route == "plan":
         if god_artifact_has_open_tasks(state_view.get("godplans_plan")):
             return "mythify plan import --source godplans"
-        archetype = route_plan_archetype(route, classification)
-        return "mythify plan create {0} --horizon {1} --archetype {2}".format(
-            quoted_task,
-            route_plan_horizon(),
-            archetype,
-        )
-    if route == "prompt":
-        return "mythify prompt {0}".format(packet)
+        return "mythify plan create {0}".format(quoted_task)
     return "Answer directly in the initiating chat; run verify run if an executable completion check exists."
 
 
 def route_state_writes(route, state_view):
-    if route == "failure":
+    if route == "failure_recovery":
         return [
             "record reflection after diagnosing the red check",
             "record verify run after the recovery attempt",
             "update the active step with evidence when fixed",
         ]
-    if route == "campaign":
-        if state_view.get("active_campaign"):
-            return [
-                "campaign advance after the host completes the current task with evidence",
-                "campaign learn when the next task should improve",
-            ]
-        return ["campaign start when the host accepts the route"]
     if route == "outcome":
         if state_view.get("active_outcome"):
             return ["outcome check after each bounded attempt"]
@@ -1039,10 +886,26 @@ def route_state_writes(route, state_view):
             "map ticket for each decision you can already state",
             "map fog for what you cannot state sharply yet",
         ]
-    if route == "research":
-        if state_view.get("active_research"):
-            return ["research add-source", "research add-claim", "research close"]
-        return ["research start before implementation"]
+    if route == "product":
+        product = state_view.get("active_product")
+        if not product:
+            return [
+                "product create with the problem in the user's words and one primary user",
+                "product outcome, non-goal, bet, and risk entries",
+                "product check until it exits 0",
+                "product approve with the human's words before any promote",
+            ]
+        if not product.get("ready"):
+            return [
+                "product outcome, non-goal, bet, or risk entries that close the check gaps",
+                "product check until it exits 0",
+            ]
+        return [
+            "product approve with the human's words",
+            "product promote for the top-priority bet",
+            "product measure after the plan ships",
+            "product decide with the decider's words",
+        ]
     if route == "review":
         if god_artifact_has_open_tasks(state_view.get("godaudits_audit")):
             return [
@@ -1062,8 +925,6 @@ def route_state_writes(route, state_view):
                 "reflect on failures",
             ]
         return ["plan create", "step updates", "verify run", "reflect on failures"]
-    if route == "prompt":
-        return []
     return []
 
 
@@ -1079,7 +940,6 @@ def workflow_route_evidence(route, state_view, classification):
             "task_type": classification.get("task_type"),
             "risk": classification.get("risk"),
             "execution_profile": classification.get("execution_profile"),
-            "plan_archetype": route_plan_archetype(route, classification),
         },
     ]
     latest = state_view.get("latest_executed_verification")
@@ -1088,9 +948,8 @@ def workflow_route_evidence(route, state_view, classification):
     for key in (
         "active_plan",
         "active_outcome",
-        "active_campaign",
-        "active_research",
         "active_map",
+        "active_product",
         "godplans_plan",
         "godaudits_audit",
     ):
@@ -1104,28 +963,43 @@ def workflow_route_evidence(route, state_view, classification):
     return evidence
 
 
+def research_route(text, classification):
+    """Research-like prompts: a map when several questions sit in fog, else direct.
+
+    Source-backed lookups no longer get their own record type. A prompt that
+    asks two or more questions while the classification reads it as ambiguous
+    is a decision map in disguise; anything else is answered directly, with a
+    verify claim citing sources when nothing executable exists.
+    """
+    question_marks = text.count("?")
+    question_words = sum(1 for word in _wordish(text).split() if word in ROUTE_QUESTION_WORDS)
+    multi_question = question_marks >= 2 or question_words >= 2
+    foggy = classification.get("ambiguity") in ("medium", "high")
+    if multi_question and foggy:
+        return (
+            "map",
+            "The prompt is research-like and asks several questions whose answers are "
+            "not visible yet, so chart a decision map and settle them one ticket at a time.",
+        )
+    return (
+        "direct",
+        "The prompt is a research-like lookup with one clear question, so answer it "
+        "directly, cite sources, and record a verify claim when nothing executable exists.",
+    )
+
+
 def select_workflow_route(task, state_view, classification):
     text = " ".join(str(task or "").lower().split())
     latest = state_view.get("latest_executed_verification")
     if latest and latest.get("verified") is False:
         return (
-            "failure",
+            "failure_recovery",
             "The latest executed verification is red, so recover that failure before advancing unrelated work.",
-        )
-    if route_has(text, ROUTE_FULL_SEND_TERMS):
-        return (
-            "campaign",
-            "The prompt uses full-send language, so route to a durable campaign loop with evidence-gated advancement.",
-        )
-    if state_view.get("active_campaign") and route_has(text, ROUTE_RESUME_TERMS):
-        return (
-            "campaign",
-            "An active campaign exists and the prompt asks to continue.",
         )
     if route_has(text, ROUTE_PROMPT_TERMS):
         return (
-            "prompt",
-            "The prompt asks for steering material rather than immediate execution.",
+            "handoff",
+            "The prompt asks for steering material rather than immediate execution, so render the handoff packet.",
         )
     if state_view.get("active_outcome") and (
         route_has(text, ROUTE_RESUME_TERMS) or route_has(text, ROUTE_OUTCOME_TERMS)
@@ -1138,6 +1012,23 @@ def select_workflow_route(task, state_view, classification):
         return (
             "outcome",
             "The prompt names success or verification conditions, so use a bounded outcome loop.",
+        )
+    if route_has(text, ROUTE_FULL_SEND_TERMS):
+        if state_view.get("active_plan"):
+            return (
+                "handoff",
+                "The prompt uses full-send language and an active plan exists, so drive that plan to done step by step with evidence.",
+            )
+        return (
+            "plan",
+            "The prompt uses full-send language, so plan the whole job with verifiable steps and drive it to done step by step.",
+        )
+    if classification.get("task_type") == "product":
+        return (
+            "product",
+            "The prompt asks product-planning questions (problem, users, outcomes, "
+            "priorities), so frame them in a product record and get a human's "
+            "approval before any execution plan.",
         )
     if route_has(text, ROUTE_MAP_TERMS):
         return (
@@ -1162,19 +1053,11 @@ def select_workflow_route(task, state_view, classification):
             "The prompt names godplans, so route to plan work around the .godplans plan artifact.",
         )
     if classification.get("task_type") == "research" or route_has(text, ROUTE_RESEARCH_TERMS):
-        return (
-            "research",
-            "The task depends on external, uncertain, or source-backed information.",
-        )
+        return research_route(text, classification)
     if classification.get("task_type") == "review" or route_has(text, ROUTE_REVIEW_TERMS):
         return (
             "review",
             "The task asks for audit, review, evaluation, or issue finding.",
-        )
-    if state_view.get("active_research") and route_has(text, ROUTE_RESUME_TERMS):
-        return (
-            "research",
-            "An active research record exists and the prompt asks to continue.",
         )
     if state_view.get("active_plan") and route_has(text, ROUTE_RESUME_TERMS):
         return (
@@ -1199,10 +1082,8 @@ def active_loop_collision(state_view):
     families = [
         label
         for key, label in (
-            ("active_campaign", "campaign"),
             ("active_outcome", "outcome"),
             ("active_map", "map"),
-            ("active_research", "research"),
             ("active_plan", "plan"),
         )
         if state_view.get(key)
@@ -1219,6 +1100,11 @@ def active_loop_collision(state_view):
             )
         ),
     }
+
+
+def route_loop_fit(task):
+    root, is_git = loopfit_project_context()
+    return assess_loop_fit(task, is_git, project_has_runnable_check(root))
 
 
 def build_workflow_route(task, state, classification):
@@ -1241,31 +1127,21 @@ def build_workflow_route(task, state, classification):
             god_audit.get("path"), god_audit.get("detail")
         )
     packet_kind = WORKFLOW_ROUTE_PROMPTS.get(route, "next")
-    execution_adapter = (
-        classification.get("model_policy", {})
-        .get("model_router", {})
-        .get("execution_topology", {})
-        .get("native_adapter", {})
-    )
-    state_writes = route_state_writes(route, state_view)
-    loop_collision = active_loop_collision(state_view)
     return {
         "kind": "workflow_route",
         "route": route,
         "reason": reason,
-        "loop_collision": loop_collision,
+        "loop_collision": active_loop_collision(state_view),
         "input": str(task or ""),
         "classification": classification,
+        "loop_fit": route_loop_fit(task),
         "state": state_view,
-        "next_command": route_command_for(route, task, state_view, classification),
+        "next_command": route_command_for(route, task, state_view),
         "prompt_packet": {
             "kind": packet_kind,
             "command": "mythify prompt {0}".format(packet_kind),
         },
-        "execution_adapter": execution_adapter,
         "verification_strategy": classification.get("verification", ""),
-        "plan_archetype": route_plan_archetype(route, classification),
-        "maintainability_review": maintainability_review_packet(route, classification),
         "chat_policy": {
             "executor": "initiating_host",
             "surface": "chat",
@@ -1279,7 +1155,7 @@ def build_workflow_route(task, state, classification):
             "missing credentials, secrets, or billing acknowledgements",
             "decisions only the user can make",
         ],
-        "state_writes": state_writes,
+        "state_writes": route_state_writes(route, state_view),
         "evidence": workflow_route_evidence(route, state_view, classification),
         "guardrail": WORKFLOW_ROUTE_GUARDRAIL,
     }
@@ -1295,26 +1171,41 @@ def format_workflow_route(payload):
             payload.get("prompt_packet", {}).get("command", ""),
         ),
         "Verification strategy: {0}".format(payload.get("verification_strategy", "")),
-        "Maintainability review: {0}".format(
-            "recommended"
-            if payload.get("maintainability_review", {}).get("recommended")
-            else "optional"
-        ),
     ]
+    classification = payload.get("classification") or {}
+    framing = classification.get("framing") or {}
+    parallelism = classification.get("parallelism") or {}
+    review = classification.get("review") or {}
+    lines.append(
+        "Classification: type={0}; risk={1}; ambiguity={2}; profile={3}".format(
+            classification.get("task_type", ""),
+            classification.get("risk", ""),
+            classification.get("ambiguity", ""),
+            classification.get("execution_profile", ""),
+        )
+    )
+    lines.append(
+        "Advisories: framing={0}; parallelism={1} (chooser: {2}); independent review={3}".format(
+            framing.get("level", "none"),
+            parallelism.get("fit", "none"),
+            parallelism.get("chooser", "host"),
+            "yes" if review.get("independent") else "no",
+        )
+    )
+    loop_fit = payload.get("loop_fit") or {}
+    if loop_fit:
+        lines.append(
+            "Loop fit: {0}; {1}".format(
+                loop_fit.get("recommendation", ""), loop_fit.get("reason", "")
+            )
+        )
+    if classification.get("quality_climb") == "detected":
+        lines.append(
+            "Quality climb: {0}".format(classification.get("quality_climb_protocol", ""))
+        )
     collision = payload.get("loop_collision")
     if collision:
         lines.append("Loop collision: {0}".format(collision.get("note", "")))
-    adapter = payload.get("execution_adapter") or {}
-    if adapter.get("recommended") is True:
-        lines.append(
-            "Execution adapter: {0}; start={1}; status={2}; results={3}; evidence={4}".format(
-                adapter.get("engine", "claude-ultracode"),
-                adapter.get("start_tool", "fanout_start"),
-                adapter.get("status_tool", "fanout_status"),
-                adapter.get("results_tool", "fanout_results"),
-                adapter.get("result_evidence_status", "material_not_verification"),
-            )
-        )
     policy = payload.get("chat_policy") or {}
     lines.append("Chat policy: executor={0}; surface={1}; report_issues={2}".format(
         policy.get("executor", "initiating_host"),
@@ -1334,14 +1225,7 @@ def format_workflow_route(payload):
 
 
 def cmd_route(args, state):
-    classification = classify_task_text(args.task)
-    classification["model_policy"] = build_model_policy(
-        classification,
-        args,
-        read_host_model_state(state),
-    )
-    if args.triage != "never":
-        classification["model_triage_run"] = run_model_triage(args.task, classification, args)
+    classification = classify_task_text(args.task, route_terms=ROUTE_SELECTING_TERMS)
     payload = build_workflow_route(args.task, state, classification)
     if args.json_output:
         print(json.dumps(payload, indent=2))

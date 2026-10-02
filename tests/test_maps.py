@@ -33,7 +33,6 @@ class MapCase(unittest.TestCase):
     def run_cli(self, *args, **kwargs):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
-        env.pop("MYTHIFY_PLAN_HORIZON", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env.pop("MYTHIFY_REQUIRE_HUMAN_INPUT", None)
         env.pop("MYTHIFY_MAP_CLAIMANT", None)
@@ -226,6 +225,52 @@ class TestResolutionEvidence(MapCase):
         self.assertTrue(ticket["human_input_waived"])
         self.assertIn("Human-input gate waived", result.stderr)
 
+    def status_summaries(self):
+        status = json.loads(self.ok("status", "--json").stdout)
+        return [item["summary"] for item in status["attention"]]
+
+    def test_waived_resolution_stays_visible_after_the_session(self):
+        # Regression: status named the waiver only while the variable was set
+        # in its own environment, and promote copied the decision as ordinary.
+        self.ok("map", "create", "Pick a database", "--name", "db")
+        self.ok("map", "ticket", "Which database", "--type", "grilling")
+        self.ok("map", "claim", "T1")
+        self.ok(
+            "map", "resolve", "T1", "--answer", "postgres",
+            env={"MYTHIFY_REQUIRE_HUMAN_INPUT": "0"},
+        )
+        self.assertIn(
+            "map db ticket T1 resolved under a waived human gate", self.status_summaries()
+        )
+        self.assertIn("postgres (human input waived)", self.ok("map", "show").stdout)
+        self.ok("map", "promote")
+        self.assertIn("postgres (human input waived)", self.ok("plan", "show").stdout)
+        self.assertEqual(
+            self.status_summaries(),
+            ["plan carries map ticket T1 resolved under a waived human gate"],
+        )
+        self.ok("plan", "archive")
+        self.assertEqual(self.status_summaries(), [])
+
+    def test_map_verify_evidence_cannot_complete_a_plan_step(self):
+        # Regression: map verify records carried no plan or step_id keys, so
+        # the step gate read them as legacy evidence matching every step.
+        self.ok("plan", "create", "other", "--steps", json.dumps([{"title": "deploy to prod"}]))
+        self.ok("step", "1", "in_progress", "--plan", "other")
+        self.ok("plan", "create", "second", "--steps", json.dumps([{"title": "x"}]))
+        self.ok("map", "create", "Pick a database", "--name", "db")
+        self.ok("map", "ticket", "Probe the schema", "--type", "task", "--verify", "test -d .mythify")
+        self.ok("map", "claim", "T1")
+        self.ok("map", "verify", "T1")
+        record = json.loads(
+            (self.project / ".mythify" / "verifications.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+        )
+        self.assertIsNone(record["plan"])
+        self.assertIsNone(record["step_id"])
+        result = self.run_cli("step", "1", "completed", "done", "--plan", "other")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Verified evidence required", result.stderr)
+
     def test_afk_ticket_needs_no_human_input(self):
         self.chart()
         self.ok("map", "ticket", "Confirm refunds API", "--type", "research")
@@ -261,6 +306,24 @@ class TestResolutionEvidence(MapCase):
         refused = self.run_cli("map", "resolve", "T1", "--answer", "provisioned")
         self.assertEqual(refused.returncode, 1)
         self.assertIn("Verified evidence required", refused.stderr)
+
+    def test_a_later_failing_run_cancels_an_earlier_pass(self):
+        # Review round 3: the first passing run closed the ticket even after
+        # the same command failed.
+        self.chart()
+        self.ok("map", "ticket", "Provision sandbox", "--type", "task", "--verify", "test -f flag")
+        self.ok("map", "claim", "T1")
+        flag = self.project / "flag"
+        flag.write_text("x\n", encoding="utf-8")
+        self.ok("map", "verify", "T1")
+        flag.unlink()
+        self.assertEqual(self.run_cli("map", "verify", "T1").returncode, 2)
+        refused = self.run_cli("map", "resolve", "T1", "--answer", "provisioned")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("Verified evidence required", refused.stderr)
+        flag.write_text("x\n", encoding="utf-8")
+        self.ok("map", "verify", "T1")
+        self.ok("map", "resolve", "T1", "--answer", "sandbox provisioned")
 
     def test_evidence_recorded_before_the_claim_cannot_be_reused(self):
         self.chart()
@@ -436,7 +499,10 @@ class TestPromote(MapCase):
 
     def test_promote_carries_decisions_and_scope_into_the_plan(self):
         self.clear_map()
-        self.ok("map", "promote", "--plan", "billing-build", "--horizon", "2")
+        self.ok(
+            "map", "promote", "--plan", "billing-build",
+            "--steps", json.dumps([{"title": "Write the spec"}, {"title": "Review it"}]),
+        )
         plan = json.loads(
             (self.project / ".mythify" / "plans" / "billing-build.json").read_text(encoding="utf-8")
         )

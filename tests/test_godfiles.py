@@ -258,7 +258,6 @@ class TestPlanImportCli(unittest.TestCase):
     def run_cli(self, *args, env_extra=None):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
-        env.pop("MYTHIFY_PLAN_HORIZON", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env["HOME"] = str(self.home)
         if env_extra:
@@ -294,8 +293,9 @@ class TestPlanImportCli(unittest.TestCase):
         result = self.run_cli("plan", "import")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Imported 5 tasks from PLAN.mdx", result.stdout)
-        self.assertIn("2 already completed", result.stdout)
-        self.assertIn("Next verify: npm run db:migrate && npm run db:check", result.stdout)
+        self.assertIn("as pending steps", result.stdout)
+        self.assertIn("2 task(s) are checked in PLAN.mdx", result.stdout)
+        self.assertIn("Next verify: npm test && npm run lint", result.stdout)
         plan = self.load_plan_json("taskboard-godplans")
         self.assertTrue(plan["strict_context"])
         self.assertEqual(plan["source"]["kind"], "godplans")
@@ -306,7 +306,26 @@ class TestPlanImportCli(unittest.TestCase):
         self.assertEqual(step["wave"], "2.1")
         self.assertEqual(step["phase"], "Auth and boards")
         self.assertEqual(step["depends_on"], ["GP-102"])
-        self.assertEqual(plan["steps"][0]["status"], "completed")
+        self.assertEqual(plan["steps"][0]["status"], "pending")
+        self.assertTrue(plan["steps"][0]["artifact_checked"])
+        self.assertNotIn("artifact_checked", step)
+
+    def test_checked_task_still_needs_executed_evidence(self):
+        # Regression: a checked box imported as a completed step, so editing an
+        # artifact produced completed steps with no executed verification.
+        self.init_with_artifacts(plan=True)
+        self.assertEqual(self.run_cli("plan", "import").returncode, 0)
+        plan = self.load_plan_json("taskboard-godplans")
+        self.assertEqual(
+            [step["status"] for step in plan["steps"]], ["pending"] * 5
+        )
+        status = self.run_cli("status", "--json")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(json.loads(status.stdout)["active_plan"]["completed_steps"], 0)
+        self.assertEqual(self.run_cli("step", "1", "in_progress").returncode, 0)
+        prose = self.run_cli("step", "1", "completed", "checked in the artifact")
+        self.assertEqual(prose.returncode, 1)
+        self.assertIn("strict step context", prose.stderr)
 
     def test_import_audit_maps_fixes(self):
         self.init_with_artifacts(plan=False, audit=True)
@@ -400,18 +419,18 @@ class TestGodRouting(TestPlanImportCli):
         self.assertIn(
             "Reason: Classification says this is multi-step work", result.stdout
         )
-        self.assertIn("plan create 'plan this project' --horizon 20", result.stdout)
+        self.assertIn("Next command: mythify plan create 'plan this project'\n", result.stdout)
         self.assertNotIn("godplans", result.stdout)
         self.assertNotIn("godaudits", result.stdout)
 
     def test_classification_terms(self):
         self.init_with_artifacts(plan=False)
-        design = self.run_cli("classify", "godplans", "--json")
+        design = self.run_cli("route", "godplans", "--json")
         self.assertEqual(design.returncode, 0, design.stderr)
-        self.assertEqual(json.loads(design.stdout)["task_type"], "design")
-        review = self.run_cli("classify", "godaudits", "--json")
+        self.assertEqual(json.loads(design.stdout)["classification"]["task_type"], "design")
+        review = self.run_cli("route", "godaudits", "--json")
         self.assertEqual(review.returncode, 0, review.stderr)
-        self.assertEqual(json.loads(review.stdout)["task_type"], "review")
+        self.assertEqual(json.loads(review.stdout)["classification"]["task_type"], "review")
 
     def test_review_prompt_packet_includes_audit(self):
         self.init_with_artifacts(plan=False, audit=True)
@@ -422,44 +441,34 @@ class TestGodRouting(TestPlanImportCli):
 
 
 class TestGodViews(TestPlanImportCli):
-    """Readiness, harness, and phase views surface god artifacts."""
+    """The status view surfaces god artifacts, their attention, and next action."""
 
-    def test_readiness_surfaces_artifacts(self):
+    def test_status_surfaces_artifacts(self):
         self.init_with_artifacts(plan=True, audit=True)
-        result = self.run_cli("readiness")
+        result = self.run_cli("status")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Godplans plan: [~] executing; 2/5 tasks done", result.stdout)
-        self.assertIn("Godaudits audit: [~] reported; score 64 (at risk)", result.stdout)
+        self.assertIn("Godplans plan: executing; 2/5 tasks done", result.stdout)
+        self.assertIn("Godaudits audit: reported; score 64 (at risk)", result.stdout)
 
-    def test_readiness_silent_without_artifacts(self):
+    def test_status_silent_without_artifacts(self):
         self.init_with_artifacts(plan=False)
-        result = self.run_cli("readiness")
+        result = self.run_cli("status")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("Godplans", result.stdout)
         self.assertNotIn("Godaudits", result.stdout)
 
-    def test_harness_attention_and_next_action(self):
+    def test_status_attention_names_open_critical_findings(self):
         self.init_with_artifacts(plan=False, audit=True)
-        result = self.run_cli("harness")
+        result = self.run_cli("status")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("open Critical finding(s) in the godaudits audit", result.stdout)
 
-    def test_harness_next_action_suggests_import(self):
+    def test_status_next_action_suggests_import(self):
         self.init_with_artifacts(plan=True)
-        result = self.run_cli("harness", "--json")
+        result = self.run_cli("status", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         view = json.loads(result.stdout)
         self.assertIn("plan import --source godplans", view["next_action"])
-
-    def test_phase_view_uses_imported_phase_fields(self):
-        self.init_with_artifacts(plan=True)
-        self.assertEqual(self.run_cli("plan", "import").returncode, 0)
-        result = self.run_cli("phase", "--json")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        view = json.loads(result.stdout)
-        by_phase = {phase["id"]: phase for phase in view["phases"]}
-        verify_titles = [step["title"] for step in by_phase["verify"]["steps"]]
-        self.assertTrue(any("GP-301" in title for title in verify_titles), verify_titles)
 
 
 if __name__ == "__main__":

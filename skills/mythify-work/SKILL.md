@@ -1,80 +1,84 @@
 ---
 name: mythify-work
 description: |
-  Chat-native Mythify work loop. Use when the user asks for /mythify-work,
+  Visible Mythify work loop in chat. Use when the user asks for mythify-work,
   "mythify work", "use Mythify to do this", "one shot", "in one go",
-  "address all", "continuous run", or wants Godpowers-style visibility. Invoke
-  with /mythify-work in Claude Code or $mythify-work in Codex.
+  "address all", "keep going until done", or wants to watch multi-step work
+  move from plan to passing checks.
 ---
 
-> Invocation: type `/mythify-work` in Claude Code or `$mythify-work` in Codex to run this skill. Treat any text after it as the work request.
+Invoke this skill the way your host runs skills. Treat any text after the
+skill name as the work request.
 
-# /mythify-work
+# mythify-work
 
-Run the requested work in this chat with Mythify as the durable evidence
-ledger. The user should see the work unfold here: what is happening, why it is
-happening, what passed, what failed, and what comes next.
+Do the requested work in this chat with Mythify as the evidence ledger. The
+user should see what is happening, what passed, what failed, and what comes
+next without opening `.mythify/`.
 
-## Contract
+Run commands through the host's Mythify MCP tools when they exist, else the
+`mythify` launcher, else `python3 scripts/mythify.py`.
 
-1. Keep execution in the initiating chat unless the user explicitly asks for a
-   handoff, background run, or external agent.
-2. Prefer MCP tools when available. Otherwise use the installed `mythify`
-   launcher, falling back to `python3 scripts/mythify.py` from a Mythify
-   checkout.
-3. Start with a one-sentence visible outcome.
-4. Run `mythify route "TASK"` to choose the workflow unless the user already
-   named a specific Mythify primitive.
-5. For multi-step work, create or resume a plan. New plans should use a
-   20-step lookahead by default: follow the `mythify route "TASK"` next
-   command, or call `mythify plan create "TASK" --horizon 20` when creating
-   the plan directly. Then mark the chat cursor:
+## Loop
 
+1. State the outcome you pursue in one sentence.
+2. Route unless the user named a Mythify command already:
+
+       mythify route "TASK"
+
+   Follow its route: `direct`, `plan`, `map`, `product`, `outcome`, `review`,
+   `failure_recovery`, or `handoff`. For `failure_recovery`, fix the latest
+   failed check before anything else.
+3. For multi-step work, create or resume a plan whose steps carry a success
+   criterion and, when possible, a `verify_command`, then mark the chat
+   cursor:
+
+       mythify plan create "GOAL" --steps JSON
        mythify report --cursor chat --mark
 
-6. Before each step, say the step name and success criterion in chat.
-7. Mark the step in progress, do the work, then run a chat report:
+4. Before each step, say its name and success criterion. Then:
 
-       mythify step ID in_progress
-       mythify report --since last --cursor chat --format chat
+       mythify step N in_progress
 
-8. Run an executable verifier before claiming completion:
+5. Do the work. Verify with the step's own check, or a direct one:
 
+       mythify plan verify N
        mythify verify run "COMMAND" --claim "CLAIM"
-       mythify report --since last --cursor chat --format chat
 
-9. If verification fails, surface the failure in chat, record a reflection,
-   fix the root cause, and re-verify. Do not advance on red.
-10. When verification passes, complete the step with the verifier evidence and
-    run another report:
+6. Red: surface the failure in chat, record it, fix the root cause, and
+   verify again. Never advance on red.
 
-       mythify step ID completed "verify run exit 0: CLAIM"
-       mythify report --since last --cursor chat --format chat
+       mythify reflect --action "..." --outcome failure --observation "..." --next "..."
 
-11. Before the final answer, run one final report. Lead with Attention items.
-    If there are none, say no new issues were reported in the final window.
-12. Apply the communication-quality rewrite pass from the packaged Mythify
-    reference before sending user-facing prose: remove boilerplate and vague
-    claims, name the actor and evidence, and preserve exact technical terms.
+7. Green: complete the step with the evidence, then report:
 
-## Visible Update Shape
+       mythify step N completed "verify run exit 0: CLAIM"
+       mythify report --since last --cursor chat
 
-Use short updates while working:
+8. Before the final answer, run one last report. Lead with attention items;
+   if there are none, say no new issues were reported in that window.
+
+## Update shape
 
 - Outcome: what just happened.
-- Attention: failed checks, failed steps, failure reflections, and attested
-  warnings from the report.
-- Next: what you will do next.
+- Attention: failed checks, failed steps, failure reflections, attested
+  warnings.
+- Next: what you do next.
 
-Do not dump long raw logs unless needed to diagnose a failure. Do not leave
-findings only in `.mythify/`.
+Keep raw logs out of the chat unless they diagnose a failure.
+
+## Delegation
+
+When parts of the work are independent, you may hand them to any subagent or
+worker your host offers, or to none. Each delegated prompt must stand alone.
+Delegated output is material: merge it, then `verify run` the integrated
+result before completing the step.
 
 ## Boundaries
 
-Strict step evidence is the default. A completed step requires a non-empty
-RESULT and a passing executed `verify run` since the step started. Use
-`MYTHIFY_REQUIRE_VERIFIED_STEP=0` only when the user explicitly asks for legacy
-prose-only completion.
-
-Pause only for destructive or irreversible actions, real scope changes, or
-input only the user can provide.
+- `step N completed` needs a RESULT and a passing `verify run` recorded after
+  the step started. Never use a check that cannot fail, such as `true`.
+- Decisions that need a human (`grilling` and `prototype` map tickets,
+  `product approve`, `product decide`) wait for the person's words.
+- Pause only for destructive or irreversible actions, real scope changes, or
+  input only the user can give.

@@ -1,11 +1,11 @@
 """End-to-end coverage of the workflow router decision tree.
 
-Asserts every route id the router can emit, the documented precedence order
-(full-send language outranks outcome terms), and the active-state resume
-branches. Routing is read-only: each case sets up only the durable state it
+Asserts every route id the router can emit (direct, plan, map, product,
+outcome, review, failure_recovery, handoff), the documented precedence order (outcome
+terms outrank full-send language), and the active-state resume branches. Routing is read-only: each case sets up only the durable state it
 needs, then asserts the chosen route and next command. Companion coverage:
 tests/test_godfiles.py owns god-artifact routing, import, and the strict gate;
-tests/test_interop.py owns CLI/MCP route parity.
+tests/test_mcp_server.py owns the MCP transport over the same CLI.
 """
 
 import json
@@ -34,7 +34,6 @@ class RouteCase(unittest.TestCase):
     def run_cli(self, *args):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
-        env.pop("MYTHIFY_PLAN_HORIZON", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env["HOME"] = str(self.home)
         return subprocess.run(
@@ -47,7 +46,7 @@ class RouteCase(unittest.TestCase):
         )
 
     def route(self, task):
-        result = self.run_cli("route", task, "--json", "--triage", "never")
+        result = self.run_cli("route", task, "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
@@ -59,37 +58,44 @@ class TestRouteMatrix(RouteCase):
     def test_plan_fallback(self):
         payload = self.route("Add an export endpoint with validation, tests, and docs")
         self.assertEqual(payload["route"], "plan")
-        self.assertIn("plan create", payload["next_command"])
-        self.assertIn("--horizon 20", payload["next_command"])
-        self.assertEqual(payload["plan_archetype"], "rpi")
-        self.assertIn("--archetype rpi", payload["next_command"])
-        self.assertFalse(payload["maintainability_review"]["recommended"])
-
-    def test_expensive_interface_selects_design_heavy_plan(self):
-        payload = self.route("Migrate the public API schema across runtimes")
-        self.assertEqual(payload["route"], "plan")
-        self.assertEqual(payload["plan_archetype"], "design-heavy")
-        self.assertIn("--archetype design-heavy", payload["next_command"])
-        self.assertTrue(payload["maintainability_review"]["recommended"])
         self.assertEqual(
-            payload["maintainability_review"]["evidence_status"],
-            "material_not_verification",
+            payload["next_command"],
+            "mythify plan create 'Add an export endpoint with validation, tests, and docs'",
         )
+        for removed in ("plan_archetype", "maintainability_review"):
+            self.assertNotIn(removed, payload)
+            self.assertNotIn(removed, payload["classification"])
 
-    def test_research(self):
-        payload = self.route("Research the latest options for the wire format")
-        self.assertEqual(payload["route"], "research")
-        self.assertIn("research start", payload["next_command"])
+    def test_route_ids_match_the_manifest(self):
+        manifest = json.loads(
+            (REPO_ROOT / "protocol" / "workflow-router.json").read_text(encoding="utf-8")
+        )
+        ids = {route["id"] for route in manifest["routes"]}
+        self.assertEqual(
+            ids,
+            {"direct", "plan", "map", "product", "outcome", "review", "failure_recovery", "handoff"},
+        )
+        packets = {route["prompt_packet"] for route in manifest["routes"]}
+        self.assertLessEqual(packets, {"next", "handoff", "failure", "review", "map", "product"})
 
-    def test_research_freshness_signals(self):
-        # Interrogative live/current/pricing lookups are source-backed and route
-        # to research via the classification task_type, not a route-forcing term.
+    def test_single_question_research_routes_direct(self):
         for task in (
+            "Research the latest options for the wire format",
             "what is the current pricing for the API",
             "check the live status of the service",
             "how much does it cost to run the API",
         ):
-            self.assertEqual(self.route(task)["route"], "research", task)
+            payload = self.route(task)
+            self.assertEqual(payload["route"], "direct", task)
+            self.assertIn("research-like", payload["reason"], task)
+
+    def test_multi_question_foggy_research_routes_to_map(self):
+        payload = self.route(
+            "Research which wire format we should adopt and how existing clients would migrate"
+        )
+        self.assertEqual(payload["route"], "map")
+        self.assertIn("map create", payload["next_command"])
+        self.assertIn("several questions", payload["reason"])
 
     def test_freshness_guards_do_not_overroute(self):
         # Ordinary coding tasks that contain the same freshness word sequences
@@ -107,34 +113,31 @@ class TestRouteMatrix(RouteCase):
             "keep the product docs up to date",
             "ship this feature today",
         ):
-            self.assertNotEqual(self.route(task)["route"], "research", task)
+            self.assertNotEqual(self.route(task)["classification"]["task_type"], "research", task)
 
     def test_freshness_terms_have_single_synced_source(self):
-        # Freshness routing now has one source of truth: the research task_type
-        # in classification-rules.json. Assert both byte-mirrored copies carry
-        # the terms and that classify still yields task_type='research', so
-        # single-copy drift or a semantic regression fails loudly.
+        # Freshness routing has one source of truth: the research task_type
+        # in classification-rules.json. Assert the manifest carries the terms
+        # and that the route classification still yields task_type='research',
+        # so manifest drift or a semantic regression fails loudly.
         terms = (
             "what is the current pricing",
             "check the live status",
             "how much does it cost",
         )
-        for rel in (
-            "protocol/classification-rules.json",
-            "mcp-server/protocol/classification-rules.json",
-        ):
-            data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
-            research = next(t for t in data["task_types"] if t["id"] == "research")
-            for term in terms:
-                self.assertIn(term, research["terms"], rel)
+        rel = "protocol/classification-rules.json"
+        data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
+        research = next(t for t in data["task_types"] if t["id"] == "research")
+        for term in terms:
+            self.assertIn(term, research["terms"], rel)
         for task in (
             "what is the current pricing for the API",
             "check the live status of the service",
             "how much does it cost to run the API",
         ):
-            result = self.run_cli("classify", task, "--json", "--triage", "never")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout)["task_type"], "research", task)
+            self.assertEqual(
+                self.route(task)["classification"]["task_type"], "research", task
+            )
 
     def test_review(self):
         for task in (
@@ -152,27 +155,34 @@ class TestRouteMatrix(RouteCase):
         self.assertEqual(payload["route"], "outcome")
         self.assertIn("outcome start", payload["next_command"])
 
-    def test_prompt(self):
+    def test_steering_request_routes_to_handoff(self):
         payload = self.route("Give me the next prompt packet to steer the chat")
-        self.assertEqual(payload["route"], "prompt")
+        self.assertEqual(payload["route"], "handoff")
+        self.assertIn("prompt handoff", payload["next_command"])
 
-    def test_campaign_full_send(self):
+    def test_full_send_plans_the_whole_job(self):
         payload = self.route("One shot this project end to end, ship it")
-        self.assertEqual(payload["route"], "campaign")
-        self.assertIn("campaign start", payload["next_command"])
+        self.assertEqual(payload["route"], "plan")
+        self.assertIn("plan create", payload["next_command"])
 
-    def test_full_send_beats_outcome(self):
-        # Documented precedence: full-send language (priority 2) outranks the
-        # outcome-terms branch (priority 6). "keep going" is a full-send term.
-        self.assertEqual(self.route("Keep going until the tests pass")["route"], "campaign")
+    def test_full_send_with_active_plan_resumes_it(self):
+        self.run_cli("plan", "create", "feature", "--steps", json.dumps([{"title": "s1"}]))
+        payload = self.route("Fix all the remaining issues in one go")
+        self.assertEqual(payload["route"], "handoff")
+
+    def test_outcome_terms_beat_full_send(self):
+        # Outcome language with a verifier outranks full-send language, and
+        # "keep going" alone is only a resume term.
+        self.assertEqual(self.route("Keep going until the tests pass")["route"], "outcome")
 
     def test_failure_on_red_verification(self):
         self.run_cli("plan", "create", "temp", "--steps", json.dumps([{"title": "t"}]))
         self.run_cli("step", "1", "in_progress")
         self.run_cli("verify", "run", "false", "--claim", "intentionally red")
         payload = self.route("continue the work")
-        self.assertEqual(payload["route"], "failure")
+        self.assertEqual(payload["route"], "failure_recovery")
         self.assertEqual(payload["next_command"], "mythify prompt failure")
+        self.assertEqual(payload["prompt_packet"]["kind"], "failure")
 
     def test_handoff_on_active_plan_resume(self):
         self.run_cli("plan", "create", "feature", "--steps", json.dumps([{"title": "s1"}]))
@@ -180,21 +190,11 @@ class TestRouteMatrix(RouteCase):
         self.assertEqual(payload["route"], "handoff")
         self.assertIn("prompt handoff", payload["next_command"])
 
-    def test_campaign_active_resume(self):
-        self.run_cli("campaign", "start", "ship docs", "--tasks", json.dumps(["a"]))
-        payload = self.route("continue")
-        self.assertEqual(payload["route"], "campaign")
-        self.assertIn("campaign prompt", payload["next_command"])
-
     def test_outcome_active_resume(self):
         self.run_cli("outcome", "start", "green suite", "--success", "tests pass", "--verify", "true")
         payload = self.route("continue")
         self.assertEqual(payload["route"], "outcome")
         self.assertIn("outcome status", payload["next_command"])
-
-    def test_research_active_resume(self):
-        self.run_cli("research", "start", "wire format", "--name", "wf")
-        self.assertEqual(self.route("continue")["route"], "research")
 
     def test_map_on_wayfinding_language(self):
         payload = self.route(
@@ -235,15 +235,11 @@ class TestRouteMatrix(RouteCase):
         self.assertIsNone(payload["state"]["active_map"])
 
     def test_full_send_still_beats_wayfinding_language(self):
-        # A full-send prompt asks for execution, so it keeps the campaign route
+        # A full-send prompt asks for execution, so it keeps the plan route
         # even when it also sounds foggy.
         self.assertEqual(
-            self.route("One shot this loose idea end to end, ship it")["route"], "campaign"
+            self.route("One shot this loose idea end to end, ship it")["route"], "plan"
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestLoopCollisionVocabulary(RouteCase):
@@ -264,7 +260,7 @@ class TestLoopCollisionVocabulary(RouteCase):
         self.assertIsNotNone(collision)
         self.assertEqual(collision["families"], ["outcome", "plan"])
         self.assertEqual(collision["steers"], "outcome")
-        text = self.run_cli("route", "continue the work", "--triage", "never")
+        text = self.run_cli("route", "continue the work")
         self.assertIn("Loop collision:", text.stdout)
 
 
@@ -300,3 +296,98 @@ class TestQuestionTheReference(RouteCase):
         self.assertEqual(run.returncode, 2)
         packet = self.failure_packet()
         self.assertEqual(packet["context"]["failed_command_streak"], 1)
+
+
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+import lint  # noqa: E402  (owns the removed model-routing identifiers)
+
+
+def collect_keys(value, found=None):
+    """Every dict key anywhere in a decoded JSON value."""
+    found = set() if found is None else found
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found.add(key)
+            collect_keys(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            collect_keys(item, found)
+    return found
+
+
+class TestRouteAdvisories(RouteCase):
+    """route --json carries neutral advisories and never a model recommendation."""
+
+    def test_classification_carries_framing_parallelism_and_review(self):
+        for task in (
+            "What does the status command show?",
+            "Add an export endpoint with validation, tests, and docs",
+            "Audit this module and find the risks",
+            "Rotate the production deploy credential",
+        ):
+            with self.subTest(task=task):
+                classification = self.route(task)["classification"]
+                framing = classification["framing"]
+                self.assertIn(framing["level"], ("none", "light", "full"))
+                self.assertTrue(framing["reason"])
+                parallelism = classification["parallelism"]
+                self.assertIn(parallelism["fit"], ("none", "possible", "strong"))
+                self.assertEqual(parallelism["chooser"], "host")
+                self.assertTrue(parallelism["reason"])
+                review = classification["review"]
+                self.assertIsInstance(review["independent"], bool)
+                self.assertTrue(review["reason"])
+                for key in (
+                    "task_type",
+                    "risk",
+                    "ambiguity",
+                    "ceremony",
+                    "execution_profile",
+                    "verification",
+                    "next_action",
+                    "quality_climb",
+                    "quality_climb_reason",
+                    "quality_climb_protocol",
+                ):
+                    self.assertIn(key, classification)
+
+    def test_route_json_has_no_model_keys_with_or_without_state(self):
+        payloads = [self.route("Research the latest options for the wire format")]
+        self.run_cli("plan", "create", "feature", "--steps", json.dumps([{"title": "s1"}]))
+        self.run_cli("outcome", "start", "green", "--success", "ok", "--verify", "true")
+        self.run_cli("verify", "run", "false", "--claim", "red on purpose")
+        payloads.append(self.route("continue the work"))
+        for payload in payloads:
+            keys = collect_keys(payload)
+            self.assertEqual(lint.removed_identifier_keys(keys), [])
+            self.assertNotIn("session", keys)
+
+    def test_high_risk_route_asks_for_independent_review(self):
+        classification = self.route("Rotate the production deploy credential")["classification"]
+        self.assertEqual(classification["risk"], "high")
+        self.assertTrue(classification["review"]["independent"])
+        quiet = self.route("What does the status command show?")["classification"]
+        self.assertFalse(quiet["review"]["independent"])
+        self.assertEqual(quiet["framing"]["level"], "none")
+        self.assertEqual(quiet["parallelism"]["fit"], "none")
+
+    def test_route_json_embeds_loop_fit(self):
+        payload = self.route("Fix the parser until python3 -m unittest passes")
+        loop_fit = payload["loop_fit"]
+        self.assertEqual(loop_fit["kind"], "loop_fit")
+        self.assertIn(loop_fit["recommendation"], ("loop", "supervised", "direct", "quality_loop"))
+        self.assertTrue(loop_fit["criteria"]["automated_verification"])
+        text = self.run_cli("route", "Fix the parser until python3 -m unittest passes")
+        self.assertIn("Loop fit: ", text.stdout)
+
+    def test_text_route_prints_the_advisories(self):
+        result = self.run_cli("route", "Compare three parser designs")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Advisories: framing=", result.stdout)
+        self.assertIn("(chooser: host)", result.stdout)
+        self.assertNotIn("Execution adapter", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

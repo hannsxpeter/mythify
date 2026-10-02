@@ -6,11 +6,15 @@ a legacy gate opt-out active. They are advisory by contract, so the tests pin
 detection behavior, not any blocking side effect.
 """
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+CLI = SCRIPTS_DIR / "mythify.py"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -21,6 +25,7 @@ from mythify_evidence_guard import (  # noqa: E402
     active_legacy_opt_outs,
     ledger_chain_breaks,
     noop_verifier_reason,
+    run_disabled,
     trivial_pass_reason,
 )
 
@@ -54,6 +59,12 @@ class TestNoopVerifierReason(unittest.TestCase):
         for command in ("true", " true ", "TRUE", ":", "exit 0", "exit  0"):
             self.assertIsNotNone(noop_verifier_reason(command), command)
 
+    def test_flags_path_qualified_and_argument_forms(self):
+        for command in ("/usr/bin/true", "/bin/true --version", ": ignored", "true anything"):
+            self.assertIsNotNone(noop_verifier_reason(command), command)
+        self.assertIsNone(noop_verifier_reason("true && pytest"))
+        self.assertIsNone(noop_verifier_reason("/usr/bin/test -f build/out.bin"))
+
     def test_flags_bare_print_commands(self):
         self.assertIsNotNone(noop_verifier_reason("echo ok"))
         self.assertIsNotNone(noop_verifier_reason("printf done"))
@@ -63,10 +74,58 @@ class TestNoopVerifierReason(unittest.TestCase):
         self.assertIsNone(noop_verifier_reason("echo payload | grep expected"))
         self.assertIsNone(noop_verifier_reason("echo x > expected.txt"))
 
+    def test_flags_separator_group_and_wrapper_variants(self):
+        # Each of these always exits 0. The first cut compared the whole text
+        # against a short list, so a trailing `;` or a wrapper slipped past
+        # review prove and product measure.
+        for command in (
+            "true;",
+            "exit 0;",
+            ":;",
+            "(true)",
+            "{ true; }",
+            "exit",
+            "true || false",
+            "sh -c true",
+            "bash -c 'exit 0'",
+            "env true",
+            "env FOO=1 true",
+            "command true",
+            "/bin/echo ok",
+            "pytest || true",
+            "pytest; true",
+            "pytest; echo done",
+            "exit 0; pytest",
+        ):
+            self.assertIsNotNone(noop_verifier_reason(command), command)
+
+    def test_commands_that_can_fail_are_not_flagged(self):
+        # The reader answers "not a no-op" when a path can exit non-zero or
+        # when it cannot read the control flow (groups, conditionals, set -e).
+        for command in (
+            "pytest || exit 1; true",
+            "pytest || exit; true",
+            "pytest; exit",
+            "cd build && exit 0",
+            "set -e; pytest; true",
+            "if ! pytest; then exit 1; fi; echo ok",
+            "pytest && (echo ok; true)",
+            "pytest && { echo ok; exit 0; }; false",
+            "exec pytest; true",
+            "echo 'a;b'; pytest",
+            "pytest ';' true",
+            "pytest \\; true",
+            "pytest # ; true",
+            "pytest & true",
+            "true &&",
+            "exit 1",
+        ):
+            self.assertIsNone(noop_verifier_reason(command), command)
+
     def test_real_verifiers_are_not_flagged(self):
         for command in (
             "python3 -m unittest discover -s tests",
-            "npm test --prefix mcp-server",
+            "npm test",
             "test -f dist/mythify.py",
             "git diff --check",
             "",
@@ -174,6 +233,38 @@ class TestActiveLegacyOptOuts(unittest.TestCase):
         )
         for item in active:
             self.assertTrue(item["effect"])
+
+
+class TestRunDisabledParse(unittest.TestCase):
+    """Regression: the report stripped the value and the runners did not."""
+
+    def test_report_and_runners_share_one_fail_closed_parse(self):
+        for value in ("1", " 1", "1 ", "true", "YES", "on", "2"):
+            env = {"MYTHIFY_DISABLE_RUN": value}
+            self.assertTrue(run_disabled(env), repr(value))
+            self.assertIn(
+                "MYTHIFY_DISABLE_RUN",
+                [item["name"] for item in active_legacy_opt_outs(env)],
+            )
+        for value in ("", " ", "0", " 0 ", "false", "No", "off"):
+            self.assertFalse(run_disabled({"MYTHIFY_DISABLE_RUN": value}), repr(value))
+        self.assertFalse(run_disabled({}))
+        self.assertFalse(run_disabled(None))
+
+    def test_verify_run_refuses_a_padded_or_word_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["MYTHIFY_DIR"] = os.path.join(tmp, ".mythify")
+            env["HOME"] = tmp
+            for value in (" 1", "true"):
+                env["MYTHIFY_DISABLE_RUN"] = value
+                marker = os.path.join(tmp, "ran")
+                result = subprocess.run(
+                    [sys.executable, str(CLI), "verify", "run", "touch " + marker],
+                    cwd=tmp, env=env, capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertFalse(os.path.exists(marker), repr(value))
 
 
 if __name__ == "__main__":

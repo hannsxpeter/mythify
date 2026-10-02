@@ -1,11 +1,11 @@
-"""Material-only maintainability reviews and evidence-linked blast-radius safety cases."""
+"""Evidence-linked blast-radius safety cases: create, prove, and show."""
 
-import hashlib
 import json
 import os
-import re
 from copy import deepcopy
 from pathlib import Path
+
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
 
 
 REVIEW_STATUSES = ("pass", "warn", "fail")
@@ -42,13 +42,6 @@ def configure_quality_store(
     _revision_digest = revision_digest_func
     _fail = fail_func
     _environ = environ_map if environ_map is not None else os.environ
-
-
-def parse_finding(value):
-    match = re.match(r"^(.+?):([1-9][0-9]*):\s*(.+)$", str(value or "").strip())
-    if not match or not match.group(1).strip() or not match.group(3).strip():
-        raise ValueError("finding must use path:line: detail")
-    return {"path": match.group(1).strip(), "line": int(match.group(2)), "detail": match.group(3).strip()}
 
 
 def parse_risk(value, forced_disposition=None):
@@ -94,38 +87,6 @@ def parse_risk(value, forced_disposition=None):
 
 def _review_path(state, slug):
     return Path(state) / "reviews" / (slug + ".json")
-
-
-def _finding_class(detail):
-    return " ".join(re.findall(r"[a-z0-9]+", str(detail).lower()))
-
-
-def _recurring_eval_candidates(state, findings):
-    prior = {}
-    for path in (Path(state) / "reviews").glob("*.json"):
-        review = _read_json(path, None)
-        if not isinstance(review, dict) or review.get("kind") != "maintainability_review":
-            continue
-        if review.get("status") not in ("warn", "fail"):
-            continue
-        for finding in review.get("findings") or []:
-            finding_class = _finding_class(finding.get("detail"))
-            if finding_class:
-                prior.setdefault(finding_class, []).append(review.get("name", path.stem))
-    candidates = []
-    for finding in findings:
-        finding_class = _finding_class(finding.get("detail"))
-        source_reviews = list(dict.fromkeys(prior.get(finding_class, [])))
-        if not finding_class or not source_reviews:
-            continue
-        digest = hashlib.sha256(finding_class.encode("utf-8")).hexdigest()[:10]
-        candidates.append({
-            "title": "maintainability-regression-" + digest,
-            "finding_class": finding_class,
-            "rationale": "The same concrete maintainability finding recurred and should become an executable eval when a fail-pass scenario can be written.",
-            "source_reviews": source_reviews,
-        })
-    return candidates
 
 
 def _change_fingerprint(state):
@@ -178,6 +139,20 @@ def _review_proof_records(state, record):
     return rows
 
 
+def _normalized_command(text):
+    return " ".join(str(text or "").split())
+
+
+def _proof_passed(proof):
+    # A no-op command (true, exit 0, a bare echo) cannot fail, so it proves
+    # nothing even when an older version recorded it as a pass.
+    return (
+        proof.get("verified") is True
+        and proof.get("exit_code") == 0
+        and noop_verifier_reason(proof.get("command")) is None
+    )
+
+
 def blast_review_view(state, record):
     view = deepcopy(record)
     freshness = _change_freshness(state, record)
@@ -189,63 +164,28 @@ def blast_review_view(state, record):
         depth = 5 if proof.get("proof_mode") == "runtime" else 4
         safety["proof_depth"] = depth
         safety["verification_id"] = proof.get("id")
-        if proof.get("verified") is True and proof.get("exit_code") == 0:
+        if _proof_passed(proof):
             safety["status"] = "proven" if freshness["status"] == "current" else "stale"
         else:
             safety["status"] = "unproven"
-        merge_gate["verification_id"] = proof.get("id")
-        merge_gate["verified"] = proof.get("verified") is True and proof.get("exit_code") == 0
+    # Only a run of the recorded merge-gate command verifies the merge gate; a
+    # proof run with a different --command is evidence for the safety fact only.
+    gate_command = _normalized_command(merge_gate.get("command"))
+    gate_proofs = [
+        item for item in proofs
+        if gate_command and _normalized_command(item.get("command")) == gate_command
+    ]
+    if gate_proofs:
+        gate_proof = gate_proofs[-1]
+        merge_gate["verification_id"] = gate_proof.get("id")
+        merge_gate["verified"] = _proof_passed(gate_proof)
+    elif proof:
+        merge_gate["verification_id"] = None
+        merge_gate["verified"] = False
     view["safety_fact"] = safety
     view["merge_gate"] = merge_gate
     view["change_freshness"] = freshness
     return view
-
-
-def cmd_quality_review_create(args, state):
-    slug = _slugify(args.name or ("maintainability-" + _now_iso())) or "maintainability-review"
-    if _review_path(state, slug).exists():
-        _fail("[FAIL] Review already exists: {0}".format(slug))
-        return 1
-    try:
-        findings = [parse_finding(item) for item in args.finding]
-    except ValueError as exc:
-        _fail("[FAIL] {0}".format(exc))
-        return 1
-    dimensions = {
-        "interface_depth": args.interface_depth,
-        "locality": args.locality,
-        "seam_count": args.seam_count,
-        "deletion_cost": args.deletion_cost,
-        "invalid_state_exclusion": args.invalid_state_exclusion,
-        "test_validity": args.test_validity,
-    }
-    if any(not str(value).strip() for value in dimensions.values()):
-        _fail("[FAIL] Every maintainability review dimension requires a non-empty assessment.")
-        return 1
-    changed_paths = [str(value).strip() for value in args.path]
-    if any(not value for value in changed_paths):
-        _fail("[FAIL] Changed paths must be non-empty.")
-        return 1
-    stamp = _now_iso()
-    candidates = _recurring_eval_candidates(state, findings) if args.status in ("warn", "fail") else []
-    record = {
-        "schema_version": 1,
-        "kind": "maintainability_review",
-        "review_type": "maintainability",
-        "name": slug,
-        "status": args.status,
-        "changed_paths": list(dict.fromkeys(changed_paths)),
-        "dimensions": {key: str(value).strip() for key, value in dimensions.items()},
-        "findings": findings,
-        "created": stamp,
-        "updated": stamp,
-        "evidence_status": "material_not_verification",
-        "eval_scenario_candidates": candidates,
-        "eval_proposal_recommended": bool(candidates),
-    }
-    _write_json_atomic(_review_path(state, slug), record)
-    print("[OK] Maintainability review: {0} ({1}, material only)".format(slug, args.status))
-    return 0
 
 
 def cmd_blast_radius_review_create(args, state):
@@ -289,6 +229,14 @@ def cmd_blast_radius_review_create(args, state):
     }
     _write_json_atomic(_review_path(state, slug), record)
     print("[OK] Blast-radius review: {0} ({1}, safety fact unproven)".format(slug, args.status))
+    noop_reason = noop_verifier_reason(record["merge_gate"]["command"])
+    if noop_reason:
+        _fail(
+            "[WARN] Merge-gate command looks like a no-op ({0}): {1}. review "
+            "prove refuses it; record a command that can fail.".format(
+                noop_reason, record["merge_gate"]["command"]
+            )
+        )
     return 0
 
 
@@ -301,7 +249,7 @@ def cmd_quality_review_prove(args, state):
     if record.get("kind") != "blast_radius_review":
         _fail("[FAIL] Review is not a blast-radius safety case: {0}".format(slug))
         return 1
-    if _environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(_environ):
         _fail("[FAIL] review prove is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was executed.")
         return 2
     freshness = _change_freshness(state, record)
@@ -310,10 +258,20 @@ def cmd_quality_review_prove(args, state):
             freshness["status"], freshness["reason"]
         ))
         return 1
-    command = str(args.command or (record.get("merge_gate") or {}).get("command") or "").strip()
+    gate_command = str((record.get("merge_gate") or {}).get("command") or "").strip()
+    command = str(args.command or gate_command).strip()
     if not command:
         _fail("[FAIL] No proof command supplied and the review has no merge-gate command.")
         return 1
+    noop_reason = noop_verifier_reason(command)
+    if noop_reason:
+        _fail(
+            "[FAIL] Proof command looks like a no-op ({0}): {1}. A command that "
+            "cannot fail proves nothing; run a check that exercises the "
+            "change.".format(noop_reason, command)
+        )
+        return 1
+    gates_merge = bool(gate_command) and _normalized_command(command) == _normalized_command(gate_command)
     context = {
         "plan": None,
         "step_id": None,
@@ -349,6 +307,13 @@ def cmd_quality_review_prove(args, state):
             post_run["reason"]
         ))
         return 2
+    if not gates_merge:
+        _fail(
+            "[WARN] This proof ran {0}, not the merge-gate command ({1}); it is "
+            "evidence for the safety fact but does not verify the merge gate.".format(
+                command, gate_command or "none recorded"
+            )
+        )
     return 0 if verification.get("verified") else 2
 
 
@@ -383,50 +348,52 @@ def cmd_quality_review_show(args, state):
         print("Before merge: {0}".format(view.get("merge_gate", {}).get("command") or "unproven"))
         print("Guardrail: the review remains material; only its linked executed verification is proof.")
         return 0
+    # A record from an older version (for example a v5 maintainability review)
+    # stays readable as material; it cannot satisfy verification.
     if args.json_output:
         print(json.dumps(record, indent=2))
     else:
-        print("[OK] Maintainability review: {0} ({1})".format(slug, record["status"]))
-        print("Changed paths: {0}".format(", ".join(record["changed_paths"])))
-        for finding in record["findings"]:
-            print("  {0}:{1}: {2}".format(finding["path"], finding["line"], finding["detail"]))
+        print("[OK] Review: {0} ({1}, {2})".format(
+            slug, record.get("kind", "unknown"), record.get("status", "unknown")
+        ))
+        print("Changed paths: {0}".format(", ".join(record.get("changed_paths") or []) or "none"))
         print("Guardrail: review judgment is material and cannot satisfy verification.")
     return 0
 
 
 def add_quality_parser(subparsers, symbols):
-    review = subparsers.add_parser("review", help="Record maintainability reviews and blast-radius safety cases.")
+    review = subparsers.add_parser("review", help="Record blast-radius safety cases and prove them.")
     actions = review.add_subparsers(dest="review_command", metavar="ACTION", required=True)
-    create = actions.add_parser("create", help="Create a material-only maintainability review.")
-    create.add_argument("--status", choices=REVIEW_STATUSES, required=True)
-    create.add_argument("--path", action="append", required=True, help="Changed path. Repeat as needed.")
-    create.add_argument("--interface-depth", required=True)
-    create.add_argument("--locality", required=True)
-    create.add_argument("--seam-count", required=True)
-    create.add_argument("--deletion-cost", required=True)
-    create.add_argument("--invalid-state-exclusion", required=True)
-    create.add_argument("--test-validity", required=True)
-    create.add_argument("--finding", action="append", default=[], help="Concrete path:line: detail finding.")
-    create.add_argument("--name")
-    create.set_defaults(handler=symbols["cmd_quality_review_create"])
     blast = actions.add_parser("blast-radius", help="Create a material-only blast-radius safety case.")
-    blast.add_argument("--status", choices=REVIEW_STATUSES, required=True)
+    blast.add_argument("--status", choices=REVIEW_STATUSES, required=True, help="Review verdict.")
     blast.add_argument("--path", action="append", required=True, help="Changed path. Repeat as needed.")
-    blast.add_argument("--safety-fact", required=True)
-    blast.add_argument("--proof-depth", type=int, choices=(1, 2, 3), default=1)
+    blast.add_argument("--safety-fact", required=True, help="The fact that makes the change safe to merge.")
+    blast.add_argument(
+        "--proof-depth", type=int, choices=(1, 2, 3), default=1,
+        help="Recorded proof depth, 1 to 3. Depths 4 and 5 come only from executed proof.",
+    )
     blast.add_argument("--risk", action="append", default=[], help="Risk JSON object; repeat as needed.")
     blast.add_argument("--cleared", action="append", default=[], help="Cleared-risk JSON object; repeat as needed.")
     blast.add_argument("--merge-command", help="Cheapest executable proof to run before merge.")
-    blast.add_argument("--name")
+    blast.add_argument("--name", help="Review name. Defaults to a generated slug.")
     blast.set_defaults(handler=symbols["cmd_blast_radius_review_create"])
     prove = actions.add_parser("prove", help="Run executable proof linked to a blast-radius review.")
-    prove.add_argument("name")
-    prove.add_argument("--command", help="Command to run; defaults to the review merge gate.")
+    prove.add_argument("name", help="Review name.")
+    prove.add_argument(
+        "--command",
+        help=(
+            "Command to run; defaults to the review merge gate. A different "
+            "command records evidence but does not verify the merge gate."
+        ),
+    )
     prove.add_argument("--claim", help="Claim label; defaults to the safety fact.")
-    prove.add_argument("--mode", choices=PROOF_MODES, default="executed")
-    prove.add_argument("--timeout", type=float, default=300.0)
+    prove.add_argument(
+        "--mode", choices=PROOF_MODES, default="executed",
+        help="Proof mode: executed proof reaches depth 4, runtime proof depth 5.",
+    )
+    prove.add_argument("--timeout", type=float, default=300.0, help="Timeout in seconds.")
     prove.set_defaults(handler=symbols["cmd_quality_review_prove"])
-    show = actions.add_parser("show", help="Show a maintainability review or blast-radius safety case.")
-    show.add_argument("name")
-    show.add_argument("--json", dest="json_output", action="store_true")
+    show = actions.add_parser("show", help="Show a blast-radius safety case.")
+    show.add_argument("name", help="Review name.")
+    show.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     show.set_defaults(handler=symbols["cmd_quality_review_show"])

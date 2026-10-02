@@ -27,12 +27,12 @@ class ReleaseChecksumTest(unittest.TestCase):
         source = self.tmp / "source"
         flat = self.tmp / "download"
         (source / "dist").mkdir(parents=True)
-        (source / "mcp-server").mkdir()
+        (source / "build").mkdir()
         flat.mkdir()
         assets = [
             source / "dist" / "mythify.skill",
             source / "dist" / "mythify-cli-5.0.0.tar.gz",
-            source / "mcp-server" / "mythify-mcp-5.0.0.tgz",
+            source / "build" / "extra-asset.txt",
         ]
         for index, asset in enumerate(assets, 1):
             asset.write_bytes(("asset-{}\n".format(index)).encode("ascii"))
@@ -44,7 +44,7 @@ class ReleaseChecksumTest(unittest.TestCase):
 
         text = manifest.read_text(encoding="utf-8")
         self.assertNotIn("dist/", text)
-        self.assertNotIn("mcp-server/", text)
+        self.assertNotIn("build/", text)
         checked = self.run_tool("--check", manifest, "--directory", flat)
         self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
 

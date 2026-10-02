@@ -1,0 +1,1222 @@
+"""Regression tests for bugs reproduced against the v6 runtime.
+
+Each class pins one reproduced defect: the failing scenario is driven through
+the real CLI (or the MCP module) so a regression shows up as the original
+symptom, not as a changed implementation detail.
+"""
+
+import argparse
+import ast
+import hashlib
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+CLI = SCRIPTS_DIR / "mythify.py"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import mythify_mcp  # noqa: E402
+import mythify_provenance  # noqa: E402
+from test_mcp_server import McpClient, exit_code, result_text  # noqa: E402
+
+USAGE_EXIT_CODE = 64
+
+
+def shell_py(code):
+    return "{0} -c {1}".format(json.dumps(sys.executable), json.dumps(code))
+
+
+class CliCase(unittest.TestCase):
+    """A temp project and HOME with no MYTHIFY_DIR unless a test sets one."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="mythify-bugs-")
+        self.addCleanup(self._tmp.cleanup)
+        self.base = Path(self._tmp.name).resolve()
+        self.home = self.base / "home"
+        self.project = self.base / "project"
+        self.home.mkdir()
+        self.project.mkdir()
+        self.state = self.project / ".mythify"
+        self.extra_env = {}
+
+    def env(self, **extra):
+        env = dict(os.environ)
+        for name in (
+            "MYTHIFY_DIR",
+            "MYTHIFY_REQUIRE_VERIFIED_STEP",
+            "MYTHIFY_REQUIRE_HUMAN_INPUT",
+            "MYTHIFY_MAP_CLAIMANT",
+            "MYTHIFY_DISABLE_RUN",
+            "MYTHIFY_MCP_CALL_TIMEOUT",
+        ):
+            env.pop(name, None)
+        env["HOME"] = str(self.home)
+        env.update(self.extra_env)
+        env.update(extra)
+        return env
+
+    def run_cli(self, *args, cwd=None, **extra):
+        return subprocess.run(
+            [sys.executable, str(CLI)] + list(args),
+            cwd=str(cwd or self.project),
+            env=self.env(**extra),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def ok(self, *args, **kwargs):
+        result = self.run_cli(*args, **kwargs)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(
+            ["git"] + list(args),
+            cwd=str(cwd or self.project),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def init_git_repo(self, files=None):
+        self.git("init", "-q")
+        self.git("config", "user.email", "mythify@example.invalid")
+        self.git("config", "user.name", "Mythify Test")
+        (self.project / ".gitignore").write_text(".mythify/\n", encoding="utf-8")
+        for relative, text in (files or {"tracked.txt": "tracked\n"}).items():
+            path = self.project / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "baseline")
+
+    def records(self, name="verifications.jsonl"):
+        path = self.state / name
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+class TestGlobalLessonsRootIsNotAWorkspace(CliCase):
+    """Bug 1: ~/.mythify (global lessons) was discovered as a project workspace."""
+
+    def setUp(self):
+        super().setUp()
+        self.other = self.base / "other"
+        self.other.mkdir()
+        self.ok("init", cwd=self.other)
+        self.ok("lesson", "add", "Global lesson", "applies everywhere", "--global", cwd=self.other)
+        self.global_root = self.home / ".mythify"
+        self.assertTrue((self.global_root / "lessons").is_dir())
+        self.nested = self.home / "work" / "project"
+        self.nested.mkdir(parents=True)
+
+    def test_init_under_home_creates_a_project_workspace(self):
+        result = self.run_cli("init", cwd=self.nested)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Already inside a Mythify workspace", result.stdout)
+        self.assertIn("Initialized Mythify workspace", result.stdout)
+        self.assertTrue((self.nested / ".mythify" / "memory.json").is_file())
+        self.assertFalse((self.global_root / "memory.json").exists())
+        listed = self.ok("lesson", "list", "--scope", "global", cwd=self.nested)
+        self.assertIn("Global lesson", listed.stdout)
+
+    def test_uninitialized_project_under_home_has_no_workspace(self):
+        result = self.run_cli("memory", "set", "k", "v", cwd=self.nested)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertFalse((self.global_root / "memory.json").exists())
+
+    def test_init_in_home_itself_does_not_claim_the_global_root(self):
+        result = self.run_cli("init", cwd=self.home)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("global lessons root", result.stderr)
+        self.assertFalse((self.global_root / "memory.json").exists())
+
+    def test_explicit_mythify_dir_still_wins(self):
+        result = self.run_cli(
+            "memory", "set", "k", "v", cwd=self.nested, MYTHIFY_DIR=str(self.global_root)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.global_root / "memory.json").is_file())
+
+    def test_mcp_project_root_skips_the_global_root(self):
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            os.environ.pop("MYTHIFY_DIR", None)
+            with mock.patch.object(Path, "home", return_value=self.home):
+                self.assertEqual(mythify_mcp.project_root(self.nested), self.nested.resolve())
+
+
+class TestInitKeepsGitignoreMode(unittest.TestCase):
+    """init appended .mythify/ to .gitignore through a 0600 temp file."""
+
+    def test_existing_gitignore_keeps_its_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            project.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+            ignore = project / ".gitignore"
+            ignore.write_text("node_modules/\n", encoding="utf-8")
+            os.chmod(str(ignore), 0o644)
+            env = dict(os.environ, HOME=str(Path(tmp) / "home"))
+            env.pop("MYTHIFY_DIR", None)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "mythify.py"), "init"],
+                cwd=str(project), env=env, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(ignore.read_text(encoding="utf-8"), "node_modules/\n.mythify/\n")
+            self.assertEqual(ignore.stat().st_mode & 0o777, 0o644)
+
+
+class TestUsageErrorsExit64(CliCase):
+    """Bug 2: argparse usage errors exited 2, the 'unverified' verdict code."""
+
+    def test_cli_usage_errors_exit_64(self):
+        cases = (
+            (),
+            ("bogus-command",),
+            ("plan", "create"),
+            ("status", "--recent", "not-a-number"),
+            ("verify", "run", "true", "--output", "loud"),
+            ("route", "x", "--triage", "auto"),
+        )
+        for argv in cases:
+            with self.subTest(argv=argv):
+                result = self.run_cli(*argv)
+                self.assertEqual(result.returncode, USAGE_EXIT_CODE, result.stdout + result.stderr)
+                self.assertIn("error:", result.stderr)
+
+    def test_help_and_version_still_exit_0(self):
+        self.assertEqual(self.run_cli("--version").returncode, 0)
+        self.assertEqual(self.run_cli("plan", "create", "--help").returncode, 0)
+
+    def test_mcp_exit_2_is_never_an_error_and_64_always_is(self):
+        self.assertFalse(mythify_mcp.is_error_exit(0))
+        self.assertFalse(mythify_mcp.is_error_exit(2))
+        self.assertTrue(mythify_mcp.is_error_exit(1))
+        self.assertTrue(mythify_mcp.is_error_exit(USAGE_EXIT_CODE))
+        self.assertTrue(mythify_mcp.is_error_exit(124))
+
+    def test_mcp_usage_error_reports_exit_64(self):
+        self.ok("init")
+        client = McpClient(self.project, self.env())
+        self.addCleanup(client.close)
+        usage = client.call("mythify", {"args": ["plan", "create"]})
+        self.assertTrue(usage["isError"], result_text(usage))
+        self.assertEqual(exit_code(usage), USAGE_EXIT_CODE)
+
+
+class TestCompactionKeepsVerificationCursors(CliCase):
+    """Bug 3: logs compact invalidated index-based verification cursors."""
+
+    def setUp(self):
+        super().setUp()
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+
+    def three_runs(self, command="test -d ."):
+        for index in range(3):
+            self.ok("verify", "run", command, "--claim", "earlier run {0}".format(index))
+
+    def test_step_completes_after_compaction_with_new_passing_run(self):
+        self.ok("plan", "create", "Ship", "--name", "ship", "--steps", json.dumps([{"title": "Build"}]))
+        self.three_runs()
+        self.ok("step", "1", "in_progress")
+        self.ok("logs", "compact", "--keep", "1")
+        self.ok("verify", "run", "test -d .", "--claim", "build passes")
+        self.ok("step", "1", "completed", "verify run exit 0: build passes")
+
+    def test_compaction_does_not_resurrect_runs_from_before_the_step(self):
+        self.ok("plan", "create", "Ship", "--name", "ship", "--steps", json.dumps([{"title": "Build"}]))
+        self.three_runs()
+        self.ok("step", "1", "in_progress")
+        self.ok("logs", "compact", "--keep", "1")
+        refused = self.run_cli("step", "1", "completed", "earlier runs passed")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("Verified evidence required", refused.stderr)
+
+    def test_anchor_line_trimmed_by_compaction_still_counts_newer_runs(self):
+        self.ok("plan", "create", "Ship", "--name", "ship", "--steps", json.dumps([{"title": "Build"}]))
+        self.three_runs()
+        self.ok("step", "1", "in_progress")
+        self.run_cli("verify", "run", "false", "--claim", "red attempt")
+        self.ok("verify", "run", "test -d .", "--claim", "build passes")
+        self.ok("logs", "compact", "--keep", "1")
+        self.ok("step", "1", "completed", "verify run exit 0: build passes")
+
+    def test_legacy_integer_cursor_is_still_read(self):
+        self.ok("plan", "create", "Ship", "--name", "ship", "--steps", json.dumps([{"title": "Build"}]))
+        self.three_runs()
+        self.ok("step", "1", "in_progress")
+        path = self.state / "plans" / "ship.json"
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        step = plan["steps"][0]
+        step.pop("verification_anchor", None)
+        step["verification_cursor"] = 3
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        refused = self.run_cli("step", "1", "completed", "earlier runs passed")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.ok("verify", "run", "test -d .", "--claim", "build passes")
+        self.ok("step", "1", "completed", "verify run exit 0: build passes")
+
+    def test_map_ticket_resolves_after_compaction_with_new_passing_run(self):
+        self.ok("map", "create", "Ship billing", "--name", "billing")
+        self.ok("map", "ticket", "Provision sandbox", "--type", "task", "--verify", "test -d .")
+        self.three_runs()
+        self.ok("map", "claim", "T1")
+        self.ok("logs", "compact", "--keep", "1")
+        refused = self.run_cli("map", "resolve", "T1", "--answer", "provisioned")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.ok("map", "verify", "T1")
+        self.ok("map", "resolve", "T1", "--answer", "sandbox provisioned")
+
+
+class TestReportSameSecondEvents(CliCase):
+    """Bug 4: report --since last dropped events in the cursor's second."""
+
+    T0 = "2026-01-01T00:00:00+00:00"
+    T1 = "2026-01-01T00:00:05+00:00"
+
+    def setUp(self):
+        super().setUp()
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+
+    def append(self, name, record):
+        with (self.state / name).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+
+    def verification(self, ident, timestamp):
+        return {
+            "id": ident,
+            "kind": "executed",
+            "claim": "check " + ident,
+            "command": "test -d .",
+            "exit_code": 0,
+            "verified": True,
+            "timestamp": timestamp,
+        }
+
+    def reflection(self, action, timestamp):
+        return {
+            "action": action,
+            "outcome": "success",
+            "observation": "ok",
+            "next": "continue",
+            "timestamp": timestamp,
+        }
+
+    def report(self):
+        result = self.ok("report", "--since", "last", "--format", "json")
+        return [event["summary"] for event in json.loads(result.stdout)["events"]]
+
+    def test_same_second_verification_is_reported_once(self):
+        self.append("verifications.jsonl", self.verification("v-x", self.T0))
+        self.append("verifications.jsonl", self.verification("v-a", self.T1))
+        self.assertEqual(len(self.report()), 2)
+        self.append("verifications.jsonl", self.verification("v-b", self.T1))
+        second = self.report()
+        self.assertEqual(len(second), 1, second)
+        self.assertIn("check v-b", second[0])
+        self.assertEqual(self.report(), [])
+
+    def test_same_second_reflection_without_id_is_reported_once(self):
+        self.append("reflections.jsonl", self.reflection("first", self.T0))
+        self.append("reflections.jsonl", self.reflection("second", self.T1))
+        self.assertEqual(len(self.report()), 2)
+        self.append("reflections.jsonl", self.reflection("third", self.T1))
+        second = self.report()
+        self.assertEqual(len(second), 1, second)
+        self.assertIn("third", second[0])
+        self.assertEqual(self.report(), [])
+
+    def test_new_event_sorting_before_the_cursor_in_its_second_is_reported(self):
+        self.append("reflections.jsonl", self.reflection("reflected", self.T1))
+        self.assertEqual(len(self.report()), 1)
+        self.append("verifications.jsonl", self.verification("v-late", self.T1))
+        second = self.report()
+        self.assertEqual(len(second), 1, second)
+        self.assertIn("check v-late", second[0])
+        self.assertEqual(self.report(), [])
+
+
+class TestReviewProveMergeGate(CliCase):
+    """Bug 5: review prove --command could replace the merge gate, even with true."""
+
+    def setUp(self):
+        super().setUp()
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.init_git_repo()
+
+    def create(self, name, merge_command):
+        return self.run_cli(
+            "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
+            "--safety-fact", "the change is safe", "--merge-command", merge_command,
+            "--name", name,
+        )
+
+    def view(self, name):
+        return json.loads(self.ok("review", "show", name, "--json").stdout)
+
+    def test_noop_prove_command_is_refused(self):
+        self.assertEqual(self.create("gate", "test -f tracked.txt").returncode, 0)
+        refused = self.run_cli("review", "prove", "gate", "--command", "true")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("no-op", refused.stderr)
+        view = self.view("gate")
+        self.assertFalse(view["merge_gate"].get("verified"))
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+
+    def test_noop_merge_gate_cannot_be_proven(self):
+        created = self.create("noop-gate", "true")
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertIn("no-op", created.stderr)
+        refused = self.run_cli("review", "prove", "noop-gate")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertFalse(self.view("noop-gate")["merge_gate"].get("verified"))
+
+    def test_noop_variants_cannot_prove_the_merge_gate(self):
+        # Review round 2: `true;` passed the first no-op check and reached
+        # depth 5 with merge_gate.verified true.
+        for index, command in enumerate(("true;", "exit 0;", "sh -c true", "/bin/echo ok")):
+            name = "variant-{0}".format(index)
+            self.assertEqual(self.create(name, command).returncode, 0)
+            refused = self.run_cli("review", "prove", name, "--mode", "runtime")
+            self.assertEqual(refused.returncode, 1, command + refused.stdout + refused.stderr)
+            self.assertIn("no-op", refused.stderr)
+            view = self.view(name)
+            self.assertFalse(view["merge_gate"].get("verified"), command)
+            self.assertEqual(view["safety_fact"]["status"], "unproven", command)
+
+    def test_different_command_records_evidence_but_not_the_merge_gate(self):
+        self.assertEqual(self.create("gate", "test -f tracked.txt").returncode, 0)
+        proved = self.run_cli("review", "prove", "gate", "--command", "test -d .")
+        self.assertEqual(proved.returncode, 0, proved.stdout + proved.stderr)
+        self.assertIn("does not verify the merge gate", proved.stdout + proved.stderr)
+        view = self.view("gate")
+        self.assertFalse(view["merge_gate"]["verified"])
+        self.assertIsNone(view["merge_gate"]["verification_id"])
+        self.assertEqual(view["safety_fact"]["status"], "proven")
+        gated = self.ok("review", "prove", "gate")
+        self.assertNotIn("does not verify the merge gate", gated.stdout + gated.stderr)
+        view = self.view("gate")
+        self.assertTrue(view["merge_gate"]["verified"])
+        self.assertTrue(view["merge_gate"]["verification_id"].startswith("v-"))
+
+
+class TestLineageCannotRewriteReviews(CliCase):
+    """Bug 6: lineage attach rewrote immutable blast-radius reviews."""
+
+    def test_attach_refuses_review_kind(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        self.ok("plan", "create", "Parent plan", "--name", "parent")
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "a.py",
+            "--safety-fact", "safe", "--name", "safety",
+        )
+        review_path = self.state / "reviews" / "safety.json"
+        before = review_path.read_bytes()
+        refused = self.run_cli("lineage", "attach", "review", "safety", "--parent", "plan:parent")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("immutable", refused.stderr)
+        self.assertEqual(review_path.read_bytes(), before)
+
+
+class TestHostSupervisedFrozenBaseline(CliCase):
+    """Bug 7: host-supervised outcome check had no frozen-path baseline."""
+
+    def setUp(self):
+        super().setUp()
+        self.init_git_repo({"tracked.txt": "tracked\n", "tests/test_x.py": "assert True\n"})
+        self.ok("init")
+
+    def start(self):
+        self.ok(
+            "outcome", "start", "Fix the parser", "--success", "parser works",
+            "--verify", "test -f tracked.txt", "--frozen-paths", "tests/", "--name", "parser",
+        )
+
+    def goal(self):
+        return json.loads((self.state / "outcomes" / "parser" / "goal.json").read_text(encoding="utf-8"))
+
+    def test_committed_change_to_a_frozen_path_is_caught(self):
+        self.start()
+        (self.project / "tests" / "test_x.py").write_text("assert 1\n", encoding="utf-8")
+        self.git("commit", "-qam", "rewrite the verifier")
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 2, checked.stdout + checked.stderr)
+        goal = self.goal()
+        self.assertEqual(goal["status"], "stopped")
+        self.assertIn("frozen-path violation", goal["stop_reason"])
+
+    def test_frozen_file_dirty_before_start_does_not_trip(self):
+        (self.project / "tests" / "test_x.py").write_text("assert 2\n", encoding="utf-8")
+        self.start()
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        self.assertEqual(self.goal()["status"], "succeeded")
+
+    def test_frozen_file_dirty_before_start_and_edited_after_trips(self):
+        (self.project / "tests" / "test_x.py").write_text("assert 2\n", encoding="utf-8")
+        self.start()
+        (self.project / "tests" / "test_x.py").write_text("assert 3\n", encoding="utf-8")
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 2, checked.stdout + checked.stderr)
+        self.assertIn("frozen-path violation", self.goal()["stop_reason"])
+
+    def test_new_untracked_file_under_a_frozen_path_trips(self):
+        self.start()
+        (self.project / "tests" / "test_new.py").write_text("assert True\n", encoding="utf-8")
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 2, checked.stdout + checked.stderr)
+        self.assertIn("tests/test_new.py", self.goal()["stop_reason"])
+
+
+class TestGitCannotBeToldToLookAway(CliCase):
+    """Review round 1: frozen paths and the review fingerprint trusted git's
+    index flags and exclude files, so a hidden edit passed as untouched."""
+
+    def setUp(self):
+        super().setUp()
+        self.init_git_repo({"tracked.txt": "tracked\n", "tests/check.sh": "exit 1\n"})
+        self.ok("init")
+
+    def start(self, verify):
+        self.ok(
+            "outcome", "start", "Fix it", "--success", "check passes", "--verify", verify,
+            "--frozen-paths", "tests", "--max-iterations", "3", "--name", "fix",
+        )
+
+    def check_status(self):
+        self.run_cli("outcome", "check")
+        goal = json.loads((self.state / "outcomes" / "fix" / "goal.json").read_text(encoding="utf-8"))
+        return goal["status"], goal.get("stop_reason") or ""
+
+    def test_assume_unchanged_verifier_rewrite_is_caught(self):
+        self.start("sh tests/check.sh")
+        self.git("update-index", "--assume-unchanged", "tests/check.sh")
+        (self.project / "tests" / "check.sh").write_text("exit 0\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/check.sh", reason)
+
+    def test_file_hidden_by_info_exclude_is_caught(self):
+        self.start("test ! -f tests/override")
+        (self.project / "tests" / "override").write_text("x\n", encoding="utf-8")
+        with open(str(self.project / ".git" / "info" / "exclude"), "a", encoding="utf-8") as handle:
+            handle.write("tests/override\n")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/override", reason)
+
+    def test_self_ignoring_gitignore_is_caught(self):
+        self.start("test -f tracked.txt")
+        (self.project / "tests" / ".gitignore").write_text("*\n", encoding="utf-8")
+        (self.project / "tests" / "override").write_text("x\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/.gitignore", reason)
+
+    def test_gitignored_verifier_cache_is_not_a_violation(self):
+        with open(str(self.project / ".gitignore"), "a", encoding="utf-8") as handle:
+            handle.write("__pycache__/\n")
+        self.git("commit", "-qam", "ignore caches")
+        self.start("mkdir -p tests/__pycache__ && echo c > tests/__pycache__/x.pyc && false")
+        self.assertEqual(self.check_status()[0], "active")
+        self.assertEqual(self.check_status()[0], "active")
+
+    def test_a_named_file_is_covered_even_when_gitignored(self):
+        with open(str(self.project / ".gitignore"), "a", encoding="utf-8") as handle:
+            handle.write("verifier.env\n")
+        self.git("commit", "-qam", "ignore the env file")
+        (self.project / "verifier.env").write_text("STRICT=1\n", encoding="utf-8")
+        self.ok(
+            "outcome", "start", "Fix it", "--success", "check passes", "--verify", "true",
+            "--frozen-paths", "verifier.env", "--max-iterations", "3", "--name", "fix",
+        )
+        (self.project / "verifier.env").write_text("STRICT=0\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("verifier.env", reason)
+
+    def test_review_proof_refuses_an_assume_unchanged_edit(self):
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "tracked stays", "--name", "safe",
+        )
+        self.git("update-index", "--assume-unchanged", "tracked.txt")
+        (self.project / "tracked.txt").write_text("rewritten\n", encoding="utf-8")
+        refused = self.run_cli("review", "prove", "safe", "--command", "test -f tracked.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("current_change_fingerprint_unavailable", refused.stderr)
+        view = json.loads(self.ok("review", "show", "safe", "--json").stdout)
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+
+    def test_review_goes_stale_when_info_exclude_changes(self):
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "tracked stays", "--name", "safe",
+        )
+        with open(str(self.project / ".git" / "info" / "exclude"), "a", encoding="utf-8") as handle:
+            handle.write("hidden.txt\n")
+        (self.project / "hidden.txt").write_text("x\n", encoding="utf-8")
+        refused = self.run_cli("review", "prove", "safe", "--command", "test -f tracked.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("worktree_digest_mismatch", refused.stderr)
+
+
+class TestConcurrentOutcomeChecksShareOneBudget(CliCase):
+    """Review round 1: parallel outcome checks each spent the same budget slot."""
+
+    def test_parallel_checks_run_the_verifier_once(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        runs = self.project / "runs.txt"
+        self.ok(
+            "outcome", "start", "Flaky", "--success", "passes",
+            "--verify", "sleep 2; echo run >> runs.txt; false",
+            "--max-iterations", "1", "--name", "flaky",
+        )
+        processes = [
+            subprocess.Popen(
+                [sys.executable, str(CLI), "outcome", "check"],
+                cwd=str(self.project), env=self.env(),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            for _ in range(4)
+        ]
+        results = [(process.wait(timeout=120), process.communicate()) for process in processes]
+        self.assertEqual(runs.read_text(encoding="utf-8").count("run"), 1, results)
+        self.assertEqual(len(self.records("outcomes/flaky/iterations.jsonl")), 1)
+        goal = json.loads((self.state / "outcomes" / "flaky" / "goal.json").read_text(encoding="utf-8"))
+        self.assertEqual((goal["iteration_count"], goal["status"]), (1, "failed"))
+        self.assertFalse(any((self.state / "locks").iterdir()))
+
+
+class TestMcpArgvKeepsPositionals(unittest.TestCase):
+    """Bug 8: multi-value options swallowed positionals in build_argv."""
+
+    def build(self):
+        parser = argparse.ArgumentParser(prog="mythify.py")
+        sub = parser.add_subparsers(dest="command")
+        leaf = sub.add_parser("demo")
+        leaf.add_argument("first")
+        leaf.add_argument("maybe", nargs="?")
+        leaf.add_argument("--files", nargs="+")
+        leaf.add_argument("--pair", nargs=2)
+        leaf.add_argument("--any", nargs="*")
+        leaf.add_argument("--name")
+        _tool, spec = mythify_mcp.build_tool(parser, ("demo",))
+        return parser, spec
+
+    def test_positional_after_trailing_multi_value_option(self):
+        parser, spec = self.build()
+        for arguments in (
+            {"first": "pos", "files": ["a", "b"]},
+            {"first": "pos", "maybe": "opt", "pair": ["x", "y"]},
+            {"first": "pos", "any": ["a"]},
+        ):
+            with self.subTest(arguments=arguments):
+                parsed = parser.parse_args(mythify_mcp.build_argv(spec, arguments))
+                self.assertEqual(parsed.first, "pos")
+                self.assertEqual(parsed.maybe, arguments.get("maybe"))
+                for key in ("files", "pair", "any"):
+                    self.assertEqual(getattr(parsed, key), arguments.get(key))
+
+    def test_multi_value_option_plus_positional_round_trips(self):
+        parser, spec = self.build()
+        argv = mythify_mcp.build_argv(
+            spec,
+            {"first": "pos", "maybe": "opt", "files": ["a", "b"], "pair": ["x", "y"], "any": [], "name": "n"},
+        )
+        parsed = parser.parse_args(argv)
+        self.assertEqual(parsed.first, "pos")
+        self.assertEqual(parsed.maybe, "opt")
+        self.assertEqual(parsed.files, ["a", "b"])
+        self.assertEqual(parsed.pair, ["x", "y"])
+        self.assertEqual(parsed.name, "n")
+
+    def test_dash_positional_after_multi_value_option(self):
+        parser, spec = self.build()
+        argv = mythify_mcp.build_argv(spec, {"first": "-dash", "files": ["a"]})
+        parsed = parser.parse_args(argv)
+        self.assertEqual(parsed.first, "-dash")
+        self.assertEqual(parsed.files, ["a"])
+
+    def test_multi_value_item_that_looks_like_a_flag_is_rejected(self):
+        _parser, spec = self.build()
+        with self.assertRaisesRegex(mythify_mcp.ToolInputError, "'files'"):
+            mythify_mcp.build_argv(spec, {"first": "pos", "files": ["-a"]})
+
+
+def _process_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    state = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
+    ).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+@unittest.skipUnless(os.name == "posix", "process groups are POSIX-only")
+class TestMcpTimeoutKillsVerifyChild(CliCase):
+    """Bug 9: an MCP timeout left the verify command running in its own session."""
+
+    def test_timed_out_verify_run_leaves_no_child(self):
+        self.ok("init")
+        pid_file = self.project / "child.pid"
+        code = (
+            "import os, pathlib, time; "
+            "pathlib.Path('child.pid').write_text(str(os.getpid())); "
+            "time.sleep(30)"
+        )
+        client = McpClient(self.project, self.env(MYTHIFY_MCP_CALL_TIMEOUT="3"))
+        self.addCleanup(client.close)
+        result = client.call("verify_run", {"command": shell_py(code), "claim": "slow"})
+        self.assertTrue(result["isError"], result_text(result))
+        self.assertEqual(exit_code(result), 124)
+        self.assertTrue(pid_file.is_file(), "the verify child never started")
+        pid = int(pid_file.read_text(encoding="utf-8"))
+
+        def cleanup():
+            if _process_alive(pid):
+                os.kill(pid, signal.SIGKILL)
+
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 8
+        while _process_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertFalse(_process_alive(pid), "verify child {0} survived the MCP timeout".format(pid))
+
+    def test_signalled_cli_kills_its_verify_child_and_exits(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                pid_file = self.project / "child-{0}.pid".format(int(signum))
+                code = (
+                    "import os, pathlib, time; "
+                    "pathlib.Path({0!r}).write_text(str(os.getpid())); "
+                    "time.sleep(30)"
+                ).format(pid_file.name)
+                cli = subprocess.Popen(
+                    [sys.executable, str(CLI), "verify", "run", shell_py(code)],
+                    cwd=str(self.project),
+                    env=self.env(),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                deadline = time.monotonic() + 20
+                while not pid_file.is_file() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(pid_file.is_file(), "the verify child never started")
+                pid = int(pid_file.read_text(encoding="utf-8"))
+                self.addCleanup(lambda pid=pid: _process_alive(pid) and os.kill(pid, signal.SIGKILL))
+                cli.send_signal(signum)
+                self.assertEqual(cli.wait(timeout=10), 128 + int(signum))
+                deadline = time.monotonic() + 5
+                while _process_alive(pid) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertFalse(_process_alive(pid), "verify child survived signal {0}".format(signum))
+
+
+class TestPromptNextWithoutPlan(CliCase):
+    """Bug 10: prompt next with no active plan printed 'workflow_state None'."""
+
+    def test_source_line_names_no_none(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        result = self.ok("prompt", "next")
+        source = [line for line in result.stdout.splitlines() if line.startswith("Source:")]
+        self.assertEqual(len(source), 1, result.stdout)
+        self.assertNotIn("None", source[0])
+        payload = json.loads(self.ok("prompt", "next", "--json").stdout)
+        self.assertIsNotNone(payload["source"].get("id") or payload["source"].get("detail"))
+
+
+def unreferenced_definitions(paths):
+    """Top-level functions and classes that nothing in PATHS references."""
+    defined = {}
+    used = set()
+    for path in paths:
+        tree = ast.parse(Path(path).read_text(encoding="utf-8"), str(path))
+        local = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                local.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                local.add(node.attr)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                local.add(node.value)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if (alias.asname or alias.name) in local:
+                        used.add(alias.name)
+        used |= local
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                defined.setdefault(node.name, Path(path).name)
+    return sorted("{0}.{1}".format(defined[name], name) for name in defined if name not in used)
+
+
+class TestNoDeadRuntimeFunctions(unittest.TestCase):
+    """Bug 11: dead helpers survived in the runtime modules."""
+
+    def test_every_runtime_function_is_referenced(self):
+        paths = sorted(SCRIPTS_DIR.glob("mythify*.py"))
+        self.assertEqual(unreferenced_definitions(paths), [])
+
+
+class TestWorktreeDigestBatchesHashing(unittest.TestCase):
+    """Bug 12: git_worktree_digest spawned one git hash-object per untracked file."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="mythify-digest-")
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name).resolve()
+        for args in (
+            ["init", "-q"],
+            ["config", "user.email", "mythify@example.invalid"],
+            ["config", "user.name", "Mythify Test"],
+        ):
+            subprocess.run(["git"] + args, cwd=self.root, check=True)
+        (self.root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "base"], cwd=self.root, check=True)
+        (self.root / "tracked.txt").write_text("edited\n", encoding="utf-8")
+        names = [
+            "a.txt", "b with space.txt", "nested/c.bin", "\"quoted.txt", "line\nbreak.txt",
+            "trailing space .txt", "z.txt",
+        ]
+        for index, name in enumerate(names):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(("content {0}\n".format(index)).encode("utf-8") + bytes([0, 255]))
+
+    def reference_digest(self):
+        """The pre-batching algorithm: one hash-object call per untracked file.
+
+        The ignore-rules section (review round 1) is computed by the module
+        itself; this test pins the per-file hashing, not the rules digest.
+        """
+        env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+        rules = mythify_provenance.git_ignore_rules_digest(self.root)
+        diff = subprocess.run(
+            ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"],
+            cwd=self.root, capture_output=True, env=env, check=True,
+        )
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=self.root, capture_output=True, env=env, check=True,
+        )
+        digest = hashlib.sha256()
+        digest.update(b"rules\0" + rules.encode("ascii") + b"\0")
+        digest.update(b"tracked\0")
+        digest.update(diff.stdout)
+        for raw_path in sorted(item for item in untracked.stdout.split(b"\0") if item):
+            blob = subprocess.run(
+                ["git", "hash-object", "--no-filters", "--", os.fsdecode(raw_path)],
+                cwd=self.root, capture_output=True, env=env, check=True,
+            )
+            digest.update(b"untracked\0")
+            digest.update(raw_path)
+            digest.update(b"\0")
+            digest.update(blob.stdout.strip())
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    def test_digest_is_unchanged_and_hashing_is_batched(self):
+        real_run = subprocess.run
+        calls = []
+
+        def counting_run(args, *rest, **kwargs):
+            calls.append(list(args))
+            return real_run(args, *rest, **kwargs)
+
+        with mock.patch.object(mythify_provenance.subprocess, "run", side_effect=counting_run):
+            digest = mythify_provenance.git_worktree_digest(self.root)
+        self.assertEqual(digest, self.reference_digest())
+        hash_calls = [args for args in calls if "hash-object" in args]
+        # One batched call for the ordinary names; the leading-quote and the
+        # newline names each need their own call, because --stdin-paths
+        # unquotes C-style quoted lines and splits on line breaks.
+        self.assertEqual(len(hash_calls), 3, hash_calls)
+
+
+class TestCompactionKeepsArchivedArtifacts(CliCase):
+    """Bug 13: logs compact deleted artifacts that archived records still reference."""
+
+    def test_archived_records_keep_their_artifacts(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        for label in ("first", "second"):
+            self.ok("verify", "run", shell_py("print('{0}')".format(label)))
+        first = self.records()[0]
+        first_stdout = self.state / first["artifacts"]["stdout"]["path"]
+        self.assertTrue(first_stdout.is_file())
+        self.ok("logs", "compact", "--keep", "1")
+        self.assertEqual(len(self.records()), 1)
+        archives = list((self.state / "logs" / "archive").glob("verifications-*.jsonl"))
+        self.assertEqual(len(archives), 1)
+        archived = [json.loads(line) for line in archives[0].read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(archived[0]["id"], first["id"])
+        self.assertTrue(first_stdout.is_file(), "archived record lost its artifact")
+        self.assertIn("first", first_stdout.read_text(encoding="utf-8"))
+
+
+
+class TestUnignoredStateDirLeavesProvenanceAlone(CliCase):
+    """Review round 3: every ledger append under an unignored .mythify/ moved
+    the worktree digest, so review prove and strict-plan completion failed."""
+
+    def setUp(self):
+        super().setUp()
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.git("init", "-q")
+        self.git("config", "user.email", "mythify@example.invalid")
+        self.git("config", "user.name", "Mythify Test")
+        (self.project / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "baseline")
+
+    def init_unignored(self):
+        self.ok("init")
+        # A team that tracks .mythify/, or a workspace initialized before init
+        # learned to write the ignore line, leaves the state directory visible.
+        (self.project / ".gitignore").unlink(missing_ok=True)
+
+    def test_init_with_mythify_dir_ignores_the_state_dir(self):
+        self.ok("init")
+        self.assertEqual(
+            (self.project / ".gitignore").read_text(encoding="utf-8"), ".mythify/\n"
+        )
+
+    def test_review_prove_succeeds(self):
+        self.init_unignored()
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "the change is safe", "--merge-command", "test -f tracked.txt",
+            "--name", "gate",
+        )
+        proved = self.run_cli("review", "prove", "gate")
+        self.assertEqual(proved.returncode, 0, proved.stdout + proved.stderr)
+
+    def test_strict_imported_plan_completes(self):
+        self.init_unignored()
+        plan_dir = self.project / ".godplans"
+        plan_dir.mkdir()
+        (plan_dir / "PLAN.mdx").write_text(
+            "---\nname: unignored\nstatus: executing\n---\n"
+            "- [ ] GP-101 Keep the tracked file\n  - Verify: `test -f tracked.txt`\n",
+            encoding="utf-8",
+        )
+        self.ok("plan", "import")
+        self.ok("plan", "verify", "1")
+        completed = self.run_cli("step", "1", "completed", "plan verify exit 0")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertNotIn("world moved", completed.stderr)
+
+
+class TestLatestRunOfACommandDecidesTheStep(CliCase):
+    """Review round 3: a pass followed by a failure of the same command still
+    completed the step, so a step could advance on red."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("init")
+        self.ok(
+            "plan", "create", "Flagged", "--steps",
+            json.dumps([{"title": "flag", "success_criteria": "flag exists",
+                         "verify_command": "test -f flag"}]),
+        )
+        self.ok("step", "1", "in_progress")
+        self.flag = self.project / "flag"
+
+    def run_verifier(self, present):
+        if present:
+            self.flag.write_text("x\n", encoding="utf-8")
+        elif self.flag.exists():
+            self.flag.unlink()
+        return self.run_cli("verify", "run", "test -f flag")
+
+    def test_pass_then_fail_is_refused(self):
+        self.assertEqual(self.run_verifier(True).returncode, 0)
+        self.assertEqual(self.run_verifier(False).returncode, 2)
+        refused = self.run_cli("step", "1", "completed", "done")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("Verified evidence required", refused.stderr)
+        self.assertIn("cancels an earlier pass", refused.stderr)
+
+    def test_pass_fail_pass_is_accepted(self):
+        for present in (True, False, True):
+            self.run_verifier(present)
+        self.ok("step", "1", "completed", "verify run exit 0")
+
+
+class TestNewPlanNeverInheritsOldEvidence(CliCase):
+    """Review round 3: a new plan reused an archived plan's slug, and a step
+    completed from pending counted the old plan's same-second records."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("init")
+        self.ok("plan", "create", "foo", "--steps", json.dumps([{"title": "old work"}]))
+        self.ok("step", "1", "in_progress")
+        self.ok("verify", "run", "test -d .")
+
+    def test_archived_slug_is_not_reused(self):
+        self.ok("plan", "archive", "foo")
+        created = self.ok("plan", "create", "foo", "--steps", json.dumps([{"title": "new work"}]))
+        self.assertIn("Created plan: foo-2", created.stdout)
+        refused = self.run_cli("step", "1", "completed", "reuse")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+
+    def test_plan_anchor_excludes_records_from_before_the_plan(self):
+        # Even when an older plan's file is gone and its slug is free again,
+        # records from before the new plan's anchor never count.
+        (self.state / "plans" / "foo.json").unlink()
+        created = self.ok("plan", "create", "foo", "--steps", json.dumps([{"title": "new work"}]))
+        self.assertIn("Created plan: foo ", created.stdout)
+        refused = self.run_cli("step", "1", "completed", "reuse")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("Verified evidence required", refused.stderr)
+
+
+class TestFrozenPathsMustMatchSomething(CliCase):
+    """Review round 3: an absolute or misspelled frozen path matched nothing,
+    so outcome check succeeded after the protected file changed."""
+
+    def setUp(self):
+        super().setUp()
+        self.init_git_repo({"tracked.txt": "tracked\n", "tests/test_x.py": "assert True\n"})
+        self.ok("init")
+
+    def start(self, frozen):
+        return self.run_cli(
+            "outcome", "start", "Fix it", "--success", "check passes",
+            "--verify", "test -f tracked.txt", "--frozen-paths", frozen, "--name", "fix",
+        )
+
+    def test_absolute_path_inside_the_root_is_enforced(self):
+        started = self.start(str(self.project / "tests"))
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        goal = json.loads((self.state / "outcomes" / "fix" / "goal.json").read_text(encoding="utf-8"))
+        self.assertEqual(goal["frozen_paths"], ["tests"])
+        (self.project / "tests" / "test_x.py").write_text("assert 1\n", encoding="utf-8")
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 2, checked.stdout + checked.stderr)
+        self.assertIn("tests/test_x.py", checked.stdout)
+
+    def test_missing_or_outside_path_is_refused(self):
+        for frozen in ("test/", str(self.base / "home")):
+            with self.subTest(frozen=frozen):
+                refused = self.start(frozen)
+                self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                self.assertIn("[FAIL] Frozen path", refused.stdout)
+                self.assertFalse((self.state / "outcomes" / "fix").exists())
+
+
+
+class StepGateCase(CliCase):
+    """Two-step plans for the final-review step gate findings."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("init")
+        self.flag = self.base / "flag"
+        self.flag.write_text("x\n", encoding="utf-8")
+        self.flag_check = "test -f {0}".format(self.flag)
+
+    def plan(self, first, second, name="gate"):
+        self.ok(
+            "plan", "create", name, "--steps",
+            json.dumps([{"title": "s1", "verify_command": first},
+                        {"title": "s2", "verify_command": second}]),
+        )
+
+    def import_plan(self, first, second):
+        plan_dir = self.project / ".godplans"
+        plan_dir.mkdir()
+        (plan_dir / "PLAN.mdx").write_text(
+            "---\nname: parallel\nstatus: executing\n---\n"
+            "- [ ] GP-101 [W1.1] [P] First\n  - Verify: `{0}`\n"
+            "- [ ] GP-102 [W1.2] [P] Second\n  - Verify: `{1}`\n".format(first, second),
+            encoding="utf-8",
+        )
+        self.ok("plan", "import")
+        plan = json.loads((self.state / "plans" / "parallel-godplans.json").read_text(encoding="utf-8"))
+        self.assertTrue(plan.get("strict_context"))
+
+    def refused(self, *args):
+        result = self.run_cli(*args)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Verified evidence required", result.stderr)
+        return result
+
+    def failing_map_verify(self):
+        self.ok("map", "create", "Elsewhere")
+        self.ok("map", "ticket", "t", "--type", "task", "--verify", self.flag_check)
+        self.ok("map", "claim", "T1")
+        self.assertEqual(self.run_cli("map", "verify", "T1").returncode, 2)
+
+    def mcp(self):
+        client = McpClient(self.project, self.env())
+        self.addCleanup(client.close)
+        client.request("initialize", {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "mythify-bugs", "version": "1.0.0"},
+        })
+        client.notify("notifications/initialized")
+        return client
+
+
+class TestAFailingRunElsewhereCancelsTheStepPass(StepGateCase):
+    """Final review: the step gate filtered by step scope before it picked the
+    latest run, so a failing run of the step's own command stamped to another
+    step or a map ticket left the earlier pass standing."""
+
+    def test_failing_verify_run_while_another_step_is_in_progress(self):
+        self.plan("test -f {0}".format(self.project), self.flag_check)
+        self.ok("step", "1", "in_progress")
+        self.ok("plan", "verify", "2")
+        self.flag.unlink()
+        self.assertEqual(self.run_cli("verify", "run", self.flag_check).returncode, 2)
+        self.assertEqual(self.records()[-1]["step_id"], 2)
+        refused = self.refused("step", "2", "completed", "done")
+        self.assertIn("cancels an earlier pass", refused.stderr)
+
+    def test_failing_run_stamped_to_another_step_cancels_the_pass(self):
+        self.plan(self.flag_check, self.flag_check)
+        self.ok("step", "1", "in_progress")
+        self.ok("plan", "verify", "2")
+        self.flag.unlink()
+        self.assertEqual(self.run_cli("verify", "run", self.flag_check).returncode, 2)
+        self.assertEqual(self.records()[-1]["step_id"], 1)
+        refused = self.refused("step", "2", "completed", "done")
+        self.assertIn("(recorded for plan gate step 1)", refused.stderr)
+        self.flag.write_text("x\n", encoding="utf-8")
+        self.ok("verify", "run", self.flag_check)
+        self.ok("step", "2", "completed", "verify run exit 0")
+
+    def test_failing_map_verify_cancels_the_pass(self):
+        self.ok("plan", "create", "G", "--steps",
+                json.dumps([{"title": "s1", "verify_command": self.flag_check}]))
+        self.ok("plan", "verify", "1")
+        self.flag.unlink()
+        self.failing_map_verify()
+        refused = self.refused("step", "1", "completed", "done")
+        self.assertIn("(recorded for map elsewhere ticket T1)", refused.stderr)
+
+    def test_strict_imported_plan_refuses_after_a_failing_run(self):
+        self.import_plan(self.flag_check, "test -f two.txt")
+        self.ok("plan", "verify", "1")
+        self.flag.unlink()
+        self.failing_map_verify()
+        refused = self.refused("step", "1", "completed", "done")
+        self.assertIn("cancels an earlier pass", refused.stderr)
+
+    def test_failing_run_through_mcp_cancels_the_pass(self):
+        client = self.mcp()
+        self.assertEqual(exit_code(client.call("plan_create", {
+            "goal": "G", "name": "gate",
+            "steps": [{"title": "s1", "verify_command": "test -f {0}".format(self.project)},
+                      {"title": "s2", "verify_command": self.flag_check}],
+        })), 0)
+        self.assertEqual(exit_code(client.call("step", {"id": "1", "status": "in_progress"})), 0)
+        self.assertEqual(exit_code(client.call("plan_verify", {"id": "2"})), 0)
+        self.flag.unlink()
+        self.assertEqual(exit_code(client.call("verify_run", {"command": self.flag_check})), 2)
+        refused = client.call("step", {"id": "2", "status": "completed", "result": "done"})
+        self.assertEqual(exit_code(refused), 1, result_text(refused))
+        self.assertIn("cancels an earlier pass", result_text(refused))
+
+
+class TestARunCountsForTheStepWhoseCommandItRuns(StepGateCase):
+    """Final review: verify run and outcome check stamped the first in-progress
+    step of the active plan, so the documented loop failed for a second
+    in-progress step and for a step of a non-active plan."""
+
+    def test_second_in_progress_step_completes(self):
+        self.plan("test -f one.txt", "test -f two.txt")
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "run", "test -f two.txt")
+        self.assertEqual(self.records()[-1]["step_id"], 2)
+        self.ok("step", "2", "completed", "verify run exit 0")
+
+    def test_imported_parallel_task_completes(self):
+        self.import_plan("test -f one.txt", "test -f two.txt")
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "run", "test -f two.txt", "--claim", "GP-102")
+        self.ok("step", "2", "completed", "verify run exit 0")
+
+    def test_step_of_a_non_active_plan_completes(self):
+        (self.project / "a.txt").write_text("a\n", encoding="utf-8")
+        self.ok("plan", "create", "A", "--steps",
+                json.dumps([{"title": "a1", "verify_command": "test -f a.txt"}]))
+        self.ok("plan", "create", "B", "--steps",
+                json.dumps([{"title": "b1", "verify_command": "test -f b.txt"}]))
+        self.ok("step", "1", "in_progress", "--plan", "a")
+        self.ok("verify", "run", "test -f a.txt")
+        self.assertEqual(self.records()[-1]["plan"], "a")
+        self.ok("step", "1", "completed", "ok", "--plan", "a")
+
+    def test_outcome_check_counts_for_the_matching_step(self):
+        self.plan("test -f one.txt", "test -f two.txt")
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.ok("outcome", "start", "Two", "--success", "two exists", "--verify", "test -f two.txt")
+        self.ok("outcome", "check")
+        self.assertEqual(self.records()[-1]["step_id"], 2)
+        self.ok("step", "2", "completed", "outcome check exit 0")
+
+    def test_refusal_names_the_step_the_run_counted_for(self):
+        self.plan(self.flag_check, self.flag_check)
+        self.ok("step", "1", "in_progress")
+        self.ok("step", "2", "in_progress")
+        self.ok("verify", "run", self.flag_check)
+        refused = self.refused("step", "2", "completed", "done")
+        self.assertIn("was recorded for plan gate step 1, not plan gate step 2", refused.stderr)
+        self.assertIn("plan verify 2 --plan gate", refused.stderr)
+        self.ok("plan", "verify", "2")
+        self.ok("step", "2", "completed", "plan verify exit 0")
+
+    def test_parallel_steps_complete_through_mcp(self):
+        client = self.mcp()
+        self.assertEqual(exit_code(client.call("plan_create", {
+            "goal": "G", "name": "gate",
+            "steps": [{"title": "s1", "verify_command": "test -f one.txt"},
+                      {"title": "s2", "verify_command": "test -f two.txt"}],
+        })), 0)
+        for step_id in ("1", "2"):
+            self.assertEqual(exit_code(client.call("step", {"id": step_id, "status": "in_progress"})), 0)
+        (self.project / "two.txt").write_text("2\n", encoding="utf-8")
+        self.assertEqual(exit_code(client.call("verify_run", {"command": "test -f two.txt"})), 0)
+        completed = client.call("step", {"id": "2", "status": "completed", "result": "verify run exit 0"})
+        self.assertEqual(exit_code(completed), 0, result_text(completed))
+
+
+if __name__ == "__main__":
+    unittest.main()

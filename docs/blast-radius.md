@@ -42,17 +42,27 @@ mythify review show cache-eviction
 mythify review show cache-eviction --json
 ```
 
-`review prove` accepts `--command` to override the stored command for that run,
+`review prove` accepts `--command` to run a different check for that run,
 `--claim` to label the verification, `--mode executed|runtime`, and `--timeout`.
+A `--command` run is evidence for the safety fact, but only a run of the stored
+merge-gate command sets `merge_gate.verified`. A command that cannot fail
+proves nothing, so `review prove` refuses one it recognizes as a no-op: `true`,
+`:`, `exit 0`, a bare `echo` or `printf`, the same behind `;`, `env`,
+`command`, or `sh -c`, and a list such as `pytest || true` whose exit status is
+0 on every path. The check is a heuristic that catches common forms, not a
+guarantee: a command it cannot read (a group, a conditional, `set -e`) is let
+through.
 Runtime mode represents a running-app or integration reproduction and produces
 proof depth 5 when it passes. Ordinary executed mode produces depth 4.
 
 Exit codes are:
 
 - `0`: the command ran against the exact reviewed change and passed.
-- `1`: the review is missing, has the wrong type, is stale, or has no command.
+- `1`: the review is missing, has the wrong type, is stale, has no command, or
+  the command is a no-op.
 - `2`: execution was disabled, the command failed, or a passing command changed
   the reviewed source.
+- `64`: the arguments did not parse.
 
 ## Proof ladder
 
@@ -103,22 +113,35 @@ The digest does not persist source file contents. It distinguishes two dirty
 worktrees that share the same commit, which the older clean or dirty boolean
 could not do.
 
+Git reads that could hide an edit are closed off. While any index entry is
+flagged assume-unchanged, or skip-worktree with its file on disk, the
+fingerprint is unavailable and proof is refused; clear the flag with `git
+update-index --no-assume-unchanged PATH` or `--no-skip-worktree PATH`. The
+digest also covers `.git/info/exclude`, the global excludes file, and any
+`.gitignore` that git ignores, so editing them changes the digest. Git's
+filesystem monitor and untracked cache are off for these reads. Files ignored
+by the repository's own `.gitignore` files stay outside the fingerprint.
+
 Proof refuses to start when the current commit or digest differs from the
 review. The executed verification stores the same provenance plus typed
 `review:<name>` lineage. Status is derived from that append-only evidence at
 read time. The original review JSON is never edited to claim success.
 
-## MCP parity
+## Through MCP
 
-The MCP server exposes the same state contract through:
+The review commands have no typed MCP tool. Call them through the `mythify`
+tool, which runs any CLI command from an argument list:
 
-- `blast_radius_review_create`
-- `blast_radius_review_prove`
-- `blast_radius_review_status`
+```json
+{"args": ["review", "blast-radius", "--status", "warn", "--path", "src/cache.py", "--safety-fact", "eviction removes only expired entries", "--merge-command", "python3 -m unittest tests.test_cache", "--name", "cache-eviction"]}
+{"args": ["review", "prove", "cache-eviction"]}
+{"args": ["review", "show", "cache-eviction", "--json"]}
+```
 
-CLI-created reviews can be proved and read through MCP, and MCP evidence is
-recognized by the CLI. Both runtimes compute the same dirty-worktree digest and
-revision lineage. The `quality` tool profile includes all three tools.
+The MCP server runs the same CLI in the project root, so a review created in
+a terminal can be proved through MCP and the other way around. The result
+ends with `exit_code: N`, using the codes above; exit 2 is a result, not a
+tool error.
 
 ## Security and evidence boundary
 
@@ -136,6 +159,6 @@ revision lineage. The `quality` tool profile includes all three tools.
 
 The workflow selectively adapts ideas from the
 [pstack `blast-radius` skill](https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md),
-which is available in Cursor's MIT-licensed plugins repository. Mythify keeps
-its own immutable state, typed lineage, cross-runtime schema, execution kill
-switch, redacted artifacts, and release-gate integration.
+which is published under the MIT License. Mythify keeps its own immutable
+state, typed lineage, exact-change binding, execution kill switch, and
+redacted artifacts.

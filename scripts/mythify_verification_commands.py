@@ -4,6 +4,8 @@ import json
 import os
 import re
 
+from mythify_evidence_guard import run_disabled
+
 
 _deps = {}
 
@@ -46,7 +48,7 @@ def _print_artifacts(state, record):
 
 
 def cmd_verify_run(args, state):
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         _deps["fail_func"](_deps["disabled_message"])
         return 2
     try:
@@ -149,7 +151,16 @@ def cmd_reflect(args, state):
 def add_verification_parsers(sub, symbols):
     verify = sub.add_parser("verify", help="Verification: run a command (executed) or record a claim (attested).")
     actions = verify.add_subparsers(dest="verify_command", metavar="ACTION", required=True)
-    parser = actions.add_parser("run", help="Execute COMMAND and record an executed verification.")
+    parser = actions.add_parser(
+        "run",
+        help="Execute COMMAND and record an executed verification.",
+        description=(
+            "Execute COMMAND and record an executed verification. The record "
+            "counts for the in-progress step whose verify_command equals COMMAND, "
+            "searching the active plan first and then every other plan; with no "
+            "such step, for the first in-progress step of the active plan."
+        ),
+    )
     parser.add_argument("command", help="Shell command to execute.")
     parser.add_argument("--claim", help="What this command verifies.")
     parser.add_argument("--parent", action="append", default=[], help="Parent artifact kind:id. Repeat as needed.")

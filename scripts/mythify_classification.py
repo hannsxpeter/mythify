@@ -1,7 +1,19 @@
 """Deterministic Mythify task classification.
 
-This module is shared by the CLI entrypoint and direct unit tests. It keeps the
+This module is shared by the router and direct unit tests. It keeps the
 manifest-backed classification policy out of the large command dispatcher.
+Classification never names, ranks, or selects a model, provider, or subagent:
+the framing, parallelism, and review outputs are neutral advisories, and the
+host decides whether and where to delegate.
+
+Two precision rules keep short or incidental wording from misleading the
+router. A prompt of trivial length is trivial only when it matches no task,
+risk, or route-selecting term. A destructive verb (delete, remove, drop, and
+kin) is high risk unless the words right after it name a code-local object
+such as an import, a comment, or a typo and the prompt names no destructive
+object anywhere, so "remove an unused import" stays low risk while "delete the
+user account", "delete production data", and "remove the imports from the s3
+bucket" stay high.
 """
 
 import json
@@ -27,13 +39,12 @@ def load_classification_rules():
         "thresholds",
         "risk",
         "ceremony",
-        "fanout",
-        "fanout_visibility",
+        "framing",
+        "parallelism",
+        "review",
         "quality_climb",
         "execution_profile",
-        "plan_archetype",
         "next_actions",
-        "model_triage",
         "verification_hints",
     )
     for section in required_sections:
@@ -64,30 +75,30 @@ MEDIUM_AMBIGUITY_WORD_COUNT = int(CLASSIFICATION_THRESHOLDS["medium_ambiguity_wo
 QUESTION_PREFIXES = tuple(str(prefix) for prefix in CLASSIFICATION_MANIFEST["question_prefixes"])
 VAGUE_REQUEST_TERMS = tuple(str(term) for term in CLASSIFICATION_MANIFEST["vague_request_terms"])
 HIGH_RISK_TERMS = classification_tuple("risk", "high_terms")
+DESTRUCTIVE_VERBS = classification_tuple("risk", "destructive_verbs")
+DESTRUCTIVE_OBJECTS = classification_tuple("risk", "destructive_objects")
+CODE_LOCAL_OBJECTS = classification_tuple("risk", "code_local_objects")
+NEAR_TERMS = tuple(
+    (
+        str(entry["task_type"]),
+        tuple(str(term) for term in entry["terms"]),
+        tuple(str(term) for term in entry["near"]),
+    )
+    for entry in CLASSIFICATION_MANIFEST["risk"].get("near_terms", [])
+)
+RISK_WINDOW_WORDS = int(CLASSIFICATION_THRESHOLDS["risk_window_words"])
 HIGH_RISK_TASK_TYPES = classification_tuple("risk", "high_task_types")
 MEDIUM_RISK_TERMS = classification_tuple("risk", "medium_terms")
 MEDIUM_RISK_TASK_TYPES = classification_tuple("risk", "medium_task_types")
 CEREMONY_POLICY = CLASSIFICATION_MANIFEST["ceremony"]
-FANOUT_POLICY = CLASSIFICATION_MANIFEST["fanout"]
-FANOUT_VISIBILITY_POLICY = CLASSIFICATION_MANIFEST["fanout_visibility"]
+FRAMING_POLICY = CLASSIFICATION_MANIFEST["framing"]
+PARALLELISM_POLICY = CLASSIFICATION_MANIFEST["parallelism"]
+REVIEW_POLICY = CLASSIFICATION_MANIFEST["review"]
 QUALITY_CLIMB_POLICY = CLASSIFICATION_MANIFEST["quality_climb"]
 EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST["execution_profile"]
-PLAN_ARCHETYPE_POLICY = CLASSIFICATION_MANIFEST["plan_archetype"]
 NEXT_ACTIONS = CLASSIFICATION_MANIFEST["next_actions"]
-MODEL_TRIAGE_POLICY = CLASSIFICATION_MANIFEST["model_triage"]
 VERIFICATION_HINTS = CLASSIFICATION_MANIFEST["verification_hints"]
-
-TRIAGE_OUTPUT_SHAPE = {
-    "primary_type": "string",
-    "secondary_types": ["string"],
-    "ambiguity": "low|medium|high",
-    "hidden_questions": ["string"],
-    "likely_files_or_surfaces": ["string"],
-    "verification_plan": ["string"],
-    "fanout_plan": ["string"],
-    "risk_notes": ["string"],
-    "recommended_first_step": "string",
-}
+PARALLELISM_CHOOSER = "host"
 
 
 def wordish(text):
@@ -104,6 +115,58 @@ def contains_any(text, terms):
     return matches
 
 
+def term_count(term):
+    return len(wordish(term).split())
+
+
+def term_positions(tokens, term):
+    needle = wordish(term).split()
+    size = len(needle)
+    return [i for i in range(len(tokens) - size + 1) if needle and tokens[i:i + size] == needle]
+
+
+def destructive_wording(text):
+    """True unless every destructive verb acts only on a code-local object.
+
+    A destructive object anywhere in the prompt makes any destructive verb high
+    risk, however far apart they are. Otherwise a verb is benign only when the
+    next RISK_WINDOW_WORDS words name a code-local object; a verb followed by
+    neither kind stays high, so unknown objects fail toward caution.
+    """
+    tokens = wordish(text).split()
+    names_destructive_object = bool(contains_any(text, DESTRUCTIVE_OBJECTS))
+    for verb in DESTRUCTIVE_VERBS:
+        size = len(wordish(verb).split())
+        for start in term_positions(tokens, verb):
+            window = " ".join(tokens[start + size:start + size + RISK_WINDOW_WORDS])
+            if names_destructive_object or not contains_any(window, CODE_LOCAL_OBJECTS):
+                return True
+    return False
+
+
+def near_matches(text):
+    """(task_type, signal) pairs where a term sits within the window of a partner."""
+    tokens = wordish(text).split()
+    found = []
+    for task_type, terms, partners in NEAR_TERMS:
+        for term in terms:
+            for start in term_positions(tokens, term):
+                low = max(0, start - RISK_WINDOW_WORDS)
+                window = " ".join(tokens[low:start + RISK_WINDOW_WORDS + 1])
+                for partner in contains_any(window, partners):
+                    found.append((task_type, "{0} near {1}".format(term, partner)))
+    return found
+
+
+def term_risk(text):
+    """Risk named by the wording alone: "high", "medium", or None."""
+    if contains_any(text, HIGH_RISK_TERMS) or destructive_wording(text) or near_matches(text):
+        return "high"
+    if contains_any(text, MEDIUM_RISK_TERMS):
+        return "medium"
+    return None
+
+
 def classify_ambiguity(text, words, signals, scores, task_type):
     if task_type in ("question", "trivial"):
         return "low"
@@ -116,63 +179,49 @@ def classify_ambiguity(text, words, signals, scores, task_type):
     return "low"
 
 
-def model_triage_gate(task_type, risk, ceremony, ambiguity, text):
+def _policy_tuple(policy, key):
+    return tuple(str(item) for item in policy.get(key, []))
+
+
+def framing_advisory(task_type, risk, ceremony, ambiguity, text):
+    """How much framing the task needs before execution: none, light, or full."""
     if ceremony == "none":
-        return (
-            "skip",
-            MODEL_TRIAGE_POLICY["none_reason"],
-        )
-    high_impact_terms = tuple(
-        str(term) for term in MODEL_TRIAGE_POLICY["high_impact_terms"]
-    )
+        return {"level": "none", "reason": FRAMING_POLICY["none_reason"]}
     if (
         risk == "high"
         and ambiguity == "high"
-        and contains_any(text, high_impact_terms)
+        and contains_any(text, _policy_tuple(FRAMING_POLICY, "high_impact_terms"))
     ):
-        return (
-            "required",
-            MODEL_TRIAGE_POLICY["high_impact_required_reason"],
-        )
+        return {"level": "full", "reason": FRAMING_POLICY["high_impact_reason"]}
     if ambiguity == "high":
-        return (
-            "recommended",
-            MODEL_TRIAGE_POLICY["high_ambiguity_reason"],
-        )
-    if task_type in tuple(str(item) for item in MODEL_TRIAGE_POLICY["recommended_task_types"]):
-        return (
-            "recommended",
-            MODEL_TRIAGE_POLICY["recommended_reason"],
-        )
-    if (
-        task_type in tuple(str(item) for item in MODEL_TRIAGE_POLICY["optional_task_types"])
-        or risk == "medium"
+        return {"level": "full", "reason": FRAMING_POLICY["high_ambiguity_reason"]}
+    if task_type in _policy_tuple(FRAMING_POLICY, "full_task_types"):
+        return {"level": "full", "reason": FRAMING_POLICY["full_task_type_reason"]}
+    if task_type in _policy_tuple(FRAMING_POLICY, "light_task_types") or risk == "medium":
+        return {"level": "light", "reason": FRAMING_POLICY["light_reason"]}
+    return {"level": "none", "reason": FRAMING_POLICY["default_reason"]}
+
+
+def parallelism_advisory(task_type, text):
+    """Whether the work splits into independent parts. The host chooses who runs them."""
+    if task_type in _policy_tuple(PARALLELISM_POLICY, "strong_task_types") or contains_any(
+        text, _policy_tuple(PARALLELISM_POLICY, "strong_terms")
     ):
-        return (
-            "optional",
-            MODEL_TRIAGE_POLICY["optional_reason"],
-        )
-    return (
-        "skip",
-        MODEL_TRIAGE_POLICY["skip_reason"],
-    )
+        fit, reason = "strong", PARALLELISM_POLICY["strong_reason"]
+    elif task_type in _policy_tuple(PARALLELISM_POLICY, "possible_task_types") or contains_any(
+        text, _policy_tuple(PARALLELISM_POLICY, "possible_terms")
+    ):
+        fit, reason = "possible", PARALLELISM_POLICY["possible_reason"]
+    else:
+        fit, reason = "none", PARALLELISM_POLICY["none_reason"]
+    return {"fit": fit, "reason": reason, "chooser": PARALLELISM_CHOOSER}
 
 
-def infer_fanout_visibility(text):
-    normalized = " ".join(str(text or "").lower().split())
-    for mode in FANOUT_VISIBILITY_POLICY["modes"]:
-        if contains_any(normalized, tuple(str(term) for term in mode["terms"])):
-            return (
-                str(mode["visibility"]),
-                str(mode["source"]),
-                str(mode["reason"]),
-            )
-    default = FANOUT_VISIBILITY_POLICY["default"]
-    return (
-        str(default["visibility"]),
-        str(default["source"]),
-        str(default["reason"]),
-    )
+def review_advisory(risk, ceremony):
+    """Whether the integrated result deserves an independent review before completion."""
+    if risk == "high" or ceremony == "full":
+        return {"independent": True, "reason": REVIEW_POLICY["independent_reason"]}
+    return {"independent": False, "reason": REVIEW_POLICY["self_check_reason"]}
 
 
 def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
@@ -216,46 +265,52 @@ def execution_profile_for(task_type, risk, ceremony, ambiguity, text):
     )
 
 
-def plan_archetype_for(task_type, execution_profile, text):
-    direct_profiles = tuple(
-        str(item) for item in PLAN_ARCHETYPE_POLICY["direct_execution_profiles"]
-    )
-    design_types = tuple(
-        str(item) for item in PLAN_ARCHETYPE_POLICY["design_heavy_task_types"]
-    )
-    if execution_profile in direct_profiles:
-        return "direct", PLAN_ARCHETYPE_POLICY["direct_reason"]
-    if task_type in design_types or contains_any(
-        text, tuple(str(term) for term in PLAN_ARCHETYPE_POLICY["design_heavy_terms"])
-    ):
-        return "design-heavy", PLAN_ARCHETYPE_POLICY["design_heavy_reason"]
-    return "rpi", PLAN_ARCHETYPE_POLICY["rpi_reason"]
-
-
-def classify_task_text(task_text):
+def classify_task_text(task_text, route_terms=()):
+    """Classify TASK_TEXT. ROUTE_TERMS are the router's route-selecting terms."""
     text = " ".join(str(task_text or "").lower().split())
     words = [word for word in text.replace("/", " ").replace("_", " ").split() if word]
     signals = []
     scores = {}
+    longest = {}
+    paired = near_matches(text)
     for task_type, terms in CLASSIFICATION_RULES:
         matches = contains_any(text, terms)
+        matches.extend(signal for kind, signal in paired if kind == task_type)
         if matches:
             scores[task_type] = len(matches)
+            longest[task_type] = max(term_count(term) for term in matches)
             signals.extend(matches)
+    worded_risk = term_risk(text)
     if scores:
-        task_type = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
+        # Ties go to the type with the longest matched phrase, so "product plan"
+        # outranks the bare "plan", then to the alphabetically first type.
+        task_type = sorted(
+            scores.items(), key=lambda item: (-item[1], -longest[item[0]], item[0])
+        )[0][0]
+        # A generic verb (build, create, plan) ties with a product term in
+        # "build a roadmap"; the product term says what the work is.
+        if (
+            task_type in ("feature", "design")
+            and "product" in scores
+            and (scores["product"], longest["product"]) == (scores[task_type], longest[task_type])
+        ):
+            task_type = "product"
     elif text.endswith("?") or any(text.startswith(prefix) for prefix in QUESTION_PREFIXES):
         task_type = "question"
     elif contains_any(text, VAGUE_REQUEST_TERMS):
         task_type = "feature"
-    elif len(words) <= TRIVIAL_WORD_COUNT:
+    elif (
+        len(words) <= TRIVIAL_WORD_COUNT
+        and worded_risk is None
+        and not contains_any(text, route_terms)
+    ):
         task_type = "trivial"
     else:
         task_type = "feature"
 
-    if contains_any(text, HIGH_RISK_TERMS) or task_type in HIGH_RISK_TASK_TYPES:
+    if worded_risk == "high" or task_type in HIGH_RISK_TASK_TYPES:
         risk = "high"
-    elif contains_any(text, MEDIUM_RISK_TERMS) or task_type in MEDIUM_RISK_TASK_TYPES:
+    elif worded_risk == "medium" or task_type in MEDIUM_RISK_TASK_TYPES:
         risk = "medium"
     else:
         risk = "low"
@@ -271,22 +326,6 @@ def classify_task_text(task_text):
     else:
         ceremony = "standard"
 
-    if (
-        task_type in tuple(FANOUT_POLICY["recommended_task_types"])
-        or contains_any(text, tuple(FANOUT_POLICY["recommended_terms"]))
-    ):
-        fanout = "recommended"
-        fanout_reason = FANOUT_POLICY["recommended_reason"]
-    elif (
-        task_type in tuple(FANOUT_POLICY["optional_task_types"])
-        or contains_any(text, tuple(FANOUT_POLICY["optional_terms"]))
-    ):
-        fanout = "optional"
-        fanout_reason = FANOUT_POLICY["optional_reason"]
-    else:
-        fanout = "not_recommended"
-        fanout_reason = FANOUT_POLICY["not_recommended_reason"]
-
     if contains_any(text, tuple(str(term) for term in QUALITY_CLIMB_POLICY["terms"])):
         quality_climb = "detected"
         quality_climb_reason = QUALITY_CLIMB_POLICY["detected_reason"]
@@ -300,9 +339,6 @@ def classify_task_text(task_text):
     execution_profile, execution_profile_reason = execution_profile_for(
         task_type, risk, ceremony, ambiguity, text
     )
-    plan_archetype, plan_archetype_reason = plan_archetype_for(
-        task_type, execution_profile, text
-    )
     if execution_profile == "direct":
         next_action = NEXT_ACTIONS["direct"]
     elif execution_profile == "fast":
@@ -312,13 +348,6 @@ def classify_task_text(task_text):
     else:
         next_action = NEXT_ACTIONS["full"]
 
-    model_triage, model_triage_reason = model_triage_gate(
-        task_type, risk, ceremony, ambiguity, text
-    )
-    fanout_visibility, fanout_visibility_source, fanout_visibility_reason = (
-        infer_fanout_visibility(text)
-    )
-
     return {
         "task_type": task_type,
         "risk": risk,
@@ -326,154 +355,13 @@ def classify_task_text(task_text):
         "ceremony": ceremony,
         "execution_profile": execution_profile,
         "execution_profile_reason": execution_profile_reason,
-        "plan_archetype": plan_archetype,
-        "plan_archetype_reason": plan_archetype_reason,
         "verification": verification,
-        "fanout": fanout,
-        "fanout_reason": fanout_reason,
-        "fanout_visibility": fanout_visibility,
-        "fanout_visibility_source": fanout_visibility_source,
-        "fanout_visibility_reason": fanout_visibility_reason,
+        "framing": framing_advisory(task_type, risk, ceremony, ambiguity, text),
+        "parallelism": parallelism_advisory(task_type, text),
+        "review": review_advisory(risk, ceremony),
         "quality_climb": quality_climb,
         "quality_climb_reason": quality_climb_reason,
         "quality_climb_protocol": quality_climb_protocol,
-        "model_triage": model_triage,
-        "model_triage_reason": model_triage_reason,
         "signals": sorted(set(signals))[:10],
         "next_action": next_action,
     }
-
-
-def should_run_model_triage(result, mode):
-    if mode == "never":
-        return False
-    if mode == "always":
-        return True
-    return result.get("model_triage") in ("recommended", "required")
-
-
-def build_triage_prompt(task_text, classification):
-    return "\n".join(
-        [
-            "You are a fast triage model helping Mythify frame a task before the main agent plans.",
-            "Do not edit files, run commands, or ask questions.",
-            "Return only valid JSON with this exact shape:",
-            json.dumps(TRIAGE_OUTPUT_SHAPE, indent=2),
-            "",
-            "User task:",
-            str(task_text),
-            "",
-            "Deterministic classification:",
-            json.dumps(classification, indent=2, sort_keys=True),
-            "",
-            "Focus on the problem shape, likely hidden requirements, verification, risk, and whether independent fanout would help.",
-        ]
-    )
-
-
-def format_classification(result):
-    lines = [
-        "[OK] Task classification",
-        "type: {0}".format(result["task_type"]),
-        "risk: {0}".format(result["risk"]),
-        "ambiguity: {0}".format(result["ambiguity"]),
-        "ceremony: {0}".format(result["ceremony"]),
-        "execution profile: {0} ({1})".format(
-            result["execution_profile"], result["execution_profile_reason"]
-        ),
-        "plan archetype: {0} ({1})".format(
-            result["plan_archetype"], result["plan_archetype_reason"]
-        ),
-        "verification: {0}".format(result["verification"]),
-        "fanout: {0} ({1})".format(result["fanout"], result["fanout_reason"]),
-        "fanout visibility: {0} ({1})".format(
-            result.get("fanout_visibility", "summary"),
-            result.get("fanout_visibility_reason", "Summary visibility is the default."),
-        ),
-        "model triage: {0} ({1})".format(
-            result["model_triage"], result["model_triage_reason"]
-        ),
-        "next: {0}".format(result["next_action"]),
-    ]
-    if result.get("quality_climb") == "detected":
-        lines.append(
-            "quality climb: detected ({0})".format(result.get("quality_climb_reason", ""))
-        )
-        lines.append(
-            "quality climb protocol: {0}".format(result.get("quality_climb_protocol", ""))
-        )
-    if result["signals"]:
-        lines.append("signals: {0}".format(", ".join(result["signals"])))
-    policy = result.get("model_policy")
-    if policy:
-        recommendation = policy.get("session", {}).get("recommendation", {})
-        roles = policy.get("provider_defaults", {}).get("roles", {})
-        if roles:
-            lines.append(
-                "providers: session={0}; triage={1}; reader={2}; worker={3}; reviewer={4}; verifier={5}".format(
-                    roles.get("session", {}).get("provider", "host"),
-                    roles.get("triage", {}).get("provider", "host_cli"),
-                    roles.get("reader", {}).get("provider", "local_openai_compatible"),
-                    roles.get("fanout_worker", {}).get("provider", "host_cli"),
-                    roles.get("reviewer", {}).get("provider", "host_cli"),
-                    roles.get("verifier", {}).get("provider", "local_command"),
-                )
-            )
-        lines.append(
-            "model policy: session={0}/{1}; ceiling={2}; triage={3}/{4}/{5}/{6}; fanout={7}/{8}/{9}/{10}; verifier={11}".format(
-                policy.get("session", {}).get("control", "host_selected"),
-                policy.get("session", {}).get("model_tier", "unknown"),
-                policy.get("spawn_ceiling", {}).get("policy", "same_or_lower"),
-                policy.get("triage", {}).get("engine", "auto"),
-                policy.get("triage", {}).get("model_policy", "engine_default"),
-                policy.get("triage", {}).get("effort", "low"),
-                policy.get("triage", {}).get("speed", "auto"),
-                policy.get("fanout_worker", {}).get("engine_policy", "local_first"),
-                policy.get("fanout_worker", {}).get("effort", "medium"),
-                policy.get("fanout_worker", {}).get("speed", "auto"),
-                policy.get("fanout_worker", {}).get("visibility", "summary"),
-                policy.get("verifier", {}).get("engine", "local_command"),
-            )
-        )
-        lines.append(
-            "reviewer opt-in: {0} ({1})".format(
-                policy.get("reviewer", {}).get(
-                    "stronger_model_policy", "same_or_lower"
-                ),
-                policy.get("reviewer", {}).get(
-                    "stronger_model_policy_source", "default"
-                ),
-            )
-        )
-        lines.append(
-            "host recommendation: {0} to {1}/{2} thinking={3} speed={4}".format(
-                recommendation.get("action", "recommend_set"),
-                recommendation.get("target_profile", "standard"),
-                recommendation.get("target_model", ""),
-                recommendation.get("thinking", "medium"),
-                recommendation.get("speed", "auto"),
-            )
-        )
-    run = result.get("model_triage_run")
-    if run:
-        if not run.get("attempted"):
-            lines.append("fast triage run: skipped ({0})".format(run.get("reason", "")))
-        elif run.get("ok"):
-            lines.append(
-                "fast triage run: [OK] {0} model={1} duration={2}s".format(
-                    run.get("engine", ""),
-                    run.get("model", ""),
-                    run.get("duration_seconds", 0),
-                )
-            )
-            if run.get("parsed") is not None:
-                lines.append("fast triage json: {0}".format(json.dumps(run["parsed"], sort_keys=True)))
-            elif run.get("output_tail"):
-                lines.append("fast triage output: {0}".format(run["output_tail"]))
-        else:
-            lines.append(
-                "fast triage run: [FAIL] {0}".format(
-                    run.get("error") or "triage worker failed"
-                )
-            )
-    return "\n".join(lines)

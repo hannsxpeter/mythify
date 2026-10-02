@@ -3,7 +3,7 @@
 godplans emits `.godplans/PLAN.mdx` and godaudits emits `.godaudits/AUDIT.mdx`.
 Both are GFM-safe MDX by contract: YAML frontmatter digest plus checkbox tasks
 (`- [ ] GP-201 [W2.1] Title` with indented `- Verify:` sub-fields). This module
-parses them tolerantly for the importer, router, and readiness views. It never
+parses them tolerantly for the importer, the router, and status attention. It never
 writes: the artifact files stay owned by their emitting skills and the
 executing agent; Mythify only reads them and holds the evidence trail.
 
@@ -40,7 +40,7 @@ _INT_RE = re.compile(r"^-?[0-9]+$")
 # CommonMark fence: 3+ backticks or 3+ tildes, same run closes the fence.
 _FENCE_RE = re.compile(r"^(?P<marker>`{3,}|~{3,})")
 # Byte-order mark: dropped at the parse boundary so BOM-prefixed artifacts parse
-# identically to the JS mirror (which trims it) and to BOM-less files.
+# identically to BOM-less files.
 _BOM = "\ufeff"
 
 _FIELD_KEYS = {

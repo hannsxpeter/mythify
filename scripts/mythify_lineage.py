@@ -5,7 +5,10 @@ import json
 from pathlib import Path
 
 
-ARTIFACT_KINDS = ("research", "map", "design", "plan", "outcome", "review", "verification")
+# Parents recorded by older versions with other kinds (research, design)
+# inspect as "unknown" rather than failing.
+# "verification" stays last: lineage attach offers every kind but it.
+ARTIFACT_KINDS = ("map", "plan", "outcome", "review", "product", "verification")
 PRECEDENCE = (
     "live_code_current_behavior",
     "approved_design_desired_behavior",
@@ -45,18 +48,16 @@ def parse_parent_spec(value):
 
 def artifact_path(state, kind, artifact_id):
     state = Path(state)
-    if kind == "research":
-        return state / "research" / (artifact_id + ".json")
     if kind == "map":
         return state / "maps" / (artifact_id + ".json")
-    if kind == "design":
-        return state / "designs" / (artifact_id + ".json")
     if kind == "plan":
         return state / "plans" / (artifact_id + ".json")
     if kind == "outcome":
         return state / "outcomes" / artifact_id / "goal.json"
     if kind == "review":
         return state / "reviews" / (artifact_id + ".json")
+    if kind == "product":
+        return state / "products" / (artifact_id + ".json")
     return state / "verifications.jsonl"
 
 
@@ -126,15 +127,32 @@ def inspect_lineage(state, lineage):
     return {"status": overall, "parents": rows, "precedence": list(PRECEDENCE)}
 
 
+# Kinds whose stored record lineage attach must never rewrite: verification
+# records are append-only, and a blast-radius review is an immutable safety
+# case whose revision digest anchors its linked proof.
+IMMUTABLE_KINDS = {
+    "verification": "verification lineage is append-only and must be captured by verify run",
+    "review": (
+        "reviews are immutable safety cases: rewriting one would change the "
+        "revision its proofs are linked to. Create a new review instead"
+    ),
+}
+
+
 def _save_artifact(state, kind, artifact_id, record):
-    if kind == "verification":
-        raise ValueError("verification lineage is append-only and must be captured by verify run")
+    if kind in IMMUTABLE_KINDS:
+        raise ValueError(IMMUTABLE_KINDS[kind])
     record["lineage_updated"] = _now_iso()
     _write_json_atomic(artifact_path(state, kind, artifact_id), record)
 
 
 def cmd_lineage_attach(args, state):
     artifact_id = _slugify(args.id)
+    if args.kind in IMMUTABLE_KINDS:
+        _fail("[FAIL] Cannot attach lineage to {0}:{1}: {2}.".format(
+            args.kind, artifact_id, IMMUTABLE_KINDS[args.kind]
+        ))
+        return 1
     record = artifact_record(state, args.kind, artifact_id)
     if record is None:
         _fail("[FAIL] Artifact not found: {0}:{1}".format(args.kind, artifact_id))
@@ -178,12 +196,12 @@ def add_lineage_parser(subparsers, symbols):
     lineage = subparsers.add_parser("lineage", help="Attach and inspect typed artifact lineage.")
     actions = lineage.add_subparsers(dest="lineage_command", metavar="ACTION", required=True)
     attach = actions.add_parser("attach", help="Attach current parent revisions to an artifact.")
-    attach.add_argument("kind", choices=ARTIFACT_KINDS[:-1])
-    attach.add_argument("id")
+    attach.add_argument("kind", choices=ARTIFACT_KINDS[:-1], help="Artifact kind.")
+    attach.add_argument("id", help="Artifact id.")
     attach.add_argument("--parent", action="append", required=True, help="Parent reference kind:id. Repeat as needed.")
     attach.set_defaults(handler=symbols["cmd_lineage_attach"])
     status = actions.add_parser("status", help="Inspect current, stale, missing, or unknown parents.")
-    status.add_argument("kind", choices=ARTIFACT_KINDS)
-    status.add_argument("id")
-    status.add_argument("--json", dest="json_output", action="store_true")
+    status.add_argument("kind", choices=ARTIFACT_KINDS, help="Artifact kind.")
+    status.add_argument("id", help="Artifact id.")
+    status.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     status.set_defaults(handler=symbols["cmd_lineage_status"])

@@ -24,6 +24,10 @@ seconds; a timed-out command is recorded as unverified with exit code -1.
 Use `--claim` to state what the command proves; the claim is what appears in
 the verdict and the log.
 
+For a plan step that stores a `verify_command`, `plan verify ID` runs that
+exact command and records the result against the step, which is what the
+strict gate looks for.
+
 ## Attested verification
 
     verify claim CLAIM EVIDENCE
@@ -49,6 +53,12 @@ Almost always. Before reaching for `verify claim`, check for:
 
 If any of these exist, `verify run` is mandatory. "I read the code and it
 looks correct" is an attestation, not a verification.
+
+The check must be able to fail. `true`, `exit 0`, and a bare `echo` always
+exit 0, and a test run that collected zero tests checked nothing. Mythify
+warns when a step or ticket stores such a command, and `status` lists those
+passes as attention items. Output from a delegated subagent or worker is
+material too: verify the integrated result, not the worker's report.
 
 ## The evidence rule for steps
 

@@ -2,12 +2,19 @@
 
 Describe what this PR changes and why. If it fixes an issue, link it.
 
+# Evidence
+
+Paste the commands you ran and their exit codes. A claim without a command
+behind it is not evidence.
+
 # Checklist
 
-- [ ] Python suite passes locally: `python3 -m unittest discover -s tests -v`
-- [ ] MCP server suite passes locally: `cd mcp-server && npm ci && npm test`
-- [ ] If any CLI command, MCP tool, or on-disk format changed, `docs/design.md` is updated to match (it is the authoritative contract)
-- [ ] If shared CLI and MCP behavior changed, both runtimes were updated or the intentional asymmetry is documented, with a shared manifest update, cross-runtime fixture, or interop assertion
-- [ ] If `protocol/PROTOCOL.md` changed, variants were rebuilt with `python3 scripts/build_variants.py` and the regenerated `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` are committed
+- [ ] Full suite passes locally: `python3 -m unittest discover -s tests`
+- [ ] Maintainer check passes: `python3 scripts/lint.py`
+- [ ] If a CLI command, flag, MCP tool, or on-disk format changed, tests cover the new behavior and every doc that names it is updated
+- [ ] If a command meant for MCP clients was added or removed, `TOOL_ALLOWLIST` in `scripts/mythify_mcp.py` and `tests/test_mcp_server.py` were updated
+- [ ] If `protocol/PROTOCOL.md` changed, the drop-ins were rebuilt with `python3 scripts/build_variants.py` and the regenerated `AGENTS.md`, `CLAUDE.md`, and `scripts/mythify_protocol.py` are committed
+- [ ] No new runtime dependency: the shipped product stays standard-library Python 3.9+
+- [ ] No model, provider, or vendor names in shipped product surfaces
 - [ ] ASCII only: no emojis, no em dashes, no en dashes in any file or program output
 - [ ] PR title follows Conventional Commits (for example `feat: ...`, `fix: ...`, `docs: ...`)

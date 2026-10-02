@@ -2,28 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 from mythify_io import read_json, write_json_atomic
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_DIR_NAME = ".mythify"
-OPERATION_REGISTRY_PATH = REPO_ROOT / "protocol" / "operation-registry.json"
-
-
-def load_operation_registry():
-    with OPERATION_REGISTRY_PATH.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-OPERATION_REGISTRY = load_operation_registry()
-MEMORY_OPERATION_REGISTRY = OPERATION_REGISTRY["surfaces"]["memory"]
-MEMORY_CATEGORIES = tuple(MEMORY_OPERATION_REGISTRY["categories"])
-MEMORY_DEFAULT_CATEGORY = MEMORY_OPERATION_REGISTRY["default_category"]
+MEMORY_CATEGORIES = ("fact", "decision", "discovery", "state")
+MEMORY_DEFAULT_CATEGORY = "fact"
 MEMORY_CLEAR_CLI_REFUSAL = (
-    MEMORY_OPERATION_REGISTRY["operations"]["memory_clear"]["cli"]["refusal"]
+    "[FAIL] Refusing to clear memory: pass KEY to remove a single entry, or "
+    "--all to clear every entry."
 )
 
 
@@ -234,5 +223,3 @@ def cmd_lesson_list(args, state):
             line += " [tags: {0}]".format(", ".join(tags))
         print(line)
     return 0
-
-

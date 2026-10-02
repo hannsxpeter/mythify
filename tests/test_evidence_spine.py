@@ -144,20 +144,20 @@ class TestEvidenceGuards(SpineCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertNotIn("strict_gate_waived", self.load_plan("p")["steps"][0])
 
-    def harness_attention(self, env_extra=None):
-        result = self.run_cli("harness", "--json", env_extra=env_extra)
+    def status_attention(self, env_extra=None):
+        result = self.run_cli("status", "--json", env_extra=env_extra)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout).get("attention", [])
 
-    def test_harness_flags_a_trivial_pass(self):
+    def test_status_flags_a_trivial_pass(self):
         self.run_cli("verify", "run", "true", "--claim", "cheap win")
-        summaries = [item["summary"] for item in self.harness_attention()]
+        summaries = [item["summary"] for item in self.status_attention()]
         self.assertTrue(
             any(summary.startswith("trivial pass:") for summary in summaries), summaries
         )
 
-    def test_harness_names_active_legacy_opt_outs(self):
-        attention = self.harness_attention(
+    def test_status_names_active_legacy_opt_outs(self):
+        attention = self.status_attention(
             env_extra={"MYTHIFY_REQUIRE_VERIFIED_STEP": "0"}
         )
         summaries = [item["summary"] for item in attention]
@@ -177,12 +177,12 @@ class TestEvidenceGuards(SpineCase):
         self.assertIsNone(records[0]["prev_sha256"])
         self.assertTrue(records[1]["prev_sha256"])
         self.assertFalse(
-            [a for a in self.harness_attention() if a["source"] == "ledger"]
+            [a for a in self.status_attention() if a["source"] == "ledger"]
         )
         lines = path.read_text(encoding="utf-8").splitlines()
         lines[0] = lines[0].replace("first", "forged")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        summaries = [a["summary"] for a in self.harness_attention()]
+        summaries = [a["summary"] for a in self.status_attention()]
         self.assertTrue(
             any(s.startswith("verification ledger chain break") for s in summaries),
             summaries,
@@ -201,16 +201,16 @@ class TestEvidenceGuards(SpineCase):
         ]
         self.assertEqual(len(records), 2)
         self.assertFalse(
-            [a for a in self.harness_attention() if a["source"] == "ledger"]
+            [a for a in self.status_attention() if a["source"] == "ledger"]
         )
 
-    def test_harness_flags_a_waived_step_completion(self):
+    def test_status_flags_a_waived_step_completion(self):
         self.run_cli("plan", "create", "g", "--name", "p", "--steps", json.dumps([{"title": "a"}]))
         self.run_cli(
             "step", "1", "completed", "prose only",
             env_extra={"MYTHIFY_REQUIRE_VERIFIED_STEP": "0"},
         )
-        summaries = [item["summary"] for item in self.harness_attention()]
+        summaries = [item["summary"] for item in self.status_attention()]
         self.assertIn("step 1 completed under a waived strict gate", summaries)
 
 

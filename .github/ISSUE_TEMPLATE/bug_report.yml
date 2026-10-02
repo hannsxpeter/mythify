@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a defect in the Mythify CLI, MCP server, protocol files, skill package, or docs.
+description: Report a defect in the Mythify CLI, MCP server, installer, protocol files, skills, or docs.
 title: "bug: "
 labels: ["bug"]
 body:
@@ -15,10 +15,11 @@ body:
       label: Affected component
       description: Which part of Mythify misbehaves?
       options:
-        - CLI (scripts/mythify.py)
-        - MCP server (mcp-server/)
-        - Protocol files (protocol/PROTOCOL.md, CLAUDE.md, AGENTS.md, .cursorrules)
-        - Skill package (skills/mythify/, dist/mythify.skill)
+        - CLI (scripts/mythify.py, the mythify command)
+        - MCP server (scripts/mythify_mcp.py, mythify mcp, mythify-mcp)
+        - Installer or uninstaller (scripts/install_user.sh, mythify-uninstall)
+        - Protocol files (protocol/PROTOCOL.md, AGENTS.md, CLAUDE.md)
+        - Chat skills (skills/, dist/mythify.skill)
         - Documentation (README.md, docs/)
     validations:
       required: true
@@ -28,10 +29,19 @@ body:
       label: Install method
       description: How are you running Mythify?
       options:
-        - Drop-in copy (protocol variant plus scripts/mythify.py copied into a project)
-        - MCP server (node mcp-server/src/index.js registered with an MCP client)
-        - Skill (dist/mythify.skill imported into Manus or another skill-compatible agent)
-        - Working directly in a checkout of this repository
+        - Installed with scripts/install_user.sh from a clone
+        - Installed from the mythify-cli release archive
+        - Run from a clone with python3 scripts/mythify.py
+        - MCP server registered with an MCP client
+        - Chat skill imported into an agent
+    validations:
+      required: true
+  - type: input
+    id: mythify-version
+    attributes:
+      label: Mythify version
+      description: Output of mythify --version (or python3 scripts/mythify.py --version).
+      placeholder: Mythify v6.0.0
     validations:
       required: true
   - type: textarea
@@ -40,13 +50,13 @@ body:
       label: Reproduction steps
       description: >
         Exact commands or tool calls, in order, starting from a clean state
-        (for example a fresh directory after python3 scripts/mythify.py init).
-        Include any relevant environment variables such as MYTHIFY_DIR or
-        MYTHIFY_DISABLE_RUN.
+        (for example a fresh directory after mythify init). Include any
+        relevant environment variables such as MYTHIFY_DIR,
+        MYTHIFY_DISABLE_RUN, or MYTHIFY_MCP_CALL_TIMEOUT.
       placeholder: |
-        1. python3 scripts/mythify.py init
-        2. python3 scripts/mythify.py plan create "Demo" --steps '[{"title": "A"}]'
-        3. python3 scripts/mythify.py step 1 completed
+        1. mythify init
+        2. mythify plan create "Demo" --steps '[{"title": "A"}]'
+        3. mythify step 1 completed "done"
     validations:
       required: true
   - type: textarea
@@ -54,10 +64,11 @@ body:
     attributes:
       label: Actual output
       description: >
-        What did verify run, the CLI, or the MCP tool actually print? Paste the
-        verbatim output, including any [OK], [FAIL], or [WARN] lines, exit codes,
-        and stdout or stderr tails. If a state file ended up wrong, paste the
-        relevant lines from it too.
+        What did the CLI or the MCP tool actually print? Paste the verbatim
+        output, including any [OK], [FAIL], or [WARN] lines, the exit code (or
+        the exit_code line of an MCP result), and stdout or stderr tails. If a
+        state file under .mythify/ ended up wrong, paste the relevant lines
+        from it too.
       render: shell
     validations:
       required: true
@@ -66,8 +77,8 @@ body:
     attributes:
       label: Expected behavior
       description: >
-        What should have happened instead? If the behavior is specified in
-        docs/design.md, quote or link the relevant contract line.
+        What should have happened instead? If the behavior is documented in
+        a command's --help output or in docs/, quote or link the line.
     validations:
       required: true
   - type: input
@@ -81,11 +92,5 @@ body:
     id: python-version
     attributes:
       label: Python version
-      description: Output of python3 --version (the CLI requires 3.9+). Leave blank if the CLI is not involved.
+      description: Output of python3 --version (the CLI and MCP server require 3.9+).
       placeholder: Python 3.12.4
-  - type: input
-    id: node-version
-    attributes:
-      label: Node version
-      description: Output of node --version (the MCP server requires 20+). Leave blank if the MCP server is not involved.
-      placeholder: v20.14.0

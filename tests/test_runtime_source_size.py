@@ -40,24 +40,21 @@ class RuntimeSourceSizeTests(unittest.TestCase):
             self.assertEqual(result["violations"][0]["path"], "scripts/large.py")
             self.assertEqual(result["violations"][0]["nonblank_lines"], 4)
 
-    def test_checker_reports_nested_python_and_javascript_runtime_files(self):
+    def test_checker_reports_nested_python_runtime_files(self):
         checker = self.load_checker()
         with tempfile.TemporaryDirectory(prefix="mythify-source-size-") as tmp:
             root = Path(tmp)
             python_path = root / "scripts" / "nested" / "large.py"
-            javascript_path = root / "mcp-server" / "src" / "nested" / "large.js"
+            cached_path = root / "scripts" / "__pycache__" / "large.py"
             python_path.parent.mkdir(parents=True)
-            javascript_path.parent.mkdir(parents=True)
+            cached_path.parent.mkdir(parents=True)
             python_path.write_text("value = 1\n" * 4, encoding="utf-8")
-            javascript_path.write_text("const value = 1;\n" * 4, encoding="utf-8")
+            cached_path.write_text("value = 1\n" * 4, encoding="utf-8")
 
             result = checker.check_runtime_sources(root, limit=3)
 
             violations = {row["path"] for row in result["violations"]}
-            self.assertEqual(
-                violations,
-                {"scripts/nested/large.py", "mcp-server/src/nested/large.js"},
-            )
+            self.assertEqual(violations, {"scripts/nested/large.py"})
 
     def test_repository_runtime_sources_fit_the_1500_line_limit(self):
         result = subprocess.run(
@@ -74,8 +71,8 @@ class RuntimeSourceSizeTests(unittest.TestCase):
         by_path = {row["path"]: row for row in payload["files"]}
         for relative in (
             "scripts/mythify.py",
-            "mcp-server/src/fanout.js",
-            "mcp-server/src/workflow-tools.js",
+            "scripts/mythify_mcp.py",
+            "scripts/mythify_parser.py",
         ):
             self.assertIn(relative, by_path)
             self.assertLessEqual(by_path[relative]["nonblank_lines"], 1500)

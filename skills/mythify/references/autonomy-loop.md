@@ -20,24 +20,22 @@ need is itself a failure mode.
 When in doubt, start light and escalate the moment a task grows a second step
 or a second session.
 
-Use `classify` before non-trivial work when available. If it returns
-`execution_profile: fast`, act directly on the focused task and record
-verification. If the task expands into multiple dependent steps, escalate to a
-plan.
+Use `route --json` before non-trivial work when available. If its
+classification reports `execution_profile: fast`, act directly on the focused
+task and record verification. If the task expands into multiple dependent
+steps, escalate to a plan.
 
 ## Stage 1: PLAN
 
 Create the plan with steps up front when you can:
 
-    plan create GOAL [--steps JSON] [--horizon N] [--name NAME]
+    plan create GOAL [--steps JSON] [--name NAME]
 
-`--steps` is a JSON array of `{"title": str, "success_criteria": str}`
-(success_criteria optional). `--horizon N` creates N default lookahead steps
-when `--steps` is omitted. `MYTHIFY_PLAN_HORIZON` can set the same default for
-direct plan creation. Without `--steps`, `--horizon`, or the env default, an
-empty plan is created; grow it with:
+`--steps` is a JSON array of `{"title": str, "success_criteria": str,
+"verify_command": str}` (success_criteria and verify_command optional).
+Without `--steps`, an empty plan is created; grow it with:
 
-    plan add-step TITLE [--criteria TEXT] [--plan NAME]
+    plan add-step TITLE [--criteria TEXT] [--verify COMMAND] [--plan NAME]
 
 Write success criteria as checkable outcomes ("tests pass", "endpoint
 returns 200"), not activities ("work on tests"). Orient with `status`: it
@@ -55,12 +53,20 @@ define done.
 
 ## Stage 3: VERIFY
 
-Prove the outcome before claiming it:
+Prove the outcome before claiming it. When the step stores a
+`verify_command`, run the step's own check; it records the result against
+that step:
+
+    plan verify ID [--plan NAME] [--timeout N]
+
+Otherwise run any check directly:
 
     verify run COMMAND [--claim TEXT] [--timeout N]
 
-Exit 0 means verified, exit 2 means unverified. Details and the executed
-versus attested distinction are in `self-verification.md`.
+Exit 0 means verified, exit 2 means unverified. A check that cannot fail
+(`true`, `exit 0`, a bare `echo`) proves nothing: Mythify warns when a step
+stores one, and `status` flags the pass. Details and the executed versus
+attested distinction are in `self-verification.md`.
 
 ## Stage 4: REFLECT
 

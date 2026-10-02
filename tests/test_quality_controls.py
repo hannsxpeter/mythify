@@ -28,16 +28,6 @@ class QualityControlTests(unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
 
-    def review_args(self):
-        return (
-            "review", "create", "--status", "warn", "--path", "scripts/example.py",
-            "--interface-depth", "shallow wrapper", "--locality", "two modules",
-            "--seam-count", "three", "--deletion-cost", "touches callers",
-            "--invalid-state-exclusion", "partial", "--test-validity", "behavior covered",
-            "--finding", "scripts/example.py:12: wrapper duplicates the underlying interface",
-            "--name", "seam-review",
-        )
-
     def init_git_repo(self):
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         subprocess.run(["git", "config", "user.email", "mythify@example.invalid"], cwd=self.root, check=True)
@@ -47,58 +37,44 @@ class QualityControlTests(unittest.TestCase):
         subprocess.run(["git", "add", ".gitignore", "tracked.txt"], cwd=self.root, check=True)
         subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.root, check=True)
 
-    def test_maintainability_review_is_structured_and_material_only(self):
-        created = self.run_cli(*self.review_args())
-        self.assertEqual(created.returncode, 0, created.stderr)
-        shown = self.run_cli("review", "show", "seam-review", "--json")
-        record = json.loads(shown.stdout)
-        self.assertEqual(record["status"], "warn")
-        self.assertEqual(record["findings"][0]["line"], 12)
-        self.assertEqual(record["evidence_status"], "material_not_verification")
-        self.assertNotIn("verified", record)
+    def test_review_create_is_removed(self):
+        result = self.run_cli(
+            "review", "create", "--status", "warn", "--path", "scripts/example.py",
+        )
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("invalid choice", result.stderr)
+
+    def test_legacy_maintainability_record_shows_as_material(self):
+        reviews = self.state / "reviews"
+        reviews.mkdir(parents=True)
+        (reviews / "old-review.json").write_text(json.dumps({
+            "kind": "maintainability_review",
+            "name": "old-review",
+            "status": "warn",
+            "changed_paths": ["scripts/example.py"],
+            "findings": [],
+        }) + "\n", encoding="utf-8")
+        shown = self.run_cli("review", "show", "old-review")
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertIn("maintainability_review", shown.stdout)
+        self.assertIn("cannot satisfy verification", shown.stdout)
 
     def test_review_cannot_satisfy_strict_plan_completion(self):
+        self.init_git_repo()
         plan = self.run_cli(
             "plan", "create", "Ship", "--steps",
             json.dumps([{"title": "Build", "verify_command": "true"}]),
         )
         self.assertEqual(plan.returncode, 0, plan.stderr)
         self.assertEqual(self.run_cli("step", "1", "in_progress").returncode, 0)
-        self.assertEqual(self.run_cli(*self.review_args()).returncode, 0)
+        created = self.run_cli(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "the build is safe", "--name", "build-safety",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
         completed = self.run_cli("step", "1", "completed", "review passed")
         self.assertEqual(completed.returncode, 1)
         self.assertIn("Verified evidence required", completed.stderr)
-
-    def test_repeated_finding_creates_an_executable_eval_candidate(self):
-        first = self.run_cli(*self.review_args())
-        self.assertEqual(first.returncode, 0, first.stderr)
-        second_args = list(self.review_args())
-        second_args[-1] = "seam-review-two"
-        second = self.run_cli(*second_args)
-        self.assertEqual(second.returncode, 0, second.stderr)
-        shown = self.run_cli("review", "show", "seam-review-two", "--json")
-        record = json.loads(shown.stdout)
-        self.assertTrue(record["eval_proposal_recommended"])
-        self.assertEqual(record["eval_scenario_candidates"][0]["source_reviews"], ["seam-review"])
-        self.assertNotIn("verified", record)
-
-    def test_passing_review_does_not_propose_a_regression_from_old_findings(self):
-        self.assertEqual(self.run_cli(*self.review_args()).returncode, 0)
-        second_args = list(self.review_args())
-        second_args[3] = "pass"
-        second_args[-1] = "resolved-review"
-        self.assertEqual(self.run_cli(*second_args).returncode, 0)
-        shown = self.run_cli("review", "show", "resolved-review", "--json")
-        record = json.loads(shown.stdout)
-        self.assertFalse(record["eval_proposal_recommended"])
-        self.assertEqual(record["eval_scenario_candidates"], [])
-
-    def test_review_rejects_empty_dimension_assessments(self):
-        args = list(self.review_args())
-        args[args.index("--locality") + 1] = " "
-        result = self.run_cli(*args)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("non-empty assessment", result.stderr)
 
     def test_blast_radius_review_links_executed_proof_without_mutating_parent(self):
         self.init_git_repo()
@@ -121,7 +97,7 @@ class QualityControlTests(unittest.TestCase):
         created = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
             "--safety-fact", "the changed payload remains parseable", "--proof-depth", "2",
-            "--risk", risk, "--cleared", cleared, "--merge-command", "true",
+            "--risk", risk, "--cleared", cleared, "--merge-command", "test -f tracked.txt",
             "--name", "payload-safety",
         )
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -157,7 +133,7 @@ class QualityControlTests(unittest.TestCase):
         tracked.write_text("first dirty state\n", encoding="utf-8")
         created = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
-            "--safety-fact", "the dirty change remains safe", "--merge-command", "true",
+            "--safety-fact", "the dirty change remains safe", "--merge-command", "test -f tracked.txt",
             "--name", "dirty-safety",
         )
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -192,7 +168,7 @@ class QualityControlTests(unittest.TestCase):
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
             "--safety-fact", "claimed execution", "--proof-depth", "4", "--name", "too-deep",
         )
-        self.assertEqual(depth.returncode, 2)
+        self.assertEqual(depth.returncode, 64)
         self.assertIn("invalid choice", depth.stderr)
         invalid = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
@@ -210,7 +186,7 @@ class QualityControlTests(unittest.TestCase):
         self.init_git_repo()
         created = self.run_cli(
             "review", "blast-radius", "--status", "warn", "--path", "tracked.txt",
-            "--safety-fact", "the reviewed source is unchanged", "--merge-command", "true",
+            "--safety-fact", "the reviewed source is unchanged", "--merge-command", "test -f tracked.txt",
             "--name", "source-safety",
         )
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -231,27 +207,6 @@ class QualityControlTests(unittest.TestCase):
         disabled = self.run_cli("review", "prove", "source-safety")
         self.assertEqual(disabled.returncode, 2)
         self.assertIn("MYTHIFY_DISABLE_RUN=1", disabled.stderr)
-
-    def test_design_comparison_requires_two_distinct_interfaces_and_selection(self):
-        self.assertEqual(
-            self.run_cli("design", "create", "Seam", "--problem", "Choose", "--name", "seam").returncode,
-            0,
-        )
-        base = (
-            "--call-sites", "caller.py", "--locality", "one module",
-            "--migration-cost", "low", "--deletion-cost", "one file",
-            "--reversal-evidence", "second consumer", "--name", "seam",
-        )
-        first = self.run_cli("design", "alternative", "One", "--interface", "command", *base)
-        self.assertEqual(first.returncode, 0, first.stderr)
-        early = self.run_cli("design", "approve", "seam", "--note", "too early")
-        self.assertEqual(early.returncode, 1)
-        duplicate = self.run_cli("design", "alternative", "Duplicate", "--interface", " command ", *base)
-        self.assertEqual(duplicate.returncode, 1)
-        second = self.run_cli("design", "alternative", "Two", "--interface", "adapter object", "--select", *base)
-        self.assertEqual(second.returncode, 0, second.stderr)
-        approved = self.run_cli("design", "approve", "seam", "--note", "compared")
-        self.assertEqual(approved.returncode, 0, approved.stderr)
 
 
 if __name__ == "__main__":

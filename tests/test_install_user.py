@@ -1,8 +1,8 @@
 import hashlib
+import json
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tarfile
@@ -14,6 +14,12 @@ from pathlib import Path, PurePosixPath
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = REPO_ROOT / "scripts" / "install_user.sh"
 CLI_PACKAGER = REPO_ROOT / "scripts" / "package_cli.py"
+SKILLS = ("mythify", "mythify-work", "mythify-route", "mythify-verify")
+
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+# The model, vendor, and host denylist lives in scripts/lint.py.
+import lint  # noqa: E402
 
 
 class TestUserInstaller(unittest.TestCase):
@@ -21,9 +27,12 @@ class TestUserInstaller(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="mythify-install-test-"))
         self.addCleanup(shutil.rmtree, str(self.tmp), True)
 
-    def run_cmd(self, args, cwd=None, env=None):
+    def run_cmd(self, args, cwd=None, env=None, input_text=None):
         merged_env = dict(os.environ)
         merged_env["HOME"] = str(self.tmp / "home")
+        # Some system Pythons cache bytecode under $HOME/Library; tests that
+        # snapshot the fake HOME must not see the interpreter's own writes.
+        merged_env["PYTHONDONTWRITEBYTECODE"] = "1"
         if env:
             for key, value in env.items():
                 if value is None:
@@ -36,7 +45,39 @@ class TestUserInstaller(unittest.TestCase):
             env=merged_env,
             capture_output=True,
             text=True,
+            input=input_text,
+            timeout=300,
         )
+
+    def mcp_tool_names(self, launcher, cwd, env=None):
+        """Handshake with an installed mythify-mcp launcher and list its tools."""
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "mythify-install-test", "version": "1.0.0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]
+        result = self.run_cmd(
+            [str(launcher)],
+            cwd=cwd,
+            env=env,
+            input_text="".join(json.dumps(item) + "\n" for item in requests),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        responses = {}
+        for line in result.stdout.splitlines():
+            message = json.loads(line)
+            responses[message["id"]] = message
+        self.assertEqual(responses[1]["result"]["serverInfo"]["name"], "mythify-mcp")
+        return [tool["name"] for tool in responses[2]["result"]["tools"]]
 
     def build_cli_artifact(self, output_dir):
         result = self.run_cmd(
@@ -47,31 +88,11 @@ class TestUserInstaller(unittest.TestCase):
         self.assertEqual(len(archives), 1, result.stdout)
         return archives[0]
 
-    def install_args(
-        self,
-        installer,
-        prefix,
-        project,
-        skills_root,
-        claude_skills_root,
-        hook_root,
-    ):
-        return [
-            "sh",
-            str(installer),
-            "--prefix",
-            str(prefix),
-            "--project",
-            str(project),
-            "--skip-mcp",
-            "--skills-root",
-            str(skills_root),
-            "--claude-skills-root",
-            str(claude_skills_root),
-            "--install-chat-hook",
-            "--hook-root",
-            str(hook_root),
-        ]
+    def install_args(self, installer, prefix, project, *skills_roots):
+        args = ["sh", str(installer), "--prefix", str(prefix), "--project", str(project)]
+        for root in skills_roots:
+            args.extend(["--skills-root", str(root)])
+        return args
 
     def snapshot_paths(self, paths):
         snapshot = {}
@@ -107,25 +128,43 @@ class TestUserInstaller(unittest.TestCase):
             root + "/README.md",
             root + "/scripts/install_user.sh",
             root + "/scripts/mythify.py",
+            root + "/scripts/mythify_mcp.py",
             root + "/scripts/check_prose_quality.py",
             root + "/scripts/mythify_classification.py",
             root + "/protocol/PROTOCOL.md",
-            root + "/protocol/artifact-hygiene.json",
             root + "/protocol/prose-quality.json",
             root + "/protocol/classification-rules.json",
-            root + "/protocol/model-capabilities.json",
-            root + "/protocol/operation-registry.json",
             root + "/protocol/workflow-router.json",
             root + "/skills/mythify/SKILL.md",
+            root + "/AGENTS.md",
+            root + "/CLAUDE.md",
             root + "/CHANGELOG.md",
             root + "/CONTRIBUTING.md",
-            root + "/docs/design.md",
+            root + "/ROADMAP.md",
+            root + "/docs/architecture.md",
+            root + "/docs/commands.md",
+            root + "/docs/mcp.md",
+            root + "/docs/product-planning.md",
             root + "/docs/start-here.md",
             root + "/docs/prose-quality.md",
             root + "/docs/evidence/efficacy-reproduction.md",
-            root + "/docs/evidence/codex-word-count-2026-07-13.json",
+            root + "/docs/evidence/efficacy-smoke-2026-07-13.json",
         }
         self.assertTrue(required.issubset(names), sorted(required - names))
+        removed = {
+            root + "/scripts/mythify_chat_report_hook.sh",
+            root + "/protocol/release-gates.json",
+            root + "/protocol/loading-profiles.json",
+            root + "/protocol/operation-registry.json",
+            root + "/protocol/artifact-hygiene.json",
+            root + "/docs/artifact-hygiene.md",
+            root + "/docs/design.md",
+            root + "/docs/release.md",
+            root + "/docs/research-report.md",
+            root + "/docs/humanlayer-integration-research.md",
+        }
+        self.assertEqual(removed & names, set())
+        self.assertFalse(any("/protocol/variants/" in name for name in names))
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         local_targets = {
             target.split("#", 1)[0]
@@ -158,7 +197,7 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse(any("__pycache__" in name for name in names))
         self.assertFalse(any(name.endswith(".pyc") for name in names))
 
-    def test_release_tag_must_match_cli_and_mcp_version(self):
+    def test_release_tag_must_match_cli_version(self):
         current = self.run_cmd([sys.executable, str(REPO_ROOT / "scripts" / "mythify.py"), "--version"])
         expected = current.stdout.strip().removeprefix("Mythify ")
         result = self.run_cmd(
@@ -245,15 +284,14 @@ class TestUserInstaller(unittest.TestCase):
         prefix = self.tmp / "prefix"
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
         project = self.tmp / "project"
         project_state = project / ".mythify"
         project_state.mkdir(parents=True)
         sentinel = project_state / "preserve-me.txt"
         sentinel.write_text("project-owned state\n", encoding="utf-8")
         personal_skills = []
-        for root in (skills_root, claude_skills_root):
+        for root in (skills_root, second_skills_root):
             personal_skill = root / "mythify-personal" / "SKILL.md"
             personal_skill.parent.mkdir(parents=True)
             personal_skill.write_text("user-owned skill\n", encoding="utf-8")
@@ -266,11 +304,12 @@ class TestUserInstaller(unittest.TestCase):
             prefix,
             project,
             skills_root,
-            claude_skills_root,
-            hook_root,
+            second_skills_root,
         )
         result = self.run_cmd(args, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("command: {}".format(prefix / "bin" / "mythify-mcp"), result.stdout)
+        self.assertIn("env: MYTHIFY_DIR={}".format(project.resolve() / ".mythify"), result.stdout)
 
         mythify_bin = prefix / "bin" / "mythify"
         uninstall_bin = prefix / "bin" / "mythify-uninstall"
@@ -288,15 +327,23 @@ class TestUserInstaller(unittest.TestCase):
         launcher_text = mythify_bin.read_text(encoding="utf-8")
         self.assertNotIn(str(artifact_root), launcher_text)
         self.assertIn(str(cli_root), launcher_text)
+        mcp_bin = prefix / "bin" / "mythify-mcp"
+        mcp_launcher_text = mcp_bin.read_text(encoding="utf-8")
+        self.assertIn(str(cli_root / "scripts" / "mythify.py"), mcp_launcher_text)
+        self.assertIn(' mcp "$@"', mcp_launcher_text)
 
         shutil.rmtree(extract_root)
-        classify_result = self.run_cmd(
-            [str(mythify_bin), "classify", "fix failing parser", "--json"],
+        tool_names = self.mcp_tool_names(mcp_bin, cwd=project, env=env)
+        self.assertIn("verify_run", tool_names)
+        self.assertIn("mythify", tool_names)
+        route_result = self.run_cmd(
+            [str(mythify_bin), "route", "fix failing parser", "--json"],
             cwd=project,
             env=env,
         )
-        self.assertEqual(classify_result.returncode, 0, classify_result.stderr)
-        self.assertIn('"task_type": "bugfix"', classify_result.stdout)
+        self.assertEqual(route_result.returncode, 0, route_result.stderr)
+        self.assertIn('"task_type": "bugfix"', route_result.stdout)
+        self.assertIn('"chooser": "host"', route_result.stdout)
 
         obsolete = cli_root / "obsolete-from-previous-install.txt"
         obsolete.write_text("remove on update\n", encoding="utf-8")
@@ -309,8 +356,7 @@ class TestUserInstaller(unittest.TestCase):
             prefix,
             project,
             skills_root,
-            claude_skills_root,
-            hook_root,
+            second_skills_root,
         )
         update_result = self.run_cmd(update_args, env=env)
         self.assertEqual(update_result.returncode, 0, update_result.stderr)
@@ -329,20 +375,18 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse((prefix / "bin" / "mythify-mcp").exists())
         self.assertFalse(cli_root.parent.exists())
         self.assertEqual(retained_version.read_text(encoding="utf-8"), "separate install\n")
-        for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
+        for skill in SKILLS:
             self.assertFalse((skills_root / skill).exists())
-            self.assertFalse((claude_skills_root / skill).exists())
+            self.assertFalse((second_skills_root / skill).exists())
         for personal_skill in personal_skills:
             self.assertEqual(personal_skill.read_text(encoding="utf-8"), "user-owned skill\n")
-        self.assertFalse((hook_root / "mythify-chat-report-hook.sh").exists())
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "project-owned state\n")
 
     def test_invalid_project_fails_before_installation_mutation(self):
         prefix = self.tmp / "prefix"
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
         missing_project = self.tmp / "missing-project"
 
         result = self.run_cmd(
@@ -351,8 +395,7 @@ class TestUserInstaller(unittest.TestCase):
                 prefix,
                 missing_project,
                 skills_root,
-                claude_skills_root,
-                hook_root,
+                second_skills_root,
             ),
             env={"XDG_DATA_HOME": str(data_home)},
         )
@@ -361,49 +404,50 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse(prefix.exists())
         self.assertFalse((data_home / "mythify").exists())
         self.assertFalse(skills_root.exists())
-        self.assertFalse(claude_skills_root.exists())
-        self.assertFalse(hook_root.exists())
+        self.assertFalse(second_skills_root.exists())
 
-    def test_installer_rejects_node_below_package_floor_before_mutation(self):
-        fake_bin = self.tmp / "fake-bin"
-        fake_bin.mkdir()
-        fake_node = fake_bin / "node"
-        fake_node.write_text(
-            "#!/bin/sh\n"
-            "if [ \"${1:-}\" = \"-p\" ]; then printf '%s\\n' '18.20.0'; exit 0; fi\n"
-            "exit 99\n",
-            encoding="utf-8",
+    def test_project_init_stays_in_the_project(self):
+        # Regression: init ran with the caller's environment, so an exported
+        # MYTHIFY_DIR or an ancestor .mythify received the state, outside the
+        # transaction, while the installer reported PROJECT/.mythify.
+        elsewhere = self.tmp / "elsewhere" / ".mythify"
+        ancestor = self.tmp / "ancestor"
+        (ancestor / ".mythify").mkdir(parents=True)
+        cases = (
+            ("exported", self.tmp / "project-a", {"MYTHIFY_DIR": str(elsewhere)}),
+            ("ancestor", ancestor / "project-b", {"MYTHIFY_DIR": None}),
         )
-        fake_node.chmod(0o755)
-        prefix = self.tmp / "prefix"
-        data_home = self.tmp / "xdg-data"
-        result = self.run_cmd(
-            [
-                "sh",
-                str(INSTALLER),
-                "--prefix",
-                str(prefix),
-                "--skip-skills",
-            ],
-            env={
-                "XDG_DATA_HOME": str(data_home),
-                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
-            },
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires Node.js 20 or newer", result.stderr)
-        self.assertFalse(prefix.exists())
-        self.assertFalse((data_home / "mythify").exists())
+        for label, project, extra in cases:
+            with self.subTest(label):
+                project.mkdir(parents=True)
+                (project / ".gitignore").write_text("node_modules", encoding="utf-8")
+                env = {"XDG_DATA_HOME": str(self.tmp / ("xdg-" + label))}
+                env.update(extra)
+                result = self.run_cmd(
+                    self.install_args(
+                        INSTALLER, self.tmp / ("prefix-" + label), project,
+                        self.tmp / ("skills-" + label),
+                    ),
+                    env=env,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((project / ".mythify" / "memory.json").is_file())
+                self.assertEqual(
+                    (project / ".gitignore").read_text(encoding="utf-8"),
+                    "node_modules\n.mythify/\n",
+                )
+                self.assertIn("MYTHIFY_DIR={0}".format(project.resolve() / ".mythify"), result.stdout)
+        self.assertFalse(elsewhere.exists())
+        self.assertFalse((ancestor / ".gitignore").exists())
 
-    def test_installer_reads_mcp_version_from_checkout_path_with_apostrophe(self):
+    def test_mcp_launcher_works_from_checkout_path_with_apostrophe(self):
         source_root = self.tmp / "source's-checkout"
-        shutil.copytree(REPO_ROOT / "scripts", source_root / "scripts")
-        shutil.copytree(REPO_ROOT / "protocol", source_root / "protocol")
         shutil.copytree(
-            REPO_ROOT / "mcp-server",
-            source_root / "mcp-server",
-            ignore=shutil.ignore_patterns("node_modules", "*.tgz"),
+            REPO_ROOT / "scripts",
+            source_root / "scripts",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
+        shutil.copytree(REPO_ROOT / "protocol", source_root / "protocol")
         prefix = self.tmp / "apostrophe-prefix"
         data_home = self.tmp / "apostrophe-data"
 
@@ -419,7 +463,14 @@ class TestUserInstaller(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((prefix / "bin" / "mythify-mcp").is_file())
+        mcp_bin = prefix / "bin" / "mythify-mcp"
+        self.assertTrue(os.access(mcp_bin, os.X_OK))
+        project = self.tmp / "apostrophe-project"
+        project.mkdir()
+        tool_names = self.mcp_tool_names(
+            mcp_bin, cwd=project, env={"XDG_DATA_HOME": str(data_home)}
+        )
+        self.assertIn("step", tool_names)
 
     def test_destination_type_failure_leaves_no_partial_install(self):
         prefix = self.tmp / "prefix"
@@ -433,10 +484,8 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skills-root",
                 str(skills_root),
-                "--skip-claude-skills",
             ],
             env={"XDG_DATA_HOME": str(data_home)},
         )
@@ -450,8 +499,7 @@ class TestUserInstaller(unittest.TestCase):
         prefix = self.tmp / "prefix"
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
         project = self.tmp / "project"
         project.mkdir()
         env = {"XDG_DATA_HOME": str(data_home)}
@@ -460,10 +508,8 @@ class TestUserInstaller(unittest.TestCase):
             prefix,
             project,
             skills_root,
-            claude_skills_root,
-            hook_root,
+            second_skills_root,
         )
-        args.remove("--skip-mcp")
         first = self.run_cmd(args, env=env)
         self.assertEqual(first.returncode, 0, first.stderr)
         mythify_bin = prefix / "bin" / "mythify"
@@ -477,11 +523,10 @@ class TestUserInstaller(unittest.TestCase):
             ("mythify", mythify_bin),
             ("uninstall", uninstall_bin),
             ("mcp", prefix / "bin" / "mythify-mcp"),
-            ("hook", hook_root / "mythify-chat-report-hook.sh"),
         ]
-        for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
-            tracked.append(("codex-" + skill, skills_root / skill))
-            tracked.append(("claude-" + skill, claude_skills_root / skill))
+        for skill in SKILLS:
+            tracked.append(("first-" + skill, skills_root / skill))
+            tracked.append(("second-" + skill, second_skills_root / skill))
         before = self.snapshot_paths(tracked)
 
         failed = self.run_cmd(
@@ -505,8 +550,7 @@ class TestUserInstaller(unittest.TestCase):
         prefix = self.tmp / "prefix"
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
         personal = skills_root / "mythify-personal" / "SKILL.md"
         personal.parent.mkdir(parents=True)
         personal.write_text("unrelated skill\n", encoding="utf-8")
@@ -518,10 +562,8 @@ class TestUserInstaller(unittest.TestCase):
             prefix,
             project,
             skills_root,
-            claude_skills_root,
-            hook_root,
+            second_skills_root,
         )
-        args.remove("--skip-mcp")
         failed = self.run_cmd(
             args,
             env={
@@ -536,12 +578,10 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse((prefix / "bin" / "mythify-mcp").exists())
         self.assertFalse(prefix.exists())
         self.assertFalse((data_home / "mythify").exists())
-        for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
+        for skill in SKILLS:
             self.assertFalse((skills_root / skill).exists())
-            self.assertFalse((claude_skills_root / skill).exists())
-        self.assertFalse((hook_root / "mythify-chat-report-hook.sh").exists())
-        self.assertFalse(hook_root.exists())
-        self.assertFalse(claude_skills_root.exists())
+            self.assertFalse((second_skills_root / skill).exists())
+        self.assertFalse(second_skills_root.exists())
         self.assertEqual(personal.read_text(encoding="utf-8"), "unrelated skill\n")
         self.assertFalse((project / ".mythify").exists())
         self.assertFalse((project / ".gitignore").exists())
@@ -550,15 +590,13 @@ class TestUserInstaller(unittest.TestCase):
         prefix = self.tmp / "prefix"
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
         sentinels = []
         for path in (
             prefix / "bin" / "mythify",
             prefix / "bin" / "mythify-mcp",
             skills_root / "mythify" / "SKILL.md",
-            claude_skills_root / "mythify" / "SKILL.md",
-            hook_root / "mythify-chat-report-hook.sh",
+            second_skills_root / "mythify" / "SKILL.md",
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("unowned sentinel\n", encoding="utf-8")
@@ -575,11 +613,8 @@ class TestUserInstaller(unittest.TestCase):
                 str(prefix),
                 "--skills-root",
                 str(skills_root),
-                "--claude-skills-root",
-                str(claude_skills_root),
-                "--install-chat-hook",
-                "--hook-root",
-                str(hook_root),
+                "--skills-root",
+                str(second_skills_root),
             ]
         )
         self.assertNotEqual(result.returncode, 0)
@@ -596,7 +631,6 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skip-skills",
             ],
             env={"XDG_DATA_HOME": str(data_home)},
@@ -624,14 +658,11 @@ class TestUserInstaller(unittest.TestCase):
         prefix = self.tmp / "prefix"
         data_home = self.tmp / "xdg-data"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
         preserved = []
         for path in (
             skills_root / "mythify" / "SKILL.md",
-            claude_skills_root / "mythify" / "SKILL.md",
-            hook_root / "mythify-chat-report-hook.sh",
-            prefix / "bin" / "mythify-mcp",
+            second_skills_root / "mythify" / "SKILL.md",
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("pre-existing artifact\n", encoding="utf-8")
@@ -643,14 +674,11 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skip-skills",
                 "--skills-root",
                 str(skills_root),
-                "--claude-skills-root",
-                str(claude_skills_root),
-                "--hook-root",
-                str(hook_root),
+                "--skills-root",
+                str(second_skills_root),
             ],
             env={"XDG_DATA_HOME": str(data_home)},
         )
@@ -661,9 +689,9 @@ class TestUserInstaller(unittest.TestCase):
         self.assertEqual(version_result.returncode, 0, version_result.stderr)
         version = version_result.stdout.strip().removeprefix("Mythify v")
         install_root = data_home / "mythify" / version
-        mcp_sentinel = install_root / "mcp-server" / "preserve.txt"
-        mcp_sentinel.parent.mkdir(parents=True)
-        mcp_sentinel.write_text("pre-existing MCP\n", encoding="utf-8")
+        unowned_sentinel = install_root / "unowned" / "preserve.txt"
+        unowned_sentinel.parent.mkdir(parents=True)
+        unowned_sentinel.write_text("pre-existing data\n", encoding="utf-8")
 
         uninstall_result = self.run_cmd(
             [str(uninstall_bin)], env={"XDG_DATA_HOME": None}
@@ -671,15 +699,33 @@ class TestUserInstaller(unittest.TestCase):
         self.assertEqual(uninstall_result.returncode, 0, uninstall_result.stderr)
         self.assertFalse(mythify_bin.exists())
         self.assertFalse(uninstall_bin.exists())
-        self.assertEqual(mcp_sentinel.read_text(encoding="utf-8"), "pre-existing MCP\n")
+        self.assertFalse((prefix / "bin" / "mythify-mcp").exists())
+        self.assertEqual(unowned_sentinel.read_text(encoding="utf-8"), "pre-existing data\n")
         for path in preserved:
             self.assertEqual(path.read_text(encoding="utf-8"), "pre-existing artifact\n")
 
-    def test_installs_chat_skills_and_hook_helper(self):
+    def test_skip_mcp_is_an_accepted_no_op(self):
+        prefix = self.tmp / "prefix"
+        data_home = self.tmp / "xdg-data"
+        env = {"XDG_DATA_HOME": str(data_home)}
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skip-mcp", "--skip-skills"],
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mcp_bin = prefix / "bin" / "mythify-mcp"
+        self.assertTrue(os.access(mcp_bin, os.X_OK))
+        self.assertNotIn("--skip-mcp", (prefix / "bin" / "mythify-uninstall").read_text(encoding="utf-8"))
+        uninstall_result = self.run_cmd(
+            [str(prefix / "bin" / "mythify-uninstall")], env={"XDG_DATA_HOME": None}
+        )
+        self.assertEqual(uninstall_result.returncode, 0, uninstall_result.stderr)
+        self.assertFalse(mcp_bin.exists())
+
+    def test_installs_chat_skills(self):
         prefix = self.tmp / "prefix"
         skills_root = self.tmp / "skills"
-        claude_skills_root = self.tmp / "claude-skills"
-        hook_root = self.tmp / "hooks"
+        second_skills_root = self.tmp / "second-skills"
 
         result = self.run_cmd(
             [
@@ -687,15 +733,12 @@ class TestUserInstaller(unittest.TestCase):
                 str(INSTALLER),
                 "--prefix",
                 str(prefix),
-                "--skip-mcp",
                 "--skills-root",
                 str(skills_root),
-                "--claude-skills-root",
-                str(claude_skills_root),
-                "--install-chat-hook",
-                "--hook-root",
-                str(hook_root),
-            ]
+                "--skills-root",
+                str(second_skills_root),
+            ],
+            env={"XDG_DATA_HOME": str(self.tmp / "xdg-data")},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -703,74 +746,431 @@ class TestUserInstaller(unittest.TestCase):
         self.assertTrue(mythify_bin.is_file())
         self.assertTrue(os.access(mythify_bin, os.X_OK))
 
-        for skill in ("mythify", "mythify-work", "mythify-route", "mythify-verify"):
-            for root in (skills_root, claude_skills_root):
+        for skill in SKILLS:
+            for root in (skills_root, second_skills_root):
                 skill_file = root / skill / "SKILL.md"
                 self.assertTrue(skill_file.is_file(), skill_file)
-
-        hook = hook_root / "mythify-chat-report-hook.sh"
-        self.assertTrue(hook.is_file())
-        self.assertTrue(hook.stat().st_mode & stat.S_IXUSR)
+                self.assertFalse((root / skill / "agents").exists())
 
         help_result = self.run_cmd([str(mythify_bin), "--help"])
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("Mythify v", help_result.stdout)
+        cli_roots = list((self.tmp / "xdg-data").glob("mythify/*/cli"))
+        self.assertEqual(len(cli_roots), 1, cli_roots)
+        self.assertFalse((cli_roots[0] / "protocol" / "ACTIVE.md").exists())
+        self.assertFalse((cli_roots[0] / "scripts" / "mythify_chat_report_hook.sh").exists())
 
-        project = self.tmp / "project"
-        project.mkdir()
-        init_result = self.run_cmd([str(mythify_bin), "init"], cwd=project)
-        self.assertEqual(init_result.returncode, 0, init_result.stderr)
-        mark_result = self.run_cmd(
-            [str(mythify_bin), "report", "--cursor", "chat", "--mark"],
-            cwd=project,
+    def test_removed_installer_options_are_rejected(self):
+        for option in (
+            "--install-chat-hook",
+            "--protocol-profile",
+            "--hook-root",
+            "--claude-skills-root",
+            "--skip-claude-skills",
+        ):
+            with self.subTest(option=option):
+                args = ["sh", str(INSTALLER), "--prefix", str(self.tmp / "prefix"), option]
+                if option not in ("--install-chat-hook", "--skip-claude-skills"):
+                    args.append("value")
+                result = self.run_cmd(args, env={"XDG_DATA_HOME": str(self.tmp / "xdg")})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unknown option: " + option, result.stderr)
+                self.assertFalse((self.tmp / "prefix").exists())
+
+
+    # -- Host-neutral skill roots, legacy manifests, and upgrade cleanup -----
+
+    def snapshot_tree(self, root):
+        """Every path under ROOT with file bytes, so any write shows up."""
+        snapshot = {}
+        for path in sorted(root.rglob("*")):
+            key = path.relative_to(root).as_posix()
+            snapshot[key] = path.read_bytes() if path.is_file() else None
+        return snapshot
+
+    def make_host_home(self, *names):
+        home = self.tmp / "home"
+        for name in names:
+            (home / name).mkdir(parents=True)
+            (home / name / "settings.txt").write_text("host-owned\n", encoding="utf-8")
+        home.mkdir(exist_ok=True)
+        return home
+
+    def neutral_env(self, **extra):
+        env = {
+            "XDG_DATA_HOME": str(self.tmp / "xdg-data"),
+            "CLAUDE_CONFIG_DIR": None,
+            "CODEX_HOME": None,
+        }
+        env.update(extra)
+        return env
+
+    def make_legacy_install(self, data_home, prefix, roots, version="5.0.0"):
+        """Write a 5.x-shaped install: schema 1 manifest with two skill roots."""
+        install_root = data_home / "mythify" / version
+        (install_root / "cli" / "scripts").mkdir(parents=True)
+        (install_root / "cli" / "scripts" / "mythify.py").write_text("# legacy\n", encoding="utf-8")
+        (prefix / "bin").mkdir(parents=True, exist_ok=True)
+        token = "legacy-token-5x"
+        files = {}
+        for name in ("mythify", "mythify-mcp", "mythify-uninstall"):
+            launcher = prefix / "bin" / name
+            launcher.write_text("#!/usr/bin/env sh\nexec legacy-{}\n".format(name), encoding="utf-8")
+            files[str(launcher.resolve())] = hashlib.sha256(launcher.read_bytes()).hexdigest()
+        directories = [install_root / "cli"]
+        for root in roots:
+            for skill in SKILLS:
+                directory = root / skill
+                directory.mkdir(parents=True)
+                (directory / "SKILL.md").write_text("legacy skill\n", encoding="utf-8")
+                directories.append(directory)
+        for directory in directories:
+            (directory / ".mythify-owned").write_text(token + "\n", encoding="utf-8")
+        manifest = {
+            "schema": 1,
+            "token": token,
+            "skill_names": list(SKILLS),
+            "config": {
+                "install_root": str(install_root.resolve()),
+                "prefix": str(prefix.resolve()),
+                "skills_root": str(roots[0].resolve()),
+                "claude_skills_root": str(roots[1].resolve()),
+                "skip_skills": False,
+                "skip_claude_skills": False,
+            },
+            "files": files,
+            "directories": [str(directory.resolve()) for directory in directories],
+        }
+        (install_root / "install-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return install_root
+
+    def test_repeated_skills_root_writes_nothing_outside_the_given_roots(self):
+        home = self.make_host_home(".claude", ".codex", ".cursor", ".agents")
+        before = self.snapshot_tree(home)
+        prefix = self.tmp / "prefix"
+        roots = [self.tmp / "roots" / "one", self.tmp / "roots" / "two", self.tmp / "roots" / "three"]
+        args = ["sh", str(INSTALLER), "--prefix", str(prefix)]
+        for root in roots + roots[:1]:
+            args.extend(["--skills-root", str(root)])
+        result = self.run_cmd(args, env=self.neutral_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for root in roots:
+            for skill in SKILLS:
+                self.assertTrue((root / skill / "SKILL.md").is_file(), root / skill)
+        self.assertEqual(sorted(path.name for path in (self.tmp / "roots").iterdir()), ["one", "three", "two"])
+        self.assertEqual(self.snapshot_tree(home), before)
+        launcher = (prefix / "bin" / "mythify-uninstall").read_text(encoding="utf-8")
+        self.assertEqual(launcher.count("--skills-root"), 3)
+
+        uninstall = self.run_cmd([str(prefix / "bin" / "mythify-uninstall")], env=self.neutral_env())
+        self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
+        for root in roots:
+            self.assertEqual(list(root.iterdir()), [])
+        self.assertEqual(self.snapshot_tree(home), before)
+
+    def test_foreign_skill_folder_with_a_mythify_name_is_never_deleted(self):
+        root = self.tmp / "roots" / "shared"
+        foreign = root / "mythify-work"
+        foreign.mkdir(parents=True)
+        (foreign / "SKILL.md").write_text("---\nname: someone-elses-skill\n---\n", encoding="utf-8")
+        prefix = self.tmp / "prefix"
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skills-root", str(root)],
+            env=self.neutral_env(),
         )
-        self.assertEqual(mark_result.returncode, 0, mark_result.stderr)
-        claim_result = self.run_cmd(
-            [
-                str(mythify_bin),
-                "verify",
-                "claim",
-                "chat hook attestation",
-                "installer test evidence",
-            ],
-            cwd=project,
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("holds a different skill", result.stderr + result.stdout)
+        self.assertEqual(
+            (foreign / "SKILL.md").read_text(encoding="utf-8"),
+            "---\nname: someone-elses-skill\n---\n",
         )
-        self.assertEqual(claim_result.returncode, 0, claim_result.stderr)
+        self.assertFalse((prefix / "bin" / "mythify").exists())
 
-        hook_result = self.run_cmd(
-            [str(hook)],
-            cwd=project,
-            env={"MYTHIFY_BIN": str(mythify_bin)},
+    def test_default_skill_roots_follow_existing_host_directories(self):
+        home = self.make_host_home(".claude", ".cursor", ".codex")
+        codex_home = self.tmp / "codex-home"
+        codex_home.mkdir()
+        claude_config = self.tmp / "claude-config"
+        claude_config.mkdir()
+        prefix = self.tmp / "prefix"
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix)],
+            env=self.neutral_env(
+                CODEX_HOME=str(codex_home), CLAUDE_CONFIG_DIR=str(claude_config)
+            ),
         )
-        self.assertEqual(hook_result.returncode, 0, hook_result.stderr)
-        self.assertIn("chat hook attestation", hook_result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for root in (claude_config / "skills", codex_home / "skills", home / ".cursor" / "skills"):
+            for skill in SKILLS:
+                self.assertTrue((root / skill / "SKILL.md").is_file(), root / skill)
+        for untouched in (home / ".claude" / "skills", home / ".codex" / "skills", home / ".agents"):
+            self.assertFalse(untouched.exists(), untouched)
+
+        uninstall = self.run_cmd([str(prefix / "bin" / "mythify-uninstall")], env=self.neutral_env())
+        self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
+        self.assertFalse((home / ".cursor" / "skills" / "mythify").exists())
+        self.assertFalse((codex_home / "skills" / "mythify").exists())
+
+    def test_default_skill_root_without_host_directories_is_agents(self):
+        home = self.make_host_home()
+        prefix = self.tmp / "prefix"
+        result = self.run_cmd(["sh", str(INSTALLER), "--prefix", str(prefix)], env=self.neutral_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(path.name for path in home.iterdir()), [".agents"])
+        for skill in SKILLS:
+            self.assertTrue((home / ".agents" / "skills" / skill / "SKILL.md").is_file())
+
+    def test_uninstall_reads_a_legacy_5x_manifest(self):
+        for explicit in (False, True):
+            with self.subTest(explicit_roots=explicit):
+                base = self.tmp / ("explicit" if explicit else "manifest")
+                data_home = base / "xdg-data"
+                prefix = base / "prefix"
+                roots = [base / "first-skills", base / "second-skills"]
+                install_root = self.make_legacy_install(data_home, prefix, roots)
+                personal = roots[0] / "mythify-personal" / "SKILL.md"
+                personal.parent.mkdir(parents=True)
+                personal.write_text("user-owned\n", encoding="utf-8")
+                args = [
+                    "sh", str(INSTALLER), "--uninstall",
+                    "--data-root", str(install_root), "--prefix", str(prefix),
+                ]
+                if explicit:
+                    for root in roots:
+                        args.extend(["--skills-root", str(root)])
+                result = self.run_cmd(args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(install_root.exists())
+                self.assertEqual(list((prefix / "bin").iterdir()), [])
+                for root in roots:
+                    for skill in SKILLS:
+                        self.assertFalse((root / skill).exists())
+                self.assertEqual(personal.read_text(encoding="utf-8"), "user-owned\n")
+
+    def test_legacy_uninstall_refuses_mismatched_explicit_roots(self):
+        data_home = self.tmp / "xdg-data"
+        prefix = self.tmp / "prefix"
+        roots = [self.tmp / "first-skills", self.tmp / "second-skills"]
+        install_root = self.make_legacy_install(data_home, prefix, roots)
+        result = self.run_cmd([
+            "sh", str(INSTALLER), "--uninstall", "--data-root", str(install_root),
+            "--prefix", str(prefix), "--skills-root", str(roots[0]),
+        ])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match this uninstall request", result.stderr)
+        self.assertTrue((install_root / "cli").is_dir())
+        self.assertTrue((roots[1] / "mythify" / "SKILL.md").is_file())
+
+    def test_upgrade_removes_a_verified_previous_version(self):
+        data_home = self.tmp / "xdg-data"
+        prefix = self.tmp / "prefix"
+        shared_root = self.tmp / "shared-skills"
+        dropped_root = self.tmp / "dropped-skills"
+        previous = self.make_legacy_install(data_home, prefix, [shared_root, dropped_root])
+        other_prefix_install = self.make_legacy_install(
+            data_home, self.tmp / "other-prefix", [self.tmp / "o1", self.tmp / "o2"], version="5.1.0"
+        )
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skills-root", str(shared_root)],
+            env={"XDG_DATA_HOME": str(data_home)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(previous.exists())
+        self.assertIn("Removed previous Mythify install: {}".format(previous.resolve()), result.stdout)
+        self.assertIn(
+            "Left previous-version skill directory: {}".format((dropped_root / "mythify").resolve()),
+            result.stdout,
+        )
+        self.assertTrue((dropped_root / "mythify" / "SKILL.md").is_file())
+        self.assertNotEqual(
+            (shared_root / "mythify" / "SKILL.md").read_text(encoding="utf-8"), "legacy skill\n"
+        )
+        self.assertTrue((other_prefix_install / "cli").is_dir())
+        self.assertNotIn(str(other_prefix_install.resolve()), result.stdout)
+        version = self.run_cmd([str(prefix / "bin" / "mythify"), "--version"])
+        self.assertEqual(version.returncode, 0, version.stderr)
+
+    def test_upgrade_keeps_a_previous_version_whose_launchers_changed(self):
+        data_home = self.tmp / "xdg-data"
+        prefix = self.tmp / "prefix"
+        roots = [self.tmp / "first-skills", self.tmp / "second-skills"]
+        previous = self.make_legacy_install(data_home, prefix, roots)
+        (prefix / "bin" / "mythify").write_text("user edit\n", encoding="utf-8")
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skip-skills"],
+            env={"XDG_DATA_HOME": str(data_home)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((previous / "cli" / "scripts" / "mythify.py").is_file())
+        self.assertTrue((previous / "install-manifest.json").is_file())
+        self.assertIn("Left previous Mythify install in place: {}".format(previous.resolve()), result.stdout)
+        self.assertIn("file content does not match", result.stdout)
+
+    def make_58_install(self, data_home, prefix, skip_mcp):
+        """Write the 5.8.0 shape as its write_ownership_manifest did with
+        --skip-skills: the default install also owns mcp-server/ and
+        bin/mythify-mcp; a --skip-mcp install records neither."""
+        install_root = data_home / "mythify" / "5.8.0"
+        (install_root / "cli" / "scripts").mkdir(parents=True)
+        (install_root / "cli" / "scripts" / "mythify.py").write_text("# 5.8\n", encoding="utf-8")
+        (prefix / "bin").mkdir(parents=True, exist_ok=True)
+        names = ["mythify", "mythify-uninstall"]
+        directories = [install_root / "cli"]
+        if not skip_mcp:
+            names.append("mythify-mcp")
+            directories.append(install_root / "mcp-server")
+            module = install_root / "mcp-server" / "node_modules" / "dep" / "index.js"
+            module.parent.mkdir(parents=True)
+            module.write_text("module.exports = 1;\n", encoding="utf-8")
+        files = {}
+        for name in names:
+            launcher = prefix / "bin" / name
+            launcher.write_text("#!/usr/bin/env sh\nexec node-era-{}\n".format(name), encoding="utf-8")
+            files[str(launcher.resolve())] = hashlib.sha256(launcher.read_bytes()).hexdigest()
+        token = "5-8-token"
+        for directory in directories:
+            (directory / ".mythify-owned").write_text(token + "\n", encoding="utf-8")
+        home = self.tmp / "home"
+        manifest = {
+            "schema": 1,
+            "token": token,
+            "skill_names": list(SKILLS),
+            "config": {
+                "install_root": str(install_root.resolve()),
+                "prefix": str(prefix.resolve()),
+                "skills_root": str(home / ".codex" / "skills"),
+                "claude_skills_root": str(home / ".claude" / "skills"),
+                "hook_root": str(home / ".codex" / "hooks"),
+                "skip_mcp": skip_mcp,
+                "skip_skills": True,
+                "skip_claude_skills": False,
+                "install_chat_hook": False,
+                "protocol_profile": "full",
+            },
+            "files": files,
+            "directories": [str(directory.resolve()) for directory in directories],
+        }
+        (install_root / "install-manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return install_root
+
+    def install_over(self, data_home, prefix):
+        result = self.run_cmd(
+            ["sh", str(INSTALLER), "--prefix", str(prefix), "--skip-skills"],
+            env={"XDG_DATA_HOME": str(data_home)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def test_upgrade_removes_a_58_install_with_its_mcp_server(self):
+        for stray in (False, True):
+            with self.subTest(stray_file=stray):
+                base = self.tmp / ("stray" if stray else "clean")
+                data_home, prefix = base / "xdg-data", base / "prefix"
+                previous = self.make_58_install(data_home, prefix, skip_mcp=False)
+                if stray:
+                    (previous / "notes.txt").write_text("mine\n", encoding="utf-8")
+                result = self.install_over(data_home, prefix)
+                self.assertFalse((previous / "mcp-server").exists())
+                self.assertFalse((previous / "cli").exists())
+                self.assertFalse((previous / "install-manifest.json").exists())
+                if stray:
+                    self.assertIn(
+                        "left files Mythify does not own: notes.txt.", result.stdout
+                    )
+                else:
+                    self.assertFalse(previous.exists())
+                    self.assertIn(
+                        "Removed previous Mythify install: {}".format(previous.resolve()),
+                        result.stdout,
+                    )
+                    self.assertNotIn("does not own", result.stdout)
+
+    def test_upgrade_removes_a_58_skip_mcp_install(self):
+        data_home, prefix = self.tmp / "xdg-data", self.tmp / "prefix"
+        previous = self.make_58_install(data_home, prefix, skip_mcp=True)
+        result = self.install_over(data_home, prefix)
+        self.assertFalse(previous.exists())
+        self.assertNotIn("Left previous Mythify install", result.stdout)
+        self.assertTrue((prefix / "bin" / "mythify-mcp").is_file())
+        again = self.install_over(data_home, prefix)
+        self.assertNotIn("previous Mythify", again.stdout)
+
+    def test_upgrade_keeps_a_58_install_whose_mcp_server_marker_changed(self):
+        data_home, prefix = self.tmp / "xdg-data", self.tmp / "prefix"
+        previous = self.make_58_install(data_home, prefix, skip_mcp=False)
+        (previous / "mcp-server" / ".mythify-owned").write_text("other\n", encoding="utf-8")
+        result = self.install_over(data_home, prefix)
+        self.assertIn("directory marker does not match", result.stdout)
+        self.assertTrue((previous / "cli" / "scripts" / "mythify.py").is_file())
+        self.assertTrue((previous / "install-manifest.json").is_file())
+
+    def test_uninstall_removes_both_58_shapes(self):
+        for skip_mcp in (False, True):
+            with self.subTest(skip_mcp=skip_mcp):
+                base = self.tmp / ("skip-mcp" if skip_mcp else "default")
+                data_home, prefix = base / "xdg-data", base / "prefix"
+                previous = self.make_58_install(data_home, prefix, skip_mcp=skip_mcp)
+                result = self.run_cmd([
+                    "sh", str(INSTALLER), "--uninstall", "--data-root", str(previous),
+                    "--prefix", str(prefix),
+                ])
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(previous.exists())
+                self.assertEqual(list((prefix / "bin").iterdir()), [])
 
 
-class TestSkillInvocationParity(unittest.TestCase):
-    """Every Mythify chat skill must advertise both runtime invocations.
+class TestSkillsAreHostNeutral(unittest.TestCase):
+    """Chat skills run on any host: no host invocation syntax, no vendor names."""
 
-    Claude Code invokes a skill as /<name>; Codex invokes it as $<name>. A
-    single SKILL.md serves both runtimes, so it must document both forms in its
-    body and its frontmatter description.
-    """
+    HOST_INVOCATION = re.compile(r"(?<![\w./-])[/$]mythify(?:-work|-route|-verify)?\b")
 
-    SKILLS = ("mythify", "mythify-route", "mythify-verify", "mythify-work")
+    def skill_files(self):
+        return sorted(
+            path for path in (REPO_ROOT / "skills").rglob("*")
+            if path.is_file() and path.suffix in (".md", ".mdx")
+        )
 
-    def test_each_skill_documents_both_invocations(self):
-        for skill in self.SKILLS:
-            skill_md = REPO_ROOT / "skills" / skill / "SKILL.md"
-            self.assertTrue(skill_md.is_file(), skill_md)
-            text = skill_md.read_text(encoding="utf-8")
-            self.assertIn(
-                "/" + skill,
-                text,
-                "{} is missing the Claude /{} invocation".format(skill_md, skill),
-            )
-            self.assertIn(
-                "$" + skill,
-                text,
-                "{} is missing the Codex ${} invocation".format(skill_md, skill),
-            )
+    def test_patterns_can_fire(self):
+        self.assertIsNotNone(self.HOST_INVOCATION.search("type `/mythify-work`"))
+        self.assertIsNotNone(self.HOST_INVOCATION.search("or $mythify in chat"))
+        self.assertIsNone(self.HOST_INVOCATION.search("python3 scripts/mythify.py status"))
+        self.assertIsNone(self.HOST_INVOCATION.search("state in .mythify/"))
+        self.assertTrue(lint.model_agnostic_hits("spawn a Codex worker"))
+        self.assertTrue(lint.model_agnostic_hits("the Cursor agent"))
+        self.assertEqual(lint.model_agnostic_hits("report --cursor chat"), [])
+        self.assertEqual(lint.model_agnostic_hits("mark a chat cursor first"), [])
+
+    def test_skills_name_no_host_syntax_or_vendor(self):
+        hits = []
+        for path in self.skill_files():
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if self.HOST_INVOCATION.search(line) or lint.model_agnostic_hits(line):
+                    hits.append("{}:{}: {}".format(path.relative_to(REPO_ROOT), number, line.strip()))
+        self.assertEqual(hits, [])
+
+    def test_each_skill_has_matching_frontmatter_and_no_host_manifest(self):
+        for skill in SKILLS:
+            directory = REPO_ROOT / "skills" / skill
+            text = (directory / "SKILL.md").read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("---\nname: {}\n".format(skill)), skill)
+            self.assertTrue("the way your host runs skills" in text, skill)
+            self.assertFalse((directory / "agents").exists(), directory)
+
+    def test_main_skill_is_a_short_spine_that_links_existing_references(self):
+        skill = REPO_ROOT / "skills" / "mythify" / "SKILL.md"
+        text = skill.read_text(encoding="utf-8")
+        self.assertLessEqual(len(text.split()), 1600)
+        links = re.findall(r"references/[\w.-]+", text)
+        self.assertTrue(links)
+        for link in links:
+            self.assertTrue((skill.parent / link).is_file(), link)
+        on_disk = {
+            "references/" + path.name
+            for path in (skill.parent / "references").iterdir() if path.is_file()
+        }
+        self.assertEqual(on_disk - set(links), set())
 
 
 if __name__ == "__main__":

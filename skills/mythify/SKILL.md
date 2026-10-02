@@ -1,290 +1,177 @@
 ---
 name: mythify
-description: Chat-native operational discipline protocol for AI coding agents, including planning loops, campaigns, executed verification, persistent memory, structured reflection, and visible issue reporting. Use when executing multi-step or long-horizon tasks, when work spans sessions, when progress claims need grounding in evidence, when audits or reviews must surface findings in chat, when the user asks for Mythify, mythify, mythos-style autonomous execution, or when the user asks for one shot, in one go, address all, continuous run, keep going until done, yolo, or similar full-send phrasing. Invoke with /mythify in Claude Code or $mythify in Codex.
+description: Evidence discipline for coding agents on any host. Routes a task, plans it in verifiable steps, runs a real check before any completion claim, plans products before large builds, keeps decisions and lessons on disk, and reports progress and issues in chat. Use for multi-step or multi-session work, when a claim needs executed evidence, for reviews and audits that must surface findings, for product direction, or when the user asks for Mythify or says one shot, in one go, address all, keep going until done, yolo, or full send.
 ---
 
-> Invocation: type `/mythify` in Claude Code or `$mythify` in Codex to run this skill. Treat any text after it as the task or scope argument.
+Invoke this skill the way your host runs skills. Treat any text after the
+skill name as the task.
 
-# Mythify Protocol
+# Mythify
 
-You are operating under the Mythify Protocol: an operational discipline layer.
-It changes how reliably you work, not what you can do. It supplies durable
-workflow capabilities through one CLI: plans with evidence-gated steps,
-research records, campaigns, executed verification, persistent memory, and
-structured reflection.
+Mythify changes how reliably you work, not what you can do. Executed checks
+replace self-report, written plans replace improvisation, and `.mythify/`
+on disk replaces context-window memory. It works the same with any model and
+any host.
 
-Use Mythify as a skill first and a command surface second. Prefer MCP tools
-when the host exposes them. Otherwise use the installed `mythify` launcher when
-available, falling back to `python3 scripts/mythify.py` from a Mythify checkout.
-State is per-project: each project owns a `.mythify/` directory (run `init`
-once). The only global state is the cross-project lessons store in
-`~/.mythify/lessons/`.
+## How to run it
 
-## Default front door
+- If the host exposes Mythify MCP tools, use them. Each tool is a command path
+  joined by `_` (`plan create` is `plan_create`, `verify run` is
+  `verify_run`); the `mythify` tool runs any other command by argument list.
+- Otherwise run the `mythify` launcher, or `python3 scripts/mythify.py` from
+  a project that carries a copy.
+- Run `mythify init` once per project. Every command takes `--help`.
 
-Prefer the reduced Mythify surface unless the user asks for a specific
-primitive:
+## Front door
 
-1. `mythify route "TASK"` or MCP `workflow_route` to choose the workflow.
-2. `mythify report --since last --cursor chat --format chat` or MCP
-   `work_report` to narrate progress and issues.
-3. `mythify verify run "COMMAND" --claim "CLAIM"` or MCP `verify_run` to prove
-   completion claims.
-4. `mythify status` or MCP `workflow_status` to reorient.
+1. `mythify route "TASK"` picks one route: `direct`, `plan`, `map`,
+   `product`, `outcome`, `review`, `failure_recovery`, or `handoff`. It reads
+   the task and the state on disk and prints the next command. It never acts.
+2. `mythify status` reorients: active plan, outcome, map, evidence, and
+   attention items with issues first.
+3. `mythify verify run "COMMAND" --claim "CLAIM"` proves a claim.
+4. `mythify report --since last --cursor chat` shows what changed since the
+   last report.
 
-For the most chat-native experience, prefer the installed focused skills when
-available:
+Use a lower-level command only after `route` points at it, or when the user
+names it.
 
-- `mythify-work` for visible multi-step execution with reports after steps and
-  verifiers.
-- `mythify-route` for a visible workflow decision before execution.
-- `mythify-verify` for proving a claim and surfacing the verdict in chat.
+## Match ceremony to the task
 
-Use lower-level commands only after the router selects that path, or when the
-user explicitly asks for a primitive such as `plan`, `outcome`, `campaign`,
-`research`, `prompt`, `memory`, `lesson`, or fanout.
-
-Strict step evidence is the default. A `completed` step needs a non-empty
-RESULT and a passing executed `verify run` with exit code 0 since the step
-started. When a step stores `verify_command`, the recorded command must match. Use
-`MYTHIFY_REQUIRE_VERIFIED_STEP=0` only when the user explicitly wants legacy
-prose-only completion.
-
-## Chat trigger phrases
-
-Treat these user phrases as Mythify triggers even when the user does not type
-the word Mythify:
-
-- one shot, one-shot, one go, in one go, all in one go
-- address all, fix all, do all, do everything, execute all
-- continuous run, keep going, keep going until done, until no issues remain
-- yolo, full send, ship it, run it through
-
-Interpret these as a request for a durable autonomous work loop, not as
-permission to skip safeguards. For small bounded work, use the normal plan or
-outcome loop. For long-running project goals, start or resume a campaign:
-
-    mythify campaign start "GOAL" --success "DONE CRITERIA"
-    mythify campaign status
-    mythify campaign prompt
-    mythify campaign advance --result "phase evidence"
-    mythify campaign learn "what improves the next task" --apply-next
-
-Use `mythify campaign prompt` when the host needs the next task injected or
-displayed inside chat. Use `mythify campaign watch --max-iterations 0` only
-when the host is explicitly managing a long-running background watcher. Both
-commands are read-only prompt surfaces: the host still performs edits, runs
-checks, reports issues in chat, and advances the campaign with evidence.
-
-Use `mythify route "TASK"` when the next workflow shape is unclear or when the
-user asks for one shot, in one go, address all, continuous run, yolo, review,
-research, or similar steering. The router is read-only: it classifies the task,
-inspects durable state, chooses the next route, and keeps execution in the
-initiating host chat unless the user explicitly hands work elsewhere.
-
-Use `mythify prompt next` when the host needs Mythify to choose the next useful
-chat prompt from durable state. Use the specific packet kinds when the direction
-is known: `prompt research`, `prompt analysis`, `prompt failure`,
-`prompt handoff`, `prompt review`, or `prompt campaign`. Prompt packets are
-read-only steering material, not verification evidence.
-
-If the user says yolo or full send, keep the same safety boundaries: do not run
-destructive or irreversible actions without explicit permission, and do not
-claim completion without executed verification when a check exists.
-
-## Chat contract
-
-The user should experience Mythify as visible disciplined work inside the chat,
-not as a hidden log system. When this skill triggers:
-
-1. Say briefly that you are using Mythify and what outcome you are pursuing.
-2. For multi-step work, create or resume a plan and set a chat cursor:
-   `report --cursor chat --mark` or MCP `work_report` with `mark: true`.
-3. After meaningful phases, failures, audit sweeps, and before the final
-   response, run `report --since last --cursor chat --format chat` or MCP
-   `work_report`.
-   When the optional chat report hook is installed, this report cadence can be
-   host-triggered after tool calls, but still bring important report output
-   into the transcript yourself.
-4. Bring the report into the conversation. Lead with `Attention` items:
-   failed checks, failed steps, failure reflections, and attested warnings.
-   If there are none, say no new issues were reported in that window.
-5. For audits and reviews, list findings in the chat with file and line
-   references when applicable. Do not leave findings only in `.mythify/`.
-
-Read `references/chat-experience.md` before running an audit, review, release
-gate, or any task where the user asked for play-by-play progress.
-
-## Proportional ceremony
-
-Match protocol overhead to task size. Trivial tasks pay zero overhead.
-
-| Task size | Protocol |
+| Task | What to use |
 | :--- | :--- |
-| Trivial (single edit or question) | No protocol commands. Just do it. |
-| Focused low-risk fix or test task | Fast profile: skip plan state, do the work, then `verify run`. |
-| Multi-step, single session | A plan, plus executed verification of every completion claim. |
-| Long-horizon or multi-session | Full loop with memory and lessons. |
+| Trivial edit or question | Nothing. Just do it. |
+| Focused fix | Do it, then `verify run` before claiming it works. |
+| Multi-step work | `plan create` with steps, `step` updates, a check per step. |
+| Decisions not made yet | `map create`, settle one ticket at a time, `map promote`. |
+| Product direction | `product create`, outcomes, non-goals, bets, human approval, `product promote`. |
+| Retry until a check passes | `outcome start` with a verifier and budgets, then `outcome check`. |
+| Multi-session work | All of the above, plus memory and lessons. |
 
-## The autonomy loop
+## The loop
 
-1. PLAN: `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]`, then `status`.
-2. ACT: mark the next step `in_progress`, then do the work.
-3. VERIFY: `verify run COMMAND [--claim TEXT] [--timeout N]`.
-4. REFLECT: record what happened, especially after failures or surprises.
-5. CORRECT or ADVANCE: on failure, fix and re-verify; on success, mark the
-   step completed with evidence and take the next pending step.
+1. PLAN. `mythify plan create "GOAL" --steps JSON`. Give each step a
+   `success_criteria` and, when you can, a `verify_command`.
+2. ACT. `mythify step N in_progress`, then do the work.
+3. VERIFY. `mythify plan verify N` runs the step's stored `verify_command`;
+   otherwise `mythify verify run "COMMAND" --claim "CLAIM"`.
+4. REFLECT. After a failure or surprise, `mythify reflect --action ...
+   --outcome failure --observation ... --next ...`.
+5. CORRECT or ADVANCE. Red: fix the cause and verify again. Green:
+   `mythify step N completed "verify run exit 0: CLAIM"`.
 
-For outcome-driven work, start a supervised loop with `outcome start`, make one
-bounded attempt, then run `outcome check`. Continue only when Mythify says the
-outcome is still active and the budget remains. Use `outcome results` to report
-the evidence trail and `outcome stop --reason TEXT` when the host decides to
-end the loop.
+For a goal with a verifier and a budget, use `outcome start GOAL --success
+TEXT --verify COMMAND`, make one bounded attempt, run `outcome check`, and
+continue only while it says the outcome is active and budget remains.
 
-Read `references/autonomy-loop.md` before starting any multi-step plan, when
-deciding how much ceremony a task deserves, or when you need the step
-lifecycle rules (statuses, icons, the evidence rule, archiving).
+Read `references/autonomy-loop.md` for step statuses, plan management, and
+when to escalate ceremony. When the project has `.godplans/PLAN.mdx` or
+`.godaudits/AUDIT.mdx`, read `references/godplans-godaudits.mdx` and use
+`plan import`.
 
-When the project contains `.godplans/PLAN.mdx` or `.godaudits/AUDIT.mdx`, or
-the user names godplans or godaudits, read
-`references/godplans-godaudits.mdx`: those artifacts import into Mythify plans
-with `plan import`, each task keeping its exact verify command under the
-strict step-context evidence gate.
+## Evidence rules
 
-## Verification doctrine
+- A completion claim needs an executed check. Exit 0 is verified; exit 2 is
+  unverified. If you did not run it, say so.
+- `step N completed` refuses without a RESULT and a passing `verify run`
+  recorded after the step started. A stored `verify_command` must match the
+  recorded command. `MYTHIFY_REQUIRE_VERIFIED_STEP=0` waives this only when
+  the user asks, and the waiver is stamped on the step.
+- `verify claim CLAIM EVIDENCE` records a statement when nothing can run. It
+  never counts as verified.
+- A check that cannot fail proves nothing. Never use `true`, `exit 0`, or a
+  bare `echo` as a verifier; Mythify warns on them and `status` flags passes
+  that checked nothing or ran zero tests.
 
-Executed beats attested. A completion claim requires an executed verification:
-use `verify run` whenever anything executable exists (tests, builds, linters,
-a curl, a file check). Use `verify claim CLAIM EVIDENCE` only when nothing
-executable exists; it is recorded as `[WARN] ATTESTED` and never counts as
-verified.
+Read `references/self-verification.md` before claiming a step or task done.
 
-For plan steps, `completed` requires a passing executed `verify run` with exit
-code 0 by default as well as a RESULT string. A stored `verify_command` must
-match the recorded command. Set `MYTHIFY_REQUIRE_VERIFIED_STEP=0` only for
-explicit legacy prose-only completion.
+## Keep the work visible in chat
 
-Read `references/self-verification.md` before claiming any task or step
-complete, when choosing between `verify run` and `verify claim`, or when a
-verification fails and you need to interpret the verdict.
+The user lives in the chat, not in `.mythify/`.
+
+1. Say in one sentence that you are using Mythify and what outcome you
+   pursue.
+2. For multi-step work, mark a chat cursor first:
+   `mythify report --cursor chat --mark`.
+3. After each phase, failed check, or surprise, run
+   `mythify report --since last --cursor chat` and give a short update:
+   outcome, attention items, next action.
+4. Lead with failures. If the report shows none, say no new issues were
+   reported in that window.
+5. For reviews and audits, list findings with file and line in the chat.
+
+Read `references/chat-experience.md` before an audit, review, or release
+gate, and `references/communication-quality.md` before a final response.
+
+## Full-send phrases
+
+Treat "one shot", "in one go", "address all", "do everything", "keep going
+until done", "continuous run", "yolo", and "full send" as a request for a
+durable loop: plan every step, drive each to a passing check, and report as
+you go. They never waive safety. Do not run destructive or irreversible
+actions without permission, and do not claim completion without a check.
+
+## Product planning
+
+Before a large build, settle why it exists, for whom, and how success is
+measured. `route` sends product questions to the `product` route.
+
+1. `mythify product create TITLE --problem TEXT --user TEXT [--stage S]`.
+2. `product outcome STATEMENT --metric TEXT --target TEXT [--measure COMMAND]`
+   for each measurable outcome (at most five).
+3. `product non-goal TEXT --reason TEXT` for what is out.
+4. `product bet HYPOTHESIS --outcome O1 --kill TEXT` for each bet, with the
+   kill criterion that would stop it.
+5. `product risk TEXT --kind value|usability|feasibility|viability`.
+6. `product check` exits non-zero until the plan is complete for its stage.
+   Fix the gaps it names.
+7. A human approves: `product approve --human-input "THEIR WORDS"`.
+8. `product promote BET` turns an approved bet into an execution plan.
+   `product measure O1` runs the outcome's measure command as evidence.
+   `product decide BET --verdict continue|pivot|stop` needs the human's words.
+
+## Delegation is your choice
+
+Mythify never picks a model, provider, or subagent. When `route --json`
+reports `parallelism.fit` as `possible` or `strong`, or the work splits into
+independent parts, hand parts to any subagent, worker, or model your host
+offers, or to none. Write each delegated prompt so it stands alone and names
+the files it needs. Delegated output is material, not evidence: merge it into
+the deliverable, then `verify run` the integrated result. If a delegation
+choice mattered, record why with `reflect`. Read `references/meta-prompts.md`
+for constraint blocks to paste into delegated prompts.
+
+## Human decisions stay human
+
+Mythify refuses these without a non-empty `--human-input`:
+`map resolve` on a `grilling` or `prototype` ticket (or a task ticket added
+with `--mode hitl`), `product approve`, and `product decide`. It records the
+words but cannot verify who supplied them. Never write those words yourself.
+Ask, wait, then record what the person said.
+
+## Pause rules
+
+Act when the next step is clear and reversible. Pause only for destructive or
+irreversible actions, real scope changes, or input only the user can give.
+Build the smallest thing that meets the need.
 
 ## Memory and lessons
 
-Store facts, decisions, discoveries, and state as you learn them. Recall at
-session start and before architectural decisions. Project lessons stay in the
-project; add `--global` only for lessons that apply everywhere.
+- `memory set KEY VALUE --category fact|decision|discovery|state` when you
+  learn something that cost effort. `memory get QUERY` at session start and
+  before an architectural decision.
+- `lesson add TITLE DETAIL [--global]` when reality surprises you.
+  `lesson list` before work in an unfamiliar area.
+- Start a resumed session with `status`; end long work with `summary`.
 
-Read `references/memory-system.md` at the start of any session that resumes
-prior work, before recording your first memory entry or lesson, and before
-any decision that earlier discoveries might affect.
+Read `references/memory-system.md` before your first memory entry or lesson.
 
-## Behavioral constraints
+## References
 
-Act over ask. Lead with outcome. Ground every claim. Pause only for
-destructive or irreversible actions, real scope changes, or input only the
-user can provide. Build the simplest thing that meets the requirement.
-Persist state outside the context window on long tasks. Keep the user-facing
-thread clear and useful: summarize evidence, surface issues, and avoid dumping
-raw logs unless they are needed to diagnose a failure.
-
-Read `references/meta-prompts.md` when writing prompts or instructions for
-subagents, when unsure whether to pause for the user, or when scoping how
-much to build.
-
-Read `references/communication-quality.md` before a final response or when
-writing documentation, research summaries, release notes, pull request text,
-commit messages, or prompts. Its rewrite pass is advisory. Mechanical prose
-checks prove only their configured patterns, not voice or authorship.
-
-## Command quick reference
-
-Most turns should start with `route`, not the full table below.
-
-| Command | Purpose |
-| :--- | :--- |
-| `init` | Create `./.mythify` workspace. |
-| `protocol check [PATH ...] [--json]` | Verify copied protocol files match this CLI. |
-| `status` | Orientation: active plan, next step, counts. |
-| `harness [--recent N] [--json]` | Read-only evidence harness for autonomous agent work. |
-| `route TASK [--json] [--triage never\|auto\|always]` | Choose direct, plan, research, review, outcome, campaign, failure recovery, handoff, or prompt routing from task text and durable state without mutating state. |
-| `classify TASK [--json] [--triage never\|auto\|always]` | Identify task type, risk, execution profile, verification strategy, fanout fit, model policy, and task-based host recommendation when routing is not needed. |
-| `plan create GOAL [--steps JSON] [--horizon N] [--name NAME]` | Create a plan, set it active. |
-| `plan add-step TITLE [--criteria TEXT] [--plan NAME]` | Append a step. |
-| `plan list` | List plans with progress. |
-| `plan show [NAME]` | Full detail of a plan. |
-| `plan switch NAME` | Set the active plan. |
-| `plan archive [NAME]` | Move a plan to the archive. |
-| `step ID STATUS [RESULT] [--plan NAME]` | Update a step. completed and failed require RESULT; completed requires a passing exit-0 verify run matching any stored verifier by default. |
-| `memory set KEY VALUE [--category C]` | Store an entry (fact, decision, discovery, state). |
-| `memory get [QUERY] [--category C]` | Substring search over keys and values. |
-| `memory clear [KEY] [--all]` | Remove one entry, or everything with `--all`. |
-| `host-model switch MODEL [--platform P]` | Record a requested host chat model switch for model policy. |
-| `host-model status` | Show the recorded host model switch. |
-| `host-model clear` | Clear the recorded host model switch. |
-| `artifact probe [service options]` | Probe the optional external artifact-hygiene service. |
-| `artifact inspect PATH [inspection and service options]` | Inspect an artifact without changing it. Direct output is material, not verification evidence. |
-| `artifact clean PATH --output OUTPUT --confirm-authorized [clean and service options]` | Clean an owned or authorized artifact to a separate output after post-clean inspection. |
-| `research start QUESTION [--name NAME]` | Start source-backed research. |
-| `research add-source TITLE [--url URL]` | Add a research source. |
-| `research add-claim CLAIM --evidence TEXT` | Add a source-backed claim. |
-| `research summary [NAME]` | Show sources, claims, open questions, and decision. |
-| `research close [NAME] --decision TEXT` | Close research with a decision. |
-| `campaign start GOAL [--tasks JSON]` | Start a long-running task campaign. |
-| `campaign status [NAME]` | Show campaign progress and current phase. |
-| `campaign prompt [NAME] [--json]` | Render the next host prompt without mutating state. |
-| `campaign watch [NAME] [--interval N] [--max-iterations N]` | Poll a campaign and emit refreshed host prompts. |
-| `campaign advance [NAME] --result TEXT` | Advance the current task through the loop. |
-| `campaign learn LESSON` | Record learning for later campaign tasks. |
-| `prompt KIND [NAME] [--goal TEXT] [--verify COMMAND] [--json]` | Render a read-only workflow prompt packet. |
-| `outcome start GOAL --success TEXT --verify COMMAND [--metric COMMAND]` | Start a supervised outcome loop with verifier, optional metric, and budget. |
-| `outcome check [NAME]` | Run the verifier and return success, retry, or budget exhaustion. |
-| `outcome status [NAME]` | Show the active or named outcome loop. |
-| `outcome results [NAME]` | Show all verifier iterations and final state. |
-| `outcome stop [NAME] --reason TEXT` | Stop an outcome loop. |
-| `lesson add TITLE DETAIL [--tags a,b] [--global]` | Record a lesson. |
-| `lesson list [--tag TAG] [--scope project\|global\|all]` | List lessons by scope. |
-| `logs compact [--keep N] [--dry-run] [--json]` | Archive raw verification and reflection logs, then keep recent active records. |
-| `verify run COMMAND [--claim TEXT] [--timeout N]` | Execute and record proof. Exit 0 verified, 2 unverified. |
-| `verify claim CLAIM EVIDENCE` | Record a self-report. Never counts as verified. |
-| `reflect [JSON]` | Record a reflection (flags form also accepted). |
-| `report --since last --cursor chat` | Chat-ready progress and issue report. |
-| `summary` | Full session report. |
-
-## MCP clients
-
-Clients wired to the Mythify MCP server instead of the CLI should use the
-equivalent tools. For broad or ambiguous prompts, start with `workflow_route`.
-Use `work_report` for chat narration, `verify_run` for evidence,
-`workflow_status` or `evidence_harness` for orientation, and lower-level tools only after routing or
-an explicit user request: `plan_create`, `plan_add_step`, `plan_update_step`,
-`verify_claim`, `reflect`, `campaign_next_prompt`, and `prompt_packet` for
-research, analysis, failure, handoff, review, campaign, or next-prompt packets.
-Same state directory, same file formats, full
-interop with the CLI.
-
-Treat host-model state, artifact hygiene, provider probes, local model runs,
-host CLI workers, execution substrate tools, and lifecycle probes as labs surfaces. They are
-available when explicitly useful, but they are not the default Mythify path.
-
-The artifact hygiene surface uses an optional external watermarks-remover
-service. Keep loopback as the default, require explicit acknowledgements for
-remote uploads, and require `--confirm-authorized` plus a separate output for
-cleaning. Treat deterministic findings as actionable, stylometry as advisory,
-and service output as material until an executed verifier records it.
-
-`classify_task` returns `model_policy.session.recommendation` so hosts can map
-the prompt to chat settings before work begins. Direct low-risk prompts use a
-`utility` profile, ordinary implementation uses `balanced`, and research or
-high-risk work uses `strong`; `max` remains explicit-only.
-
-When `model_policy.model_router.execution_topology.native_adapter.recommended`
-is true, use the MCP fanout lifecycle as the native UltraCode adapter: call
-`fanout_start` with `engine: "claude-ultracode"` and exactly one task, monitor
-with `fanout_status`, and ingest the result with `fanout_results`. The adapter
-requires Claude Code 2.1.203 or newer, preserves host permissions, and returns
-material rather than verification evidence. Run a deterministic verifier after
-integrating the workflow result.
-
-Fanout visibility defaults to `summary`: show worker titles, status counts,
-and notable findings in the main chat. Use quiet, verbose, or threaded only
-when the prompt asks for that behavior; threaded still requires host support.
+- `references/autonomy-loop.md`: plan and step lifecycle.
+- `references/self-verification.md`: executed versus attested evidence.
+- `references/chat-experience.md`: reporting progress and findings in chat.
+- `references/communication-quality.md`: the rewrite pass for prose.
+- `references/memory-system.md`: memory entries and lessons.
+- `references/meta-prompts.md`: constraint blocks for delegated prompts.
+- `references/godplans-godaudits.mdx`: importing godplans and godaudits tasks.
