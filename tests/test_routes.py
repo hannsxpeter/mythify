@@ -298,7 +298,9 @@ class TestQuestionTheReference(RouteCase):
         self.assertEqual(packet["context"]["failed_command_streak"], 1)
 
 
-FORBIDDEN_ROUTE_KEYS = ("model_policy", "model_router", "execution_adapter", "session")
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+import lint  # noqa: E402  (owns the removed model-routing identifiers)
 
 
 def collect_keys(value, found=None):
@@ -358,8 +360,8 @@ class TestRouteAdvisories(RouteCase):
         payloads.append(self.route("continue the work"))
         for payload in payloads:
             keys = collect_keys(payload)
-            for forbidden in FORBIDDEN_ROUTE_KEYS:
-                self.assertNotIn(forbidden, keys)
+            self.assertEqual(lint.removed_identifier_keys(keys), [])
+            self.assertNotIn("session", keys)
 
     def test_high_risk_route_asks_for_independent_review(self):
         classification = self.route("Rotate the production deploy credential")["classification"]

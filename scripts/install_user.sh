@@ -471,8 +471,21 @@ def cleanup_previous(listing):
                 print("[WARN] Left previous-version skill directory: {} (this install did not replace it; remove it if no longer wanted).".format(directory))
 
 
+def ignore_state(project):
+    """Add .mythify/ to PROJECT/.gitignore unless it already lists the state."""
+    path = Path(project) / ".gitignore"
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    entries = {line.strip() for line in existing.splitlines()}
+    if ".mythify" in entries or ".mythify/" in entries:
+        return
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    separator = "" if existing == "" or existing.endswith("\n") else "\n"
+    atomic_write(path, existing + separator + ".mythify/\n", mode)
+
+
 ACTIONS = {
     "begin": begin_transaction,
+    "ignore-state": ignore_state,
     "rollback": rollback_transaction,
     "manifest": write_manifest,
     "uninstall": uninstall,
@@ -761,7 +774,12 @@ previous_installs=$(install_helper find-previous "$data_home/mythify" "$install_
 begin_install_transaction
 
 if [ -n "$project_dir" ]; then
-  (cd "$project_dir" && "$python_bin" "$repo_root/scripts/mythify.py" init >/dev/null)
+  # MYTHIFY_DIR pins init to this project. Without it, an exported MYTHIFY_DIR
+  # or a .mythify in an ancestor directory sends init outside the transaction.
+  MYTHIFY_DIR="$project_dir/.mythify" "$python_bin" "$repo_root/scripts/mythify.py" init >/dev/null
+  install_helper ignore-state "$project_dir"
+  [ -f "$project_dir/.mythify/memory.json" ] ||
+    fail "Project init did not create $project_dir/.mythify/memory.json"
 fi
 
 mkdir -p "$bin_dir"

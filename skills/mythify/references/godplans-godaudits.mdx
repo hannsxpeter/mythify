@@ -20,7 +20,9 @@ rules embedded in each artifact. Mythify holds the executed evidence trail.
 - `plan import [PATH] [--source godplans|godaudits] [--name NAME]`: converts
   the artifact's live tasks into a Mythify plan. Task Acceptance becomes the
   step success criteria, the task `Verify:` command is kept on the step as
-  `verify_command`, and checked boxes import as completed steps. Superseded
+  `verify_command`. Every task imports as a pending step; a checked box is
+  the artifact's claim, not executed evidence, so a checked task carries
+  `artifact_checked: true` and completes through the same gate. Superseded
   (struck-through) tasks are skipped. Frontmatter counter drift against the
   checkboxes is reported; the checkboxes are trusted.
 - Strict step context: imported plans set `strict_context`, so a step completes

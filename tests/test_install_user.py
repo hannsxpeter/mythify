@@ -16,6 +16,11 @@ INSTALLER = REPO_ROOT / "scripts" / "install_user.sh"
 CLI_PACKAGER = REPO_ROOT / "scripts" / "package_cli.py"
 SKILLS = ("mythify", "mythify-work", "mythify-route", "mythify-verify")
 
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+# The model, vendor, and host denylist lives in scripts/lint.py.
+import lint  # noqa: E402
+
 
 class TestUserInstaller(unittest.TestCase):
     def setUp(self):
@@ -128,13 +133,19 @@ class TestUserInstaller(unittest.TestCase):
             root + "/protocol/classification-rules.json",
             root + "/protocol/workflow-router.json",
             root + "/skills/mythify/SKILL.md",
+            root + "/AGENTS.md",
+            root + "/CLAUDE.md",
             root + "/CHANGELOG.md",
             root + "/CONTRIBUTING.md",
-            root + "/docs/design.md",
+            root + "/ROADMAP.md",
+            root + "/docs/architecture.md",
+            root + "/docs/commands.md",
+            root + "/docs/mcp.md",
+            root + "/docs/product-planning.md",
             root + "/docs/start-here.md",
             root + "/docs/prose-quality.md",
             root + "/docs/evidence/efficacy-reproduction.md",
-            root + "/docs/evidence/codex-word-count-2026-07-13.json",
+            root + "/docs/evidence/efficacy-smoke-2026-07-13.json",
         }
         self.assertTrue(required.issubset(names), sorted(required - names))
         removed = {
@@ -144,6 +155,8 @@ class TestUserInstaller(unittest.TestCase):
             root + "/protocol/operation-registry.json",
             root + "/protocol/artifact-hygiene.json",
             root + "/docs/artifact-hygiene.md",
+            root + "/docs/design.md",
+            root + "/docs/release.md",
             root + "/docs/research-report.md",
             root + "/docs/humanlayer-integration-research.md",
         }
@@ -389,6 +402,40 @@ class TestUserInstaller(unittest.TestCase):
         self.assertFalse((data_home / "mythify").exists())
         self.assertFalse(skills_root.exists())
         self.assertFalse(second_skills_root.exists())
+
+    def test_project_init_stays_in_the_project(self):
+        # Regression: init ran with the caller's environment, so an exported
+        # MYTHIFY_DIR or an ancestor .mythify received the state, outside the
+        # transaction, while the installer reported PROJECT/.mythify.
+        elsewhere = self.tmp / "elsewhere" / ".mythify"
+        ancestor = self.tmp / "ancestor"
+        (ancestor / ".mythify").mkdir(parents=True)
+        cases = (
+            ("exported", self.tmp / "project-a", {"MYTHIFY_DIR": str(elsewhere)}),
+            ("ancestor", ancestor / "project-b", {"MYTHIFY_DIR": None}),
+        )
+        for label, project, extra in cases:
+            with self.subTest(label):
+                project.mkdir(parents=True)
+                (project / ".gitignore").write_text("node_modules", encoding="utf-8")
+                env = {"XDG_DATA_HOME": str(self.tmp / ("xdg-" + label))}
+                env.update(extra)
+                result = self.run_cmd(
+                    self.install_args(
+                        INSTALLER, self.tmp / ("prefix-" + label), project,
+                        self.tmp / ("skills-" + label),
+                    ),
+                    env=env,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((project / ".mythify" / "memory.json").is_file())
+                self.assertEqual(
+                    (project / ".gitignore").read_text(encoding="utf-8"),
+                    "node_modules\n.mythify/\n",
+                )
+                self.assertIn("MYTHIFY_DIR={0}".format(project.resolve() / ".mythify"), result.stdout)
+        self.assertFalse(elsewhere.exists())
+        self.assertFalse((ancestor / ".gitignore").exists())
 
     def test_mcp_launcher_works_from_checkout_path_with_apostrophe(self):
         source_root = self.tmp / "source's-checkout"
@@ -943,14 +990,6 @@ class TestSkillsAreHostNeutral(unittest.TestCase):
     """Chat skills run on any host: no host invocation syntax, no vendor names."""
 
     HOST_INVOCATION = re.compile(r"(?<![\w./-])[/$]mythify(?:-work|-route|-verify)?\b")
-    VENDOR_NAMES = re.compile(
-        r"claude|codex|(?-i:\bCursor\b)|cursor[-_ ](?:agent|cli|ide|editor|workers?)\b|"
-        r"[/.]cursor/|cursorrules|gpt|openai|anthropic|gemini|haiku|sonnet|\bopus\b|"
-        r"\bkimi\b|opencode|antigravity|ollama|ultracode|fanout|model.profile",
-        re.IGNORECASE,
-    )
-    # License attribution for the adapted prose rules; a URL, not a host choice.
-    ATTRIBUTION = "https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md"
 
     def skill_files(self):
         return sorted(
@@ -963,17 +1002,16 @@ class TestSkillsAreHostNeutral(unittest.TestCase):
         self.assertIsNotNone(self.HOST_INVOCATION.search("or $mythify in chat"))
         self.assertIsNone(self.HOST_INVOCATION.search("python3 scripts/mythify.py status"))
         self.assertIsNone(self.HOST_INVOCATION.search("state in .mythify/"))
-        self.assertIsNotNone(self.VENDOR_NAMES.search("spawn a Codex worker"))
-        self.assertIsNotNone(self.VENDOR_NAMES.search("the Cursor agent"))
-        self.assertIsNone(self.VENDOR_NAMES.search("report --cursor chat"))
-        self.assertIsNone(self.VENDOR_NAMES.search("mark a chat cursor first"))
+        self.assertTrue(lint.model_agnostic_hits("spawn a Codex worker"))
+        self.assertTrue(lint.model_agnostic_hits("the Cursor agent"))
+        self.assertEqual(lint.model_agnostic_hits("report --cursor chat"), [])
+        self.assertEqual(lint.model_agnostic_hits("mark a chat cursor first"), [])
 
     def test_skills_name_no_host_syntax_or_vendor(self):
         hits = []
         for path in self.skill_files():
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                line = line.replace(self.ATTRIBUTION, "")
-                if self.HOST_INVOCATION.search(line) or self.VENDOR_NAMES.search(line):
+                if self.HOST_INVOCATION.search(line) or lint.model_agnostic_hits(line):
                     hits.append("{}:{}: {}".format(path.relative_to(REPO_ROOT), number, line.strip()))
         self.assertEqual(hits, [])
 

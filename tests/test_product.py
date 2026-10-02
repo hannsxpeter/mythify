@@ -177,7 +177,7 @@ class TestAuthoring(ProductCase):
         self.create()
         self.refused("product", "outcome", "x", "--metric", " ", "--target", "t")
         self.refused("product", "outcome", "x", "--metric", "m", "--target", "")
-        for noop in ("true", "echo 35%", "exit 0"):
+        for noop in ("true", "echo 35%", "exit 0", "true;", "env true", "measure || true"):
             result = self.refused("product", "outcome", "x", "--metric", "m", "--target", "t", "--measure", noop)
             self.assertIn("no-op", result.stderr)
         self.assertEqual(self.record()["outcomes"], [])
@@ -351,7 +351,7 @@ class TestHumanGates(ProductCase):
         for argv in (("product", "approve"), ("product", "approve", "--human-input", "   ")):
             result = self.refused(*argv)
             self.assertIn("Human input required", result.stderr)
-            self.assertIn("cannot approve it from its own words", result.stderr)
+            self.assertIn("cannot verify who supplied them", result.stderr)
         record = self.record()
         self.assertEqual(record["status"], "draft")
         self.assertIsNone(record["approval"])
@@ -437,6 +437,25 @@ class TestHumanGates(ProductCase):
         self.assertTrue(self.record()["bets"][0]["human_input_waived"])
         status = json.loads(self.ok("status", "--json", env=waived).stdout)
         self.assertTrue(any("MYTHIFY_REQUIRE_HUMAN_INPUT" in item["summary"] for item in status["attention"]))
+
+    def test_waived_decisions_stay_in_status_without_the_variable(self):
+        # Regression: status only named the opt-out while the variable was set
+        # in its own environment, so a later session read "Attention: none".
+        self.ready_product()
+        waived = {"MYTHIFY_REQUIRE_HUMAN_INPUT": "0"}
+        self.ok("product", "approve", env=waived)
+        self.ok("product", "decide", "B1", "--verdict", "pivot", env=waived)
+        status = json.loads(self.ok("status", "--json").stdout)
+        summaries = [item["summary"] for item in status["attention"]]
+        self.assertIn("product onboarding approved under a waived human gate", summaries)
+        self.assertIn("product onboarding bet B1 verdict set under a waived human gate", summaries)
+        self.assertEqual(status["status"], "needs_attention")
+        self.assertIn("verdict pivot (human input waived)", self.ok("product", "show").stdout)
+        # A verdict with the human's words replaces the waived one.
+        self.ok("product", "decide", "B1", "--verdict", "continue", "--human-input", "Dana: keep going")
+        self.assertNotIn("human_input_waived", self.record()["bets"][0])
+        summaries = [item["summary"] for item in json.loads(self.ok("status", "--json").stdout)["attention"]]
+        self.assertFalse(any("bet B1" in summary for summary in summaries))
 
 
 class TestPromote(ProductCase):
@@ -574,6 +593,38 @@ class TestMeasure(ProductCase):
         self.write_record(record)
         self.assertNotIn("O2", self.show_json()["measurements"])
 
+    def test_measurement_before_promotion_cannot_ship_a_bet(self):
+        # Review round 2: O1 measured green while the product was a draft,
+        # went red after promotion, and the bet still shipped on the old run.
+        (self.project / "invites-ok").write_text("yes", encoding="utf-8")
+        reads_marker = "{0} -c {1}".format(
+            json.dumps(sys.executable),
+            json.dumps("import os; raise SystemExit(0 if os.path.exists('invites-ok') else 3)"),
+        )
+        self.ready_product(measure=reads_marker)
+        self.ok(
+            "product", "outcome", "Fewer setup tickets", "--metric", "setup tickets",
+            "--target", "2", "--measure", PASS,
+        )
+        self.ok("product", "measure", "O1")
+        self.ok("product", "approve", "--human-input", "Dana: go")
+        steps = json.dumps([{"title": "Add invite step", "verify_command": PASS}])
+        self.ok("product", "promote", "B1", "--steps", steps)
+        (self.project / "invites-ok").unlink()
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "verify run exit 0")
+        measured = self.ok("product", "measure", "O2")
+        self.assertNotIn("Shipped", measured.stdout)
+        self.assertEqual(self.record()["bets"][0]["status"], "in_flight")
+        flags = [(item["code"], item["item"]) for item in self.show_json()["flags"]]
+        self.assertIn(("completed_plan_unmeasured", "B1"), flags)
+        self.refused("product", "measure", "O1", code=2)
+        self.assertEqual(self.record()["bets"][0]["status"], "in_flight")
+        (self.project / "invites-ok").write_text("yes", encoding="utf-8")
+        shipped = self.ok("product", "measure", "O1")
+        self.assertIn("Shipped: B1", shipped.stdout)
+        self.assertEqual(self.record()["bets"][0]["status"], "shipped")
+
     def test_measure_respects_the_timeout(self):
         slow = "{0} -c {1}".format(json.dumps(sys.executable), json.dumps("import time; time.sleep(5)"))
         self.ready_product(measure=slow)
@@ -627,7 +678,7 @@ class TestShowAndFlags(ProductCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             flags = mythify_product.traceability_flags(
-                Path(tmp), "p", record, measured={}, today=date(2026, 10, 1)
+                Path(tmp), "p", record, today=date(2026, 10, 1)
             )
         self.assertEqual(
             [(item["code"], item["item"]) for item in flags],

@@ -365,6 +365,19 @@ class TestReviewProveMergeGate(CliCase):
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
         self.assertFalse(self.view("noop-gate")["merge_gate"].get("verified"))
 
+    def test_noop_variants_cannot_prove_the_merge_gate(self):
+        # Review round 2: `true;` passed the first no-op check and reached
+        # depth 5 with merge_gate.verified true.
+        for index, command in enumerate(("true;", "exit 0;", "sh -c true", "/bin/echo ok")):
+            name = "variant-{0}".format(index)
+            self.assertEqual(self.create(name, command).returncode, 0)
+            refused = self.run_cli("review", "prove", name, "--mode", "runtime")
+            self.assertEqual(refused.returncode, 1, command + refused.stdout + refused.stderr)
+            self.assertIn("no-op", refused.stderr)
+            view = self.view(name)
+            self.assertFalse(view["merge_gate"].get("verified"), command)
+            self.assertEqual(view["safety_fact"]["status"], "unproven", command)
+
     def test_different_command_records_evidence_but_not_the_merge_gate(self):
         self.assertEqual(self.create("gate", "test -f tracked.txt").returncode, 0)
         proved = self.run_cli("review", "prove", "gate", "--command", "test -d .")
@@ -448,6 +461,127 @@ class TestHostSupervisedFrozenBaseline(CliCase):
         checked = self.run_cli("outcome", "check")
         self.assertEqual(checked.returncode, 2, checked.stdout + checked.stderr)
         self.assertIn("tests/test_new.py", self.goal()["stop_reason"])
+
+
+class TestGitCannotBeToldToLookAway(CliCase):
+    """Review round 1: frozen paths and the review fingerprint trusted git's
+    index flags and exclude files, so a hidden edit passed as untouched."""
+
+    def setUp(self):
+        super().setUp()
+        self.init_git_repo({"tracked.txt": "tracked\n", "tests/check.sh": "exit 1\n"})
+        self.ok("init")
+
+    def start(self, verify):
+        self.ok(
+            "outcome", "start", "Fix it", "--success", "check passes", "--verify", verify,
+            "--frozen-paths", "tests", "--max-iterations", "3", "--name", "fix",
+        )
+
+    def check_status(self):
+        self.run_cli("outcome", "check")
+        goal = json.loads((self.state / "outcomes" / "fix" / "goal.json").read_text(encoding="utf-8"))
+        return goal["status"], goal.get("stop_reason") or ""
+
+    def test_assume_unchanged_verifier_rewrite_is_caught(self):
+        self.start("sh tests/check.sh")
+        self.git("update-index", "--assume-unchanged", "tests/check.sh")
+        (self.project / "tests" / "check.sh").write_text("exit 0\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/check.sh", reason)
+
+    def test_file_hidden_by_info_exclude_is_caught(self):
+        self.start("test ! -f tests/override")
+        (self.project / "tests" / "override").write_text("x\n", encoding="utf-8")
+        with open(str(self.project / ".git" / "info" / "exclude"), "a", encoding="utf-8") as handle:
+            handle.write("tests/override\n")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/override", reason)
+
+    def test_self_ignoring_gitignore_is_caught(self):
+        self.start("test -f tracked.txt")
+        (self.project / "tests" / ".gitignore").write_text("*\n", encoding="utf-8")
+        (self.project / "tests" / "override").write_text("x\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("tests/.gitignore", reason)
+
+    def test_gitignored_verifier_cache_is_not_a_violation(self):
+        with open(str(self.project / ".gitignore"), "a", encoding="utf-8") as handle:
+            handle.write("__pycache__/\n")
+        self.git("commit", "-qam", "ignore caches")
+        self.start("mkdir -p tests/__pycache__ && echo c > tests/__pycache__/x.pyc && false")
+        self.assertEqual(self.check_status()[0], "active")
+        self.assertEqual(self.check_status()[0], "active")
+
+    def test_a_named_file_is_covered_even_when_gitignored(self):
+        with open(str(self.project / ".gitignore"), "a", encoding="utf-8") as handle:
+            handle.write("verifier.env\n")
+        self.git("commit", "-qam", "ignore the env file")
+        (self.project / "verifier.env").write_text("STRICT=1\n", encoding="utf-8")
+        self.ok(
+            "outcome", "start", "Fix it", "--success", "check passes", "--verify", "true",
+            "--frozen-paths", "verifier.env", "--max-iterations", "3", "--name", "fix",
+        )
+        (self.project / "verifier.env").write_text("STRICT=0\n", encoding="utf-8")
+        status, reason = self.check_status()
+        self.assertEqual(status, "stopped")
+        self.assertIn("verifier.env", reason)
+
+    def test_review_proof_refuses_an_assume_unchanged_edit(self):
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "tracked stays", "--name", "safe",
+        )
+        self.git("update-index", "--assume-unchanged", "tracked.txt")
+        (self.project / "tracked.txt").write_text("rewritten\n", encoding="utf-8")
+        refused = self.run_cli("review", "prove", "safe", "--command", "test -f tracked.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("current_change_fingerprint_unavailable", refused.stderr)
+        view = json.loads(self.ok("review", "show", "safe", "--json").stdout)
+        self.assertEqual(view["safety_fact"]["status"], "unproven")
+
+    def test_review_goes_stale_when_info_exclude_changes(self):
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "tracked stays", "--name", "safe",
+        )
+        with open(str(self.project / ".git" / "info" / "exclude"), "a", encoding="utf-8") as handle:
+            handle.write("hidden.txt\n")
+        (self.project / "hidden.txt").write_text("x\n", encoding="utf-8")
+        refused = self.run_cli("review", "prove", "safe", "--command", "test -f tracked.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("worktree_digest_mismatch", refused.stderr)
+
+
+class TestConcurrentOutcomeChecksShareOneBudget(CliCase):
+    """Review round 1: parallel outcome checks each spent the same budget slot."""
+
+    def test_parallel_checks_run_the_verifier_once(self):
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.ok("init")
+        runs = self.project / "runs.txt"
+        self.ok(
+            "outcome", "start", "Flaky", "--success", "passes",
+            "--verify", "sleep 2; echo run >> runs.txt; false",
+            "--max-iterations", "1", "--name", "flaky",
+        )
+        processes = [
+            subprocess.Popen(
+                [sys.executable, str(CLI), "outcome", "check"],
+                cwd=str(self.project), env=self.env(),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            for _ in range(4)
+        ]
+        results = [(process.wait(timeout=120), process.communicate()) for process in processes]
+        self.assertEqual(runs.read_text(encoding="utf-8").count("run"), 1, results)
+        self.assertEqual(len(self.records("outcomes/flaky/iterations.jsonl")), 1)
+        goal = json.loads((self.state / "outcomes" / "flaky" / "goal.json").read_text(encoding="utf-8"))
+        self.assertEqual((goal["iteration_count"], goal["status"]), (1, "failed"))
+        self.assertFalse(any((self.state / "locks").iterdir()))
 
 
 class TestMcpArgvKeepsPositionals(unittest.TestCase):
@@ -656,8 +790,13 @@ class TestWorktreeDigestBatchesHashing(unittest.TestCase):
             path.write_bytes(("content {0}\n".format(index)).encode("utf-8") + bytes([0, 255]))
 
     def reference_digest(self):
-        """The pre-batching algorithm: one hash-object call per untracked file."""
+        """The pre-batching algorithm: one hash-object call per untracked file.
+
+        The ignore-rules section (review round 1) is computed by the module
+        itself; this test pins the per-file hashing, not the rules digest.
+        """
         env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+        rules = mythify_provenance.git_ignore_rules_digest(self.root)
         diff = subprocess.run(
             ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"],
             cwd=self.root, capture_output=True, env=env, check=True,
@@ -667,6 +806,7 @@ class TestWorktreeDigestBatchesHashing(unittest.TestCase):
             cwd=self.root, capture_output=True, env=env, check=True,
         )
         digest = hashlib.sha256()
+        digest.update(b"rules\0" + rules.encode("ascii") + b"\0")
         digest.update(b"tracked\0")
         digest.update(diff.stdout)
         for raw_path in sorted(item for item in untracked.stdout.split(b"\0") if item):
@@ -718,6 +858,158 @@ class TestCompactionKeepsArchivedArtifacts(CliCase):
         self.assertEqual(archived[0]["id"], first["id"])
         self.assertTrue(first_stdout.is_file(), "archived record lost its artifact")
         self.assertIn("first", first_stdout.read_text(encoding="utf-8"))
+
+
+
+class TestUnignoredStateDirLeavesProvenanceAlone(CliCase):
+    """Review round 3: every ledger append under an unignored .mythify/ moved
+    the worktree digest, so review prove and strict-plan completion failed."""
+
+    def setUp(self):
+        super().setUp()
+        self.extra_env = {"MYTHIFY_DIR": str(self.state)}
+        self.git("init", "-q")
+        self.git("config", "user.email", "mythify@example.invalid")
+        self.git("config", "user.name", "Mythify Test")
+        (self.project / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "baseline")
+
+    def init_unignored(self):
+        self.ok("init")
+        # A team that tracks .mythify/, or a workspace initialized before init
+        # learned to write the ignore line, leaves the state directory visible.
+        (self.project / ".gitignore").unlink(missing_ok=True)
+
+    def test_init_with_mythify_dir_ignores_the_state_dir(self):
+        self.ok("init")
+        self.assertEqual(
+            (self.project / ".gitignore").read_text(encoding="utf-8"), ".mythify/\n"
+        )
+
+    def test_review_prove_succeeds(self):
+        self.init_unignored()
+        self.ok(
+            "review", "blast-radius", "--status", "pass", "--path", "tracked.txt",
+            "--safety-fact", "the change is safe", "--merge-command", "test -f tracked.txt",
+            "--name", "gate",
+        )
+        proved = self.run_cli("review", "prove", "gate")
+        self.assertEqual(proved.returncode, 0, proved.stdout + proved.stderr)
+
+    def test_strict_imported_plan_completes(self):
+        self.init_unignored()
+        plan_dir = self.project / ".godplans"
+        plan_dir.mkdir()
+        (plan_dir / "PLAN.mdx").write_text(
+            "---\nname: unignored\nstatus: executing\n---\n"
+            "- [ ] GP-101 Keep the tracked file\n  - Verify: `test -f tracked.txt`\n",
+            encoding="utf-8",
+        )
+        self.ok("plan", "import")
+        self.ok("plan", "verify", "1")
+        completed = self.run_cli("step", "1", "completed", "plan verify exit 0")
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertNotIn("world moved", completed.stderr)
+
+
+class TestLatestRunOfACommandDecidesTheStep(CliCase):
+    """Review round 3: a pass followed by a failure of the same command still
+    completed the step, so a step could advance on red."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("init")
+        self.ok(
+            "plan", "create", "Flagged", "--steps",
+            json.dumps([{"title": "flag", "success_criteria": "flag exists",
+                         "verify_command": "test -f flag"}]),
+        )
+        self.ok("step", "1", "in_progress")
+        self.flag = self.project / "flag"
+
+    def run_verifier(self, present):
+        if present:
+            self.flag.write_text("x\n", encoding="utf-8")
+        elif self.flag.exists():
+            self.flag.unlink()
+        return self.run_cli("verify", "run", "test -f flag")
+
+    def test_pass_then_fail_is_refused(self):
+        self.assertEqual(self.run_verifier(True).returncode, 0)
+        self.assertEqual(self.run_verifier(False).returncode, 2)
+        refused = self.run_cli("step", "1", "completed", "done")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("Verified evidence required", refused.stderr)
+        self.assertIn("cancels an earlier pass", refused.stderr)
+
+    def test_pass_fail_pass_is_accepted(self):
+        for present in (True, False, True):
+            self.run_verifier(present)
+        self.ok("step", "1", "completed", "verify run exit 0")
+
+
+class TestNewPlanNeverInheritsOldEvidence(CliCase):
+    """Review round 3: a new plan reused an archived plan's slug, and a step
+    completed from pending counted the old plan's same-second records."""
+
+    def setUp(self):
+        super().setUp()
+        self.ok("init")
+        self.ok("plan", "create", "foo", "--steps", json.dumps([{"title": "old work"}]))
+        self.ok("step", "1", "in_progress")
+        self.ok("verify", "run", "test -d .")
+
+    def test_archived_slug_is_not_reused(self):
+        self.ok("plan", "archive", "foo")
+        created = self.ok("plan", "create", "foo", "--steps", json.dumps([{"title": "new work"}]))
+        self.assertIn("Created plan: foo-2", created.stdout)
+        refused = self.run_cli("step", "1", "completed", "reuse")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+
+    def test_plan_anchor_excludes_records_from_before_the_plan(self):
+        # Even when an older plan's file is gone and its slug is free again,
+        # records from before the new plan's anchor never count.
+        (self.state / "plans" / "foo.json").unlink()
+        created = self.ok("plan", "create", "foo", "--steps", json.dumps([{"title": "new work"}]))
+        self.assertIn("Created plan: foo ", created.stdout)
+        refused = self.run_cli("step", "1", "completed", "reuse")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("Verified evidence required", refused.stderr)
+
+
+class TestFrozenPathsMustMatchSomething(CliCase):
+    """Review round 3: an absolute or misspelled frozen path matched nothing,
+    so outcome check succeeded after the protected file changed."""
+
+    def setUp(self):
+        super().setUp()
+        self.init_git_repo({"tracked.txt": "tracked\n", "tests/test_x.py": "assert True\n"})
+        self.ok("init")
+
+    def start(self, frozen):
+        return self.run_cli(
+            "outcome", "start", "Fix it", "--success", "check passes",
+            "--verify", "test -f tracked.txt", "--frozen-paths", frozen, "--name", "fix",
+        )
+
+    def test_absolute_path_inside_the_root_is_enforced(self):
+        started = self.start(str(self.project / "tests"))
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        goal = json.loads((self.state / "outcomes" / "fix" / "goal.json").read_text(encoding="utf-8"))
+        self.assertEqual(goal["frozen_paths"], ["tests"])
+        (self.project / "tests" / "test_x.py").write_text("assert 1\n", encoding="utf-8")
+        checked = self.run_cli("outcome", "check")
+        self.assertEqual(checked.returncode, 2, checked.stdout + checked.stderr)
+        self.assertIn("tests/test_x.py", checked.stdout)
+
+    def test_missing_or_outside_path_is_refused(self):
+        for frozen in ("test/", str(self.base / "home")):
+            with self.subTest(frozen=frozen):
+                refused = self.start(frozen)
+                self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                self.assertIn("[FAIL] Frozen path", refused.stdout)
+                self.assertFalse((self.state / "outcomes" / "fix").exists())
 
 
 if __name__ == "__main__":

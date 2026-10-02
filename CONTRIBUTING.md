@@ -1,96 +1,109 @@
 # Contributing to Mythify
 
 Thanks for considering a contribution. This document covers the development
-workflow, the repository rules that CI enforces, and how to get a pull request
-merged.
+rules, the checks a pull request must pass, and how to get it merged.
+Maintainer rituals (versions, releases, the drift log) are in
+[MAINTAINING.md](MAINTAINING.md).
 
-## Prerequisites
+## One runtime, standard library only
 
-- Python 3.9 or newer (the CLI, the MCP server, and the tests use only the
-  standard library).
-- No other tooling is required. There is nothing to `pip install`.
+Mythify is one Python program. The CLI (`scripts/mythify.py` and its
+`scripts/mythify_*.py` modules), the MCP server (`scripts/mythify_mcp.py`,
+which runs the CLI for every tool call), the installer, and the tests use the
+Python standard library and nothing else.
 
-## Getting started
+- Python 3.9 or newer. Do not use syntax or library calls added after 3.9,
+  such as `match` statements, `X | Y` unions evaluated at runtime, or
+  `zip(strict=True)`. CI runs the suite on 3.9 and 3.13.
+- No third-party packages, no `requirements.txt`, no Node, no npm. There is
+  nothing to install before you run the tests.
+- Each file under `scripts/` stays under 1500 nonblank lines
+  (`python3 scripts/check_runtime_source_size.py`). Split a module by
+  responsibility when it grows past that.
 
 ```bash
 git clone https://github.com/hannsxpeter/mythify.git
 cd mythify
+python3 -m unittest discover -s tests -v
 ```
 
-## Running the tests
+## Tests
 
-Run the suite from the repository root:
+Every behavior change ships with a test that fails without it. Put it next to
+the code it covers (for example `tests/test_product.py` for
+`scripts/mythify_product.py`, `tests/test_mcp_server.py` for the MCP server),
+and run the full suite before you open a pull request:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-It covers the CLI and the MCP stdio server (`tests/test_mcp_server.py` spawns
-`python3 scripts/mythify.py mcp`). It must pass before you open a pull request.
+Tests must not rewrite tracked files; generate into a temporary copy instead.
 
-## The design contract
+## Lint
 
-[docs/design.md](docs/design.md) is the authoritative contract for every CLI
-command and every on-disk format. The MCP server is generated from the CLI
-parser and runs the CLI for every tool call, so there is one implementation.
+```bash
+python3 scripts/lint.py
+```
 
-If your change alters any interface or format, update `docs/design.md` in the
-same pull request, and update both implementations so they stay in sync. A
-behavior change that is not reflected in `docs/design.md` will not be merged.
-
-If the CLI and MCP server both expose a behavior, update both or prove the
-asymmetry is intentional in `docs/design.md`. Every shared behavior change must
-include at least one parity anchor: a shared manifest or registry update, a
-cross-runtime fixture, or an interop assertion. Do not start a broad runtime
-unification refactor only to remove duplication; extract a shared artifact only
-after real drift or maintenance pressure shows that the smaller contract will
-pay for itself.
+`scripts/lint.py` is the one maintainer gate for drift: version agreement,
+generated files, the protocol byte budget, the text rules below, the prose
+check, the model-agnostic rule, standard-library-only imports, the MCP
+surface, Markdown links, and file size. It must pass before you open a pull
+request. [MAINTAINING.md](MAINTAINING.md) lists each check.
 
 ## Generated files: never edit by hand
 
-`AGENTS.md` and `CLAUDE.md` at the repository root are generated. `AGENTS.md`
-is the full protocol copy; `CLAUDE.md` is a pointer that imports it. Do not
-edit them directly; CI runs `python3 scripts/build_variants.py --check` and
-rejects any drift between them and their source.
+| File | Source | Regenerate with |
+| :--- | :--- | :--- |
+| `AGENTS.md`, `CLAUDE.md`, and `PROTOCOL_SOURCE_SHA256` in `scripts/mythify_protocol.py` | `protocol/PROTOCOL.md` | `python3 scripts/build_variants.py` |
+| `docs/commands.md` | the argparse tree in `scripts/` | `python3 scripts/build_commands_doc.py` |
 
-To change the protocol:
+`AGENTS.md` is the full protocol copy; `CLAUDE.md` is a pointer that imports
+it. Commit the source and the regenerated files together. CI and the lint
+fail when they disagree. `dist/` is build output and is not committed.
 
-1. Edit `protocol/PROTOCOL.md`.
-2. Regenerate the variants:
+## Writing rules
 
-   ```bash
-   python3 scripts/build_variants.py
-   ```
+Every file in the repository follows these. The lint `text` check fails on
+dashes and emoji, and its `prose` check runs
+`python3 scripts/check_prose_quality.py` on the docs; review covers the rest.
 
-3. Commit `protocol/PROTOCOL.md` together with the regenerated `AGENTS.md`,
-   `CLAUDE.md`, and `scripts/mythify_protocol.py` (its embedded protocol hash).
-
-Similarly, `dist/mythify.skill` is a build output (created by
-`python3 scripts/package_skill.py` from `skills/mythify/`) and is not committed.
-
-## Writing rules (CI-enforced)
-
-Every file in this repository follows these rules, and the `hygiene` CI job
-fails the build on violations:
-
-- ASCII only. No emojis anywhere.
+- ASCII only. No emoji anywhere.
 - No em dashes (U+2014) and no en dashes (U+2013). Use commas, colons,
-  parentheses, or plain hyphens instead.
+  parentheses, or plain hyphens.
 - No TODO markers and no placeholder content. Every file ships complete.
-- Exception: `docs/research-report.md` is preserved legacy content and is exempt.
+- Concrete prose: name the actor, the action, and the evidence. No promotional
+  language.
+- Program output uses the ASCII markers `[OK]`, `[FAIL]`, and `[WARN]`.
 
-Program output uses the ASCII markers `[OK]`, `[FAIL]`, and `[WARN]`.
+## No model or vendor names in the product
+
+Mythify works with any host and any model, and it never names, ranks, routes
+to, or spawns one. Runtime code, help text, the protocol, the skills, and
+product docs name no AI model, provider, or vendor. The exceptions are host
+setup file locations in `docs/mcp.md` and the installer, historical records
+(`CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`), and the literal file name
+`CLAUDE.md`. The lint `model-agnostic` check enforces it everywhere except
+those exceptions; its denylists live in `scripts/lint.py`, and
+[MAINTAINING.md](MAINTAINING.md) lists their scope.
+
+## Design changes
+
+A change to a command, a flag, an exit code, an on-disk format, an evidence
+rule, or the MCP surface updates [docs/architecture.md](docs/architecture.md)
+in the same pull request. A change that alters a design decision adds a dated
+entry to its decision log saying what changed and why. New commands follow
+"Adding a command" in [MAINTAINING.md](MAINTAINING.md).
 
 ## Pull requests
 
 - Keep each pull request focused on one change.
-- Title the pull request using Conventional Commits, for example `feat: ...`,
-  `fix: ...`, `docs: ...`, `test: ...`.
-- Fill in the checklist in the pull request template. It mirrors the rules in
-  this document.
-- CI runs the suite on Python 3.9 and 3.13, the generated-file sync check, the
-  prose check, an installer and MCP server smoke test, and the ASCII rules
-  check. All jobs must be green.
+- Title it with Conventional Commits, for example `feat: ...`, `fix: ...`,
+  `docs: ...`, `test: ...`; mark breaking changes with `!`.
+- Fill in the checklist in the pull request template.
+- CI runs the suite on Python 3.9 and 3.13 and the repository hygiene job.
+  All jobs must be green.
 
 ## Reporting bugs and requesting features
 

@@ -39,15 +39,13 @@ class ReleaseVersionTest(unittest.TestCase):
     def test_release_identity_is_consistent(self):
         cli = (REPO_ROOT / "scripts" / "mythify.py").read_text(encoding="utf-8")
         version = re.search(r'^VERSION = "([^"]+)"$', cli, re.MULTILINE).group(1)
-        release = (REPO_ROOT / "docs" / "release.md").read_text(encoding="utf-8")
-        roadmap = (REPO_ROOT / "roadmap.md").read_text(encoding="utf-8")
+        release = (REPO_ROOT / "RELEASE-CHECKLIST.md").read_text(encoding="utf-8")
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("Current release target: `v{}`".format(version), release)
-        self.assertIn("Current release target: `v{}`".format(version), roadmap)
         # Date as a pattern, not a literal: a pinned date breaks on every
         # release for reasons unrelated to what this test covers.
         self.assertRegex(
@@ -67,10 +65,9 @@ class ReleaseVersionTest(unittest.TestCase):
             'python3 scripts/package_cli.py --check-release-tag "$TAG"',
             "python3 -m unittest discover -s tests -v",
             "python3 -m unittest tests.test_install_user tests.test_release_checksums tests.test_mcp_server tests.test_release_version -v",
-            "python3 scripts/check_prose_quality.py",
-            "python3 scripts/check_runtime_source_size.py",
             "python3 scripts/mythify.py protocol check AGENTS.md CLAUDE.md",
             "git diff --check",
+            "python3 scripts/lint.py",
             "python3 scripts/build_release_checksums.py",
             "--check dist/release-assets/SHA256SUMS",
         ]

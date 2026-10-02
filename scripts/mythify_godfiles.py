@@ -40,7 +40,7 @@ _INT_RE = re.compile(r"^-?[0-9]+$")
 # CommonMark fence: 3+ backticks or 3+ tildes, same run closes the fence.
 _FENCE_RE = re.compile(r"^(?P<marker>`{3,}|~{3,})")
 # Byte-order mark: dropped at the parse boundary so BOM-prefixed artifacts parse
-# identically to the JS mirror (which trims it) and to BOM-less files.
+# identically to BOM-less files.
 _BOM = "\ufeff"
 
 _FIELD_KEYS = {

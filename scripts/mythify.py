@@ -82,7 +82,7 @@ from mythify_product import (  # noqa: E402
     product_summary_rows,
 )
 from mythify_log_compaction import cmd_logs_compact  # noqa: E402
-from mythify_evidence_guard import noop_verifier_reason  # noqa: E402
+from mythify_evidence_guard import noop_verifier_reason, run_disabled  # noqa: E402
 from mythify_lineage import (  # noqa: E402
     capture_lineage,
     cmd_lineage_attach,
@@ -106,6 +106,7 @@ from mythify_protocol import cmd_protocol_check  # noqa: E402,F401
 from mythify_provenance import (  # noqa: E402
     current_verification_provenance,
     evidence_moved_since_run,
+    git_inside_worktree,
 )
 from mythify_runtime_helpers import (  # noqa: E402
     ChildTerminationGuard,
@@ -157,7 +158,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "5.8.0"
+VERSION = "6.0.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
@@ -314,6 +315,26 @@ def plan_path(state, slug):
     return plans_dir(state) / (slug + ".json")
 
 
+def plan_slug_taken(state, slug):
+    """True when SLUG names a live plan or an archived one.
+
+    Verification records are keyed by plan slug, so an archived plan's slug is
+    never reused: the new plan would inherit the old plan's evidence.
+    `plan archive` writes plans/archive/SLUG.json, or SLUG-YYYYMMDDHHMMSS.json
+    when that name is taken.
+    """
+    if plan_path(state, slug).exists():
+        return True
+    archive = plans_dir(state) / "archive"
+    if (archive / (slug + ".json")).exists():
+        return True
+    for path in archive.glob(slug + "-*.json") if archive.is_dir() else ():
+        stamp = path.stem[len(slug) + 1:]
+        if len(stamp) == 14 and stamp.isdigit():
+            return True
+    return False
+
+
 def active_pointer_path(state):
     return plans_dir(state) / "active"
 
@@ -450,6 +471,9 @@ def execute_recorded_verification(
         record["test_count"] = test_count
     if lineage is not None:
         record["lineage"] = lineage
+    # Every executed record carries the step keys, null unless the caller or the
+    # active plan sets them, so no record can pass as pre-6.0 legacy evidence.
+    record.update(null_step_context())
     record.update(context if context is not None else verification_step_context(state))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
@@ -482,7 +506,7 @@ configure_plan_import(
     slugify_func=slugify,
     list_plan_slugs_func=list_plan_slugs,
     load_plan_func=load_plan,
-    plan_path_func=plan_path,
+    plan_slug_taken_func=plan_slug_taken,
     save_plan_func=save_plan,
     set_active_slug_func=set_active_slug,
     describe_next_pending_func=lambda plan: describe_next_pending(plan),
@@ -526,24 +550,14 @@ def next_pending_step(plan):
     return None
 
 
+def null_step_context():
+    return {"plan": None, "step_id": None, "step_title": None, "step_status": None}
+
+
 def verification_step_context(state):
     slug = get_active_slug(state)
-    if not slug:
-        return {
-            "plan": None,
-            "step_id": None,
-            "step_title": None,
-            "step_status": None,
-        }
-    plan = load_plan(state, slug)
-    if plan is None:
-        return {
-            "plan": None,
-            "step_id": None,
-            "step_title": None,
-            "step_status": None,
-        }
-    for step in plan.get("steps", []):
+    plan = load_plan(state, slug) if slug else None
+    for step in (plan or {}).get("steps", []):
         if step.get("status") == "in_progress":
             return {
                 "plan": slug,
@@ -551,16 +565,20 @@ def verification_step_context(state):
                 "step_title": step.get("title"),
                 "step_status": step.get("status"),
             }
-    return {
-        "plan": None,
-        "step_id": None,
-        "step_title": None,
-        "step_status": None,
-    }
+    return null_step_context()
+
+
+# Keys that scope a record to a map ticket, product, review, or outcome. A
+# record carrying one is never pre-6.0 legacy evidence, even without step keys.
+SCOPED_RECORD_KEYS = ("map", "ticket_id", "product", "review", "outcome")
 
 
 def verification_record_matches_step(record, slug, step_id):
-    has_legacy_context = "plan" not in record and "step_id" not in record
+    has_legacy_context = (
+        "plan" not in record
+        and "step_id" not in record
+        and not any(key in record for key in SCOPED_RECORD_KEYS)
+    )
     if has_legacy_context:
         return True
     return record.get("plan") == slug and record.get("step_id") == step_id
@@ -614,6 +632,8 @@ def cmd_init(args, _state):
         state = Path(env_dir).expanduser()
         already_initialized = (state / "memory.json").exists()
         ensure_layout(state)
+        if state.name == WORKSPACE_DIR_NAME and git_inside_worktree(state.parent):
+            ensure_default_state_gitignored(state.parent)
         if already_initialized:
             print("[WARN] Workspace already initialized at {0}. Nothing to do.".format(state))
             return 0
@@ -699,7 +719,7 @@ def create_plan_record(
     base = slugify(name if name else goal) or "plan"
     slug = base
     suffix = 2
-    while plan_path(state, slug).exists():
+    while plan_slug_taken(state, slug):
         slug = "{0}-{1}".format(base, suffix)
         suffix += 1
     stamp = now_iso()
@@ -723,6 +743,9 @@ def create_plan_record(
         "steps": plan_steps,
         "created": stamp,
         "last_updated": stamp,
+        # Where this plan's evidence window starts in the ledger, so a step
+        # completed straight from pending never counts an older plan's records.
+        "verification_anchor": jsonl_append_anchor(state / "verifications.jsonl"),
     }
     if parents:
         try:
@@ -800,7 +823,7 @@ def cmd_plan_verify(args, state):
     verify_command can prove its own definition of done. On success the step's
     strict-evidence gate is satisfied, so `step ID completed` will pass.
     """
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         fail(VERIFY_RUN_DISABLED_MESSAGE)
         return 2
     try:
@@ -907,10 +930,11 @@ def cmd_plan_show(args, state):
             print("Decisions carried from the map:")
             for decision in decisions:
                 print(
-                    "  - {0} ({1}): {2}".format(
+                    "  - {0} ({1}): {2}{3}".format(
                         decision.get("title", ""),
                         decision.get("ticket_id", ""),
                         decision.get("gist", ""),
+                        " (human input waived)" if decision.get("human_input_waived") else "",
                     )
                 )
         if out_of_scope:
@@ -1028,31 +1052,47 @@ def cmd_step(args, state):
         lower_bound = step.get("updated_at") or plan.get("created", "")
         records = read_jsonl_after_marker(
             state / "verifications.jsonl",
-            anchor=step.get("verification_anchor"),
+            # A step completed straight from pending has no anchor of its own;
+            # the plan's anchor keeps an older plan's records out.
+            anchor=step.get("verification_anchor") or plan.get("verification_anchor"),
             legacy_cursor=step.get("verification_cursor"),
             lower_bound=lower_bound,
         )
         if records is None:
             records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
+        # Only the latest run of each command counts, so a pass followed by a
+        # failure of the same command never completes the step on red.
+        latest = {}
+        for record in records:
+            command = str(record.get("command") or "").strip()
+            if (
+                record.get("kind") == "executed"
+                and (not expected_command or command == expected_command)
+                and verification_record_counts_for_step(record, slug, step_id, strict_context)
+                and timestamp_at_or_after(
+                    record.get("timestamp", ""),
+                    lower_bound,
+                    verification_record_has_explicit_step_context(record, slug, step_id),
+                )
+            ):
+                latest.pop(command, None)
+                latest[command] = record
         satisfying = [
             record
-            for record in records
-            if record.get("kind") == "executed"
-            and record.get("verified") is True
-            and record.get("exit_code") == 0
-            and (
-                not expected_command
-                or str(record.get("command") or "").strip() == expected_command
-            )
-            and verification_record_counts_for_step(record, slug, step_id, strict_context)
-            and timestamp_at_or_after(
-                record.get("timestamp", ""),
-                lower_bound,
-                verification_record_has_explicit_step_context(record, slug, step_id),
-            )
+            for record in latest.values()
+            if record.get("verified") is True and record.get("exit_code") == 0
         ]
         if not satisfying:
             fail(VERIFIED_EVIDENCE_MESSAGE)
+            if latest:
+                last = list(latest.values())[-1]
+                fail(
+                    "The latest run of '{0}' since this step started exited {1}; "
+                    "a failing run cancels an earlier pass of the same command. "
+                    "Fix the cause, then re-run it.".format(
+                        last.get("command"), last.get("exit_code")
+                    )
+                )
             if strict_context:
                 fail(STRICT_CONTEXT_NOTICE)
             return 1
@@ -1111,7 +1151,7 @@ def _read_file_tail_text(path, char_limit=TAIL_CHARS, redactor=None):
     except OSError:
         return ""
     # Redact the wider read window before the final char slice so a secret that
-    # straddles the char boundary is caught whole, matching the Node order.
+    # straddles the char boundary is caught whole.
     if redactor is not None:
         window = redactor(window)
     return window[-char_limit:]

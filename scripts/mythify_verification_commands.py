@@ -4,6 +4,8 @@ import json
 import os
 import re
 
+from mythify_evidence_guard import run_disabled
+
 
 _deps = {}
 
@@ -46,7 +48,7 @@ def _print_artifacts(state, record):
 
 
 def cmd_verify_run(args, state):
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         _deps["fail_func"](_deps["disabled_message"])
         return 2
     try:

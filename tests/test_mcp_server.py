@@ -23,6 +23,7 @@ CLI = REPO_ROOT / "scripts" / "mythify.py"
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import lint  # noqa: E402
 import mythify_mcp  # noqa: E402
 
 RESPONSE_TIMEOUT_SECONDS = 60
@@ -40,7 +41,6 @@ CUT_COMMAND_TOOLS = (
     "research_start",
     "design_create",
     "workspace_show",
-    "host_model_switch",
     "artifact_probe",
     "trace_analyze",
     "eval_scan",
@@ -358,6 +358,8 @@ class TestToolList(McpServerCase):
         self.assertEqual(len(names), len(set(names)))
         for cut in CUT_COMMAND_TOOLS:
             self.assertNotIn(cut, names)
+        # Tools of the removed routing layer, such as the host model switch.
+        self.assertEqual(lint.removed_identifier_keys(names), [])
         for tool in tools:
             name = tool["name"]
             self.assertRegex(name, r"^[a-z][a-z0-9_]*$")
@@ -574,9 +576,10 @@ class TestToolCalls(McpServerCase):
 
     def test_unknown_tool_and_bad_argument_keys(self):
         client = self.start()
-        unknown = client.request("tools/call", {"name": "fanout_start", "arguments": {}})
+        # A 5.x tool name: renamed tools fail loudly instead of running something else.
+        unknown = client.request("tools/call", {"name": "workflow_route", "arguments": {}})
         self.assertEqual(unknown["error"]["code"], -32602)
-        self.assertIn("fanout_start", unknown["error"]["message"])
+        self.assertIn("workflow_route", unknown["error"]["message"])
 
         bad_key = client.call("verify_run", {"command": "true", "cmd": "true"})
         self.assertTrue(bad_key["isError"])
@@ -601,6 +604,24 @@ class TestToolCalls(McpServerCase):
         self.assertTrue(result["isError"])
         self.assertIn("timed out after 1 seconds", result_text(result))
         self.assertEqual(exit_code(result), 124)
+
+    def test_timed_out_outcome_run_keeps_its_iteration(self):
+        # Review round 2: a timed-out outcome run charged nothing, so each new
+        # call ran the agent again past --max-iterations.
+        self.init_project()
+        client = self.start(MYTHIFY_MCP_CALL_TIMEOUT="2")
+        agent = shell_py("import time; open('attempts', 'a').write('x'); time.sleep(4)")
+        started = client.call("mythify", {"args": [
+            "outcome", "start", "g", "--name", "slow", "--success", "s",
+            "--verify", "false", "--agent", agent, "--max-iterations", "1",
+        ]})
+        self.assertFalse(started["isError"], result_text(started))
+        for _ in range(3):
+            client.call("mythify", {"args": ["outcome", "run", "slow"]})
+        self.assertEqual((self.project / "attempts").read_text(encoding="utf-8"), "x")
+        goal = json.loads((self.project / ".mythify" / "outcomes" / "slow" / "goal.json").read_text())
+        self.assertEqual(goal["status"], "failed")
+        self.assertEqual(goal["iteration_count"], 1)
 
     def test_cancelled_call_gets_no_response(self):
         self.init_project()

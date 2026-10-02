@@ -165,9 +165,10 @@ def add_product_parser(sub, _symbols=None):
         "approve",
         help="Record the human's approval of product direction.",
         description=(
-            "Approve the product direction. Refused without --human-input carrying "
-            "what the human said, and refused while product check has gaps: the "
-            "agent cannot approve product direction from its own words."
+            "Approve the product direction. Refused without a non-empty "
+            "--human-input carrying what the human said, and refused while "
+            "product check has gaps. Mythify records the words but cannot "
+            "verify who supplied them; an agent must never write them itself."
         ),
     )
     p.add_argument("name", nargs="?", help=PRODUCT_OPTION_HELP)
@@ -183,8 +184,10 @@ def add_product_parser(sub, _symbols=None):
         "decide",
         help="Record the decider's verdict on a bet.",
         description=(
-            "Record continue, pivot, or stop for a bet. Only a human sets a "
-            "verdict, so --human-input is required; stop also stops the bet."
+            "Record continue, pivot, or stop for a bet. Refused without a "
+            "non-empty --human-input carrying the decider's verdict. Mythify "
+            "records the words but cannot verify who supplied them; an agent "
+            "must never write them itself. stop also stops the bet."
         ),
     )
     p.add_argument("bet", help="Bet id such as B1.")

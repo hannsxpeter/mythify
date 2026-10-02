@@ -7,6 +7,326 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-10-01
+
+### Summary
+
+Major release: one runtime, model agnostic, smaller. Mythify is now standard
+library Python 3.9+ end to end: the Node MCP server is gone, and `mythify mcp`
+serves MCP over stdio by running the CLI for every tool call. Mythify no
+longer names, ranks, routes to, or spawns any model, provider, or vendor CLI;
+the host picks any subagent it wants, and delegated output stays material
+until a `verify run` on the integrated result passes. The CLI goes from 36 to
+22 top-level commands: 16 are removed, seven of them views folded into
+`status`, and `product` (product planning with human gates and measured
+outcomes) and `mcp` are added. The generated `AGENTS.md` shrinks from 36,510
+bytes to 7,777, 13 reproduced bugs are fixed with regression tests, and
+`scripts/lint.py` checks the repository for drift.
+
+### Breaking changes
+
+- Removed commands. The decision log in
+  [docs/architecture.md](docs/architecture.md#decision-log) says why each
+  went:
+  - `classify` (read `classification` from `route --json`) and `host-model
+    switch|status|clear`
+  - `trace analyze|distill|compare|playbook|install-playbook`
+  - `artifact probe|inspect|clean`
+  - `eval scan|propose|baseline|verify|adopt|reject|list|show`
+  - every `campaign` and `research` subcommand, and `prompt research`,
+    `prompt analysis`, and `prompt campaign`
+  - `workspace show`, `design create|alternative|approve|show`, and
+    `review create`
+  - the views `dashboard`, `harness`, `background`, `progress`, `readiness`,
+    `timeline`, and `phase`
+- Removed flags: `route --triage`, `--triage-engine`, `--triage-model`,
+  `--triage-timeout`, `--platform`, `--effort`, `--speed`, `--session-model`,
+  `--model-profile`, `--failure-count`, `--spawn-ceiling`, and
+  `--reviewer-strength`; `plan create --horizon`, `--archetype`, and
+  `--design`; `plan add-step --phase` and `--vertical-slice`; `map promote
+  --horizon`; `outcome start --visibility`. The environment variables
+  `MYTHIFY_PLAN_HORIZON`, `MYTHIFY_MCP_TOOL_PROFILE`, and
+  `MYTHIFY_DISABLE_FANOUT` have no effect.
+- Usage errors exit 64 instead of 2. Exit 2 now means only an unverified
+  result: a check ran and did not pass (including `product check` gaps and an
+  unmet outcome), or a command runner refused under `MYTHIFY_DISABLE_RUN=1`.
+- Route ids are `direct`, `plan`, `map`, `product`, `outcome`, `review`,
+  `failure_recovery`, and `handoff`. `failure` is renamed
+  `failure_recovery`; `research`, `campaign`, and `prompt` are gone. Route
+  JSON drops `model_policy`, `execution_adapter`, `plan_archetype`, and
+  `maintainability_review`, and adds `loop_fit` and three advisories inside
+  `classification`: `framing`, `parallelism` (with `chooser: "host"`), and
+  `review`. `protocol/classification-rules.json` is schema 4.
+- MCP tools are generated from CLI command paths and their argument keys
+  follow the long CLI flag names. The 63-tool 5.8 surface becomes 37 typed
+  tools plus the `mythify` tool, which runs any other command from an `args`
+  array. Renamed tools:
+
+  | 5.8 tool | 6.0 tool |
+  | --- | --- |
+  | `workflow_route`, `classify_task` | `route` (`classify_task`: pass `json: true` and read `classification`) |
+  | `workflow_status`, `evidence_harness` | `status` |
+  | `work_report` | `report` |
+  | `plan_update_step` | `step` |
+  | `plan_status` | `plan_show` |
+  | `memory_store`, `memory_recall` | `memory_set`, `memory_get` |
+  | `lesson_record`, `lesson_recall` | `lesson_add`, `lesson_list` |
+  | `map_add_ticket`, `map_status` | `map_ticket`, `map_show` |
+  | `outcome_progress` | `outcome_status` with no `name` |
+  | `memory_clear`, `outcome_results`, `verification_history`, `prompt_packet`, `lineage_attach`, `lineage_status` | `mythify` with `args` such as `["memory", "clear", "KEY"]`, `["outcome", "results"]`, `["history", "--json"]`, `["prompt", "next"]`, `["lineage", "status", "plan", "NAME"]` |
+  | `blast_radius_review_create`, `blast_radius_review_prove`, `blast_radius_review_status` | `mythify` with `["review", "blast-radius", ...]`, `["review", "prove", "NAME"]`, `["review", "show", "NAME"]` |
+
+  `plan_create`, `plan_add_step`, `verify_run`, `verify_claim`, `reflect`,
+  `outcome_start`, `outcome_check`, `outcome_status`, `outcome_stop`,
+  `map_create`, `map_claim`, `map_resolve`, and `map_promote` keep their
+  names. The fanout, adapter, probe, profile, design, maintainability,
+  workspace, campaign, readiness, timeline, phase, background, and host-model
+  tools are removed without a replacement.
+- `CLAUDE.md` is a generated pointer that imports `AGENTS.md` with an
+  `@AGENTS.md` line. `protocol check` accepts it only when it matches the
+  generated text; a CLAUDE.md that adds rules beside the import fails with
+  `pointer_drift` (check `AGENTS.md` alone if you keep your own CLAUDE.md).
+  `AGENTS.md` is the only full protocol copy.
+- `.cursorrules` is no longer generated. `protocol check` labels a leftover
+  copy as legacy and checks it.
+- Installer: `--claude-skills-root` and `--skip-claude-skills` are removed;
+  `--skills-root PATH` is repeatable and, when omitted, installs into
+  `DIR/skills` for each existing host directory (`$CLAUDE_CONFIG_DIR` or
+  `~/.claude`, `$CODEX_HOME` or `~/.codex`, `~/.cursor`, `~/.agents`), else
+  `~/.agents/skills`. `--protocol-profile`, `--install-chat-hook`, and
+  `--hook-root` are removed. `--skip-mcp` is accepted and does nothing.
+- `readiness` is gone with no user-facing replacement; it graded every
+  project against Mythify's own release gates. `protocol check` no longer
+  pins a release-gate manifest.
+- `outcome status` with no name and no active outcome lists every outcome
+  and exits 0, where 5.8 printed `[FAIL] No outcome found` and exited 1.
+- `logs compact --json` reports `archived_artifacts` instead of
+  `removed_artifacts`, and compaction keeps verification artifacts in place.
+- `report --format json` event keys are record ids or content digests, and
+  report cursors gain `seen_keys`. The handoff prompt packet's `source` is a
+  plan, an outcome, or `workflow_state`.
+- State folders and files of removed features (`research/`, `campaigns/`,
+  `designs/`, `evals/`, `fanout/`, `host-model.json`, `workspace.json`) are
+  ignored, not deleted, and `init` no longer creates them.
+- `plan import` imports every task as a pending step. A task already checked
+  in the artifact carries `artifact_checked: true` and completes only after
+  its verify command passes while the step is in progress; 5.8 imported it
+  as completed with no executed evidence.
+- `MYTHIFY_DISABLE_RUN` disables every command runner for any value other
+  than empty, `0`, `false`, `no`, or `off`; 5.8 runners matched only the
+  exact string `1`.
+- A concurrent `outcome check`, `outcome run`, or `outcome check --audit` on
+  an outcome another process holds exits 1 without running anything.
+
+### Added
+
+- `mythify mcp` (`scripts/mythify_mcp.py`), a standard-library MCP server
+  over newline-delimited JSON-RPC 2.0 stdio, launched by the same
+  `bin/mythify-mcp`. It supports protocol versions `2026-07-28`, `2025-11-25`,
+  `2025-06-18`, `2025-03-26`, and `2024-11-05`, answers `server/discover`,
+  runs each call in the project root, bounds calls with
+  `MYTHIFY_MCP_CALL_TIMEOUT` (default 900 seconds), and answers `ping` during
+  a long call.
+- Product planning: `product create`, `outcome`, `non-goal`, `bet`, `risk`,
+  `check`, `approve`, `decide`, `promote`, `measure`, `show`, and `list`, with
+  records in `.mythify/products/`. `product approve` and `product decide`
+  refuse without `--human-input`; `product measure` records executed
+  evidence; `product show --markdown` renders a roadmap. The router gains a
+  `product` route and `prompt product`, and lineage gains the `product` kind.
+  See [docs/product-planning.md](docs/product-planning.md).
+- `status --json` and `status --recent N`, with the executed and attested
+  evidence breakdown, recent records, active plan, outcome, map, and product,
+  and attention items (failed checks, no-op or zero-test passes, ledger chain
+  breaks, legacy opt-outs, stale outcome evidence) sorted issues first.
+- `summary --json`; `summary` lists outcomes, maps, and products.
+- `protocol check` validates the CLAUDE.md pointer and the AGENTS.md it
+  imports (`pointer_drift`, `missing_target`, `target_drift`), and reports
+  `body_drift` when a copy's body no longer matches its header digest.
+- `scripts/build_variants.py --check`, `scripts/build_commands_doc.py` with
+  the generated [docs/commands.md](docs/commands.md), and `scripts/lint.py`,
+  the maintainer drift gate with a self-test.
+- [docs/architecture.md](docs/architecture.md) (replaces `docs/design.md`)
+  with a decision log, [docs/DRIFT.md](docs/DRIFT.md),
+  [docs/mcp.md](docs/mcp.md), [MAINTAINING.md](MAINTAINING.md), and
+  [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) (replaces `docs/release.md`).
+
+### Changed
+
+- The protocol spine (`protocol/PROTOCOL.md`) is rewritten for any model and
+  checked against the code: no-op verifiers warn rather than fail, `plan
+  verify` runs the stored command, and `--mode hitl` task tickets need human
+  input.
+- Classification: a prompt of twelve words or fewer is trivial only when it
+  matches no task, risk, or route term; a destructive verb is high risk
+  unless the five words after it name only a code-local object, and a
+  destructive object anywhere in the prompt keeps it high. "remove an unused
+  import in utils.py" routes direct; "delete the comment column from the
+  users table" routes to a plan at high risk. Research-like prompts route to
+  `map` when they ask several foggy questions, else `direct`; full-send
+  prompts route to `plan`, or to `handoff` when a plan is active.
+- The no-op verifier check also flags `/usr/bin/true`, `true` with
+  arguments, and `: ignored`.
+- The MCP tool listing is about 30 KB, down from about 68 KB.
+- `protocol/workflow-router.json` is version 3: the `priority` and
+  `output_fields` keys, which no code read, are removed. The selection order
+  lives in the router code.
+- Help text matches behavior for `plan` (lists `verify`), `outcome start
+  --allowed-paths` and `--escalate-after` (`outcome run` enforces both,
+  `outcome check` reports scope and counts no failure streak), and `map
+  verify` (the resolve gate accepts any passing run of the ticket's command
+  since the claim). Every `review` and `lineage` argument
+  has help.
+- CI's `Repository hygiene` job runs `scripts/lint.py` in place of the
+  separate generated-file, prose, and inline ASCII steps, and the release
+  workflow runs it before packaging.
+- The CLI archive ships `AGENTS.md`, `CLAUDE.md`, and every doc that a
+  shipped doc links to.
+
+### Fixed
+
+- `~/.mythify`, the global lessons root, was discovered as the workspace for
+  every uninitialized project under HOME. Discovery skips it, and `init` in
+  HOME exits 1.
+- Usage errors exited 2, the code of an unverified verdict. They exit 64.
+- `logs compact` invalidated the integer evidence cursors of in-progress
+  steps and claimed map tickets, so a passing run was refused afterwards.
+  Steps and tickets store `verification_anchor`, a line hash that survives
+  compaction.
+- `report --since last` dropped events recorded in the same second as the
+  cursor. Events are keyed by record id or digest, and the cursor keeps the
+  keys it has seen.
+- `review prove --command true` satisfied the merge gate. No-op proof
+  commands are refused, and only a run of the recorded merge-gate command
+  sets `merge_gate.verified`. The no-op check reads the command's `;`,
+  `&&`, and `||` list and unwraps `env`, `command`, and `sh -c`, so `true;`,
+  `exit 0;`, `(true)`, `sh -c true`, `/bin/echo ok`, and `pytest || true`
+  are refused by `review prove` and `product measure` too. It stays a
+  heuristic.
+- `lineage attach` rewrote immutable blast-radius reviews, orphaning their
+  proofs. It refuses kinds `review` and `verification`.
+- Host-supervised `outcome check` had no frozen-path baseline, so a
+  committed change under a frozen path passed and a file dirty before start
+  stopped the loop. `outcome start` records `frozen_baseline.manifest`, the
+  sha256 of every covered file on disk, and every check and run iteration
+  compares against it.
+- Frozen paths and the review fingerprint trusted git's view of the
+  worktree, so an edit to a file flagged assume-unchanged or skip-worktree,
+  or a file hidden by `.git/info/exclude`, passed as untouched. Frozen paths
+  hash files on disk; `worktree_digest` is unavailable (proof refused) while
+  a flagged entry exists and covers the exclude files outside the worktree;
+  `outcome run` stops when those change.
+- `map verify` records carried no `plan` or `step_id` keys, so the step gate
+  read them as legacy evidence for every step of every plan. Every executed
+  record carries the step keys, and a record scoped to a map ticket, product,
+  review, or outcome is never legacy evidence.
+- `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waivers showed in `status` only while the
+  variable was set in its own environment. `status` lists every waived
+  decision that still governs live work, and `map show`, `plan show`, and
+  `product show` mark them.
+- `status` reported `MYTHIFY_DISABLE_RUN=" 1"` as active while the runners
+  still executed. Runners and `status` share one parse.
+- Parallel `outcome check` calls each spent the same iteration budget slot.
+  check, run, and audit hold a per-outcome lock.
+- `outcome run` charged the iteration and cost only after the agent, the
+  verifier, and the record write finished. A killed or timed-out run, or an
+  agent printing a `MYTHIFY_COST` too large for a float, spent nothing, so
+  the agent ran past `--max-iterations` and `--max-cost`. The iteration and
+  a default cost of 1.0 are reserved before the agent starts, an attempt
+  whose process ended early is logged as interrupted and stays counted, and
+  an unrepresentable cost spends the whole budget.
+- A metric that printed a number too large for a float crashed
+  `outcome check` before it recorded anything. It is recorded as no score.
+- `outcome start --metric-floor nan --supersede REASON` retired the active
+  loop, then crashed before writing the new one. A non-finite floor is
+  refused first, and the new outcome is written before the old one is
+  retired.
+- `product measure` shipped a bet on a green measurement recorded before
+  the bet was promoted, even while the product was a draft. `product
+  promote` stores `promoted_anchor`, and shipping and the
+  `completed_plan_unmeasured` flag count only measurements after it.
+- `install_user.sh --project P` ran `init` with the caller's environment, so
+  an exported `MYTHIFY_DIR` or an ancestor `.mythify` received the state
+  outside the install transaction. It pins `MYTHIFY_DIR` to `P/.mythify`,
+  adds `.mythify/` to `P/.gitignore` itself, and fails (rolling back) when
+  the state was not created.
+- `loop-fit` told the agent to fan out builder workers for a quality climb.
+  It leaves delegation to the host.
+- MCP argument building let a multi-value option swallow positionals and
+  accepted flag-like items. Options come first, then `--`, then
+  positionals.
+- An MCP timeout or cancel left the verify child running. The CLI forwards
+  SIGTERM and SIGINT to the child's process tree and exits 143 or 130.
+- `prompt next` printed `Source: workflow_state None` with no plan or
+  outcome. It names the source it used.
+- Dead helpers `write_jsonl_atomic`, `self_driving_scope_violations`,
+  `verification_freshness`, and `tail_text` are removed.
+- `worktree_digest` ran one `git hash-object` per untracked file. One batched
+  call computes the same digest.
+- `logs compact` deleted verification artifacts that archived records still
+  referenced. They stay.
+- MCP `verify_run`, `outcome_check`, and `blast_radius_review_prove` ran
+  commands in the MCP server's working directory instead of the project
+  root. Every call now runs the CLI in the project root.
+- The strict step gate and the task-ticket gate of `map resolve` accepted
+  any passing run since the step started or the ticket was claimed, so a
+  pass followed by a failing run of the same command still completed the
+  step or closed the ticket. Only the latest matching run of each command
+  counts.
+- A new plan reused an archived plan's slug, and a step completed straight
+  from `pending` counted the archived plan's records from the same second.
+  Every new plan stores `verification_anchor`, and a slug held by a live or
+  archived plan is never reused.
+- The worktree fingerprint covered the state directory whenever `.mythify/`
+  was tracked or not ignored, as after `init` with `MYTHIFY_DIR` set. Every
+  ledger write moved it, so `review prove` always failed and an imported
+  plan's steps could never complete. The fingerprint leaves the state
+  directory out, and `init` with `MYTHIFY_DIR` adds `.mythify/` to the
+  parent's `.gitignore` inside a git work tree.
+- `outcome start --frozen-paths` with an absolute or misspelled path
+  protected nothing while printing that it was enforced. An absolute path
+  inside the project root is stored relative to it, and a path outside the
+  root or naming no existing file or directory is refused.
+- The `model-agnostic` lint missed prefix, flag, and environment-variable
+  forms of the removed routing names, and vendor names inside identifiers.
+  Routing identifiers match as prefixes with `_` and `-` alike, and model
+  and vendor names match between letter-only boundaries.
+
+### Removed
+
+- The Node MCP server (`mcp-server/`), its npm package and dependencies, the
+  `.mjs` parity checkers, and the Node steps in CI and release workflows.
+- Modules for model policy, model routing, model triage, host model, trace,
+  artifacts, evals, workflows, workspace, designs, plan horizon, protocol
+  profiles, and the status views; `scripts/local_model_eval.py`,
+  `scripts/local_eval_policy.py`, and `scripts/mythify_chat_report_hook.sh`.
+- `protocol/model-capabilities.json`, `operation-registry.json`,
+  `tool-profiles.json`, `surface-manifest.json`, `release-gates.json`,
+  `loading-profiles.json`, `artifact-hygiene.json`, and `protocol/variants/`.
+- `.cursorrules`, `docs/design.md`, `docs/release.md`, `docs/archive/`, and
+  the research, spike, watchlist, and host-specific integration docs.
+- The `agents/openai.yaml` files in every skill.
+
+### Migration notes
+
+1. Reinstall: run `scripts/install_user.sh` from the 6.0.0 checkout or CLI
+   tarball. Node is no longer needed. MCP host configs that launch
+   `bin/mythify-mcp` keep working; see [docs/mcp.md](docs/mcp.md).
+2. Regenerate drop-ins: copy the 6.0.0 `AGENTS.md` and `CLAUDE.md` (the
+   generated pointer) into each project, and run `mythify protocol check`.
+   If your CLAUDE.md holds your own instructions, keep them and run
+   `mythify protocol check AGENTS.md`.
+3. Delete `.cursorrules`; 6.0 does not maintain it.
+4. Update saved prompts, skills, and scripts that name MCP tools, using the
+   table above, and scripts that treat exit 2 as a usage error.
+5. Replace `classify` with `route --json`, the views with `status` (or
+   `status --json`), `readiness` with your own `verify run` checks, and
+   `outcome_progress` with `outcome status`.
+6. Product replaces design: record the why, user, outcomes, and bets with
+   `product create`, `product outcome`, and `product bet`, then `product
+   promote` a bet into a plan.
+7. Leftover `.mythify/research/`, `campaigns/`, `designs/`, `evals/`,
+   `fanout/`, `host-model.json`, and `workspace.json` can be deleted by hand.
+
 ## [5.8.0] - 2026-08-19
 
 Minor release: executable blast-radius safety cases. Mythify can now record the
@@ -1614,7 +1934,7 @@ hardening. No new runtime dependencies; the CLI stays zero-dependency Python.
 ## [2.0.0] - 2026-06-12
 
 First published release. Mythify 1.x was an unreleased prototype; 2.0.0 is a
-ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
+ground-up rebuild around the contracts in `docs/design.md`.
 
 ### Added
 
@@ -1657,7 +1977,8 @@ ground-up rebuild around the contracts in [docs/design.md](docs/design.md).
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...HEAD
+[6.0.0]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...v6.0.0
 [5.8.0]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/hannsxpeter/mythify/compare/v5.6.0...v5.7.0
 [5.6.0]: https://github.com/hannsxpeter/mythify/compare/v5.5.0...v5.6.0

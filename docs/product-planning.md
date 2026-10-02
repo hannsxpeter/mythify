@@ -100,9 +100,11 @@ the same parent and claim wording does not.
 mythify product measure O1
 ```
 
-When an in-flight bet's plan is complete and every outcome it targets has a
-passing measurement, the bet is marked shipped. Take the evidence to the
-decider and record their verdict:
+When an in-flight bet's plan is complete and the latest measurement of every
+outcome it targets, recorded after the bet was promoted, passes, the bet is
+marked shipped. A measurement taken before the promotion (for example while
+the product was still a draft) never ships a bet; measure again after the
+work. Take the evidence to the decider and record their verdict:
 
 ```bash
 mythify product decide B1 --verdict continue --human-input "Dana: numbers hold, keep going"
@@ -112,20 +114,27 @@ mythify product show --markdown > ROADMAP.md
 ## Human gates
 
 - `product approve` and `product decide` refuse to run without a non-empty
-  `--human-input`. The agent cannot approve product direction or set a bet
-  verdict from its own words. The refusal exits 1 on the CLI and returns
+  `--human-input`. Mythify records the words but cannot verify who supplied
+  them, so an agent must never write them itself: ask the human, wait, and
+  pass their answer through. The refusal exits 1 on the CLI and returns
   `isError` through MCP.
 - `product approve` also refuses while `product check` reports gaps.
 - Adding an outcome, non-goal, bet, or risk to an approved product returns it
   to draft and moves the old approval into `approval_history`. A bet the human
   never saw cannot be promoted under an older approval.
 - `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives the human-input requirement the same
-  way it does for HITL map tickets: the waiver is stamped on the record as
-  `human_input_waived`, and `status` lists the opt-out as an attention item.
+  way it does for HITL map tickets: the waiver is stamped on the approval or
+  the bet as `human_input_waived`, and `product show` marks it. `status`
+  lists the opt-out as an attention item while the variable is set in its
+  environment. In every later session it also lists a waived approval while
+  it is the product's current approval, and a waived bet verdict until the
+  bet stops or a `product decide` with `--human-input` replaces it.
 - `product promote` requires an approved product and a bet that is not stopped,
   and refuses a second promote of a bet while its plan file exists.
 - `product measure` refuses an outcome with no measure command and a measure
-  command that cannot fail (`true`, `exit 0`, a bare `echo`).
+  command it recognizes as unable to fail (`true`, `exit 0`, a bare `echo`,
+  `true;`, `measure || true`). The check is a heuristic that catches common
+  no-op forms, not a guarantee.
 
 ## Stage rules for check
 
@@ -146,7 +155,7 @@ Rules are cumulative: each stage adds to the ones before it.
 - `approved_bet_without_plan`: the product is approved but a bet is still
   proposed with no plan.
 - `completed_plan_unmeasured`: a bet's plan is complete, but an outcome it
-  targets has no passing measurement.
+  targets has no passing measurement recorded after the bet was promoted.
 - `verdict_overdue`: a bet's verdict is still pending and its `decide_by`
   parses as an ISO date earlier than today.
 

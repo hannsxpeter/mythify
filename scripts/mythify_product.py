@@ -9,9 +9,10 @@ are executable: `product check` lints readiness deterministically per stage,
 and `product measure` runs an outcome's measure command through the same
 recorded-verification path as `verify run`.
 
-Two decisions belong to a human and are refused from the agent's own words:
-approving product direction and setting a bet verdict. Both require
---human-input, exactly as a HITL map ticket does, and approval also requires a
+Two decisions belong to a human: approving product direction and setting a
+bet verdict. Both are refused without a non-empty --human-input, exactly as a
+HITL map ticket is; Mythify records the words but cannot verify who supplied
+them, so an agent must never write them itself. Approval also requires a
 clean readiness check. Editing outcomes, non-goals, bets, or risks after
 approval returns the product to draft, so a bet the human never saw cannot be
 promoted under an older approval.
@@ -23,8 +24,17 @@ import re
 import sys
 from datetime import date, datetime
 
-from mythify_evidence_guard import noop_verifier_reason
-from mythify_io import _write_text_atomic, read_json, read_jsonl, write_json_atomic
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
+from mythify_io import (
+    _timestamp_strictly_after,
+    _write_text_atomic,
+    jsonl_append_anchor,
+    read_json,
+    read_jsonl,
+    read_jsonl_after_marker,
+    read_jsonl_since,
+    write_json_atomic,
+)
 from mythify_runtime_helpers import now_iso, slugify
 
 SCHEMA_VERSION = 1
@@ -56,15 +66,17 @@ PRODUCT_GUARDRAIL = (
 )
 APPROVE_HUMAN_INPUT_MESSAGE = (
     "[FAIL] Human input required: approving product direction is a human "
-    "decision, so the agent cannot approve it from its own words. Show the "
-    "human the one-pager (mythify product show), then pass --human-input with "
-    "what the human actually said. Set MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for "
-    "legacy self-approved records."
+    "decision. Show the human the one-pager (mythify product show), then pass "
+    "--human-input with what the human actually said. Mythify records those "
+    "words but cannot verify who supplied them, so an agent must never write "
+    "them itself. Set MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy "
+    "self-approved records."
 )
 DECIDE_HUMAN_INPUT_MESSAGE = (
-    "[FAIL] Human input required: a bet verdict is the decider's call, so the "
-    "agent cannot set it from its own words. Bring the evidence to the "
-    "decider, then pass --human-input with what they decided. Set "
+    "[FAIL] Human input required: a bet verdict is the decider's call. Bring "
+    "the evidence to the decider, then pass --human-input with what they "
+    "decided. Mythify records those words but cannot verify who supplied "
+    "them, so an agent must never write them itself. Set "
     "MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy self-decided verdicts."
 )
 HUMAN_INPUT_WAIVED_WARNING = (
@@ -421,19 +433,22 @@ def readiness_gaps(record):
     return stage, gaps
 
 
-def measurements(state, slug, product):
+def measurements(state, slug, product, records=None):
     """Latest executed measurement per outcome id, from the verification ledger.
 
     Only records that product measure stamped count: verify run can borrow the
     parent and the claim wording, but never the product and outcome_id fields,
-    and the command must be the outcome's current measure command.
+    and the command must be the outcome's current measure command. RECORDS
+    narrows the ledger, as bet_measurements does; the default is all of it.
     """
     commands = {
         item_id(outcome): str(outcome.get("measure") or "").strip()
         for outcome in items(product, "outcomes")
     }
+    if records is None:
+        records = read_jsonl(state / "verifications.jsonl")
     latest = {}
-    for record in read_jsonl(state / "verifications.jsonl"):
+    for record in records:
         if record.get("kind") != "executed" or record.get("product") != slug:
             continue
         parents = (record.get("lineage") or {}).get("parents") or []
@@ -458,6 +473,28 @@ def measurements(state, slug, product):
             "timestamp": record.get("timestamp", ""),
         }
     return latest
+
+
+def bet_measurements(state, slug, product, bet):
+    """Latest measurement per outcome recorded after BET was promoted.
+
+    A measurement taken before the bet became work, even while the product
+    was a draft, says nothing about what the bet shipped. product promote
+    stores a ledger anchor; when it cannot be placed, only records strictly
+    after the promoted_at second count. A bet never promoted counts nothing.
+    """
+    promoted_at = str(bet.get("promoted_at") or "")
+    if not promoted_at:
+        return {}
+    path = state / "verifications.jsonl"
+    records = read_jsonl_after_marker(path, bet.get("promoted_anchor"), lower_bound=promoted_at)
+    if records is None:
+        records = [
+            record
+            for record in read_jsonl_since(path, promoted_at)
+            if _timestamp_strictly_after(record.get("timestamp", ""), promoted_at)
+        ]
+    return measurements(state, slug, product, records)
 
 
 def read_plan(state, slug):
@@ -493,10 +530,9 @@ def bet_plan_view(state, bet):
     }
 
 
-def traceability_flags(state, slug, record, measured=None, today=None):
+def traceability_flags(state, slug, record, today=None):
     """Traces, not opinions: gaps between outcomes, bets, plans, and measurements."""
     today = today or date.today()
-    measured = measurements(state, slug, record) if measured is None else measured
     bets = sorted_bets(record)
     live = [bet for bet in bets if bet.get("status") != "stopped"]
     flags = []
@@ -525,6 +561,7 @@ def traceability_flags(state, slug, record, measured=None, today=None):
         if status == "in_flight":
             view = bet_plan_view(state, bet)
             if view and view["complete"]:
+                measured = bet_measurements(state, slug, record, bet)
                 unmeasured = [
                     oid for oid in bet_outcome_ids(bet)
                     if not (measured.get(oid) or {}).get("verified")
@@ -534,7 +571,8 @@ def traceability_flags(state, slug, record, measured=None, today=None):
                         "completed_plan_unmeasured",
                         bid,
                         "Bet {0}'s plan {1} is complete, but {2} has no passing "
-                        "measurement; run product measure.".format(
+                        "measurement since the bet was promoted; run product "
+                        "measure.".format(
                             bid, view["id"], ", ".join(unmeasured)
                         ),
                     )
@@ -574,7 +612,7 @@ def product_view(state, slug, record, today=None):
     """The record plus computed readiness, measurements, plans, and flags."""
     stage, gaps = readiness_gaps(record)
     measured = measurements(state, slug, record)
-    flags = traceability_flags(state, slug, record, measured, today)
+    flags = traceability_flags(state, slug, record, today)
     return {
         "id": slug,
         "active": get_active_product_slug(state) == slug,
@@ -719,10 +757,11 @@ def format_product(view):
     for bet in bets:
         bid = item_id(bet)
         lines.append(
-            "- {0} [{1}, verdict {2}, priority {3}]: {4}".format(
+            "- {0} [{1}, verdict {2}{3}, priority {4}]: {5}".format(
                 bid,
                 bet.get("status", "proposed"),
                 bet.get("verdict", "pending"),
+                " (human input waived)" if bet.get("human_input_waived") else "",
                 bet.get("priority", ""),
                 bet.get("hypothesis", ""),
             )
@@ -1221,6 +1260,9 @@ def cmd_product_decide(args, state):
     bet["verdict"] = args.verdict
     bet["verdict_human_input"] = human_input
     bet["decided_at"] = now_iso()
+    # The stamp describes the latest verdict, so a verdict with the human's
+    # words clears a waiver left by an earlier one.
+    bet.pop("human_input_waived", None)
     if waived:
         bet["human_input_waived"] = True
         fail(HUMAN_INPUT_WAIVED_WARNING.format("verdict"))
@@ -1299,6 +1341,8 @@ def cmd_product_promote(args, state):
     bet["status"] = "in_flight"
     bet["plan"] = plan_slug
     bet["promoted_at"] = now_iso()
+    # Measurements recorded before this point cannot ship the bet.
+    bet["promoted_anchor"] = jsonl_append_anchor(state / "verifications.jsonl")
     save_product(state, slug, record)
     attach_plan_lineage(state, plan_slug, ["product:" + slug])
     print("[OK] Promoted bet {0} of product {1} to plan {2}.".format(bid, slug, plan_slug))
@@ -1310,17 +1354,19 @@ def cmd_product_promote(args, state):
     return 0
 
 
-def mark_shipped_bets(state, slug, record, measured):
-    """In-flight bets whose plan is complete and every outcome measured green."""
+def mark_shipped_bets(state, slug, record):
+    """In-flight bets whose plan is complete and whose every outcome's latest
+    measurement since promotion is green."""
     shipped = []
     for bet in items(record, "bets"):
         if bet.get("status") != "in_flight":
             continue
         view = bet_plan_view(state, bet)
         outcomes = bet_outcome_ids(bet)
-        if view and view["complete"] and outcomes and all(
-            (measured.get(oid) or {}).get("verified") for oid in outcomes
-        ):
+        if not (view and view["complete"] and outcomes):
+            continue
+        measured = bet_measurements(state, slug, record, bet)
+        if all((measured.get(oid) or {}).get("verified") for oid in outcomes):
             bet["status"] = "shipped"
             bet["shipped_at"] = now_iso()
             shipped.append(item_id(bet))
@@ -1328,7 +1374,7 @@ def mark_shipped_bets(state, slug, record, measured):
 
 
 def cmd_product_measure(args, state):
-    if _env().get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(_env()):
         fail(MEASURE_DISABLED_MESSAGE)
         return 2
     slug, record = require_product(state, args.product)
@@ -1388,12 +1434,12 @@ def cmd_product_measure(args, state):
         )
     )
     print("Target: {0}; the command's exit code is the verdict.".format(outcome.get("target", "")))
-    shipped = mark_shipped_bets(state, slug, record, measurements(state, slug, record))
+    shipped = mark_shipped_bets(state, slug, record)
     if shipped:
         save_product(state, slug, record)
         print(
             "Shipped: {0} (plan complete and every targeted outcome measured "
-            "green).".format(", ".join(shipped))
+            "green since promotion).".format(", ".join(shipped))
         )
     return 0
 

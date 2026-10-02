@@ -8,7 +8,7 @@ on:
 jobs:
   python:
     name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -23,16 +23,14 @@ jobs:
 
   hygiene:
     name: Repository hygiene
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - name: Generated protocol files are in sync
-        run: python scripts/build_variants.py --check
-      - name: Prose quality
-        run: python scripts/check_prose_quality.py
+      - name: Lint
+        run: python scripts/lint.py
       - name: Installer and MCP server smoke
         run: |
           mkdir -p "$RUNNER_TEMP/mythify-project"
@@ -87,52 +85,4 @@ jobs:
           assert "verify_run" in names and "mythify" in names, names
           assert responses[3]["result"]["isError"] is False, responses[3]
           print("MCP smoke passed: {0} tools listed.".format(len(names)))
-          PY
-      - name: ASCII rules
-        run: |
-          python - <<'PY'
-          import subprocess
-          import sys
-
-          SKIP = {"docs/research-report.md"}
-
-          def is_banned(codepoint):
-              if codepoint in (0x2013, 0x2014, 0xFE0F):
-                  return True
-              if 0x1F000 <= codepoint <= 0x1FAFF:
-                  return True
-              if 0x2600 <= codepoint <= 0x27BF:
-                  return True
-              if 0x2B00 <= codepoint <= 0x2BFF:
-                  return True
-              return False
-
-          listing = subprocess.run(
-              ["git", "ls-files"],
-              capture_output=True,
-              text=True,
-              check=True,
-          )
-          problems = []
-          for path in listing.stdout.splitlines():
-              if path in SKIP:
-                  continue
-              try:
-                  with open(path, encoding="utf-8") as handle:
-                      lines = handle.readlines()
-              except (OSError, UnicodeDecodeError):
-                  continue
-              for lineno, line in enumerate(lines, start=1):
-                  for char in line:
-                      codepoint = ord(char)
-                      if is_banned(codepoint):
-                          problems.append(
-                              "{0}:{1}: U+{2:04X}".format(path, lineno, codepoint)
-                          )
-          if problems:
-              print("Banned characters found (dashes or emoji):")
-              for problem in problems:
-                  print(problem)
-              sys.exit(1)
-          print("ASCII rules check passed.")
           PY

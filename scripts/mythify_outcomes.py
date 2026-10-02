@@ -7,14 +7,22 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
+from mythify_evidence_guard import run_disabled
 from mythify_io import (
     _write_text_atomic,
     append_chained_jsonl,
     append_jsonl,
+    jsonl_file_lock,
     read_json,
     read_jsonl,
     write_json_atomic,
+)
+from mythify_provenance import (
+    GIT_FRESH_READ,
+    git_flagged_index_paths,
+    git_ignore_rules_digest,
 )
 
 OUTCOME_CHECK_DISABLED_MESSAGE = (
@@ -22,6 +30,9 @@ OUTCOME_CHECK_DISABLED_MESSAGE = (
     "executed and nothing was recorded. Unset it to enable execution."
 )
 OUTCOME_STATUSES = ("active", "succeeded", "failed", "stopped")
+# Cost charged for an agent attempt that reports no MYTHIFY_COST, and the cost
+# reserved before every attempt runs.
+DEFAULT_ATTEMPT_COST = 1.0
 
 
 def _missing_dependency(*_args, **_kwargs):
@@ -138,6 +149,33 @@ def save_outcome(state, slug, goal):
     write_json_atomic(outcome_goal_path(state, slug), goal)
 
 
+def with_outcome_lock(state, slug, action):
+    """Run ACTION(goal) holding the outcome exclusively, with the goal re-read.
+
+    check, run, and audit read the iteration budget, run a verifier, and write
+    the goal back. Without the lock, concurrent calls each spent the same
+    budget slot. A second caller is refused at once rather than queued, since
+    an outcome run can hold the outcome for many iterations.
+    """
+    lock = jsonl_file_lock(outcome_goal_path(state, slug), timeout=0)
+    try:
+        lock.__enter__()
+    except TimeoutError:
+        fail(
+            "[FAIL] Outcome {0} is being checked or run by another process; "
+            "nothing was run. Try again when it finishes.".format(slug)
+        )
+        return 1
+    try:
+        goal = read_json(outcome_goal_path(state, slug), None)
+        if not isinstance(goal, dict):
+            print("[FAIL] No outcome found. Start one with outcome start.")
+            return 1
+        return action(goal)
+    finally:
+        lock.__exit__(None, None, None)
+
+
 def list_outcomes(state):
     root = outcomes_dir(state)
     if not root.exists():
@@ -159,9 +197,32 @@ def parse_allowed_paths(value):
 
 
 def outcome_project_root(state):
-    from pathlib import Path
-
     return state.parent if state.name == ".mythify" else Path.cwd()
+
+
+def normalize_frozen_paths(state, frozen):
+    """Frozen paths relative to the project root, or (None, refusal).
+
+    A deny-list that matches nothing protects nothing, so an absolute path is
+    made relative to the root, and a path outside the root or naming no
+    existing file or directory is refused instead of silently passing.
+    """
+    root = outcome_project_root(state).resolve()
+    normalized = []
+    for item in frozen:
+        path = Path(item).expanduser()
+        relative = os.path.relpath(str(path.resolve()), str(root)) if path.is_absolute() else item
+        clean = os.path.normpath(relative.replace(os.sep, "/").strip("/") or ".").replace(os.sep, "/")
+        if clean == ".." or clean.startswith("../"):
+            return None, "[FAIL] Frozen path {0} is outside the project root {1}.".format(item, root)
+        if not os.path.lexists(str(root / clean)):
+            return None, (
+                "[FAIL] Frozen path {0} matches no file or directory under the "
+                "project root {1}, so it would protect nothing. Frozen paths are "
+                "relative to the project root; check the spelling."
+            ).format(item, root)
+        normalized.append(clean)
+    return normalized, None
 
 
 def git_changed_paths(root):
@@ -248,7 +309,7 @@ class ScopeInspectionError(RuntimeError):
 def _run_git_scope(root, args):
     try:
         run = subprocess.run(
-            ["git", "-C", str(root)] + list(args),
+            ["git", "-C", str(root), *GIT_FRESH_READ] + list(args),
             capture_output=True,
             timeout=30,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
@@ -261,6 +322,19 @@ def _run_git_scope(root, args):
     return run.stdout
 
 
+def _require_trusted_index(root):
+    """Raise when git cannot vouch for the worktree: an index entry is flagged
+    assume-unchanged or skip-worktree, so its edits never show in a diff."""
+    flagged = git_flagged_index_paths(root)
+    if flagged is None:
+        raise ScopeInspectionError("git ls-files -v failed")
+    if flagged:
+        raise ScopeInspectionError(
+            "index entries flagged assume-unchanged or skip-worktree hide edits: "
+            "{0}".format(", ".join(flagged[:5]))
+        )
+
+
 def start_scope_baseline(state):
     root = outcome_project_root(state)
     commit = _run_git_scope(root, ["rev-parse", "HEAD"]).decode("ascii", "replace").strip()
@@ -271,7 +345,8 @@ def start_scope_baseline(state):
     )
     if dirty:
         raise ScopeInspectionError("scoped self-driving runs require a clean Git worktree")
-    return {"git_commit": commit}
+    _require_trusted_index(root)
+    return {"git_commit": commit, "ignore_rules": git_ignore_rules_digest(root)}
 
 
 def _diff_name_status_paths(raw):
@@ -315,64 +390,116 @@ def self_driving_changed_paths(state, baseline):
     if not commit:
         raise ScopeInspectionError("scope baseline commit is unavailable")
     _run_git_scope(root, ["merge-base", "--is-ancestor", commit, "HEAD"])
+    _require_trusted_index(root)
+    rules = baseline.get("ignore_rules")
+    if rules and git_ignore_rules_digest(root) != rules:
+        raise ScopeInspectionError(
+            "ignore rules outside the worktree (.git/info/exclude, the global "
+            "excludes file, or a self-ignoring .gitignore) changed since the scope baseline"
+        )
     return _changed_paths_since(root, commit)
 
 
-def _content_digest(root, relative):
-    """sha256 of a path's bytes, or None when it does not exist as a file."""
+def _path_token(path):
+    """sha256 of a file's bytes, or the target of a symlink."""
     try:
-        data = (root / relative).read_bytes()
+        if path.is_symlink():
+            return "symlink:" + os.readlink(str(path))
+        digest = hashlib.sha256()
+        with open(str(path), "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
     except (OSError, ValueError):
-        return None
-    return hashlib.sha256(data).hexdigest()
+        return "unreadable"
 
 
-def start_frozen_baseline(state, frozen):
-    """HEAD at outcome start plus digests of frozen paths already dirty then.
+def frozen_manifest(state, frozen):
+    """Digest of every file under the frozen prefixes, read from disk.
 
-    Host-supervised checks diff against this commit, so a frozen-path change
-    that was committed is still caught, while a frozen file that was already
-    dirty before the loop started only counts once its content changes again.
+    Content is hashed directly, so a git index flag (assume-unchanged,
+    skip-worktree) cannot hide an edit. In a git repository, files ignored by
+    the repository's .gitignore files are left out (verifier caches such as
+    __pycache__ live there); .git/info/exclude and the global excludes file are
+    not applied, and every .gitignore under a frozen prefix is always covered,
+    so a self-ignoring one is caught. A frozen path that names a file is
+    always covered. Off git, every file counts. The state directory never does.
     """
     root = outcome_project_root(state)
-    commit = _run_git_scope(root, ["rev-parse", "HEAD"]).decode("ascii", "replace").strip()
-    if not commit:
-        raise ScopeInspectionError("Git HEAD is unavailable")
-    dirty = frozen_path_violations(_changed_paths_since(root, commit), frozen)
+    state_dir = Path(state).resolve()
+    state_rel = os.path.relpath(str(state_dir), str(root.resolve())).replace(os.sep, "/")
+    prefixes = [item.strip("/") or "." for item in frozen]
+    walked = []
+    named = []
+    for prefix in prefixes:
+        base = root / prefix
+        if base.is_symlink() or base.is_file():
+            named.append(prefix)
+            continue
+        for dirpath, dirnames, filenames in os.walk(str(base)):
+            current = Path(dirpath)
+            kept = []
+            for name in dirnames:
+                child = current / name
+                if child.is_symlink():
+                    filenames.append(name)
+                elif name != ".git" and child.resolve() != state_dir:
+                    kept.append(name)
+            dirnames[:] = kept
+            walked.extend(
+                os.path.relpath(str(current / name), str(root)).replace(os.sep, "/")
+                for name in filenames
+            )
+    try:
+        raw = _run_git_scope(
+            root,
+            ["ls-files", "--cached", "--others", "--exclude-per-directory=.gitignore", "-z", "--"]
+            + prefixes,
+        )
+        files = {item for item in raw.decode("utf-8", "surrogateescape").split("\0") if item}
+        files.update(path for path in walked if path.rsplit("/", 1)[-1] == ".gitignore")
+    except ScopeInspectionError:
+        files = set(walked)
+    files.update(named)
     return {
-        "git_commit": commit,
-        "dirty_frozen": {path: _content_digest(root, path) for path in dirty},
+        path: _path_token(root / path)
+        for path in sorted(files)
+        if os.path.lexists(str(root / path))
+        and path != state_rel
+        and not path.startswith(state_rel + "/")
     }
 
 
-def frozen_changed_paths(state, goal):
-    """Paths changed since the outcome's frozen baseline (host-supervised mode).
+def current_frozen_violations(state, goal, changed_override=None):
+    """Frozen paths added, removed, or changed since the outcome started.
 
-    Outcomes without a baseline (started off-git, or by an older version) fall
-    back to the working-tree status, as does a baseline git can no longer read.
+    A goal with a manifest compares file digests read from disk. A goal
+    started by 5.x has none and falls back to git's changed-path list.
     """
-    root = outcome_project_root(state)
+    frozen = goal.get("frozen_paths") or []
     baseline = goal.get("frozen_baseline")
-    commit = str((baseline or {}).get("git_commit") or "") if isinstance(baseline, dict) else ""
-    if not commit:
-        return git_changed_paths(root) or []
-    try:
-        changed = _changed_paths_since(root, commit)
-    except ScopeInspectionError:
-        return git_changed_paths(root) or []
-    dirty = baseline.get("dirty_frozen")
-    dirty = dirty if isinstance(dirty, dict) else {}
-    paths = []
-    for path in dict.fromkeys(changed + list(dirty)):
-        if path in dirty and _content_digest(root, path) == dirty[path]:
-            continue
-        paths.append(path)
-    return paths
+    manifest = baseline.get("manifest") if isinstance(baseline, dict) else None
+    if isinstance(manifest, dict):
+        current = frozen_manifest(state, frozen)
+        return sorted(
+            path for path in set(manifest) | set(current) if manifest.get(path) != current.get(path)
+        )
+    if changed_override is not None:
+        changed = list(changed_override)
+    else:
+        changed = git_changed_paths(outcome_project_root(state)) or []
+    return frozen_path_violations(changed, frozen)
 
 
 def parse_metric_score(output):
+    """First number in OUTPUT, or None. A number too large for a float (it
+    parses as inf) is unparseable, so it can neither pass a metric floor nor
+    crash the JSON record."""
     match = re.search(r"-?\d+(?:\.\d+)?", str(output or ""))
-    return float(match.group(0)) if match else None
+    if not match:
+        return None
+    score = float(match.group(0))
+    return score if math.isfinite(score) else None
 
 
 def format_outcome_status(slug, goal, iterations=None):
@@ -438,6 +565,9 @@ def cmd_outcome_start(args, state):
     if metric_floor is not None and not args.metric:
         print("[FAIL] outcome start requires --metric when --metric-floor is set.")
         return 1
+    if metric_floor is not None and not math.isfinite(metric_floor):
+        print("[FAIL] outcome start requires --metric-floor to be a finite number.")
+        return 1
     # Two live loops fight each other and neither owns the trade-off, so a
     # second start needs an explicit supersession instead of silently stealing
     # the active pointer.
@@ -455,6 +585,12 @@ def cmd_outcome_start(args, state):
                 )
                 return 1
             superseded = (active_slug, active_goal)
+    frozen_paths, frozen_error = normalize_frozen_paths(
+        state, parse_allowed_paths(getattr(args, "frozen_paths", ""))
+    )
+    if frozen_error:
+        print(frozen_error)
+        return 1
     base = args.name or args.goal
     slug = slugify(base) or "outcome"
     original = slug
@@ -477,7 +613,7 @@ def cmd_outcome_start(args, state):
         "cost_spent": 0.0,
         "escalate_after": escalate_after,
         "allowed_paths": parse_allowed_paths(args.allowed_paths),
-        "frozen_paths": parse_allowed_paths(getattr(args, "frozen_paths", "")),
+        "frozen_paths": frozen_paths,
         "status": "active",
         "created": now,
         "updated": now,
@@ -487,15 +623,10 @@ def cmd_outcome_start(args, state):
         "supersedes": superseded[0] if superseded else None,
     }
     if goal["frozen_paths"]:
-        try:
-            goal["frozen_baseline"] = start_frozen_baseline(state, goal["frozen_paths"])
-        except ScopeInspectionError as exc:
-            goal["frozen_baseline"] = None
-            fail(
-                "[WARN] Frozen-path baseline unavailable ({0}); outcome check "
-                "falls back to the working-tree status and cannot see committed "
-                "changes.".format(exc)
-            )
+        goal["frozen_baseline"] = {"manifest": frozen_manifest(state, goal["frozen_paths"])}
+    # The new outcome is written before the old one is retired, so a failed
+    # write leaves the old loop active instead of superseded by nothing.
+    save_outcome(state, slug, goal)
     if superseded:
         old_slug, old_goal = superseded
         old_goal["status"] = "stopped"
@@ -503,7 +634,6 @@ def cmd_outcome_start(args, state):
         old_goal["superseded_by"] = slug
         old_goal["updated"] = now
         save_outcome(state, old_slug, old_goal)
-    save_outcome(state, slug, goal)
     set_active_outcome_slug(state, slug)
     if args.json_output:
         print(json.dumps(goal, indent=2))
@@ -618,20 +748,116 @@ def cmd_outcome_status(args, state):
 
 
 def parse_reported_cost(output):
-    """Read a MYTHIFY_COST=<number> line an agent may emit; None if absent."""
+    """Read a MYTHIFY_COST=<number> line an agent may emit; None if absent.
+
+    A number too large for a float parses as inf. The caller treats it as
+    spending the whole cost budget, never as a value to store.
+    """
     match = re.search(r"MYTHIFY_COST\s*=\s*(-?\d+(?:\.\d+)?)", str(output or ""))
     return float(match.group(1)) if match else None
+
+
+def agent_attempt_record(command, attempt):
+    """The JSON-safe record of one agent attempt, with its reported cost."""
+    reported = parse_reported_cost(
+        (attempt.get("stdout_tail") or "") + "\n" + (attempt.get("stderr_tail") or "")
+    )
+    unbounded = reported is not None and not math.isfinite(reported)
+    return {
+        "command": command,
+        "exit_code": attempt["exit_code"],
+        "duration_seconds": attempt["duration_seconds"],
+        "stdout_tail": attempt["stdout_tail"],
+        "stderr_tail": attempt["stderr_tail"],
+        "cost": None if unbounded else reported,
+        "cost_unbounded": unbounded,
+    }
+
+
+def reserve_agent_attempt(state, slug, goal):
+    """Charge one iteration and the default cost before the agent runs.
+
+    The charge is saved before the agent starts, so a process that is killed,
+    times out, or crashes while writing the record still spends the slot.
+    perform_outcome_iteration reconciles the cost with what the agent
+    reported; settle_interrupted_attempt counts a reservation that was never
+    reconciled.
+    """
+    reservation = {
+        "iteration": int(goal.get("iteration_count", 0)) + 1,
+        "started": now_iso(),
+        "prior_cost_spent": float(goal.get("cost_spent", 0.0)),
+    }
+    goal["iteration_count"] = reservation["iteration"]
+    goal["cost_spent"] = reservation["prior_cost_spent"] + DEFAULT_ATTEMPT_COST
+    goal["attempt_started"] = reservation
+    goal["updated"] = reservation["started"]
+    save_outcome(state, slug, goal)
+    return reservation
+
+
+def settle_interrupted_attempt(state, slug, goal):
+    """Record a reserved attempt whose process ended before recording it.
+
+    Callers hold the outcome lock, so a reservation found here belongs to a
+    process that is gone. Its iteration and default cost stay spent; the
+    iteration is logged as interrupted, and an exhausted budget ends the loop.
+    """
+    reservation = goal.pop("attempt_started", None)
+    if not isinstance(reservation, dict):
+        return None
+    stamp = now_iso()
+    cost_spent = float(goal.get("cost_spent", 0.0))
+    max_cost = goal.get("max_cost")
+    status = goal.get("status", "active")
+    if status == "active":
+        if max_cost is not None and cost_spent >= float(max_cost):
+            status = "failed"
+            goal["stop_reason"] = "cost budget exhausted"
+        elif int(goal.get("iteration_count", 0)) >= int(goal.get("max_iterations", 1)):
+            status = "failed"
+            goal["stop_reason"] = "iteration budget exhausted"
+    record = {
+        "iteration": reservation.get("iteration"),
+        "timestamp": stamp,
+        "notes": "",
+        "interrupted": True,
+        "attempt_started": reservation.get("started"),
+        "agent": {"command": goal.get("agent_command", "")},
+        "cost": DEFAULT_ATTEMPT_COST,
+        "cost_spent": cost_spent,
+        "verify": None,
+        "metric": None,
+        "verified": False,
+        "status_after": status,
+        "next_action": (
+            "The process running this attempt ended before it recorded a "
+            "result. The iteration and its default cost stay spent."
+        ),
+    }
+    append_jsonl(outcome_iterations_path(state, slug), record)
+    goal["status"] = status
+    goal["last_verified"] = False
+    goal["updated"] = stamp
+    save_outcome(state, slug, goal)
+    fail(
+        "[WARN] Outcome {0}: iteration {1} ended before it recorded a result "
+        "and stays counted (status {2}).".format(slug, record["iteration"], status)
+    )
+    return record
 
 
 def perform_outcome_iteration(
     state, slug, goal, timeout, notes="", agent_record=None,
     scope_violations_override=None, changed_paths_override=None,
+    reservation=None,
 ):
     """Run one verifier (and optional metric) iteration, enforce scope, frozen
     paths, the metric floor, and the cost budget, append the iteration and
     executed-verification records, update the goal, and return the iteration
     record. Shared by outcome check (the host made the attempt) and outcome run
-    (the loop invoked the agent)."""
+    (the loop invoked the agent, after reserve_agent_attempt charged the slot
+    named by RESERVATION)."""
     verify = run_shell_capture(goal["verify_command"], timeout)
     metric_record = None
     metric_ok = True
@@ -665,14 +891,8 @@ def perform_outcome_iteration(
         else scope_violations(state, goal.get("allowed_paths") or [])
     )
     scope_enforced = scope_violations_override is not None
-    frozen = goal.get("frozen_paths") or []
-    if frozen:
-        changed = (
-            list(changed_paths_override)
-            if changed_paths_override is not None
-            else frozen_changed_paths(state, goal)
-        )
-        frozen_hits = frozen_path_violations(changed, frozen)
+    if goal.get("frozen_paths"):
+        frozen_hits = current_frozen_violations(state, goal, changed_paths_override)
     else:
         frozen_hits = []
     verified = bool(
@@ -682,22 +902,40 @@ def perform_outcome_iteration(
         and not (scope_enforced and violations)
         and not frozen_hits
     )
-    iteration_count = int(goal.get("iteration_count", 0))
     max_iterations = int(goal.get("max_iterations", 1))
-    next_iteration = iteration_count + 1
+    if reservation is not None:
+        next_iteration = int(reservation["iteration"])
+        prior_cost = float(reservation["prior_cost_spent"])
+    else:
+        next_iteration = int(goal.get("iteration_count", 0)) + 1
+        prior_cost = float(goal.get("cost_spent", 0.0))
 
     # Cost ledger applies only to the self-driving loop (an agent ran this
     # iteration). The host-driven `outcome check` path burns no cost, matching
     # the MCP outcome_check. Reported cost is clamped non-negative so a bad or
     # adversarial agent cannot drive the ledger down and neutralize --max-cost.
+    # A cost too large to add up spends the whole budget.
+    max_cost = goal.get("max_cost")
     iteration_cost = 0.0
+    cost_unbounded = False
     if agent_record is not None:
         reported = agent_record.get("cost")
-        iteration_cost = max(0.0, float(reported)) if reported is not None else 1.0
-    cost_spent = float(goal.get("cost_spent", 0.0)) + iteration_cost
-    max_cost = goal.get("max_cost")
-    budget_exhausted = (
-        agent_record is not None and max_cost is not None and cost_spent >= float(max_cost)
+        if reported is not None:
+            iteration_cost = max(0.0, float(reported))
+        else:
+            iteration_cost = DEFAULT_ATTEMPT_COST
+        cost_unbounded = bool(agent_record.get("cost_unbounded")) or not math.isfinite(
+            prior_cost + iteration_cost
+        )
+        if cost_unbounded:
+            iteration_cost = (
+                max(DEFAULT_ATTEMPT_COST, float(max_cost) - prior_cost)
+                if max_cost is not None
+                else DEFAULT_ATTEMPT_COST
+            )
+    cost_spent = prior_cost + iteration_cost
+    budget_exhausted = agent_record is not None and max_cost is not None and (
+        cost_unbounded or cost_spent >= float(max_cost)
     )
 
     if frozen_hits:
@@ -745,6 +983,7 @@ def perform_outcome_iteration(
         "notes": notes,
         "agent": agent_record,
         "cost": iteration_cost,
+        "cost_unbounded": cost_unbounded,
         "cost_spent": cost_spent,
         "verify": {
             "command": verify["command"],
@@ -764,6 +1003,7 @@ def perform_outcome_iteration(
         "next_action": next_action,
     }
     append_jsonl(outcome_iterations_path(state, slug), record)
+    goal.pop("attempt_started", None)
     goal["iteration_count"] = next_iteration
     goal["status"] = status_after
     goal["last_verified"] = verified
@@ -897,13 +1137,18 @@ def run_outcome_audit(state, slug, goal, timeout, notes, json_output):
 
 
 def cmd_outcome_check(args, state):
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         fail(OUTCOME_CHECK_DISABLED_MESSAGE)
         return 2
     slug, goal = load_outcome(state, args.name)
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")
         return 1
+    return with_outcome_lock(state, slug, lambda locked: _outcome_check_locked(args, state, slug, locked))
+
+
+def _outcome_check_locked(args, state, slug, goal):
+    settle_interrupted_attempt(state, slug, goal)
     if getattr(args, "audit", False):
         return run_outcome_audit(
             state, slug, goal, args.timeout, args.notes or "", args.json_output
@@ -963,13 +1208,17 @@ def cmd_outcome_run(args, state):
     budget is spent, the scope is violated, or the escalation threshold of
     consecutive red verifications is hit. Bounded and evidence-gated by design.
     """
-    if os.environ.get("MYTHIFY_DISABLE_RUN") == "1":
+    if run_disabled(os.environ):
         fail(OUTCOME_CHECK_DISABLED_MESSAGE)
         return 2
     slug, goal = load_outcome(state, args.name)
     if not slug or goal is None:
         print("[FAIL] No outcome found. Start one with outcome start.")
         return 1
+    return with_outcome_lock(state, slug, lambda locked: _outcome_run_locked(args, state, slug, locked))
+
+
+def _outcome_run_locked(args, state, slug, goal):
     agent_command = (goal.get("agent_command") or "").strip()
     if not agent_command:
         fail(
@@ -977,6 +1226,7 @@ def cmd_outcome_run(args, state):
             "outcome start --agent \"CMD\" to run it autonomously.".format(slug)
         )
         return 1
+    settle_interrupted_attempt(state, slug, goal)
     if goal.get("status") in ("succeeded", "failed", "stopped"):
         print("[OK] Outcome {0} is already {1}.".format(slug, goal.get("status")))
         return 0 if goal.get("status") == "succeeded" else 2
@@ -1007,17 +1257,9 @@ def cmd_outcome_run(args, state):
             save_outcome(state, slug, goal)
             final = "failed"
             break
+        reservation = reserve_agent_attempt(state, slug, goal)
         attempt = run_shell_capture(agent_command, args.timeout)
-        agent_record = {
-            "command": agent_command,
-            "exit_code": attempt["exit_code"],
-            "duration_seconds": attempt["duration_seconds"],
-            "stdout_tail": attempt["stdout_tail"],
-            "stderr_tail": attempt["stderr_tail"],
-            "cost": parse_reported_cost(
-                (attempt.get("stdout_tail") or "") + "\n" + (attempt.get("stderr_tail") or "")
-            ),
-        }
+        agent_record = agent_attempt_record(agent_command, attempt)
         try:
             changed = (
                 self_driving_changed_paths(state, scope_baseline)
@@ -1028,6 +1270,8 @@ def cmd_outcome_run(args, state):
                 paths_outside_scope(changed, allowed_paths) if allowed_paths else []
             )
         except ScopeInspectionError as exc:
+            # The attempt ran and keeps its reserved iteration and cost.
+            goal.pop("attempt_started", None)
             goal["status"] = "stopped"
             goal["stop_reason"] = "scope inspection unavailable: {0}".format(exc)
             goal["updated"] = now_iso()
@@ -1043,6 +1287,7 @@ def cmd_outcome_run(args, state):
             agent_record,
             strict_violations,
             changed,
+            reservation,
         )
         print(
             "iteration {0}/{1}: agent exit {2}, verify {3}, status {4}".format(

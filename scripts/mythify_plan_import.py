@@ -16,6 +16,7 @@ from mythify_godfiles import (
     find_godplans_file,
     load_god_artifact,
 )
+from mythify_io import jsonl_append_anchor
 
 WORKSPACE_DIR_NAME = ".mythify"
 
@@ -28,7 +29,7 @@ now_iso = _missing_dependency
 slugify = _missing_dependency
 list_plan_slugs = _missing_dependency
 load_plan = _missing_dependency
-plan_path = _missing_dependency
+plan_slug_taken = _missing_dependency
 save_plan = _missing_dependency
 set_active_slug = _missing_dependency
 describe_next_pending = _missing_dependency
@@ -41,19 +42,19 @@ def configure_plan_import(
     slugify_func,
     list_plan_slugs_func,
     load_plan_func,
-    plan_path_func,
+    plan_slug_taken_func,
     save_plan_func,
     set_active_slug_func,
     describe_next_pending_func,
     fail_func,
 ):
-    global now_iso, slugify, list_plan_slugs, load_plan, plan_path
+    global now_iso, slugify, list_plan_slugs, load_plan, plan_slug_taken
     global save_plan, set_active_slug, describe_next_pending, fail
     now_iso = now_iso_func
     slugify = slugify_func
     list_plan_slugs = list_plan_slugs_func
     load_plan = load_plan_func
-    plan_path = plan_path_func
+    plan_slug_taken = plan_slug_taken_func
     save_plan = save_plan_func
     set_active_slug = set_active_slug_func
     describe_next_pending = describe_next_pending_func
@@ -152,19 +153,22 @@ def cmd_plan_import(args, state):
     )
     slug = base or "imported-" + source
     suffix = 2
-    while plan_path(state, slug).exists():
+    while plan_slug_taken(state, slug):
         slug = "{0}-{1}".format(base, suffix)
         suffix += 1
     stamp = now_iso()
     steps = []
     for index, task in enumerate(live_tasks):
+        # A checked box is the artifact's claim, not executed evidence, so a
+        # checked task imports pending and completes only through the strict
+        # gate, like every other step.
         step = {
             "id": index + 1,
             "title": "{0} {1}".format(task["id"], task["title"]).strip(),
             "success_criteria": task.get("acceptance") or "verify command passes",
-            "status": "completed" if task["checked"] else "pending",
+            "status": "pending",
             "result": (
-                "imported: checkbox already checked in {0}".format(path.name)
+                "checked in {0}; re-verify".format(path.name)
                 if task["checked"]
                 else None
             ),
@@ -178,6 +182,8 @@ def cmd_plan_import(args, state):
             step["depends_on"] = task["depends_on"]
         if task.get("fixes"):
             step["fixes"] = task["fixes"]
+        if task["checked"]:
+            step["artifact_checked"] = True
         steps.append(step)
     plan = {
         "name": slug,
@@ -185,6 +191,7 @@ def cmd_plan_import(args, state):
         "steps": steps,
         "created": stamp,
         "last_updated": stamp,
+        "verification_anchor": jsonl_append_anchor(state / "verifications.jsonl"),
         "strict_context": True,
         "source": {
             "kind": source,
@@ -195,11 +202,17 @@ def cmd_plan_import(args, state):
     }
     save_plan(state, slug, plan)
     set_active_slug(state, slug)
-    done = sum(1 for step in steps if step["status"] == "completed")
+    checked = sum(1 for step in steps if step.get("artifact_checked"))
     print(
-        "[OK] Imported {0} tasks from {1} into plan {2} ({3} already completed). "
-        "Active plan set to {2}.".format(len(steps), path.name, slug, done)
+        "[OK] Imported {0} tasks from {1} into plan {2} as pending steps. "
+        "Active plan set to {2}.".format(len(steps), path.name, slug)
     )
+    if checked:
+        print(
+            "{0} task(s) are checked in {1}, which is not executed evidence: "
+            "each still completes only after its verify command passes while "
+            "the step is in progress.".format(checked, path.name)
+        )
     if digest.get("counter_drift"):
         print(
             "[WARN] Frontmatter counters disagree with the checkboxes in {0}; "

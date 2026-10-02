@@ -331,16 +331,22 @@ def build_parser(symbols):
         "--allowed-paths",
         default="",
         help=(
-            "Comma-separated scope paths. The CLI outcome loop enforces this "
-            "post-hoc via git: a check fails if files change outside the scope."
+            "Comma-separated scope paths, checked post-hoc via git. outcome run "
+            "fails an iteration that changes files outside the scope; outcome "
+            "check names those files in its next action without failing."
         ),
     )
     p.add_argument(
         "--frozen-paths",
         default="",
         help=(
-            "Comma-separated paths the loop must never touch (e.g. tests/). "
-            "Enforced in every mode; a change under a frozen prefix stops the loop."
+            "Comma-separated paths the loop must never touch (e.g. tests/), "
+            "relative to the project root. An absolute path must be inside the "
+            "root, and a path that names no existing file or directory is "
+            "refused. Enforced in every mode; a change under a frozen prefix stops the loop. "
+            "Files are hashed on disk at start and on every check, so git index "
+            "flags and exclude files cannot hide a change; files under a frozen "
+            "directory that the repository's .gitignore files ignore are not covered."
         ),
     )
     p.add_argument(
@@ -375,7 +381,10 @@ def build_parser(symbols):
         "--escalate-after",
         type=int,
         default=None,
-        help="Stop and hand back to a human after N consecutive failed verifications.",
+        help=(
+            "outcome run stops and hands back to a human after N consecutive "
+            "failed verifications. outcome check does not count them."
+        ),
     )
     p.add_argument("--name", help="Outcome name; defaults to a slug of the goal.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
@@ -389,7 +398,9 @@ def build_parser(symbols):
             "runs the agent command, then the verifier, records evidence, and "
             "repeats until the outcome is met, the iteration or cost budget is "
             "spent, the scope is violated, or the escalation threshold of "
-            "consecutive failures is reached. Bounded and evidence-gated. "
+            "consecutive failures is reached. Each iteration and one cost unit "
+            "are charged before the agent starts, so a killed or timed-out run "
+            "still spends them. Bounded and evidence-gated. "
             "Exits 0 on success, 2 otherwise. CLI-only."
         ),
     )
@@ -466,8 +477,8 @@ def build_parser(symbols):
 
     plan = sub.add_parser(
         "plan",
-        help="Manage plans: create, import, add-step, list, show, switch, archive.",
-        description="Manage plans: create, import, add-step, list, show, switch, archive.",
+        help="Manage plans: create, import, add-step, verify, list, show, switch, archive.",
+        description="Manage plans: create, import, add-step, verify, list, show, switch, archive.",
     )
     plan_sub = plan.add_subparsers(dest="plan_command", metavar="ACTION", required=True)
 
@@ -500,6 +511,8 @@ def build_parser(symbols):
             "Convert godplans or godaudits checkbox tasks into a Mythify plan. "
             "Each step keeps the task's exact Verify command, and completion "
             "requires that verification to pass while the step is in progress. "
+            "Every task imports as a pending step, including one already "
+            "checked in the artifact: a checked box is not executed evidence. "
             "Mythify never edits the artifact: checkbox flips stay with the "
             "executing agent per the artifact's embedded rules."
         ),
@@ -599,7 +612,8 @@ def build_parser(symbols):
             "Update step ID to STATUS (pending, in_progress, completed, failed, "
             "skipped). completed and failed require the RESULT argument: evidence "
             "or a failure description. By default, completed also requires a "
-            "passing verify run since the step started. Set "
+            "passing verify run since the step started; a later failing run of "
+            "the same command cancels an earlier pass. Set "
             "MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only "
             "completion. Prints the next pending step afterward."
         ),

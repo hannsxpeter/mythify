@@ -6,17 +6,17 @@ register for work ruled past the destination. Tickets resolve decisions; they
 are not build slices.
 
 Mythify's contribution over a plain decision board is evidence discipline.
-A ticket worked with a human (grilling, prototype) cannot be resolved from the
-agent's own words: the resolution must carry the human's input, exactly as an
-attested claim never counts as executed proof. A task ticket that carries a
-verify command must show a passing executed run scoped to that ticket before it
-closes, exactly as a plan step must.
+A ticket worked with a human (grilling, prototype) is refused without
+--human-input carrying the human's words. Mythify records those words but
+cannot verify who supplied them, so an agent must never write them itself. A task ticket that carries a
+verify command must show a passing executed run of that command recorded since
+the ticket was claimed before it closes, exactly as a plan step must.
 """
 
 import json
 import sys
 
-from mythify_evidence_guard import noop_verifier_reason
+from mythify_evidence_guard import noop_verifier_reason, run_disabled
 from mythify_io import (
     _write_text_atomic,
     jsonl_append_anchor,
@@ -44,9 +44,10 @@ MAP_GUARDRAIL = (
     "clears a question; completion still requires a passing executed check."
 )
 MAP_HUMAN_INPUT_MESSAGE = (
-    "[FAIL] Human input required: this is a HITL ticket, so the agent cannot "
-    "resolve it from its own words. Hold the conversation, then pass "
-    "--human-input with what the human actually decided. Set "
+    "[FAIL] Human input required: this is a HITL ticket, so a human decides "
+    "it. Hold the conversation, then pass --human-input with what the human "
+    "actually decided. Mythify records those words but cannot verify who "
+    "supplied them, so an agent must never write them itself. Set "
     "MYTHIFY_REQUIRE_HUMAN_INPUT=0 only for legacy self-resolved tickets."
 )
 MAP_HUMAN_INPUT_WAIVED_WARNING = (
@@ -239,6 +240,11 @@ def ungraduated_fog(record):
     return [item for item in record.get("fog") or [] if not item.get("graduated_to")]
 
 
+def waived_mark(entry):
+    """Suffix naming a decision recorded under MYTHIFY_REQUIRE_HUMAN_INPUT=0."""
+    return " (human input waived)" if entry.get("human_input_waived") else ""
+
+
 def ticket_name(ticket):
     """Refer by name. The id rides inside the name; it never stands in for it."""
     return "{0} ({1})".format(ticket.get("title", ""), ticket.get("id", ""))
@@ -254,12 +260,13 @@ def normalized_command(text):
 
 
 def passing_ticket_verification(state, ticket):
-    """A passing executed run recorded since the ticket was claimed.
+    """The latest executed run of the ticket's command since the claim, if it passed.
 
     The anchor marks the end of verifications.jsonl at claim time by line hash,
     so evidence recorded before the ticket was claimed can never be reused, and
     `logs compact` cannot move the marker. Tickets claimed before 6.0 carry an
-    integer verification_cursor, which is still honored.
+    integer verification_cursor, which is still honored. A later failing run
+    cancels an earlier pass, as it does for a plan step.
     """
     expected = normalized_command(ticket.get("verify_command"))
     if not expected:
@@ -272,14 +279,12 @@ def passing_ticket_verification(state, ticket):
     )
     if records is None:
         records = read_jsonl(state / "verifications.jsonl")
+    latest = None
     for record in records:
-        if (
-            record.get("kind") == "executed"
-            and record.get("verified") is True
-            and record.get("exit_code") == 0
-            and normalized_command(record.get("command")) == expected
-        ):
-            return record
+        if record.get("kind") == "executed" and normalized_command(record.get("command")) == expected:
+            latest = record
+    if latest is not None and latest.get("verified") is True and latest.get("exit_code") == 0:
+        return latest
     return None
 
 
@@ -327,10 +332,11 @@ def format_map(slug, record):
         lines.append("- none")
     for decision in decisions:
         lines.append(
-            "- {0} ({1}) - {2}".format(
+            "- {0} ({1}) - {2}{3}".format(
                 decision.get("title", ""),
                 decision.get("ticket_id", ""),
                 decision.get("gist", ""),
+                waived_mark(decision),
             )
         )
     lines.append("Frontier ({0}):".format(len(frontier)))
@@ -358,7 +364,7 @@ def format_map(slug, record):
         text = "- {0}: {1}".format(item.get("id"), item.get("note", ""))
         if item.get("reason"):
             text += " (why: {0})".format(item.get("reason"))
-        lines.append(text)
+        lines.append(text + waived_mark(item))
     if map_is_clear(record) and record.get("status") != "promoted":
         lines.append(
             "The way is clear: no open tickets and no fog. Hand off with map promote."
@@ -634,8 +640,8 @@ def cmd_map_claim(args, state):
 
 
 def cmd_map_verify(args, state):
-    """Run a ticket's own verify command and scope the evidence to that ticket."""
-    if (environ or {}).get("MYTHIFY_DISABLE_RUN") == "1":
+    """Run a ticket's own verify command and stamp the evidence with the ticket."""
+    if run_disabled(environ):
         fail(
             "[FAIL] map verify is disabled: MYTHIFY_DISABLE_RUN=1 is set. No "
             "command was executed and nothing was recorded."
@@ -663,6 +669,10 @@ def cmd_map_verify(args, state):
         )
         return 1
     context = {
+        "plan": None,
+        "step_id": None,
+        "step_title": None,
+        "step_status": None,
         "map": slug,
         "ticket_id": ticket.get("id"),
         "ticket_title": ticket.get("title"),
@@ -739,8 +749,8 @@ def cmd_map_resolve(args, state):
             if evidence is None:
                 fail(
                     "[FAIL] Verified evidence required: ticket {0} stores a verify "
-                    "command, but no passing executed run with exit code 0 matching "
-                    "it was recorded since the ticket was claimed. Run: mythify map "
+                    "command, but no run of it was recorded since the ticket was "
+                    "claimed, or the latest one did not exit 0. Run: mythify map "
                     "verify {1}".format(ticket_name(ticket), ticket.get("id"))
                 )
                 return 1
@@ -759,14 +769,18 @@ def cmd_map_resolve(args, state):
             "ticket_id": ticket.get("id"),
             "created": stamp,
         }
-        record.setdefault("out_of_scope", []).append(entry)
     else:
-        record.setdefault("decisions", []).append({
+        entry = {
             "ticket_id": ticket.get("id"),
             "title": ticket.get("title", ""),
             "gist": args.gist or answer,
             "recorded": stamp,
-        })
+        }
+    # The waiver rides on the decision too, so map show and the plan that map
+    # promote creates both name a decision the human never made.
+    if ticket.get("human_input_waived"):
+        entry["human_input_waived"] = True
+    record.setdefault("out_of_scope" if out_of_scope else "decisions", []).append(entry)
     for note in args.fog or []:
         record.setdefault("fog", []).append({
             "id": next_map_id(record.get("fog") or [], "F"),

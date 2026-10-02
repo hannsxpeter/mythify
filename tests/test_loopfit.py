@@ -143,6 +143,27 @@ class TestLoopFit(LoopFitCase):
         self.assertIn("at the level of", payload["signals"]["quality_terms"])
         self.assertIn("you are the brake", payload["brake"])
 
+    def test_quality_loop_leaves_delegation_to_the_host(self):
+        # Regression: the reason and suggestion told the agent to fan out
+        # builder workers, against the protocol's "delegation is your choice".
+        self.git_init()
+        task = "Make the marketing site utterly perfect, at the level of Linear"
+        payload = self.assess(task)
+        route = self.run_cli("route", task, "--json")
+        self.assertEqual(route.returncode, 0, route.stderr)
+        texts = [
+            payload["reason"],
+            payload["suggested_next"],
+            self.run_cli("loop-fit", task).stdout,
+            json.dumps(json.loads(route.stdout)["loop_fit"]),
+        ]
+        for text in texts:
+            lowered = text.lower()
+            self.assertNotIn("fan out", lowered)
+            self.assertNotIn("fan-out", lowered)
+            self.assertNotIn("workers", lowered)
+        self.assertIn("or none", payload["suggested_next"])
+
     def test_quality_terms_with_verifier_stay_machine_gated(self):
         # A named executable check beats climb language: never quality_loop.
         self.git_init()

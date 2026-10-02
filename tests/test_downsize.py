@@ -160,7 +160,7 @@ class TestLegacyStateIsIgnored(DownsizeCase):
                 json.dumps({"id": "legacy", "status": "active"}) + "\n", encoding="utf-8"
             )
         (self.state / "fanout" / "fo-20260613151515-abcd").mkdir()
-        (self.state / "host-model.json").write_text("{}\n", encoding="utf-8")
+        (self.state / "workspace.json").write_text("{}\n", encoding="utf-8")
         plan = {
             "name": "legacy-plan",
             "goal": "Old design-heavy plan",

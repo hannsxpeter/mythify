@@ -35,9 +35,19 @@ PY_VIEWS = REPO_ROOT / "scripts" / "mythify_views.py"
 CLASSIFICATION_RULES = REPO_ROOT / "protocol" / "classification-rules.json"
 WORKFLOW_ROUTER = REPO_ROOT / "protocol" / "workflow-router.json"
 
+LINT = REPO_ROOT / "scripts" / "lint.py"
+
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
+
+
+def load_lint():
+    """scripts/lint.py, which owns the removed model-routing identifiers."""
+    spec = importlib.util.spec_from_file_location("mythify_lint_under_test", LINT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 EVIDENCE_MESSAGE = (
     "[FAIL] Evidence required: pass a RESULT describing what proves this status."
 )
@@ -659,15 +669,9 @@ class TestClassification(CliTestCase):
         self.assertEqual(payload["framing"]["level"], "full")
         self.assertEqual(payload["parallelism"]["chooser"], "host")
         self.assertTrue(payload["review"]["independent"])
-        for removed in (
-            "fanout",
-            "fanout_reason",
-            "fanout_visibility",
-            "model_triage",
-            "model_triage_reason",
-            "model_policy",
-        ):
+        for removed in ("fanout", "fanout_reason"):
             self.assertNotIn(removed, payload)
+        self.assertEqual(load_lint().removed_identifier_keys(payload), [])
 
     def test_classification_policy_manifest_contains_shared_decision_facts(self):
         manifest = self.read_json(CLASSIFICATION_RULES)
@@ -686,8 +690,9 @@ class TestClassification(CliTestCase):
         self.assertIn("bugfix", manifest["execution_profile"]["fast_task_types"])
         self.assertIn("standard", manifest["next_actions"])
         self.assertIn("feature", manifest["verification_hints"])
-        for removed in ("fanout", "fanout_visibility", "model_triage", "plan_archetype"):
+        for removed in ("fanout", "plan_archetype"):
             self.assertNotIn(removed, manifest)
+        self.assertEqual(load_lint().removed_identifier_keys(manifest), [])
 
     def test_route_text_reports_classification_without_workspace(self):
         result = self.run_cli(
@@ -957,8 +962,9 @@ class TestWorkflowRouter(CliTestCase):
                 self.assertNotIn("--horizon", payload["next_command"])
                 self.assertNotIn("--archetype", payload["next_command"])
             self.assertEqual(payload["loop_fit"]["kind"], "loop_fit")
-            self.assertNotIn("execution_adapter", payload)
-            self.assertNotIn("model_policy", payload["classification"])
+            lint = load_lint()
+            self.assertEqual(lint.removed_identifier_keys(payload), [])
+            self.assertEqual(lint.removed_identifier_keys(payload["classification"]), [])
             self.assertEqual(payload["classification"]["parallelism"]["chooser"], "host")
         self.assertEqual(before, self.state_snapshot(state))
 

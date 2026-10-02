@@ -19,8 +19,9 @@ def add_map_parser(sub, symbols):
             "destination, decision tickets on a blocking frontier, fog for what "
             "cannot be specified yet, and an out-of-scope register. Tickets "
             "resolve decisions, not build slices. A human-in-the-loop ticket "
-            "cannot be resolved from the agent's own words, and a task ticket "
-            "with a verify command needs a passing executed run."
+            "is refused without --human-input, which Mythify records but "
+            "cannot attribute, so an agent must never write it itself; a task "
+            "ticket with a verify command needs a passing executed run."
         ),
     )
     map_sub = mapping.add_subparsers(dest="map_command", metavar="ACTION", required=True)
@@ -116,7 +117,10 @@ def add_map_parser(sub, symbols):
         help="Run a task ticket's own verify command.",
         description=(
             "Run the ticket's verify_command and record the executed evidence "
-            "scoped to that ticket, satisfying its resolution gate. CLI-only."
+            "with the map and ticket context. The resolve gate reads the latest "
+            "executed run of that command recorded since the claim, so a passing "
+            "run here satisfies it and a failing one cancels an earlier pass. "
+            "CLI-only."
         ),
     )
     p.add_argument("id", help="Ticket id such as T1.")
@@ -129,8 +133,8 @@ def add_map_parser(sub, symbols):
         help="Resolve a claimed ticket with its answer.",
         description=(
             "Close a claimed ticket with the decision it reached. HITL tickets "
-            "require --human-input; task tickets with a verify command require a "
-            "passing executed run recorded since the claim. Use --out-of-scope "
+            "require --human-input; task tickets with a verify command require "
+            "the latest executed run of it since the claim to pass. Use --out-of-scope "
             "for a ticket that turns out to sit past the destination."
         ),
     )

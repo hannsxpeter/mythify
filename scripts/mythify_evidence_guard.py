@@ -4,19 +4,39 @@ The strict gate proves that a command exited 0. These helpers watch the cheap
 ways that proof detaches from the work it stands for: a verifier that always
 passes, a test runner that collected nothing, a session running with a legacy
 gate opt-out active, and a ledger whose chained lines no longer hash together.
-Everything here is advisory material for warnings and attention items; nothing
-blocks completion, and nothing upgrades or downgrades recorded evidence.
+Most of it is advisory material for warnings and attention items. The one
+exception is noop_verifier_reason: review prove and product measure refuse a
+command it flags. Nothing here upgrades or downgrades recorded evidence.
 """
 
 import hashlib
 import json
+import shlex
 
-# Commands whose whole normalized text always exits 0 without checking anything.
-NOOP_COMMANDS = frozenset({"true", ":", "exit 0"})
-# Leading words that only print. They flag a no-op only when the command has no
-# shell operator, so `echo start && pytest` or `echo x | grep y` never trips.
-NOOP_PRINT_PREFIXES = ("echo", "printf")
-SHELL_OPERATORS = ("|", "&&", "||", ";", ">", "<")
+# noop_verifier_reason reads a command the way /bin/sh would run it, without
+# running it. It is a heuristic: it catches common forms of a command that
+# cannot fail (`true;`, `exit 0`, `pytest || true`, `sh -c true`, `/bin/echo
+# ok`) and answers "not a no-op" for anything it cannot read with confidence,
+# such as groups, conditionals, or `set -e`.
+ALWAYS_ZERO = "zero"
+UNKNOWN = "unknown"
+NOOP_WORDS = ("true", ":")
+PRINT_WORDS = ("echo", "printf")
+SHELL_NAMES = ("sh", "bash", "dash", "zsh", "ksh")
+SHELL_PUNCTUATION = "();<>|&\n"
+TWO_CHAR_OPERATORS = ("&&", "||", ">>", "<<", ">&", "<&", "&>", "|&", ";;")
+LIST_SEPARATORS = (";", "\n", "&&", "||")
+SEGMENT_OPERATORS = ("|", ">", "<", ">>", "<<", ">&", "<&", "&>")
+# Tokens and leading words after which control flow cannot be read statically:
+# groups, background jobs, compound commands, and builtins that change how a
+# failure propagates. A command containing any of them is never flagged.
+UNREADABLE_TOKENS = ("(", ")", "{", "}", "&", "|&", ";;")
+UNREADABLE_WORDS = frozenset({
+    "if", "then", "elif", "else", "fi", "for", "while", "until", "do", "done",
+    "case", "esac", "select", "function", "[[", "set", "exec", "trap", "eval",
+    "source", ".", "return", "kill", "shopt",
+})
+MAX_SHELL_DEPTH = 3
 # Test-runner output that means the green exit code exercised zero tests.
 ZERO_TEST_PATTERNS = (
     "ran 0 tests",
@@ -41,29 +61,192 @@ LEGACY_OPT_OUTS = (
 )
 
 
-def _normalized(text):
-    return " ".join(str(text or "").split())
+def _shell_tokens(command):
+    """Words and operators of COMMAND, or None when it cannot be split.
+
+    Quoted words keep their quotes, so a quoted `;` is never read as an
+    operator. A `$( ... )` command substitution is folded into one word. The
+    lexer does not process backslash escapes, so a backslash outside single
+    quotes makes the split untrustworthy and returns None.
+    """
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=SHELL_PUNCTUATION)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return None
+    if any("\\" in token and not token.startswith("'") for token in raw):
+        return None
+    tokens = []
+    for token in raw:
+        if token[0] not in SHELL_PUNCTUATION:
+            tokens.append(token)
+            continue
+        index = 0
+        while index < len(token):
+            pair = token[index:index + 2]
+            step = 2 if pair in TWO_CHAR_OPERATORS else 1
+            tokens.append(token[index:index + step])
+            index += step
+    folded = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.endswith("$") and tokens[index + 1:index + 2] == ["("]:
+            depth = 0
+            end = index + 1
+            while end < len(tokens):
+                depth += {"(": 1, ")": -1}.get(tokens[end], 0)
+                if depth == 0:
+                    break
+                end += 1
+            if end == len(tokens):
+                return None
+            folded.append(" ".join(tokens[index:end + 1]))
+            index = end + 1
+            continue
+        folded.append(token)
+        index += 1
+    return folded
+
+
+def _strip_wrapping_group(tokens):
+    """Drop parentheses or braces that wrap the whole command."""
+    while len(tokens) >= 2 and (tokens[0], tokens[-1]) in (("(", ")"), ("{", "}")):
+        opener, closer = tokens[0], tokens[-1]
+        depth = 0
+        for index, token in enumerate(tokens):
+            depth += 1 if token == opener else -1 if token == closer else 0
+            if depth == 0:
+                break
+        if index != len(tokens) - 1:
+            break
+        tokens = tokens[1:-1]
+    return tokens
+
+
+def _unquote(word):
+    if len(word) >= 2 and word[0] == word[-1] and word[0] in "'\"":
+        return word[1:-1]
+    return word
+
+
+def _command_name(word):
+    return word.rsplit("/", 1)[-1].lower()
+
+
+def _segment_kind(words, depth):
+    """Classify one simple command: noop, print, exit forms, or unknown."""
+    if any(word in SEGMENT_OPERATORS for word in words):
+        return "unknown", None
+    words = [_unquote(word) for word in words]
+    while words:
+        name = _command_name(words[0])
+        if name == "env":
+            words = words[1:]
+            while words and (words[0].startswith("-") or "=" in words[0]):
+                words = words[1:]
+        elif name == "command" and len(words) > 1 and not words[1].startswith("-"):
+            words = words[1:]
+        else:
+            break
+    if not words:
+        return "unknown", None
+    name = _command_name(words[0])
+    if name in UNREADABLE_WORDS:
+        return "unreadable", None
+    if name in SHELL_NAMES and len(words) == 3 and words[1] == "-c":
+        status, _ = _script_status(words[2], depth + 1)
+        return "noop" if status == ALWAYS_ZERO else "unknown", None
+    if name in NOOP_WORDS:
+        return "noop", None
+    if name in PRINT_WORDS:
+        return "print", None
+    if name == "exit":
+        if len(words) == 1:
+            return "exit", None
+        return "exit", ALWAYS_ZERO if words[1:] == ["0"] else UNKNOWN
+    return "unknown", None
+
+
+def _script_status(command, depth=0):
+    """(ALWAYS_ZERO or UNKNOWN, kinds) for COMMAND run by /bin/sh.
+
+    Walks the `;`, newline, `&&`, and `||` list left to right, tracking whether
+    `$?` is certainly 0 and whether the next command certainly runs. An `exit`
+    that certainly runs ends the walk with its status; one that may run with
+    a status other than 0 makes the result UNKNOWN.
+    """
+    if depth > MAX_SHELL_DEPTH:
+        return UNKNOWN, []
+    tokens = _shell_tokens(str(command or ""))
+    if tokens is None:
+        return UNKNOWN, []
+    tokens = _strip_wrapping_group(tokens)
+    if any(token in UNREADABLE_TOKENS for token in tokens):
+        return UNKNOWN, []
+    items = []
+    operator, words = None, []
+    for token in tokens + [";"]:
+        if token not in LIST_SEPARATORS:
+            words.append(token)
+            continue
+        if words:
+            items.append((operator, words))
+        elif operator in ("&&", "||") or token in ("&&", "||"):
+            # `&&` or `||` with nothing on one side is a syntax error.
+            return UNKNOWN, []
+        operator, words = token, []
+    if not items:
+        return UNKNOWN, []
+    status = ALWAYS_ZERO
+    kinds = []
+    for operator, words in items:
+        kind, exit_status = _segment_kind(words, depth)
+        if kind == "unreadable":
+            return UNKNOWN, []
+        kinds.append(kind)
+        if kind == "exit" and exit_status is None:
+            # A bare `exit` keeps $?: 0 after `&&` ran it, unknown after `||`.
+            exit_status = {"&&": ALWAYS_ZERO, "||": UNKNOWN}.get(operator, status)
+        own = exit_status if kind == "exit" else (
+            ALWAYS_ZERO if kind in ("noop", "print") else UNKNOWN
+        )
+        if operator == "&&":
+            certain = status == ALWAYS_ZERO
+            status = own if certain else UNKNOWN
+        elif operator == "||":
+            certain = False
+            if status != ALWAYS_ZERO:
+                if kind == "exit" and own != ALWAYS_ZERO:
+                    return UNKNOWN, []
+                status = own
+            continue
+        else:
+            certain = True
+            status = own
+        if kind == "exit":
+            if certain:
+                return own, kinds
+            if own != ALWAYS_ZERO:
+                return UNKNOWN, []
+    return status, kinds
 
 
 def noop_verifier_reason(command):
-    """Why COMMAND can never fail, or None when it looks like a real check."""
-    normalized = _normalized(command).lower()
-    if not normalized:
+    """Why COMMAND can never fail, or None when it looks like a real check.
+
+    A heuristic, not a guarantee: it reads the command's `;`, `&&`, and `||`
+    list and flags it when the exit status is 0 on every path. See
+    _script_status for what it reads and what it leaves alone.
+    """
+    status, kinds = _script_status(command)
+    if status != ALWAYS_ZERO or not kinds:
         return None
-    if normalized in NOOP_COMMANDS:
-        return "the command always exits 0"
-    first_word = normalized.split(" ", 1)[0]
-    no_operators = not any(operator in normalized for operator in SHELL_OPERATORS)
-    # `/usr/bin/true`, `true --anything`, and `: ignored` still always exit 0.
-    if no_operators and first_word.rsplit("/", 1)[-1] in ("true", ":"):
-        return "the command always exits 0"
-    if no_operators and normalized.startswith("exit 0 "):
-        return "the command always exits 0"
-    if first_word in NOOP_PRINT_PREFIXES and not any(
-        operator in normalized for operator in SHELL_OPERATORS
-    ):
+    if all(kind == "print" for kind in kinds):
         return "the command only prints and exits 0"
-    return None
+    return "the command always exits 0"
 
 
 def trivial_pass_reason(record):
@@ -106,6 +289,18 @@ def ledger_chain_breaks(text):
     return breaks
 
 
+def run_disabled(environ):
+    """True when MYTHIFY_DISABLE_RUN asks every command runner to refuse.
+
+    The kill switch fails closed: any value other than empty or a false word
+    (0, false, no, off; case and surrounding space ignored) disables runs.
+    Every runner and the status report share this one parse, so status can
+    never name the switch while a runner still executes.
+    """
+    raw = str((environ or {}).get("MYTHIFY_DISABLE_RUN", "") or "").strip().lower()
+    return bool(raw) and raw not in FALSE_ENV_VALUES
+
+
 def active_legacy_opt_outs(environ):
     """Legacy gate opt-outs currently active in ENVIRON, oldest contract first."""
     active = []
@@ -113,7 +308,7 @@ def active_legacy_opt_outs(environ):
         raw = str((environ or {}).get(name, "")).strip().lower()
         if raw in FALSE_ENV_VALUES:
             active.append({"name": name, "effect": effect})
-    if str((environ or {}).get("MYTHIFY_DISABLE_RUN", "")).strip() == "1":
+    if run_disabled(environ):
         active.append({
             "name": "MYTHIFY_DISABLE_RUN",
             "effect": "verify run refuses to execute; only attested claims can be recorded",
