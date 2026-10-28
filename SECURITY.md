@@ -53,6 +53,15 @@ subprocess for every tool call. A tool call can therefore run any of the
 commands above, and the typed tools and the `mythify` escape-hatch tool
 reach the same CLI. The server adds no execution path of its own.
 
+Campaign prompts and watchers do not execute commands. `campaign advance`
+completes an existing plan step through the strict evidence gate, refusing
+prose-only waivers. Campaign goals and learning are plain-text steering
+material, so a host must treat their contents as project data rather than
+permission to run commands or change its safety rules.
+Plan identifiers and resolved storage paths are checked before use, including
+active pointers and archive paths. Campaign inspection refuses corrupt JSON
+without renaming or rewriting it.
+
 Mythify is not a sandbox. It does not restrict what an agent asks it to run.
 The boundary is the operating-system user that runs the CLI or the MCP
 server. Mythify spawns no model, provider, or agent on its own; the only

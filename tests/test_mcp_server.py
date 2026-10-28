@@ -37,7 +37,6 @@ CUT_COMMAND_TOOLS = (
     "readiness",
     "timeline",
     "phase",
-    "campaign_start",
     "research_start",
     "design_create",
     "workspace_show",
@@ -46,7 +45,6 @@ CUT_COMMAND_TOOLS = (
     "eval_scan",
     "review_create",
     "prompt_research",
-    "prompt_campaign",
     "prompt_analysis",
     "mcp",
 )
@@ -481,6 +479,29 @@ class TestSchemaGeneration(unittest.TestCase):
 
 
 class TestToolCalls(McpServerCase):
+    def test_campaign_uses_plan_gate_through_mcp(self):
+        client = self.start()
+        self.initialize(client)
+        self.assertEqual(exit_code(client.call("init")), 0)
+        created = client.call("campaign_start", {
+            "goal": "Deliver", "verify": shell_py("assert 2 + 2 == 4"),
+        })
+        self.assertEqual(exit_code(created), 0, result_text(created))
+        self.assertEqual(exit_code(client.call("step", {"id": "1", "status": "in_progress"})), 0)
+        refused = client.call("campaign_advance", {"result": "looks done"})
+        self.assertTrue(refused["isError"], result_text(refused))
+        self.assertIn("Verified evidence required", result_text(refused))
+        self.assertEqual(exit_code(client.call("plan_verify", {"id": "1"})), 0)
+        self.assertEqual(exit_code(client.call("campaign_advance", {"result": "Verifier passed"})), 0)
+        status = client.call("campaign_status", {"json": True})
+        self.assertIn('"status": "completed"', result_text(status))
+        learned = client.call("campaign_learn", {"lesson": "Reuse checks", "apply_next": True})
+        self.assertEqual(exit_code(learned), 0, result_text(learned))
+        for tool in ("campaign_prompt", "prompt_campaign"):
+            prompt = client.call(tool)
+            self.assertEqual(exit_code(prompt), 0, result_text(prompt))
+            self.assertIn("Reuse checks", result_text(prompt))
+
     def test_strict_step_gate_through_mcp(self):
         client = self.start()
         self.initialize(client)

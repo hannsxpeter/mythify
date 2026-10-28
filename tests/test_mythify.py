@@ -440,7 +440,7 @@ class TestPromptRouter(unittest.TestCase):
         self.assertEqual(packet["kind"], "handoff")
         self.assertIn("Active plan: ship-router-module", packet["next_prompt"])
         self.assertIn("Continue the current step", packet["next_prompt"])
-        for removed in ("analysis", "research", "campaign"):
+        for removed in ("analysis", "research"):
             self.assertIn("error", mythify.build_prompt_packet(removed, Path(".")))
         route, reason = mythify.select_workflow_route(
             "continue",
@@ -879,7 +879,7 @@ class TestPromptPackets(CliTestCase):
             )
             self.assertIn("not verification evidence", payload["guardrail"])
         self.assertEqual(before, self.state_snapshot(state))
-        for removed in ("research", "analysis", "campaign"):
+        for removed in ("research", "analysis"):
             result = self.run_cli("prompt", removed)
             self.assertEqual(result.returncode, 64, removed)
             self.assertIn("invalid choice", result.stderr)

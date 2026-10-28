@@ -143,6 +143,7 @@ class TestUserInstaller(unittest.TestCase):
             root + "/ROADMAP.md",
             root + "/docs/architecture.md",
             root + "/docs/commands.md",
+            root + "/docs/campaigns.md",
             root + "/docs/mcp.md",
             root + "/docs/product-planning.md",
             root + "/docs/start-here.md",
@@ -336,6 +337,17 @@ class TestUserInstaller(unittest.TestCase):
         tool_names = self.mcp_tool_names(mcp_bin, cwd=project, env=env)
         self.assertIn("verify_run", tool_names)
         self.assertIn("mythify", tool_names)
+        self.assertIn("campaign_start", tool_names)
+        self.assertIn("campaign_advance", tool_names)
+        campaign = self.run_cmd(
+            [str(mythify_bin), "campaign", "start", "Keep working", "--verify",
+             'python3 -c "assert 2 + 2 == 4"'], cwd=project, env=env,
+        )
+        self.assertEqual(campaign.returncode, 0, campaign.stderr)
+        prompt = self.run_cmd([str(mythify_bin), "campaign", "prompt"], cwd=project, env=env)
+        self.assertEqual(prompt.returncode, 0, prompt.stderr)
+        self.assertIn("Keep working", prompt.stdout)
+        self.assertIn("campaign advance", prompt.stdout)
         route_result = self.run_cmd(
             [str(mythify_bin), "route", "fix failing parser", "--json"],
             cwd=project,

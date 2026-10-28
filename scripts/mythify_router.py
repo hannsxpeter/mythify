@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from mythify_classification import classify_task_text
+from mythify_campaigns import build_campaign_prompt, campaign_metadata, load_campaign
 from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_loopfit import assess_loop_fit, loopfit_project_context, project_has_runnable_check
 from mythify_maps import (
@@ -28,7 +29,7 @@ from mythify_product import active_product_view, build_product_prompt_packet
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_ROUTER_PATH = REPO_ROOT / "protocol" / "workflow-router.json"
-PROMPT_PACKET_KINDS = ("next", "handoff", "failure", "review", "map", "product")
+PROMPT_PACKET_KINDS = ("next", "handoff", "failure", "review", "map", "product", "campaign")
 
 
 def load_workflow_router():
@@ -316,6 +317,8 @@ def add_prose_quality_instruction(payload):
 
 
 def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
+    if kind == "campaign":
+        return add_prose_quality_instruction(build_campaign_prompt(state, name))
     if kind == "next":
         selected = select_next_prompt_packet_kind(state)
         payload = build_prompt_packet(
@@ -676,6 +679,8 @@ def select_next_prompt_packet_kind(state):
         return "failure"
     if get_active_map_slug(state):
         return "map"
+    if load_campaign(state)[1] is not None:
+        return "campaign"
     return "handoff"
 
 def format_prompt_packet(payload):
@@ -758,6 +763,8 @@ def workflow_route_state(state):
                 "success_criteria": pending.get("success_criteria", ""),
             } if pending else None,
         }
+    if plan_view is not None and campaign_metadata(active_plan) is not None:
+        plan_view["campaign"] = active_plan["campaign"]
     outcome_view = None
     # Only an outcome that is still active steers routing; a finished loop stays
     # visible in status and outcome status but must not be a routing target.
@@ -851,6 +858,8 @@ def route_command_for(route, task, state_view):
             return "mythify plan import --source godaudits"
         return "mythify prompt review --goal {0}".format(quoted_task)
     if route == "handoff":
+        if (state_view.get("active_plan") or {}).get("campaign"):
+            return "mythify campaign prompt"
         return "mythify prompt handoff --goal {0}".format(quoted_task)
     if route == "plan":
         if god_artifact_has_open_tasks(state_view.get("godplans_plan")):

@@ -5,6 +5,11 @@ newline-delimited JSON-RPC 2.0 over stdio and has no dependencies. Every tool
 call runs one Mythify CLI command in your project and returns that command's
 output and exit code, so the evidence rules over MCP are the CLI's rules.
 
+Campaigns have typed tools `campaign_start`, `campaign_status`,
+`campaign_prompt`, `campaign_advance`, `campaign_learn`, and
+`prompt_campaign`. They use the same plan as the CLI. `campaign_advance`
+requires passing executed evidence for the current in-progress step.
+
 You do not need MCP if your agent can run shell commands: it can call
 `mythify` directly. Add MCP when your host calls tools instead of a shell, or
 when you want typed tool schemas in front of the agent.
@@ -105,9 +110,9 @@ Two JSON lines come back: the `initialize` result with `serverInfo`, then the
 
 ## Tools
 
-`tools/list` returns 37 typed tools plus one escape-hatch tool. The list is
+`tools/list` returns the typed tools below plus one escape-hatch tool. The list is
 built from the CLI's argument parser at startup, so `tools/list` is
-authoritative and these tables are a snapshot of 6.0.0.
+authoritative and these tables are a snapshot of 6.1.0.
 
 A typed tool's name is the command path joined with `_`, with `-` turned into
 `_`:
@@ -116,6 +121,7 @@ A typed tool's name is the command path joined with `_`, with `-` turned into
 | :--- | :--- |
 | Orient | `init`, `status`, `report`, `route` |
 | Plans | `plan_create`, `plan_add_step`, `plan_verify`, `plan_show`, `step` |
+| Campaigns | `campaign_start`, `campaign_status`, `campaign_prompt`, `campaign_advance`, `campaign_learn`, `prompt_campaign` |
 | Evidence | `verify_run`, `verify_claim`, `reflect` |
 | Memory | `memory_set`, `memory_get`, `lesson_add`, `lesson_list` |
 | Outcome loops | `outcome_start`, `outcome_check`, `outcome_status`, `outcome_stop` |
@@ -132,8 +138,8 @@ and booleans stand for flags such as `json`.
 The escape-hatch tool `mythify` takes `{"args": [...]}`, the argument list you
 would type after `mythify`. It runs any command without a typed tool, for
 example `{"args": ["outcome", "run"]}` or `{"args": ["summary", "--json"]}`.
-It refuses `mcp`. In 6.0.0 these commands have no typed tool: `protocol check`,
-`history`, `summary`, `loop-fit`, every `prompt` kind, `plan import`,
+It refuses `mcp`. These commands have no typed tool: `protocol check`,
+`history`, `summary`, `loop-fit`, `campaign watch`, the other `prompt` kinds, `plan import`,
 `plan list`, `plan switch`, `plan archive`, `map list`, `map verify`,
 `map fog`, `map scope-out`, `product list`, `outcome run`, `outcome results`,
 `review blast-radius`, `review prove`, `review show`, `lineage attach`,

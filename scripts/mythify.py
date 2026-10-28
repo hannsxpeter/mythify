@@ -30,6 +30,13 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from mythify_parser import build_parser as build_cli_parser  # noqa: E402
+from mythify_campaigns import configure_campaign_store  # noqa: E402
+from mythify_plans import (  # noqa: E402
+    UnsafePlanPath, active_pointer_path, checked_plan_path, clear_active_slug,
+    count_archived, find_existing_slug_by_name, find_plan_slug, get_active_slug,
+    list_plan_slugs, load_plan, plan_path, plan_slug_taken, plans_dir, save_plan,
+    set_active_slug, target_plan_slug,
+)
 from mythify_io import (  # noqa: E402
     JSONL_TAIL_CHUNK_BYTES,
     _write_text_atomic,
@@ -159,7 +166,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
@@ -235,7 +242,10 @@ STATE_SUBDIRECTORIES = (
 def ensure_layout(state):
     """Create the state directory and its subdirectories."""
     for parts in STATE_SUBDIRECTORIES:
-        state.joinpath(*parts).mkdir(parents=True, exist_ok=True)
+        path = state.joinpath(*parts)
+        if parts[0] == "plans":
+            checked_plan_path(state, path)
+        path.mkdir(parents=True, exist_ok=True)
 
 
 def gitignore_has_state_entry(text):
@@ -307,111 +317,6 @@ configure_lineage_store(
 # ---------------------------------------------------------------------------
 # Plan store
 # ---------------------------------------------------------------------------
-
-def plans_dir(state):
-    return state / "plans"
-
-
-def plan_path(state, slug):
-    return plans_dir(state) / (slug + ".json")
-
-
-def plan_slug_taken(state, slug):
-    """True when SLUG names a live plan or an archived one.
-
-    Verification records are keyed by plan slug, so an archived plan's slug is
-    never reused: the new plan would inherit the old plan's evidence.
-    `plan archive` writes plans/archive/SLUG.json, or SLUG-YYYYMMDDHHMMSS.json
-    when that name is taken.
-    """
-    if plan_path(state, slug).exists():
-        return True
-    archive = plans_dir(state) / "archive"
-    if (archive / (slug + ".json")).exists():
-        return True
-    for path in archive.glob(slug + "-*.json") if archive.is_dir() else ():
-        stamp = path.stem[len(slug) + 1:]
-        if len(stamp) == 14 and stamp.isdigit():
-            return True
-    return False
-
-
-def active_pointer_path(state):
-    return plans_dir(state) / "active"
-
-
-def list_plan_slugs(state):
-    directory = plans_dir(state)
-    if not directory.is_dir():
-        return []
-    return sorted(path.stem for path in directory.glob("*.json"))
-
-
-def count_archived(state):
-    directory = plans_dir(state) / "archive"
-    if not directory.is_dir():
-        return 0
-    return len(list(directory.glob("*.json")))
-
-
-def get_active_slug(state):
-    pointer = active_pointer_path(state)
-    if not pointer.is_file():
-        return None
-    try:
-        name = pointer.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    if name and plan_path(state, name).exists():
-        return name
-    return None
-
-
-def set_active_slug(state, slug):
-    _write_text_atomic(active_pointer_path(state), slug + "\n")
-
-
-def clear_active_slug(state):
-    pointer = active_pointer_path(state)
-    if pointer.exists():
-        try:
-            pointer.unlink()
-        except OSError:
-            pass
-
-
-def load_plan(state, slug):
-    path = plan_path(state, slug)
-    if not path.exists():
-        return None
-    plan = read_json(path, None)
-    if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
-        return None
-    return plan
-
-
-def save_plan(state, slug, plan):
-    write_json_atomic(plan_path(state, slug), plan)
-
-
-def find_existing_slug_by_name(state, name, path_func):
-    candidate = slugify(name)
-    if candidate and path_func(state, candidate).exists():
-        return candidate
-    return None
-
-
-def find_plan_slug(state, name):
-    """Map a user-supplied plan name to an existing plan slug, or None."""
-    return find_existing_slug_by_name(state, name, plan_path)
-
-
-def target_plan_slug(state, name):
-    """Named plan if given, otherwise the active plan. None if unresolvable."""
-    if name:
-        return find_plan_slug(state, name)
-    return get_active_slug(state)
-
 
 def execute_recorded_verification(
     state, command, claim, timeout=None, context=None, parents=None
@@ -1026,12 +931,13 @@ def cmd_plan_archive(args, state):
     if slug is None:
         fail("[FAIL] Plan not found: {0}".format(name))
         return 1
-    archive_dir = plans_dir(state) / "archive"
+    archive_dir = checked_plan_path(state, plans_dir(state) / "archive")
     archive_dir.mkdir(parents=True, exist_ok=True)
     source = plan_path(state, slug)
     destination = archive_dir / (slug + ".json")
     if destination.exists():
         destination = archive_dir / ("{0}-{1}.json".format(slug, now_stamp()))
+    checked_plan_path(state, destination)
     os.replace(str(source), str(destination))
     if get_active_slug(state) is None:
         clear_active_slug(state)
@@ -1611,6 +1517,14 @@ configure_views(
     fail_func=fail,
 )
 
+configure_campaign_store(
+    target_plan_slug=target_plan_slug,
+    load_plan=lambda state, slug: load_plan(state, slug, readonly=True),
+    create_plan_record=create_plan_record, save_plan=save_plan,
+    now_iso=now_iso, cmd_step=cmd_step,
+    strict_step_evidence_enabled=strict_step_evidence_enabled,
+)
+
 configure_prompt_router(
     get_active_slug_func=get_active_slug,
     load_plan_func=load_plan,
@@ -1637,15 +1551,19 @@ configure_prompt_router(
 def main(argv=None):
     parser = build_cli_parser(globals())
     args = parser.parse_args(argv)
-    if args.needs_state == "optional":
-        return args.handler(args, resolve_state_dir())
-    if not args.needs_state:
-        return args.handler(args, None)
-    state = resolve_state_dir()
-    if state is None:
-        fail(NO_WORKSPACE_MESSAGE)
+    try:
+        if args.needs_state == "optional":
+            return args.handler(args, resolve_state_dir())
+        if not args.needs_state:
+            return args.handler(args, None)
+        state = resolve_state_dir()
+        if state is None:
+            fail(NO_WORKSPACE_MESSAGE)
+            return 1
+        return args.handler(args, state)
+    except UnsafePlanPath as exc:
+        fail("[FAIL] " + str(exc))
         return 1
-    return args.handler(args, state)
 
 
 if __name__ == "__main__":

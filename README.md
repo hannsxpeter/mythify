@@ -54,6 +54,12 @@ can read it without reading any code.
 the decisions, and the evidence into a folder in your project, so tomorrow's
 session opens exactly where today's stopped.
 
+For a campaign, run `mythify campaign start "GOAL" --plan NAME`, then
+`mythify campaign prompt NAME` to resume. Campaigns reuse the plan's steps
+and verification records. They preserve progress across chats and complete
+steps only through the strict evidence gate.
+See the [campaign guide](docs/campaigns.md) for setup, resumption, and upgrade checks.
+
 ## What you get
 
 - **A refusal you can rely on.** Try to mark a step complete with nothing but a

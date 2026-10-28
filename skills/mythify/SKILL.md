@@ -48,6 +48,40 @@ names it.
 | Retry until a check passes | `outcome start` with a verifier and budgets, then `outcome check`. |
 | Multi-session work | All of the above, plus memory and lessons. |
 
+## Campaigns
+
+For a long-running goal or an explicit campaign request, use the supported
+campaign interface. Check `mythify campaign --help` to confirm the runtime
+and skill match. A campaign uses plan steps as its only progress record.
+
+```bash
+mythify campaign start "GOAL" --success "DONE CRITERIA"
+mythify campaign status
+mythify campaign prompt
+mythify step N in_progress
+mythify plan verify N
+mythify campaign advance --result "verify run exit 0: CLAIM"
+mythify campaign learn "Apply this learning to subsequent work" --apply-next
+```
+
+`campaign start` attaches to the active plan, preserving progress and
+evidence. Use `--plan NAME` for another existing plan. With no active plan
+it creates one; `--tasks JSON` and `--verify COMMAND` configure new plans
+only. Repeating the same start resumes it without rewriting state. Do not
+create a second plan to get campaign behavior.
+
+`campaign prompt [NAME]`, `prompt campaign [NAME]`, and `prompt next` render
+the next task for the host. Advance only after exactly one step is in
+progress and its executed check passes. Campaign advancement refuses
+prose-only waivers. Use `campaign learn LESSON --plan NAME` for a named
+campaign's learning. Skipped steps do not count as campaign completion.
+
+Only an explicitly managed background watcher should use
+`campaign watch --max-iterations 0`. It emits changed prompts and never
+edits files, launches agents, runs verifiers, or advances work. The host
+performs the work in the current chat. Legacy v5 campaign files remain
+untouched; attach their existing execution plan with `--plan NAME`.
+
 ## The loop
 
 1. PLAN. `mythify plan create "GOAL" --steps JSON`. Give each step a

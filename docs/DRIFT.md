@@ -133,7 +133,7 @@ These drifted in 5.8 and left with the feature.
 | --- | --- | --- |
 | `plan create --design` help | "Approved design record this plan implements." Any string was stored, with no existence or approval check, and nothing read the approval. | `design` and `--design` are removed; `product` replaces design records. |
 | docs/design.md lineage | Described a "fresh-parent gate" no command declared, and a precedence order nothing enforced. | Lineage is documented as advisory status only. |
-| `campaign` routing text | Promised "evidence-gated advancement"; `campaign task N completed` skipped verification. | `campaign` is removed. |
+| Legacy `campaign` routing text | Promised "evidence-gated advancement"; `campaign task N completed` skipped verification. | The plan-backed campaign interface uses the plan's strict evidence gate; the legacy task store remains unused. |
 | workspace config docs | Implied local config could not weaken frozen paths or isolation; nothing outside the module read the file. | `workspace` is removed. |
 | `eval adopt` output, docs/design.md | Printed a command for `local_model_eval.py`, which no install shipped, and claimed eval evidence survived `logs compact` when only the active log was read. | `eval` and the local harness are removed. |
 | docs/artifact-hygiene.md | Listed `explicit_provenance_fields` as actionable; no code read them. | `artifact` is removed. |

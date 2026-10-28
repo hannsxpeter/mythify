@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 851bd9826d6cd7ea7cd820923438ae5e4befca1c17b95acf4496c20ba79926cd -->
+<!-- Mythify protocol-sha256: 27489e51279d548482fbbfb41730ead60a79268f9cfc67d7fb8ec2de09776ee0 -->
 
 # The Mythify Protocol
 
@@ -44,6 +44,13 @@ root when it is copied in. Run `mythify init` once per project.
 | Product direction (why, for whom, what outcome) | `product create`, outcomes, non-goals, bets, human `product approve`, `product promote`. |
 | Retry until a check passes | `outcome start` with a verifier and budgets, then `outcome check`. |
 | Multi-session work | All of the above, plus memory and lessons. `status` at start, `summary` at end. |
+
+For long-running campaigns, `campaign start GOAL --plan NAME` attaches to
+an existing plan without resetting its steps or evidence. Without `--plan`,
+it uses the active plan or creates one when none exists. `campaign prompt`
+renders the next host task; `campaign advance --result TEXT` completes the
+current step through the plan's strict evidence gate. `campaign learn TEXT`
+retains learning. Campaigns do not start another executor.
 
 Unsure which row fits? Run `mythify route "TASK"`. It reads your request and
 the state on disk and recommends one route. It advises; it never acts.
@@ -128,6 +135,7 @@ result as executed evidence.
 Orient: `status`, `report`, `history`, `summary`, `route TASK`, `loop-fit TASK`,
 `prompt next|handoff|failure|review|map|product`.
 Plan: `plan create|add-step|verify|show|list|switch|archive|import`, `step ID STATUS [RESULT]`.
+Campaign: `campaign start|status|prompt|watch|advance|learn`, `prompt campaign`.
 Evidence: `verify run COMMAND [--claim TEXT]`, `verify claim CLAIM EVIDENCE`, `reflect`.
 Decide: `map create|ticket|claim|verify|resolve|fog|scope-out|show|list|promote`.
 Product: `product create|outcome|non-goal|bet|risk|check|approve|decide|promote|measure|show|list`.

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0] - 2026-10-28
+
+### Added
+
+- Plan-backed campaigns: `campaign start|status|prompt|watch|advance|learn`
+  and `prompt campaign`. Starting a campaign reuses the current plan unless
+  a name is specified, preserving steps, results, and verification anchors.
+  Advancement uses the plan's strict evidence gate. Prompts and watchers
+  only steer the host; they do not launch another executor.
+- Campaign continuation in `prompt next`, resume routing, typed MCP tools,
+  and the installed chat skills.
+- A campaign guide covering existing-plan preservation, evidence-gated
+  advancement, learning, prompt watching, and installed-copy upgrade checks.
+
+### Fixed
+
+- Crafted active-plan pointers and plan-store symlinks can no longer direct
+  plan or campaign reads and writes outside the plan directory.
+- Campaign inspection leaves corrupt JSON unchanged and refuses to proceed,
+  preserving the read-only behavior of status, prompt, and watch commands.
+
 ## [6.0.0] - 2026-10-02
 
 ### Summary
@@ -2004,7 +2025,8 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...HEAD
+[6.1.0]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...v6.1.0
 [6.0.0]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...v6.0.0
 [5.8.0]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/hannsxpeter/mythify/compare/v5.6.0...v5.7.0

@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from mythify_campaigns import campaign_metadata, campaign_view
 
 from mythify_evidence_guard import (
     active_legacy_opt_outs,
@@ -1163,6 +1164,8 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
             "steps": plan_record.get("steps", []),
             "lineage": inspect_lineage(state, plan_record.get("lineage")),
         }
+    if active_plan is not None and campaign_metadata(plan_record) is not None:
+        active_plan["campaign"] = campaign_view(active_slug, plan_record)
     outcomes = list_outcome_rows(state)
     active_outcome_slug = get_active_outcome_slug(state)
     active_outcome = next(
@@ -1253,6 +1256,9 @@ def format_status_view(view):
             )
         )
         lines.append("Goal: {0}".format(plan.get("goal", "")))
+        if plan.get("campaign"):
+            lines.append("Campaign: {0} ({1})".format(
+                plan["campaign"]["goal"], plan["campaign"]["status"]))
         for step in plan.get("steps", []):
             lines.append(format_step_line(step))
         lines.append(plan["next_summary"])

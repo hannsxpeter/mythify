@@ -25,7 +25,7 @@ telemetry; grading user projects against Mythify's own release gates.
 ## Runtime layout
 
 `scripts/mythify.py` is the only entry point. It holds `VERSION`, state
-directory resolution, the plan and step store, the shared verification runner
+directory resolution, plan and step commands, the shared verification runner
 (`execute_recorded_verification`, `run_shell_capture`), `summary`, and
 `main()`. Modules that need its helpers receive them through `configure_*`
 calls at import time, and the parser receives the handlers as a symbol
@@ -41,6 +41,8 @@ table, so no module imports the entry point.
 | `mythify_provenance.py` | git commit, clean flag, and `worktree_digest` for each executed record |
 | `mythify_memory.py`, `mythify_log_compaction.py`, `mythify_loopfit.py` | memory and lessons, `logs compact`, the `loop-fit` advisory |
 | `mythify_outcomes.py` | outcome loops: start, check, run, status, results, stop, scope and frozen paths |
+| `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
+| `mythify_plans.py` | validated plan identifiers, contained paths, active pointers, plan reads and writes |
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
 | `mythify_product.py` | product records, readiness check, approval, verdicts, promote, measure, show |
 | `mythify_quality.py` | blast-radius safety cases: create, prove, show |
@@ -125,7 +127,23 @@ created; plans written before this field existed have none), and when present
 `lineage`, `source` (map promote: `kind`
 `map`, `map`, `destination`, `decisions`, `out_of_scope`; plan import: `kind`,
 `path`, `version`, `imported_at`), `product_ref` (`product`, `bet`,
-`outcomes`), and `strict_context: true` for imported plans.
+`outcomes`), `strict_context: true` for imported or campaign plans, and
+optional `campaign` metadata.
+
+Campaign metadata: `schema_version: 1`, `goal`, `success`, `created`, and
+`lessons` (entries with `text`, `apply_next`, and `timestamp`). The `success`
+text describes the goal; step verifiers must cover it. Campaign progress is
+derived from the plan's steps, with no campaign pointer or separate task
+store. `campaign start` preserves existing steps, results, and verification
+anchors. `campaign advance` calls the same strict completion handler as
+`step`, refuses a prose-only waiver, and requires exactly one in-progress
+step. A campaign is complete only when its non-empty plan has every step
+completed; skipped steps do not count. Named commands leave the active plan
+pointer unchanged when operating on an existing plan. Creating a new campaign
+plan selects it as active. Prompt and watch operations only read state.
+Campaign reads preserve corrupt JSON in place and refuse to proceed. Plan
+paths reject traversal identifiers and symlinks that resolve outside their
+store, including the active pointer, plan directory, and archive paths.
 
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
@@ -250,8 +268,9 @@ process; a lock left by a dead process is removed. `outcome check`, `outcome
 run`, and `outcome check --audit` take the same kind of lock on the outcome's
 `goal.json` for the whole call and re-read the goal under it, so a concurrent
 call on the same outcome exits 1 without running anything and cannot spend an
-iteration twice. A JSON file that fails to
-parse is moved to `<name>.corrupt-<stamp>` with a warning, and a malformed
+iteration twice. Standard plan reads preserve unreadable JSON in place and
+warn without using the record. Other JSON readers quarantine a file that
+fails to parse as `<name>.corrupt-<stamp>` with a warning, and a malformed
 JSONL line is skipped with a warning. `logs compact` copies the whole raw log
 to `logs/archive/` before trimming, keeps retained lines byte for byte so the
 hash chain still links, and leaves every verification artifact in place.
@@ -335,7 +354,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
   (passed on as an absolute path), else the nearest ancestor of the server's
   working directory holding `.mythify/` (skipping `~/.mythify`), else the
   server's working directory. The CLI enforces every gate.
-- Typed tools. `TOOL_ALLOWLIST` names 37 command paths; each tool is the path
+- Typed tools. `TOOL_ALLOWLIST` names the typed command paths; each tool is the path
   joined with `_`, `-` mapped to `_` (`plan add-step` is `plan_add_step`).
   Schemas come from the argparse actions: positionals are required unless
   `nargs` is `?` or `*`, `store_true` is a boolean, `append` a string array,
@@ -427,6 +446,12 @@ and never read, and `plan create --design` kept a bare string. Product
 records connect the reason for the work to its plans and measurements.
 
 ### 2026-10-01: downsize to the evidence loop
+
+Update, 2026-10-28: campaign commands are available again as a plan-backed
+interface. Campaign goals and learning live in plan metadata; the existing
+plan steps and evidence gate own progress. No separate campaign task store
+or executor is restored. Legacy v5 campaign files remain untouched. The
+removal rationale below records the earlier implementation's weaknesses.
 
 `trace`, `artifact`, `eval`, `campaign`, `research`, and `workspace` are
 removed, with their modules, parsers, manifests, docs, and tests. Why, per

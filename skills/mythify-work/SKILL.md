@@ -40,6 +40,12 @@ Run commands through the host's Mythify MCP tools when they exist, else the
 
        mythify step N in_progress
 
+   For a requested campaign or a goal spanning sessions, attach it to the
+   existing plan with `mythify campaign start "GOAL" --plan NAME`. Resume
+   through `mythify campaign prompt NAME`, verify the plan step, and use
+   `mythify campaign advance NAME --result "verify run exit 0: CLAIM"`.
+   Keep the existing steps and evidence; never start a second executor.
+
 5. Do the work. Verify with the step's own check, or a direct one:
 
        mythify plan verify N

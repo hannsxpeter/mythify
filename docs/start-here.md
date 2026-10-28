@@ -134,6 +134,21 @@ mythify memory set export-format "RFC 4180, UTF-8, header row" --category decisi
 mythify lesson add "Empty rows" "The CSV writer drops empty rows unless quoting is forced"
 ```
 
+#### Keep a plan across sessions
+
+For a long-running goal, attach a campaign to the plan you already have:
+
+```bash
+mythify campaign start "Finish CSV export" --plan add-csv-export
+mythify campaign prompt add-csv-export
+```
+
+Replace `add-csv-export` with the name from `mythify plan list`. Campaigns
+keep the existing steps and evidence. Complete the current step through
+`campaign advance --result "EXECUTED EVIDENCE"` after its check passes.
+See [campaigns.md](campaigns.md) for named continuation, learning, watching,
+and upgrade checks.
+
 ### Foggy work: a map
 
 The effort is too big for one session and the steps are unknown because the

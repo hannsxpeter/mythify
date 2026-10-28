@@ -14,6 +14,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 
 ## Commands
 
+- `campaign`: Continue durable goals through strict plan steps.
 - `init`: Create ./.mythify with subdirectories and an empty memory.json.
 - `protocol`: Protocol copy checks.
 - `status`: Orient: active plan, outcome, map, and product, evidence breakdown, and attention items.
@@ -36,6 +37,113 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 - `reflect`: Record a structured reflection as JSON or flags.
 - `summary`: Full session report: plans, outcomes, maps, products, memory, lessons, evidence, reflections.
 - `mcp`: Serve Mythify commands as MCP tools over stdio.
+
+## campaign
+
+Continue durable goals through strict plan steps.
+
+### campaign start
+
+```text
+mythify campaign start [--plan PLAN | --name NAME] [--success SUCCESS] [--tasks TASKS] [--verify VERIFY] goal
+```
+
+Attach a campaign to the current or named plan, or create one.
+
+Arguments:
+
+- `goal`: Campaign goal.
+
+Options:
+
+- `--plan PLAN`: Existing plan to preserve and use.
+- `--name NAME`: Plan name to create or resume.
+- `--success SUCCESS`: Success criteria for the campaign.
+- `--tasks TASKS`: JSON step objects for a new plan only.
+- `--verify VERIFY`: Default step verifier for a new plan only.
+
+### campaign status
+
+```text
+mythify campaign status [--json] [name]
+```
+
+Show campaign progress from its plan.
+
+Arguments:
+
+- `[name]`: Campaign plan name; defaults to active plan.
+
+Options:
+
+- `--json`: Print JSON.
+
+### campaign prompt
+
+```text
+mythify campaign prompt [--json] [name]
+```
+
+Render the next host prompt without changing state.
+
+Arguments:
+
+- `[name]`: Campaign plan name; defaults to active plan.
+
+Options:
+
+- `--json`: Print JSON.
+
+### campaign watch
+
+```text
+mythify campaign watch [--json] [--interval INTERVAL] [--max-iterations MAX_ITERATIONS] [name]
+```
+
+Watch for changed prompts; never execute work or advance steps.
+
+Arguments:
+
+- `[name]`: Campaign plan name; defaults to active plan.
+
+Options:
+
+- `--json`: Print JSON.
+- `--interval INTERVAL`: Polling interval in seconds. Default: `5`.
+- `--max-iterations MAX_ITERATIONS`: Poll count; 0 watches until interrupted. Default: `1`.
+
+### campaign advance
+
+```text
+mythify campaign advance --result RESULT [name]
+```
+
+Complete the current plan step through its strict evidence gate.
+
+Arguments:
+
+- `[name]`: Campaign plan name; defaults to active plan.
+
+Options:
+
+- `--result RESULT`: Executed evidence supporting completion. Required.
+
+### campaign learn
+
+```text
+mythify campaign learn [--plan NAME] [--apply-next] lesson
+```
+
+Record learning for subsequent host prompts.
+
+Arguments:
+
+- `lesson`: Learning to retain.
+
+Options:
+
+- `--plan NAME`: Campaign plan name; defaults to active plan.
+- `--apply-next`: Mark the learning for subsequent work.
 
 ## init
 
@@ -127,6 +235,22 @@ Options:
 ## prompt
 
 Render chat-ready workflow prompt packets from durable Mythify state. Prompt packets are steering material for the host agent, not verification evidence.
+
+### prompt campaign
+
+```text
+mythify prompt campaign [--json] [name]
+```
+
+Render a campaign prompt from its existing plan.
+
+Arguments:
+
+- `[name]`: Campaign plan name; defaults to active plan.
+
+Options:
+
+- `--json`: Print JSON.
 
 ### prompt failure
 

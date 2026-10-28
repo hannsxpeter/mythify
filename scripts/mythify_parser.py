@@ -10,6 +10,7 @@ from mythify_quality import add_quality_parser
 from mythify_verification_commands import add_verification_parsers
 from mythify_map_parser import add_map_parser
 from mythify_product_parser import add_product_parser
+from mythify_campaigns import add_campaign_parser, cmd_campaign
 from mythify_mcp import serve as serve_mcp
 
 # EX_USAGE from sysexits.h. Exit 2 is the recorded "unverified" verdict, so a
@@ -47,7 +48,7 @@ def build_parser(symbols):
             "  mythify report ...          show chat-ready progress and issue reports\n"
             "\n"
             "Workflow primitives:\n"
-            "  plan, step, outcome, map, product, prompt\n"
+            "  plan, step, campaign, outcome, map, product, prompt\n"
             "\n"
             "Advanced surfaces:\n"
             "  history, summary, loop-fit, memory, lesson, logs, reflect, review, lineage,\n"
@@ -61,6 +62,7 @@ def build_parser(symbols):
     parser.add_argument("--version", action="version", version="Mythify v{0}".format(VERSION))
     parser.set_defaults(needs_state=True)
     sub = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
+    add_campaign_parser(sub)
 
     p = sub.add_parser(
         "init",
@@ -207,6 +209,11 @@ def build_parser(symbols):
         ),
     )
     prompt_sub = prompt.add_subparsers(dest="prompt_command", metavar="KIND", required=True)
+
+    p = prompt_sub.add_parser("campaign", help="Render a campaign prompt from its existing plan.")
+    p.add_argument("name", nargs="?", help="Campaign plan name; defaults to active plan.")
+    p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
+    p.set_defaults(handler=cmd_campaign, campaign_command="prompt")
 
     def add_prompt_common(parser):
         parser.add_argument(
