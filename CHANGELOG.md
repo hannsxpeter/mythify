@@ -47,6 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The test suite takes less than half the time it did, with every test
+  still checking what it checked. Most CLI calls now fork from a warm
+  interpreter (`tests/warm_cli.py`) that has already imported the runtime, and
+  return the exit code, stdout, and stderr of a fresh run, which
+  `tests/test_warm_cli.py` checks; `MYTHIFY_TEST_FRESH_CLI=1` runs every call
+  fresh. `tests/subprocess_env.py` speeds up the subprocesses that remain:
+  with `PYTHONDONTWRITEBYTECODE` set they recompiled every Mythify module, and
+  a system Python with its standard-library cache under `$HOME` recompiled the
+  standard library too in each test with a throwaway `HOME`, so children now
+  share a private `PYTHONPYCACHEPREFIX` that is removed at exit (no `.pyc`
+  files reach the source tree or the user's cache folders); and on macOS,
+  when `git` on `PATH` is the `/usr/bin/git` trampoline, the git it runs goes
+  first on `PATH`. On the maintainer's Mac, both suites plus the lint, run
+  one after another, went from about 1435 s (3.15: 606 s, 3.9: 829 s) to
+  621 s (3.15: 285 s, 3.9: 331 s) while the machine's load average stayed
+  between 40 and 60.
 - Judging a step's evidence (`step ... completed`, `verify gate`) runs each
   distinct read-only git command once: the provenance sample, the changed-path
   check, and a high-risk step's review check share one snapshot

@@ -9,9 +9,13 @@ must exit 0, and step completion must be refused before plan verify runs.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

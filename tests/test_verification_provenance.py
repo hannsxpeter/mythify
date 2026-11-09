@@ -10,6 +10,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI = SCRIPTS_DIR / "mythify.py"
@@ -30,14 +34,7 @@ class VerificationProvenanceTest(unittest.TestCase):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
         env["HOME"] = str(self.home)
-        return subprocess.run(
-            [sys.executable, str(CLI), *args],
-            cwd=str(self.project),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        return warm_cli.run(list(args), cwd=str(self.project), env=env, timeout=120)
 
     def init_git_repo(self):
         subprocess.run(["git", "init", "-q"], cwd=self.project, check=True)
