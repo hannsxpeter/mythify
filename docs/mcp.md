@@ -126,11 +126,10 @@ A typed tool's name is the command path joined with `_`, with `-` turned into
 | Memory | `memory_set`, `memory_get`, `lesson_add`, `lesson_list` |
 | Outcome loops | `outcome_start`, `outcome_check`, `outcome_status`, `outcome_stop` |
 | Maps | `map_create`, `map_ticket`, `map_claim`, `map_resolve`, `map_show`, `map_promote` |
-| Product | `product_create`, `product_outcome`, `product_non_goal`, `product_bet`, `product_risk`, `product_check`, `product_approve`, `product_decide`, `product_promote`, `product_measure`, `product_show` |
 
 Argument keys are the CLI's long option names with `-` turned into `_`
-(`--human-input` becomes `human_input`, `--target-source` becomes
-`target_source`), and positionals use their CLI names (`goal`, `id`, `status`,
+(`--human-input` becomes `human_input`, `--max-iterations` becomes
+`max_iterations`), and positionals use their CLI names (`goal`, `id`, `status`,
 `command`). Each property description ends with the CLI flag it maps to.
 Required CLI arguments are required in the schema, unknown keys are rejected,
 and booleans stand for flags such as `json`.
@@ -141,7 +140,7 @@ example `{"args": ["outcome", "run"]}` or `{"args": ["summary", "--json"]}`.
 It refuses `mcp`. These commands have no typed tool: `protocol check`,
 `history`, `summary`, `loop-fit`, `campaign watch`, the other `prompt` kinds, `plan import`,
 `plan list`, `plan switch`, `plan archive`, `map list`, `map verify`,
-`map fog`, `map scope-out`, `product list`, `outcome run`, `outcome results`,
+`map fog`, `map scope-out`, `outcome run`, `outcome results`,
 `review blast-radius`, `review prove`, `review show`, `lineage attach`,
 `lineage status`, `memory clear`, and `logs compact`.
 
@@ -165,8 +164,8 @@ code:
 | Exit code | Meaning | `isError` |
 | :--- | :--- | :--- |
 | 0 | Success. | false |
-| 2 | An unverified verdict: the check ran and failed, `product check` found gaps, or `MYTHIFY_DISABLE_RUN` blocked the check (nothing ran and nothing was recorded). This is a valid result, not a tool error. | false |
-| 1 | Refusal or failure, for example `step` completed without a passing `verify run`, or `product approve` without `human_input`. | true |
+| 2 | An unverified verdict: the check ran and failed, or `MYTHIFY_DISABLE_RUN` blocked the check (nothing ran and nothing was recorded). This is a valid result, not a tool error. | false |
+| 1 | Refusal or failure, for example `step` completed without a passing `verify run`, or `map_resolve` on a human-in-the-loop ticket without `human_input`. | true |
 | 64 | Usage error from the CLI's argument parser. | true |
 | 124 | The call hit `MYTHIFY_MCP_CALL_TIMEOUT` and was stopped. | true |
 
@@ -182,13 +181,12 @@ number, or enum argument reaches the CLI, which rejects it as a usage error:
 
 `MYTHIFY_DISABLE_RUN=1` in the server's environment turns off every command
 that executes a shell command: `verify run`, `plan verify`, `map verify`,
-`outcome check`, `outcome run`, `product measure`, and `review prove`. They
+`outcome check`, `outcome run`, and `review prove`. They
 print `[FAIL] ... is disabled`, run nothing, and exit 2.
 
 ## Human gates still need the human
 
-MCP changes how the agent calls Mythify, not who may decide. `product_approve`
-and `product_decide` are refused without `human_input`, and `map_resolve` on a
+MCP changes how the agent calls Mythify, not who may decide. `map_resolve` on a
 `grilling` or `prototype` ticket, or a task ticket added with mode `hitl`, is
 refused without `human_input`. The server checks only that the value is not
 empty: it records the words but cannot verify who supplied them. The value
@@ -196,9 +194,9 @@ must be the person's actual words. An agent that writes its own approval has
 recorded nothing a reviewer can trust. Ask, wait for the answer, then pass it
 through.
 
-Keep `product_approve`, `product_decide`, and `map_resolve` on per-call user
-confirmation in your host's tool permissions, never auto-approved, so the host
-puts a person in front of every call that records a human decision.
+Keep `map_resolve` on per-call user confirmation in your host's tool
+permissions, never auto-approved, so the host puts a person in front of every
+call that records a human decision.
 
 ## Protocol versions
 

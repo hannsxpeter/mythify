@@ -2,7 +2,7 @@
 
 Mythify makes an AI coding agent back every "done" with a command it actually
 ran. This page is the shortest path from nothing to a working loop, then the
-four workflows worth learning, then what you can ignore.
+three workflows worth learning, then what you can ignore.
 
 ## The one habit
 
@@ -74,7 +74,7 @@ That refusal is the product.
 ```bash
 mythify status     # active plan, next step, evidence counts, attention items
 mythify report     # new events since the last report, as chat-ready lines
-mythify summary    # plans, outcomes, maps, products, memory, lessons, evidence
+mythify summary    # plans, outcomes, maps, memory, lessons, evidence
 ```
 
 `status` lists failed checks, checks that passed without testing anything, and
@@ -84,10 +84,10 @@ task to skip old history, `--since last` for each update after that, and
 `--peek` to look without moving the cursor. For machine-readable output,
 `status` and `summary` take `--json` and `report` takes `--format json`.
 
-## 4. Four workflows worth learning
+## 4. Three workflows worth learning
 
 Not sure which one fits? `mythify route "TASK"` reads the request and the state
-on disk and recommends one: `direct`, `plan`, `map`, `product`, `outcome`,
+on disk and recommends one: `direct`, `plan`, `map`, `outcome`,
 `review`, `failure_recovery`, or `handoff`. It advises and never acts.
 
 ### Small fix
@@ -180,42 +180,6 @@ words. Fog that sharpens becomes a ticket with
 ruled out with `map scope-out NOTE --reason TEXT`. When no open
 ticket and no fog remain, `mythify map promote` creates a plan that carries
 every decision.
-
-### Product direction: a product plan
-
-Before a large build, settle why it exists, for whom, and how anyone will know
-it worked.
-
-```bash
-mythify product create "Self-serve onboarding" \
-  --problem "New teams wait two days for a manual account setup" \
-  --user "Team admin signing up without a sales call" --stage pre-launch
-mythify product outcome "Admins reach a working workspace the same day" \
-  --metric "share of signups with a workspace within 24h" \
-  --baseline "12%" --target "60%" --target-source decided \
-  --measure "python3 scripts/onboarding_metric.py --min 0.60"
-mythify product non-goal "Enterprise SSO" --reason "Needs sales-led contracts"
-mythify product bet "A guided setup wizard removes the manual step" \
-  --outcome O1 --kill "under 30% same-day setup after 200 signups" \
-  --decider "Head of Product"
-mythify product risk "Admins would rather wait for a person than set up alone" \
-  --kind value --validation "interview five admins who stalled in setup"
-mythify product check       # exit 2 lists the gaps; exit 0 when ready
-mythify product show        # the one-pager to put in front of the decider
-```
-
-Then a person approves it, and only then does a bet become a plan:
-
-```bash
-mythify product approve --human-input "Approved. Ship the wizard first."
-mythify product promote B1   # creates a plan whose goal is the bet
-mythify product measure O1   # after shipping: runs the measure command as evidence
-```
-
-`product approve` and `product decide` are refused without the person's words.
-The stage (`prototype`, `pre-launch`, `growth`, `enterprise`) sets how strict
-`product check` is. [product-planning.md](product-planning.md) covers the rules
-for each stage, bet verdicts, and traceability flags.
 
 ## 5. What to ignore at first
 

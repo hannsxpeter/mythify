@@ -39,7 +39,6 @@ Run commands through the host's Mythify MCP tools when they exist, else the
    | `direct` | Answer or make one reversible edit; verify if it changes code. |
    | `plan` | Multi-step work: `plan create` with verifiable steps. |
    | `map` | Decisions are not settled yet: `map create`, one ticket at a time. |
-   | `product` | Why, for whom, and what outcome are open: `product create`. |
    | `outcome` | A verifier and a budget exist: `outcome start`, then `outcome check`. |
    | `review` | Findings, risks, or an audit are wanted. |
    | `failure_recovery` | The latest executed check failed; fix it first. |

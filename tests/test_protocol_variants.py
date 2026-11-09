@@ -167,7 +167,7 @@ class ProtocolSpineTests(unittest.TestCase):
             "--human-input",
             "Delegated output is material, not evidence",
             "parallelism.fit",
-            "product promote BET",
+            "map promote",
         ):
             self.assertTrue(phrase in text, phrase)
 

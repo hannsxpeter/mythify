@@ -30,8 +30,8 @@ python3 -m unittest discover -s tests -v
 ## Tests
 
 Every behavior change ships with a test that fails without it. Put it next to
-the code it covers (for example `tests/test_product.py` for
-`scripts/mythify_product.py`, `tests/test_mcp_server.py` for the MCP server),
+the code it covers (for example `tests/test_maps.py` for
+`scripts/mythify_maps.py`, `tests/test_mcp_server.py` for the MCP server),
 and run the full suite before you open a pull request:
 
 ```bash

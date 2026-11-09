@@ -42,7 +42,6 @@ real commands and recording real exit codes:
 | `outcome run` | the outcome's agent command, then its verify and metric commands, in a bounded loop |
 | `map verify ID` | the ticket's stored `verify_command` |
 | `review prove NAME` | the review's merge-gate command, or `--command` |
-| `product measure OUTCOME` | the outcome's stored measure command |
 
 Each runs through the system shell with the privileges of whoever runs the
 CLI, in its own process session, with a timeout and an output cap. Mythify
@@ -86,7 +85,7 @@ Hardening guidance for users:
   the MCP server's environment covers every tool.
 - Never run the CLI or the MCP server with elevated privileges.
 - Do not place secrets in commands, verifier output, memory entries, lessons,
-  outcome notes, product records, or reflections. Everything under
+  outcome notes, or reflections. Everything under
   `.mythify/` is plain text on disk. Redaction of common token and password
   patterns in captured output is best effort, not a guarantee.
 

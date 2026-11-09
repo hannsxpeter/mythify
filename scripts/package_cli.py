@@ -32,7 +32,6 @@ STANDALONE_DOCS = (
     "docs/checks-and-gate.md",
     "docs/commands.md",
     "docs/mcp.md",
-    "docs/product-planning.md",
     "docs/prose-quality.md",
     "docs/reviews.md",
     "docs/start-here.md",

@@ -1,7 +1,7 @@
 """Read-only status, history, and report views for the Mythify CLI.
 
-`status` is the single orientation view: active plan, outcome, map, and
-product, the executed and attested evidence breakdown, recent verification
+`status` is the single orientation view: active plan, outcome, and map,
+the executed and attested evidence breakdown, recent verification
 records, and attention items from the evidence detectors, sorted so issues come
 before warnings. Every view reads durable state only; none reruns checks.
 """
@@ -38,7 +38,6 @@ from mythify_checks import load_checks
 from mythify_findings import findings_attention
 from mythify_metrics import cmd_report_metrics
 from mythify_ratchet import latest_test_count_drops
-from mythify_product import active_product_view, list_product_records
 
 WORKSPACE_DIR_NAME = ".mythify"
 REPORT_SINCE_MODES = ("last", "start")
@@ -995,7 +994,7 @@ def evidence_attention_from_human_waivers(state):
     human_input_waived stamp on the record is the durable trace; every later
     status reads it, whatever its own environment. A decision stays listed
     while the work it governs is live: a map until it is promoted (the active
-    plan then carries it), a product's current approval, a bet until it stops.
+    plan then carries it).
     """
     detail = WAIVED_HUMAN_DETAIL
     attention = []
@@ -1012,35 +1011,6 @@ def evidence_attention_from_human_waivers(state):
                     ),
                     detail,
                     ticket.get("resolved_at", ""),
-                ))
-    for slug, record in list_product_records(state):
-        approval = record.get("approval")
-        if (
-            record.get("status") == "approved"
-            and isinstance(approval, dict)
-            and approval.get("human_input_waived")
-        ):
-            attention.append(attention_item(
-                "warning",
-                "product",
-                "product {0} approved under a waived human gate".format(slug),
-                detail,
-                approval.get("at", ""),
-            ))
-        for bet in record.get("bets") or []:
-            if (
-                isinstance(bet, dict)
-                and bet.get("human_input_waived")
-                and bet.get("status") != "stopped"
-            ):
-                attention.append(attention_item(
-                    "warning",
-                    "product",
-                    "product {0} bet {1} verdict set under a waived human gate".format(
-                        slug, bet.get("id")
-                    ),
-                    detail,
-                    bet.get("decided_at", ""),
                 ))
     return attention
 
@@ -1249,7 +1219,6 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
         "active_plan": active_plan,
         "active_outcome": active_outcome,
         "active_map": active_map,
-        "active_product": active_product_view(state),
         "god_artifacts": god_views,
         "counts": {
             "memory": len(memory["entries"]),
@@ -1324,19 +1293,6 @@ def format_status_view(view):
         lines.append("Map next: {0}".format(active_map["next_action"]))
     else:
         lines.append("Active map: none")
-    product = view.get("active_product")
-    if product:
-        lines.append(
-            "Active product: {0} ({1}, {2}, {3} flag(s)) - {4}".format(
-                product["id"],
-                product["status"],
-                "ready" if product["ready"] else "{0} gap(s)".format(product["gap_count"]),
-                product["flag_count"],
-                product["title"],
-            )
-        )
-    else:
-        lines.append("Active product: none")
     god = view.get("god_artifacts") or {}
     for label, key in (("Godplans plan", "godplans"), ("Godaudits audit", "godaudits")):
         summary = god.get(key)

@@ -32,7 +32,7 @@ def classify(task):
 class TestTrivialNeedsNoSignals(unittest.TestCase):
     def test_short_prompts_with_task_route_or_risk_terms_are_not_trivial(self):
         for task in (
-            "write a product roadmap and PRD for onboarding",
+            "design the onboarding architecture",
             "delete production data",
             "wayfind the onboarding revamp",
             "map the work for onboarding",
@@ -162,13 +162,24 @@ class TestRiskTermsAreTight(unittest.TestCase):
 
 class TestPhraseTieBreak(unittest.TestCase):
     def test_longer_phrase_wins_a_tie(self):
-        self.assertEqual(classify("write a product plan for onboarding")["task_type"], "product")
-        self.assertEqual(classify("what should we build next quarter")["task_type"], "product")
+        # "fix" scores bugfix and "memory leak" scores performance; "blast
+        # radius" scores review against the bare "add" for feature. One match
+        # each, so the two-word phrase decides.
+        self.assertEqual(classify("fix the memory leak in the cache")["task_type"], "performance")
+        self.assertEqual(classify("add a blast radius check for the api")["task_type"], "review")
 
-    def test_product_terms_win_ties_against_generic_verbs(self):
-        self.assertEqual(classify("build a roadmap for next quarter")["task_type"], "product")
-        self.assertEqual(classify("create a roadmap for the app")["task_type"], "product")
-        self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
+    def test_product_wording_no_longer_has_a_task_type_of_its_own(self):
+        # The product task type was removed with product planning; wording that
+        # used to win it now follows the remaining rules.
+        expected = {
+            "write a product plan for onboarding": "design",
+            "what should we build next quarter": "feature",
+            "build a roadmap for next quarter": "feature",
+            "create a roadmap for the app": "feature",
+        }
+        for task, task_type in expected.items():
+            with self.subTest(task=task):
+                self.assertEqual(classify(task)["task_type"], task_type)
 
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")

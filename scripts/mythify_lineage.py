@@ -5,10 +5,10 @@ import json
 from pathlib import Path
 
 
-# Parents recorded by older versions with other kinds (research, design)
-# inspect as "unknown" rather than failing.
+# Parents recorded by older versions with other kinds (research, design,
+# product) inspect as "unknown" rather than failing.
 # "verification" stays last: lineage attach offers every kind but it.
-ARTIFACT_KINDS = ("map", "plan", "outcome", "review", "product", "verification")
+ARTIFACT_KINDS = ("map", "plan", "outcome", "review", "verification")
 PRECEDENCE = (
     "live_code_current_behavior",
     "approved_design_desired_behavior",
@@ -56,8 +56,6 @@ def artifact_path(state, kind, artifact_id):
         return state / "outcomes" / artifact_id / "goal.json"
     if kind == "review":
         return state / "reviews" / (artifact_id + ".json")
-    if kind == "product":
-        return state / "products" / (artifact_id + ".json")
     return state / "verifications.jsonl"
 
 

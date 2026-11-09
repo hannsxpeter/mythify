@@ -33,7 +33,6 @@ RISK_TO_TIER = {"low": "low", "medium": "normal", "high": "high"}
 ROUTE_TO_STEP = {
     "direct": "build",
     "map": "design",
-    "product": "design",
     "review": "build",
     "plan": "build",
     "outcome": "build",

@@ -406,19 +406,11 @@ def classify_task_text(task_text, route_terms=()):
             signals.extend(matches)
     worded_risk = term_risk(text)
     if scores:
-        # Ties go to the type with the longest matched phrase, so "product plan"
-        # outranks the bare "plan", then to the alphabetically first type.
+        # Ties go to the type with the longest matched phrase, then to the
+        # alphabetically first type.
         task_type = sorted(
             scores.items(), key=lambda item: (-item[1], -longest[item[0]], item[0])
         )[0][0]
-        # A generic verb (build, create, plan) ties with a product term in
-        # "build a roadmap"; the product term says what the work is.
-        if (
-            task_type in ("feature", "design")
-            and "product" in scores
-            and (scores["product"], longest["product"]) == (scores[task_type], longest[task_type])
-        ):
-            task_type = "product"
     elif text.endswith("?") or any(text.startswith(prefix) for prefix in QUESTION_PREFIXES):
         task_type = "question"
     elif contains_any(text, VAGUE_REQUEST_TERMS):

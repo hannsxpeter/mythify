@@ -1,7 +1,7 @@
 # Mythify documentation
 
 Start with [start-here.md](start-here.md): install, one verified loop, and the
-four workflows worth learning. Come back here for reference material.
+three workflows worth learning. Come back here for reference material.
 
 ## Using Mythify
 
@@ -10,7 +10,6 @@ four workflows worth learning. Come back here for reference material.
 | [start-here.md](start-here.md) | The shortest path from nothing to a working evidence loop. |
 | [commands.md](commands.md) | Every command and flag, generated from the CLI's parser. |
 | [campaigns.md](campaigns.md) | Continue existing plans across sessions with strict evidence, learning, and read-only prompt watching. |
-| [product-planning.md](product-planning.md) | Product records: problem, user, outcomes, non-goals, bets, risks, and the human gates. |
 | [mcp.md](mcp.md) | MCP setup for any host: the launcher, `MYTHIFY_DIR`, config locations, tools, exit codes. |
 | [blast-radius.md](blast-radius.md) | Safety cases for changes whose risk sits outside the visible diff. |
 | [checks-and-gate.md](checks-and-gate.md) | Named checks for fast, selective verification, and `verify gate` for host stop and pre-commit hooks. |
@@ -29,7 +28,7 @@ four workflows worth learning. Come back here for reference material.
 
 | File | What it covers |
 | :--- | :--- |
-| [ROADMAP.md](../ROADMAP.md) | Where Mythify is going, written as a product plan. |
+| [ROADMAP.md](../ROADMAP.md) | The outcomes, non-goals, and bets Mythify is steered by. |
 | [CHANGELOG.md](../CHANGELOG.md) | What changed in each release, with migration notes. |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | How to propose and test a change. |
 | [MAINTAINING.md](../MAINTAINING.md) | Maintainer checks, generated files, and repository rules. |

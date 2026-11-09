@@ -45,6 +45,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   choice": follow the user's or project's rules on who does what, which `route`
   shows when a policy file is present.
 
+### Removed
+
+- Breaking: product planning is removed, so the next release is 7.0.0.
+  `mythify product ...` (`create`, `outcome`, `non-goal`, `bet`, `risk`,
+  `check`, `approve`, `decide`, `promote`, `measure`, `show`, `list`) is an
+  unknown command and exits 64, like any other removed command. Also removed:
+  the eleven `product_*` MCP typed tools (the `mythify` tool no longer lists
+  `product` either), the `product` route and the `prompt product` packet
+  (`route` no longer returns `product`, and prompts about roadmaps, priorities,
+  or product strategy now route by the remaining rules, typically `map` or
+  `plan`), the `product` task type and its classification terms, the
+  `product` lineage kind (`--parent product:NAME` and `lineage attach product`
+  are refused), the product lines in `status`, `summary`, and `report`
+  (`summary --json` loses its `products` key and `status --json` its
+  `active_product` key), `plan show`'s product line, the "Product planning"
+  section and product lines in the protocol (`AGENTS.md` follows), the product
+  parts of the skills and docs, and `docs/product-planning.md`. Why: Mythify's
+  job is evidence for agent work; product strategy belongs in your own tools.
+  Leftover state is ignored and left in place: a `.mythify/products/` folder,
+  an `active_product` pointer, and a plan's `product_ref` are never read,
+  written, or deleted, and ledger records with a `product` key stay scoped
+  records that never count for a step. `ROADMAP.md`, which `product show
+  --markdown` rendered, is now a static file of outcomes, non-goals, and bets.
+  An agent following the old protocol text that runs `product create` now gets a
+  usage error and should use `map create` for open decisions or `plan create`
+  for work.
+
 ## [6.2.0] - 2026-11-09
 
 Mythify 6.2.0 makes verification faster and more selective without trusting
@@ -295,7 +322,7 @@ tests. `scripts/lint.py` checks the repository for drift.
   refuse without `--human-input`; `product measure` records executed
   evidence; `product show --markdown` renders a roadmap. The router gains a
   `product` route and `prompt product`, and lineage gains the `product` kind.
-  See [docs/product-planning.md](docs/product-planning.md).
+  See `docs/product-planning.md` (removed in the next major release).
 - `status --json` and `status --recent N`, with the executed and attested
   evidence breakdown, recent records, active plan, outcome, map, and product,
   and attention items (failed checks, no-op or zero-test passes, ledger chain

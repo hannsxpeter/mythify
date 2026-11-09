@@ -36,7 +36,7 @@ table, so no module imports the entry point.
 | Module | Owns |
 | --- | --- |
 | `mythify_parser.py` | `build_parser`, `MythifyArgumentParser` (usage errors exit 64), and every command grammar not listed elsewhere |
-| `mythify_map_parser.py`, `mythify_product_parser.py` | the `map` and `product` grammars (the `verify`, `reflect`, `review`, and `lineage` grammars sit beside their handlers) |
+| `mythify_map_parser.py` | the `map` grammar (the `verify`, `reflect`, `review`, and `lineage` grammars sit beside their handlers) |
 | `mythify_verification_commands.py` | `verify run`, `verify claim`, `reflect`, display-only test counts |
 | `mythify_checks.py` | named checks: `checks.json`, `verify check`, `{files}` expansion, `@NAME` step verifiers |
 | `mythify_gate.py` | `verify gate`: the read-only hook check over in-progress steps |
@@ -50,7 +50,6 @@ table, so no module imports the entry point.
 | `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
 | `mythify_plans.py` | validated plan identifiers, contained paths, active pointers, plan reads and writes |
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
-| `mythify_product.py` | product records, readiness check, approval, verdicts, promote, measure, show |
 | `mythify_quality.py` | blast-radius safety cases: create, prove, show |
 | `mythify_findings.py` | findings reviews: rounds, findings, resolution, coverage, status attention |
 | `mythify_review_cover.py` | `review_covers_current_source`: the review, if any, that covers the source now |
@@ -115,8 +114,6 @@ lessons and is never a project workspace.
 |-- outcomes/<slug>/iterations.jsonl
 |-- maps/active
 |-- maps/<slug>.json
-|-- active_product                 slug of the active product
-|-- products/<slug>.json
 |-- reviews/<slug>.json
 |-- checks.json                    named checks for verify check
 |-- reports/<cursor>.json
@@ -127,8 +124,9 @@ lessons and is never a project workspace.
 
 Global lessons live in `~/.mythify/lessons/`. Folders and files written by
 5.x features that 6.0 removed (`research/`, `campaigns/`, `designs/`,
-`evals/`, `fanout/`, `workspace.json`, and the host model switch record) are
-never created, never read, and never deleted.
+`evals/`, `fanout/`, `workspace.json`, and the host model switch record), and
+the `products/` folder and `active_product` pointer of the product planning
+feature removed after 6.2, are never created, never read, and never deleted.
 
 ### Records
 
@@ -137,8 +135,7 @@ Plan (`plans/<slug>.json`): `name`, `goal`, `steps`, `created`,
 created; plans written before this field existed have none), and when present
 `lineage`, `source` (map promote: `kind`
 `map`, `map`, `destination`, `decisions`, `out_of_scope`; plan import: `kind`,
-`path`, `version`, `imported_at`), `product_ref` (`product`, `bet`,
-`outcomes`), `strict_context: true` for imported or campaign plans, and
+`path`, `version`, `imported_at`), `strict_context: true` for imported or campaign plans, and
 optional `campaign` metadata.
 
 Campaign metadata: `schema_version: 1`, `goal`, `success`, `created`, and
@@ -190,7 +187,8 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   optional `lineage`, then context: `plan`, `step_id`, `step_title`,
   `step_status` for `verify run` and `plan verify`; `map`, `ticket_id`,
   `ticket_title`, `ticket_type` for `map verify`; `review` and `proof_mode`
-  for `review prove`; `product` and `outcome_id` for `product measure`.
+  for `review prove`. Records that older versions stamped with `product` and
+  `outcome_id` are still read; the keys only mark them as scoped.
   Outcome iterations append an executed record without `id` that carries
   `outcome`, `iteration`, `outcome_verify`, and `outcome_metric`.
   `plan verify` stamps its own step. `verify run` and outcome records stamp
@@ -249,28 +247,6 @@ Map (`maps/<slug>.json`): `id`, `destination`, `notes`, `status` (`charting`,
 ticket also carries `human_input_waived`, and `map promote` copies it into
 the plan's `source`.
 
-Product (`products/<slug>.json`, `schema_version` 1): `name`, `title`,
-`status` (`draft`, `approved`, `closed`), `stage` (`prototype`, `pre-launch`,
-`growth`, `enterprise`), `problem`, `user`, `appetite`, `created`, `updated`,
-`approval` (`human_input`, `at`, `stage`, and `human_input_waived` when
-waived) or null, `approval_history`, and:
-
-- `outcomes`: `id` (`O1`...), `statement`, `metric`, `baseline`, `target`,
-  `target_source` (`user`, `cited`, `decided`, `hypothesis`), `measure`.
-- `non_goals`: `id` (`N1`...), `text`, `reason`, `revisit_when`.
-- `bets`: `id` (`B1`...), `hypothesis`, `outcomes`, `kill`, `decider`,
-  `decide_by`, `priority`, `status` (`proposed`, `in_flight`, `shipped`,
-  `stopped`), `verdict` (`pending`, `continue`, `pivot`, `stop`),
-  `verdict_human_input`, `plan`, and `promoted_at`, `promoted_anchor` (the
-  `verifications.jsonl` position at promotion; only measurements after it
-  can ship the bet), `decided_at`, `shipped_at`, and `human_input_waived`
-  once set.
-- `risks`: `id` (`R1`...), `text`, `kind` (`value`, `usability`,
-  `feasibility`, `viability`), `mitigation`, `validation`.
-
-Every item also has `created`. Workflow is in
-[product-planning.md](product-planning.md).
-
 Review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 `blast_radius_review`): `name`, `status`, `changed_paths`,
 `change_fingerprint`, `safety_fact`, `risks`, `merge_gate`, `created`,
@@ -288,9 +264,9 @@ Findings review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 finding. Unlike a blast-radius review it is edited by `review round|finding|resolve`;
 it is material and never verification evidence ([reviews.md](reviews.md)).
 
-Lineage block (on plans, maps, outcomes, products, and executed records):
+Lineage block (on plans, maps, outcomes, and executed records):
 `captured_at` and `parents`, each `kind` (`map`, `plan`, `outcome`, `review`,
-`product`, `verification`), `id`, `revision` (SHA-256 of the parent's
+`verification`), `id`, `revision` (SHA-256 of the parent's
 canonical JSON), `observed_updated`. `lineage attach` also stamps
 `lineage_updated`, and refuses kinds `review` and `verification`.
 
@@ -405,23 +381,19 @@ hash chain still links, and leaves every verification artifact in place.
   conditional, a background job, `set -e`, or a backslash outside single
   quotes makes it answer "not a no-op". A pass whose output says no tests
   ran is flagged the same way. These are advisory for steps; `review prove`
-  and `product measure` refuse a command it flags.
+  refuses a command it flags.
 - Human gates. `map resolve` on a `hitl` ticket (`grilling`, `prototype`, or
-  `--mode hitl`), `product approve`, and `product decide` refuse without a
-  non-empty `--human-input`. Mythify records the words but cannot verify who
+  `--mode hitl`) refuses without a non-empty `--human-input`. Mythify records the words but cannot verify who
   supplied them. `MYTHIFY_REQUIRE_HUMAN_INPUT=0` waives this and
-  stamps `human_input_waived` on the ticket and its map decision, the
-  approval, or the bet. `status` warns about the opt-out while the variable
+  stamps `human_input_waived` on the ticket and its map decision. `status` warns about the opt-out while the variable
   is set in its environment, and about each waived decision in every later
   session while the work it governs is live: a ticket until its map is
-  promoted, a decision the active plan carried from its map, a product's
-  current approval, and a bet verdict until the bet stops or a verdict with
-  the human's words replaces it. `map show`, `plan show`, and `product show`
-  mark waived decisions.
+  promoted, and a decision the active plan carried from its map. `map show`
+  and `plan show` mark waived decisions.
 - Fail closed. With `MYTHIFY_DISABLE_RUN=1`, `verify run`, `verify check NAME`, `plan verify`,
-  `map verify`, `outcome check`, `outcome run`, `review prove`, and `product
-  measure` execute nothing, record nothing, and exit 2.
-- Material. Route output, prompt packets, maps, product records, reviews,
+  `map verify`, `outcome check`, `outcome run`, and `review prove`
+  execute nothing, record nothing, and exit 2.
+- Material. Route output, prompt packets, maps, reviews,
   lineage, and anything a delegated worker returns are material. Only an
   executed record is proof.
 
@@ -471,7 +443,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | 0 | success, or a verified check |
 | 1 | refusal or failure: no workspace, bad input, a gate refused, a record not found |
-| 2 | unverified: a check ran and failed, `product check` found gaps, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, or `MYTHIFY_DISABLE_RUN=1` refused to run |
+| 2 | unverified: a check ran and failed, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, or `MYTHIFY_DISABLE_RUN=1` refused to run |
 | 64 | usage error from the argument parser |
 | 124 | MCP only: the call timed out and was terminated |
 | 130, 143 | the CLI received SIGINT or SIGTERM while a verify child ran |
@@ -540,6 +512,9 @@ human's words, `product measure` is executable evidence, and `product
 promote` turns a bet into a plan with lineage. Why: design approval was stored
 and never read, and `plan create --design` kept a bare string. Product
 records connect the reason for the work to its plans and measurements.
+
+Update, 2026-11-09: product planning is itself removed; see the 2026-11-09
+"remove product planning" entry below.
 
 ### 2026-10-01: downsize to the evidence loop
 
@@ -612,6 +587,8 @@ the `mythify` tool, whose description lists them. Why: the 5.8 listing of 63
 tools cost about 68 KB of host context each session, mostly for tools a
 session never called. The 6.0 listing of 38 tools is about 30 KB.
 
+Update, 2026-11-09: the eleven `product_*` tools are removed with the feature.
+
 ### 2026-11-08: fast, selective verification
 
 `verify run --reuse` stands in an earlier passing run, and it is opt-in: the
@@ -649,9 +626,29 @@ stays build, and an ambiguous prompt goes to step 1; step 1 and any
 `high_tier_terms` word such as auth, billing, or migration raise the delegation
 review tier to at least high, in the block only); the
 other steps come from the route (direct is question only for a question or
-research task with no file changes and build otherwise, map and product are
+research task with no file changes and build otherwise, map is
 design, the rest are build, and review uses the reviewer role). Why: users who
 already decide who does what want the answer next to the evidence loop, and
 printing their own file is the neutral way to do it. This is the case the
-clarified product non-goal N1 allows: printing a policy file the user owns is
+clarified roadmap non-goal N1 allows: printing a policy file the user owns is
 not choosing a model.
+
+### 2026-11-09: remove product planning
+
+`product` and everything attached to it are removed: the command family, the
+`product` route and `prompt product` packet, the `product` task type and its
+classification terms, the `product_*` MCP tools, the `product` lineage kind,
+`product measure` evidence, the product parts of `status`, `summary`, and
+`report`, and `docs/product-planning.md`. This is a breaking change, so the
+next release is 7.0.0. Why: Mythify's job is evidence for agent work. Product
+strategy (who the user is, which outcomes matter, which bets to place) belongs
+in the user's own tools, and the feature added command, state, route, and
+documentation surface without serving the evidence loop. A prompt that used to
+route to `product` now routes by the remaining rules, typically `map` for
+decisions that are not made yet or `plan` for work that is. Leftover state is
+ignored, never deleted or migrated, as in the 6.0 downsize: a `.mythify/products/`
+folder, an `active_product` pointer, a plan's `product_ref`, and a lineage
+parent of kind `product` are not read as anything, and ledger records that
+carry a `product` key stay scoped records that never count for a step.
+`ROADMAP.md` was rendered by `product show --markdown`; it is now a static
+file.

@@ -86,7 +86,7 @@ red build.
 
 1. Parser. Add the subcommand where its family lives (`scripts/mythify_parser.py`,
    or the grammar module beside its handler, such as
-   `mythify_product_parser.py`). Give it `help` and `description`, and set
+   `mythify_map_parser.py`). Give it `help` and `description`, and set
    `needs_state` (`False` for commands that never touch `.mythify`).
 2. Handler. `cmd_<name>(args, state)` in the module that owns the feature
    returns 0, 1, or 2 and never 64; argparse owns usage errors. A handler that

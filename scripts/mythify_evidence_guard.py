@@ -5,8 +5,8 @@ ways that proof detaches from the work it stands for: a verifier that always
 passes, a test runner that collected nothing, a session running with a legacy
 gate opt-out active, and a ledger whose chained lines no longer hash together.
 Most of it is advisory material for warnings and attention items. The one
-exception is noop_verifier_reason: review prove and product measure refuse a
-command it flags. Nothing here upgrades or downgrades recorded evidence.
+exception is noop_verifier_reason: review prove refuses a command it
+flags. Nothing here upgrades or downgrades recorded evidence.
 """
 
 import hashlib
@@ -56,7 +56,7 @@ LEGACY_OPT_OUTS = (
     ),
     (
         "MYTHIFY_REQUIRE_HUMAN_INPUT",
-        "HITL tickets, product approvals, and bet verdicts proceed without the human's words",
+        "HITL tickets proceed without the human's words",
     ),
 )
 

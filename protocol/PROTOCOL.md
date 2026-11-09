@@ -38,7 +38,6 @@ root when it is copied in. Run `mythify init` once per project.
 | Focused fix | Do it, then `verify run` before claiming it works. |
 | Multi-step work | `plan create` with steps, `step` updates, `verify run` per step. |
 | Decisions not made yet | `map create`, settle one ticket at a time, `map promote`. |
-| Product direction (why, for whom, what outcome) | `product create`, outcomes, non-goals, bets, human `product approve`, `product promote`. |
 | Retry until a check passes | `outcome start` with a verifier and budgets, then `outcome check`. |
 | Multi-session work | All of the above, plus memory and lessons. `status` at start, `summary` at end. |
 
@@ -127,24 +126,10 @@ the person's words:
 
 - `map resolve` on a `grilling` or `prototype` ticket, or on a task ticket
   added with `--mode hitl`, needs `--human-input`.
-- `product approve` and `product decide` need `--human-input`.
 - `step ID completed` on a high-risk change takes `--human-input`: the
   person's approval of the change. Under strict context it is required.
 
 Never write those words yourself. Ask, wait, then record what the person said.
-
-## Product planning
-
-Before a large build, settle why it exists. `mythify product create TITLE
---problem "..." --user "..."` starts a product plan. Add measurable outcomes
-(`product outcome`, each with a metric and target, and a `--measure` command
-when one exists), non-goals with reasons (`product non-goal`), bets with kill
-criteria (`product bet`), and the four product risks: value, usability,
-feasibility, viability (`product risk`). `product check` exits non-zero until
-the plan is complete for its stage. A human approves it, then
-`product promote BET` turns a bet into an execution plan, and
-`product measure O1` runs that outcome's measure command and records the
-result as executed evidence.
 
 ## Memory and lessons
 
@@ -158,12 +143,11 @@ result as executed evidence.
 ## Commands
 
 Orient: `status`, `report [--metrics]`, `history`, `summary`, `route TASK`, `loop-fit TASK`,
-`prompt next|handoff|failure|review|map|product`.
+`prompt next|handoff|failure|review|map`.
 Plan: `plan create|add-step|verify|show|list|switch|archive|import`, `step ID STATUS [RESULT]`.
 Campaign: `campaign start|status|prompt|watch|advance|learn`, `prompt campaign`.
 Evidence: `verify run COMMAND [--claim TEXT] [--reuse]`, `verify check [NAME]`, `verify gate`, `verify claim CLAIM EVIDENCE`, `reflect`.
 Decide: `map create|ticket|claim|verify|resolve|fog|scope-out|show|list|promote`.
-Product: `product create|outcome|non-goal|bet|risk|check|approve|decide|promote|measure|show|list`.
 Loop: `outcome start|check|run|status|results|stop`.
 Review: `review blast-radius|prove|show|round|finding|resolve`, `lineage attach|status`.
 State: `init`, `memory set|get|clear`, `lesson add|list`, `logs compact`, `protocol check`.

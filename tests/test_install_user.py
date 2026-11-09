@@ -145,7 +145,6 @@ class TestUserInstaller(unittest.TestCase):
             root + "/docs/commands.md",
             root + "/docs/campaigns.md",
             root + "/docs/mcp.md",
-            root + "/docs/product-planning.md",
             root + "/docs/start-here.md",
             root + "/docs/prose-quality.md",
             root + "/docs/evidence/efficacy-reproduction.md",

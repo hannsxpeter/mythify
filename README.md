@@ -45,8 +45,7 @@ not done. Mythify turns that claim into something you can check at a glance.
 you a second opinion that cannot be talked out of its position, because it is
 not an opinion. It is an exit code.
 
-**You lead a product or a team that builds with AI.** Mythify keeps a written
-trail on disk: why the work exists, who it is for, what outcome it should move,
+**You lead a team that builds with AI.** Mythify keeps a written trail on disk:
 what was attempted, what was actually checked, and what is still unproven. You
 can read it without reading any code.
 
@@ -73,9 +72,6 @@ See the [campaign guide](docs/campaigns.md) for setup, resumption, and upgrade c
 - **Reviews that end.** Findings reviews stop after three rounds unless the
   agent says why the approach still stands, and a change to auth, payments,
   migrations, or deploy files needs a review and the person's own words.
-- **Product plans with teeth.** Problem, user, measurable outcomes, non-goals,
-  bets with kill criteria, and the four product risks, approved by a human
-  before any of it becomes an execution plan.
 - **Memory that survives the session.** Facts, decisions, and lessons stay on
   disk, and the protocol tells the agent to read them back when the next
   session starts.
@@ -122,7 +118,7 @@ Three commands cover most days:
 ```bash
 mythify status      # where am I, what is next, what needs attention
 mythify report      # a plain-language play-by-play of recent progress
-mythify summary     # the whole session: plans, products, evidence, lessons
+mythify summary     # the whole session: plans, evidence, lessons
 ```
 
 `mythify report --metrics` adds read-only flow numbers (runs, failures, reused
@@ -188,39 +184,6 @@ runs that command and files the result against the step, which is what lets
 - `verify claim "CLAIM" "EVIDENCE"` records a statement when nothing can run.
   It is marked second-class forever and never counts as proof.
 
-### Product planning: why before what
-
-Most agent work starts at "build X". A product manager or director starts
-earlier: whose problem is this, what outcome should move, how will we know,
-what are we not doing, and what would make us stop. Mythify records those
-answers and gates them.
-
-```bash
-mythify product create "Self-serve onboarding" \
-  --problem "New teams wait two days for a manual account setup" \
-  --user "Team admin signing up without a sales call" --stage pre-launch
-mythify product outcome "Admins reach a working workspace the same day" \
-  --metric "share of signups with a workspace within 24h" \
-  --baseline "12%" --target "60%" --target-source decided \
-  --measure "python3 scripts/onboarding_metric.py --min 0.60"
-mythify product non-goal "Enterprise SSO" --reason "Needs sales-led contracts" \
-  --revisit-when "three enterprise requests in a quarter"
-mythify product bet "A guided setup wizard removes the manual step" \
-  --outcome O1 --kill "under 30% same-day setup after 200 signups" \
-  --decider "Head of Product"
-mythify product risk "Admins would rather wait for a person than set up alone" \
-  --kind value --validation "interview five admins who stalled in setup"
-mythify product check                       # exit 2 lists gaps; exit 0 when ready
-mythify product approve --human-input "Approved by the Head of Product"
-mythify product promote B1                  # the bet becomes an execution plan
-mythify product measure O1                  # executed evidence for the outcome
-```
-
-Two things only a person can do: approve the product plan, and decide a bet's
-fate (continue, pivot, or stop). Mythify refuses both without the person's
-words. `product show --markdown` renders the whole plan as a one-page brief.
-See [docs/product-planning.md](docs/product-planning.md).
-
 ### Maps: deciding before planning
 
 When the route to the finish is not visible yet, a plan is the wrong tool. A
@@ -282,7 +245,7 @@ informed instead of blank.
 ### Routing: "what should I even do here?"
 
 `mythify route "your task"` reads your request alongside your current state and
-recommends one move: just do it, plan, map, product, outcome loop, review,
+recommends one move: just do it, plan, map, outcome loop, review,
 recover from a failure, or resume. It advises only. `mythify loop-fit` answers a
 narrower question: should this run hands-off, supervised, or by hand?
 `route --json` also rates the paths you have already changed
@@ -351,7 +314,7 @@ your host runs.
 
 `mythify mcp`, installed as `mythify-mcp`, serves Mythify as MCP tools over
 stdio, written in standard-library Python. The core loop (plans, steps,
-verification, memory, outcomes, maps, product) has typed tools, and one
+verification, memory, outcomes, maps) has typed tools, and one
 `mythify` tool runs any other command by argument list. Every tool runs the CLI
 underneath, so the evidence rules are identical by construction. Exit 2, an
 unverified verdict, comes back as a result, not a tool error.
@@ -394,7 +357,6 @@ exits 1 when a copy no longer matches your installed CLI.
 | `plan create\|add-step\|verify\|show\|list\|switch\|archive\|import` | Execution plans with checks per step. |
 | `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing check. |
 | `verify run "CMD"`, `verify check`, `verify gate`, `verify claim`, `reflect` | Record executed or attested evidence, run named checks, gate on unverified work, and record reflections. |
-| `product create\|outcome\|non-goal\|bet\|risk\|check\|approve\|decide\|promote\|measure\|show\|list` | Product planning with human gates. |
 | `map create\|ticket\|claim\|verify\|resolve\|fog\|scope-out\|show\|list\|promote` | Decision maps. |
 | `outcome start\|check\|run\|status\|results\|stop` | Verifier-backed loops with budgets. |
 | `review blast-radius\|prove\|show\|round\|finding\|resolve`, `lineage attach\|status` | Safety cases, findings reviews, and artifact lineage. |
@@ -440,7 +402,6 @@ decisions behind it.
 ## Learn more
 
 - [docs/start-here.md](docs/start-here.md): the shortest path to a working loop.
-- [docs/product-planning.md](docs/product-planning.md): product plans from a PM and director lens.
 - [docs/commands.md](docs/commands.md): every command and flag.
 - [docs/mcp.md](docs/mcp.md): MCP setup for any host.
 - [docs/blast-radius.md](docs/blast-radius.md): safety cases for changes whose risk sits outside the diff.
@@ -449,7 +410,7 @@ decisions behind it.
 - [docs/prose-quality.md](docs/prose-quality.md): the prose rewrite pass and the mechanical prose check.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the July 2026 smoke run and what it does not show.
 - [docs/architecture.md](docs/architecture.md): state model, runtime, decisions.
-- [ROADMAP.md](ROADMAP.md): where Mythify is going, written as a product plan.
+- [ROADMAP.md](ROADMAP.md): its outcomes, non-goals, and bets.
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [MAINTAINING.md](MAINTAINING.md).
 
 ## License
