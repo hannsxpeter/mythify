@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [6.2.0] - 2026-11-08
+## [6.2.0] - 2026-11-09
 
 Mythify 6.2.0 makes verification faster and more selective without trusting
 self-report. It can reuse an identical passing run, flag a check that ran
