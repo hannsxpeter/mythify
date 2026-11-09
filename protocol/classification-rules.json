@@ -163,6 +163,11 @@
     ],
     "near_terms": [
       {
+        "task_type": "design",
+        "terms": ["prd","rfc","specification","product roadmap","product requirements","requirements doc","requirements document","design doc","technical design"],
+        "near": ["write","draft","create","prepare","author","produce","outline","plan"]
+      },
+      {
         "task_type": "migration",
         "terms": [
           "schema",
@@ -1214,16 +1219,7 @@
         "godplans",
         "approach",
         "proposal",
-        "spec",
-        "specification",
-        "prd",
-        "product roadmap",
-        "product requirements",
-        "requirements doc",
-        "requirements document",
-        "rfc",
-        "design doc",
-        "technical design"
+        "spec"
       ]
     }
   ]

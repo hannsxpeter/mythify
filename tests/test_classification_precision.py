@@ -200,6 +200,15 @@ class TestPhraseTieBreak(unittest.TestCase):
         self.assertEqual(classify("fix a typo in the roadmap")["task_type"], "bugfix")
         self.assertEqual(classify("update the README roadmap link")["task_type"], "docs")
         self.assertNotEqual(classify("refactor the surface parser")["task_type"], "design")
+        # A planning-document word counts only beside a creation verb.
+        self.assertEqual(classify("What is an RFC?")["task_type"], "question")
+        self.assertEqual(classify("inspect the product requirements document")["task_type"], "review")
+        self.assertEqual(classify("summarize the RFC")["task_type"], "trivial")
+
+    def test_planning_document_requests_do_not_raise_risk(self):
+        for task in ("draft an RFC for the cache layer", "write a technical design for the export queue"):
+            with self.subTest(task=task):
+                self.assertNotEqual(classify(task)["risk"], "high")
 
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")

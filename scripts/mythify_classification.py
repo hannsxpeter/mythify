@@ -284,7 +284,11 @@ def near_matches(text):
 
 def term_risk(text):
     """Risk named by the wording alone: "high", "medium", or None."""
-    if contains_any(text, HIGH_RISK_TERMS) or destructive_wording(text) or near_matches(text):
+    if (
+        contains_any(text, HIGH_RISK_TERMS)
+        or destructive_wording(text)
+        or any(kind in HIGH_RISK_TASK_TYPES for kind, _signal in near_matches(text))
+    ):
         return "high"
     if contains_any(text, MEDIUM_RISK_TERMS):
         return "medium"
