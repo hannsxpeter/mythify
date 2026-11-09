@@ -17,7 +17,8 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from mythify_checks import (  # noqa: E402
     add_checks_line,
     check_reference,
-    files_placeholder_unsafe,
+    expand_files,
+    files_placeholder_literal,
     load_checks,
     verifier_matches,
 )
@@ -190,65 +191,137 @@ class DefineAndListTests(CheckProject):
         self.assertFalse(verifier_matches("", ""))
 
 
-class QuotedPlaceholderTests(CheckProject):
-    """{files} must be a bare word: Mythify quotes each path, so quotes around it re-open the shell."""
+class PlaceholderTests(CheckProject):
+    """{files} reaches the command as positional parameters, never as text inside it."""
 
-    UNSAFE = (
-        'ruff check "{files}"',
+    LITERAL = (
         "ruff check '{files}'",
         "ruff check \\{files}",
-        'echo "a $(true) {files}"',
-        "echo 'x' \"{files}\"",
-        'echo "a\\"b" "{files}"',
+        "echo 'x' '{files}'",
+        "echo \"a\" '{files}'",
     )
-    SAFE = (
+    EXPANDING = (
         "ruff check {files}",
+        'ruff check "{files}"',
+        'test -n "$(printf "%s" "{files}")"',
         "echo 'a' {files} \"b\"",
-        "echo \"a\" {files}",
         "echo --paths={files}",
         "echo '\\' {files}",
-        "echo \\' {files}",
         "echo {files} && echo {files}",
         "echo no placeholder 'here'",
     )
+    # Names that would run code, or break quoting, if they were ever parsed as shell text.
+    NAMES = ("$(touch pwned).py", "`touch pwned2`.py", "it's;odd.py")
 
-    def test_the_quote_state_tracker(self):
-        for template in self.UNSAFE:
-            self.assertTrue(files_placeholder_unsafe(template), template)
-        for template in self.SAFE:
-            self.assertFalse(files_placeholder_unsafe(template), template)
+    def test_the_literal_context_tracker(self):
+        for template in self.LITERAL:
+            self.assertTrue(files_placeholder_literal(template), template)
+        for template in self.EXPANDING:
+            self.assertFalse(files_placeholder_literal(template), template)
 
-    def test_set_refuses_a_quoted_placeholder(self):
-        for template in self.UNSAFE:
+    def test_expand_files_binds_positional_parameters_and_keeps_names_out_of_the_template(self):
+        template = 'test -n "$(printf "%s" "{files}")"'
+        command = expand_files(template, ["a.py", "dir with space/b.py", "it's.py"])
+        prefix, _, rest = command.partition("; ")
+        self.assertEqual(prefix, "set -- a.py 'dir with space/b.py' 'it'\"'\"'s.py'")
+        self.assertEqual(rest, 'test -n "$(printf "%s" "$@")"')
+        self.assertNotIn("space", rest)
+        for template, expected in (
+            ("ruff {files}", 'ruff "$@"'),
+            ('ruff "{files}"', 'ruff "$@"'),
+            ('ruff "x {files} y"', 'ruff "x $@ y"'),
+            ("ruff {files} && ruff {files}", 'ruff "$@" && ruff "$@"'),
+            ("ruff $(ls {files})", 'ruff $(ls "$@")'),
+            ("ruff `ls {files}`", 'ruff `ls "$@"`'),
+        ):
+            self.assertEqual(expand_files(template, ["a"]).partition("; ")[2], expected, template)
+
+    def test_set_refuses_a_placeholder_in_single_quotes_or_after_a_backslash(self):
+        for template in self.LITERAL:
             result = self.run_cli("verify", "check", "lint", "--set", template)
             self.assertEqual(result.returncode, 1, template)
-            self.assertIn("{files} must be a bare word because Mythify quotes each path itself",
-                          result.stderr)
+            self.assertIn("where the files would not expand", result.stderr)
         self.assertFalse((self.state / "checks.json").exists())
-        self.define("lint", "test -f {files}")
 
-    def test_a_hand_edited_template_is_refused_at_run_time_and_nothing_executes(self):
+    def test_set_accepts_a_placeholder_anywhere_else(self):
+        for template in ('test -f "{files}"', 'test -n "$(printf "%s" "{files}")"', "test -f {files}"):
+            self.define("lint", template)
+
+    def test_a_hand_edited_literal_template_is_refused_at_run_time(self):
         (self.state / "checks.json").write_text(json.dumps({"schema_version": 1, "checks": {
-            "lint": {"command": 'printf "%s\\n" "{files}"', "description": "", "updated": "x"}}}),
+            "lint": {"command": "test -f '{files}'", "description": "", "updated": "x"}}}),
             encoding="utf-8")
-        self.write("$(touch pwned.txt).py")
+        self.write("a.py")
         result = self.run_cli("verify", "check", "lint")
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("must be a bare word", result.stderr)
-        self.assertFalse((self.project / "pwned.txt").exists())
+        self.assertIn("where the files would not expand", result.stderr)
         self.assertEqual(self.records(), [])
-        planned = self.run_cli("plan", "create", "g", "--name", "p", "--steps",
-                               json.dumps([{"title": "s", "verify_command": "@lint"}]))
-        self.assertEqual(planned.returncode, 0)
+        self.ok("plan", "create", "g", "--name", "p", "--steps",
+                json.dumps([{"title": "s", "verify_command": "@lint"}]))
         self.assertEqual(self.run_cli("plan", "verify", "1", "--plan", "p").returncode, 1)
-        self.assertFalse((self.project / "pwned.txt").exists())
 
-    def test_a_bare_placeholder_keeps_a_command_substitution_name_inert(self):
+    def run_hostile(self, template, *, use_flag):
+        """Define a check with TEMPLATE, run it on NAMES, and return the record."""
+        (self.state / "checks.json").write_text(json.dumps({"schema_version": 1, "checks": {
+            "lint": {"command": template, "description": "", "updated": "x"}}}), encoding="utf-8")
+        for name in self.NAMES:
+            self.write(name)
+        args = ["verify", "check", "lint"]
+        if use_flag:
+            args += ["--files"] + list(self.NAMES)
+        self.ok(*args)
+        for marker in ("pwned", "pwned2"):
+            self.assertFalse((self.project / marker).exists(), marker)
+        (record,) = self.records()
+        self.assertEqual(record["check_template"], template)
+        self.assertTrue(record["command"].startswith("set -- "))
+        return record
+
+    def assert_names_passed(self, record):
+        shown = [line[len("FILE:"):] for line in record["stdout_tail"].splitlines() if line.startswith("FILE:")]
+        self.assertEqual(sorted(shown), sorted(self.NAMES))
+
+    def test_bare_placeholder_passes_hostile_names_inertly(self):
+        for use_flag in (False, True):
+            with self.subTest(use_flag=use_flag):
+                self.setUp()
+                self.assert_names_passed(self.run_hostile(self.show, use_flag=use_flag))
+
+    def test_nested_double_quoted_placeholder_cannot_run_a_file_name(self):
+        template = '{0} show.py {{files}} && test -n "$(printf "%s" "{{files}}")"'.format(
+            shlex.quote(sys.executable))
+        for use_flag in (False, True):
+            with self.subTest(use_flag=use_flag):
+                self.setUp()
+                self.assert_names_passed(self.run_hostile(template, use_flag=use_flag))
+
+    def test_printf_template_receives_exactly_the_paths(self):
+        template = "printf '%s\\n' {files} | cat"
+        for use_flag in (False, True):
+            with self.subTest(use_flag=use_flag):
+                self.setUp()
+                record = self.run_hostile(template, use_flag=use_flag)
+                self.assertEqual(sorted(record["stdout_tail"].splitlines()), sorted(self.NAMES))
+
+    def test_a_double_quoted_placeholder_keeps_each_name_one_argument(self):
+        template = '{0} show.py "{{files}}"'.format(shlex.quote(sys.executable))
+        record = self.run_hostile(template, use_flag=True)
+        self.assert_names_passed(record)
+
+    def test_identical_file_lists_give_identical_commands_so_reuse_works(self):
         self.define("show", self.show)
-        self.write("$(touch pwned.txt).py")
+        self.write("same.txt")
         self.ok("verify", "check", "show")
-        self.assertFalse((self.project / "pwned.txt").exists())
-        self.assertIn("FILE:$(touch pwned.txt).py", self.records()[0]["stdout_tail"])
+        reused = self.ok("verify", "check", "show", "--reuse")
+        first, second = self.records()
+        self.assertEqual(first["command"], second["command"])
+        self.assertEqual(second["reused_from"], first["id"])
+        self.assertIn("Reused passing run", reused.stdout)
+
+    def test_environment_digest_covers_the_checks_own_program_not_the_set_prefix(self):
+        from mythify_reuse import _first_word
+        command = expand_files("ruff check {files}", ["a b.py", "c;d.py"])
+        self.assertEqual(_first_word(command), "ruff")
 
 
 class RunTests(CheckProject):

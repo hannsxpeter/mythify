@@ -343,14 +343,17 @@ hash chain still links, and leaves every verification artifact in place.
   {NAME: {"command", "description", "updated"}}}` with names matching
   `[a-z0-9-]+`. `verify check NAME` runs the command through the same runner as
   `verify run` and stamps `check` and `check_template` on the record. A
-  `{files}` placeholder expands to the shell-quoted changed files (`--files`,
+  `{files}` placeholder expands to the changed files, bound as positional
+  parameters in a `set -- ...;` prefix with each `{files}` replaced by `"$@"`, so
+  no file name is ever parsed as shell text (`--files`,
   else working-tree changes against `HEAD` plus untracked files, minus deleted
   files and `.mythify/`); with none, nothing runs and nothing is recorded. A
   step whose `verify_command` is `@NAME` is run by `plan verify` as that check,
   and the step gate counts a passing record whose `check` equals NAME and keys
   "the latest run" by check name, because the expanded text varies per run.
   `--set` refuses a command `noop_verifier_reason` flags, and a template that
-  puts `{files}` inside quotes or after a backslash (refused again at run time).
+  puts `{files}` inside single quotes or after a backslash, where `"$@"` would be
+  literal (refused again at run time).
   A record satisfies an `@NAME` step only when its `check_template` equals the
   check's current command, so redefining a check retires its earlier evidence.
 - Gate command. `verify gate [--plan NAME] [--json]` runs

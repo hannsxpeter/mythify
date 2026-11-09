@@ -7,7 +7,9 @@ report cursor. Numbers come from records already on disk; nothing is guessed.
 import json
 import sys
 
-from mythify_findings import all_findings, list_findings_reviews
+from pathlib import Path
+
+from mythify_findings import all_findings, list_findings_reviews, read_review_readonly
 from mythify_io import read_jsonl
 from mythify_plans import list_plan_slugs, load_plan
 from mythify_runtime_helpers import parse_iso_timestamp
@@ -47,9 +49,15 @@ def _step_row(plan_slug, step, records):
     }
 
 
+def _unreadable_reviews(state):
+    folder = Path(state) / "reviews"
+    paths = sorted(folder.glob("*.json")) if folder.is_dir() else []
+    return sum(1 for path in paths if not isinstance(read_review_readonly(path), dict))
+
+
 def _review_rows(state):
     rows = []
-    for name, record in list_findings_reviews(state):
+    for name, record in list_findings_reviews(state, readonly=True):
         counts = {"open": 0, "fixed": 0, "dismissed": 0}
         for finding in all_findings(record):
             if finding.get("status") in counts:
@@ -65,7 +73,7 @@ def build_metrics(state, plan=None):
         if plan not in slugs:
             return None
         slugs = [plan]
-    ledger = read_jsonl(state / "verifications.jsonl")
+    ledger = [r for r in read_jsonl(state / "verifications.jsonl") if r.get("kind") == "executed"]
     steps = []
     for slug in slugs:
         loaded = load_plan(state, slug)
@@ -83,6 +91,7 @@ def build_metrics(state, plan=None):
     }
     reviews = _review_rows(state)
     totals["findings_reviews"] = len(reviews)
+    totals["unreadable_reviews"] = _unreadable_reviews(state)
     totals["review_rounds"] = sum(r["rounds"] for r in reviews)
     for key in ("open", "fixed", "dismissed"):
         totals["findings_" + key] = sum(r[key] for r in reviews)
@@ -115,6 +124,8 @@ def format_metrics(view):
         "test-count drops {test_count_drops}, findings reviews {findings_reviews} "
         "({review_rounds} rounds; open {findings_open}, fixed {findings_fixed}, "
         "dismissed {findings_dismissed})".format(saved=_cell(t["seconds_saved"]), **t))
+    if t["unreadable_reviews"]:
+        lines.append("Unreadable review files skipped: {0}".format(t["unreadable_reviews"]))
     return "\n".join(lines)
 
 

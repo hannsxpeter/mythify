@@ -1507,7 +1507,8 @@ def main(argv=None):
             return args.handler(args, resolve_state_dir())
         if not args.needs_state:
             return args.handler(args, None)
-        state = resolve_state_dir(create=args.needs_state != "readonly")
+        read_only = args.needs_state == "readonly" or getattr(args, "metrics", False)
+        state = resolve_state_dir(create=not read_only)
         if state is None:
             fail(NO_WORKSPACE_MESSAGE)
             return 1

@@ -1318,7 +1318,7 @@ Arguments:
 mythify verify check [--set COMMAND] [--description DESCRIPTION] [--files PATH [PATH ...]] [--reuse] [--timeout N] [--claim CLAIM] [--json] [name]
 ```
 
-Without NAME, list the defined checks. With NAME and --set COMMAND, define or replace the check without running it. With NAME alone, run it and record an executed verification stamped with the check name. {files} in the command expands to the shell-quoted changed files (--files, else working-tree changes against HEAD plus untracked files); with no changed files nothing runs and nothing is recorded. A step whose verify_command is @NAME runs this check through plan verify. Exits 0 verified, 2 failed or disabled, 1 refused.
+Without NAME, list the defined checks. With NAME and --set COMMAND, define or replace the check without running it. With NAME alone, run it and record an executed verification stamped with the check name. {files} in the command expands to the changed files, passed as positional parameters so no name is parsed as shell text (--files, else working-tree changes against HEAD plus untracked files); with no changed files nothing runs and nothing is recorded. A step whose verify_command is @NAME runs this check through plan verify. Exits 0 verified, 2 failed or disabled, 1 refused.
 
 Arguments:
 

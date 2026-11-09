@@ -50,42 +50,93 @@ def verifier_matches(stored, command, check=None):
     return bool(stored) and (stored == command or (check is not None and stored == "@" + check))
 
 
-def files_placeholder_unsafe(template):
-    """True when {files} sits inside quotes or right after a backslash.
+def _placeholder_contexts(template):
+    """[(index, context)] for every {files} in TEMPLATE, read the way a shell would.
 
-    Mythify shell-quotes every path itself, so the placeholder must be a bare
-    word. Inside double quotes a quoted path would still run `$(...)` or
-    backticks from a file name, and inside single quotes the added quoting
-    breaks out of them. A small quote-state walk, as the shell reads it:
-    backslash escapes the next character except inside single quotes.
+    Context is "bare" (unquoted, at the top level or inside a command
+    substitution), "double" (inside double quotes), "single" (inside single
+    quotes), or "escaped" (right after a backslash). A stack follows quotes and
+    `$(...)` / backtick nesting, so `"$(printf "%s" "{files}")"` reads as
+    double quotes inside a substitution inside double quotes. It is a small
+    scanner, not a shell parser: it can misjudge exotic input (a `case`
+    pattern's `)`, nested backticks), and the only cost is a placeholder
+    expanded as its neighbour context would be. Safety never depends on it.
     """
-    quote, index = None, 0
+    found, stack, index = [], ["bare"], 0
     while index < len(template):
-        char = template[index]
+        char, top = template[index], stack[-1]
         if template.startswith(FILES_TOKEN, index):
-            if quote is not None:
-                return True
+            found.append((index, top))
             index += len(FILES_TOKEN)
             continue
-        if char == "\\" and quote != "'":
+        if top == "single":
+            if char == "'":
+                stack.pop()
+        elif char == "\\":
             if template.startswith(FILES_TOKEN, index + 1):
-                return True
-            index += 2
-            continue
-        if quote is None and char in "'\"":
-            quote = char
-        elif char == quote:
-            quote = None
+                found.append((index + 1, "escaped"))
+                index += 1 + len(FILES_TOKEN)
+                continue
+            index += 1
+        elif char == "$" and template.startswith("(", index + 1):
+            stack.append("bare")
+            stack.append("sub")
+            index += 1
+        elif top == "sub" and char == ")":
+            stack.pop()
+            stack.pop()
+        elif char == "`":
+            if top == "tick":
+                stack.pop()
+                stack.pop()
+            else:
+                stack.append("bare")
+                stack.append("tick")
+        elif top == "double" and char == '"':
+            stack.pop()
+        elif top != "double" and char == '"':
+            stack.append("double")
+        elif top != "double" and char == "'":
+            stack.append("single")
         index += 1
-    return False
+    return found
 
 
-def _unsafe_message(name):
+def files_placeholder_literal(template):
+    """True when {files} sits in single quotes or right after a backslash.
+
+    There the parameter reference would stay literal text, so such a template
+    is refused with a clear message instead of silently misbehaving.
+    """
+    return any(kind in ("single", "escaped") for _index, kind in _placeholder_contexts(template))
+
+
+def _literal_message(name):
     return (
-        "[FAIL] Check '{0}' puts {1} inside quotes or after a backslash. {1} must be a bare "
-        "word because Mythify quotes each path itself; write, for example, "
+        "[FAIL] Check '{0}' puts {1} inside single quotes or after a backslash, where the "
+        "files would not expand. Put {1} outside single quotes, for example "
         "'ruff check {1}'.".format(name, FILES_TOKEN)
     )
+
+
+def expand_files(template, files):
+    """The command to run: a top-level `set --` that binds FILES, then TEMPLATE.
+
+    Each {files} becomes a reference to the positional parameters: "$@" where
+    it is unquoted, and $@ where it already sits inside double quotes. File
+    names appear only in the `set --` prefix, quoted by shlex.quote at the top
+    level of Mythify's own text, never inside the user's template, so a name
+    is expanded by the shell without being parsed again, whatever quoting the
+    template uses around the placeholder.
+    """
+    out, last = [], 0
+    for index, kind in _placeholder_contexts(template):
+        out.append(template[last:index])
+        out.append("$@" if kind == "double" else '"$@"')
+        last = index + len(FILES_TOKEN)
+    out.append(template[last:])
+    prefix = "set -- " + " ".join(shlex.quote(item) for item in files) + "; "
+    return prefix + "".join(out)
 
 
 def checks_path(state):
@@ -191,8 +242,8 @@ def run_check(state, name, claim=None, timeout=None, context=None, reuse=False, 
         fail(_deps["disabled_message"])
         return None, 2
     template = checks[name]["command"]
-    if files_placeholder_unsafe(template):
-        fail(_unsafe_message(name))
+    if files_placeholder_literal(template):
+        fail(_literal_message(name))
         return None, 1
     command = template
     if FILES_TOKEN in template:
@@ -207,7 +258,7 @@ def run_check(state, name, claim=None, timeout=None, context=None, reuse=False, 
                 fail("[WARN] Nothing was recorded, so step {0} of plan {1} still has no "
                      "evidence.".format(context.get("step_id"), context.get("plan")))
             return None, 0
-        command = template.replace(FILES_TOKEN, " ".join(shlex.quote(item) for item in listed))
+        command = expand_files(template, listed)
     elif files:
         fail("[WARN] --files was ignored: check {0} has no {1} placeholder.".format(name, FILES_TOKEN))
     record = _deps["execute_func"](
@@ -260,8 +311,8 @@ def _define_check(args, state):
     if not NAME_PATTERN.fullmatch(name):
         fail("[FAIL] Invalid check name '{0}': use lowercase letters, digits, and hyphens.".format(name))
         return 1
-    if files_placeholder_unsafe(command):
-        fail(_unsafe_message(name))
+    if files_placeholder_literal(command):
+        fail(_literal_message(name))
         return 1
     reason = noop_verifier_reason(command) if command else "empty command"
     if reason:
@@ -320,8 +371,8 @@ def add_check_parsers(actions, symbols):
             "Without NAME, list the defined checks. With NAME and --set COMMAND, "
             "define or replace the check without running it. With NAME alone, "
             "run it and record an executed verification stamped with the check "
-            "name. {files} in the command expands to the shell-quoted changed "
-            "files (--files, else working-tree changes against HEAD plus "
+            "name. {files} in the command expands to the changed "
+            "files, passed as positional parameters so no name is parsed as shell text (--files, else working-tree changes against HEAD plus "
             "untracked files); with no changed files nothing runs and nothing "
             "is recorded. A step whose verify_command is @NAME runs this check "
             "through plan verify. Exits 0 verified, 2 failed or disabled, 1 refused."

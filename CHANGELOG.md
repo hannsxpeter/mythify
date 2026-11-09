@@ -73,8 +73,9 @@ default and refuse only under strict context (plans started by
   `.mythify/checks.json` (names are `[a-z0-9-]+`; a command that cannot fail is
   refused), `verify check` lists them, and `verify check NAME` runs one and
   records an executed verification stamped with `check` and `check_template`.
-  `{files}` expands to the shell-quoted changed files, or to `--files`; with
-  none, nothing runs and nothing is recorded. `--reuse`, `--timeout`,
+  `{files}` expands to the changed files, or to `--files`, passed to the
+  command as positional parameters (`"$@"`) so a file name is never parsed as
+  shell text; with none, nothing runs and nothing is recorded. `--reuse`, `--timeout`,
   `--claim`, and `--json` are supported, and `MYTHIFY_DISABLE_RUN=1` refuses
   with exit 2. A step's `verify_command` may be `@NAME`: `plan verify` runs the
   check, a run of that check made while the step is in progress counts for it,

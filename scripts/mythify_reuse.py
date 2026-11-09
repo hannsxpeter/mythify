@@ -44,6 +44,9 @@ def _first_word(command):
         words = list(lexer)
     except ValueError:
         words = text.split()
+    if words[:2] == ["set", "--"] and ";" in words:
+        # The "set -- FILE...;" prefix a named check adds is not the program.
+        words = words[words.index(";") + 1:]
     skip_target = False
     for index, word in enumerate(words):
         if skip_target:

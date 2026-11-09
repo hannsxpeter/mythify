@@ -33,12 +33,17 @@ mythify verify check lint                       # changed files: working tree ag
 mythify verify check lint --files src/a.py "src/b c.py"
 ```
 
-`{files}` becomes the shell-quoted list, so a name with spaces or shell
-characters stays one argument. Because Mythify quotes each path itself,
-`{files}` must be a bare word: a template that puts it inside single or double
-quotes, or right after a backslash, is refused (exit 1) when you define it and
-again when it runs, since a path named `$(...)` would otherwise execute inside
-double quotes. Write `ruff check {files}`, not `ruff check "{files}"`. Deleted files and `.mythify/` are left out. With
+Mythify passes the files as positional parameters. It never writes a file name
+into your command: the command that runs is `set -- 'a.py' 'dir/b c.py'; ` (each
+path quoted by Mythify at the top level) followed by your template with every
+`{files}` replaced by `"$@"`. The shell expands `"$@"` without parsing the names
+again, so `{files}` works anywhere, bare or inside double quotes or a command
+substitution, and a file named `$(touch x).py` or `a'b;c.py` stays one inert
+argument. The one exception is a placeholder inside single quotes or right after
+a backslash, where `"$@"` would stay literal text; that template is refused
+(exit 1) when you define it and when it runs. The record's `command` is the
+expanded text and `check_template` is your template, so reuse works for an
+identical file list. Deleted files and `.mythify/` are left out. With
 no changed files, Mythify prints `[OK] No changed files for check lint; nothing
 to run.`, records nothing, and exits 0. Outside git, pass `--files`.
 
