@@ -36,6 +36,7 @@ from mythify_maps import (
 from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
 from mythify_checks import load_checks
 from mythify_findings import findings_attention
+from mythify_metrics import cmd_report_metrics
 from mythify_ratchet import latest_test_count_drops
 from mythify_product import active_product_view, list_product_records
 
@@ -693,6 +694,11 @@ def format_work_report(view):
 
 
 def cmd_report(args, state):
+    if args.metrics:
+        return cmd_report_metrics(args, state)
+    if args.plan or args.json_output:
+        fail("[FAIL] --plan and --json apply only with --metrics.")
+        return 1
     if args.mark and args.since is not None:
         fail(
             "[FAIL] --mark cannot be combined with --since. Use --mark to set "

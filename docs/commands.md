@@ -204,7 +204,7 @@ Options:
 ## report
 
 ```text
-mythify report [--since {last,start}] [--format {chat,json}] [--recent RECENT] [--cursor CURSOR] [--peek] [--mark]
+mythify report [--since {last,start}] [--format {chat,json}] [--recent RECENT] [--cursor CURSOR] [--peek] [--mark] [--metrics] [--json] [--plan PLAN]
 ```
 
 Chat-ready live work report: plan creation, step updates, verification records, and reflections from durable state. By default it advances a cursor so repeated calls with --since last only show new events; use --peek to leave the cursor unchanged.
@@ -217,6 +217,9 @@ Options:
 - `--cursor CURSOR`: Report cursor name. Defaults to default.
 - `--peek`: Do not advance the report cursor.
 - `--mark`: Advance the report cursor to the latest event without showing old events.
+- `--metrics`: Show read-only flow metrics per step and in total; never moves the cursor.
+- `--json`: With --metrics, print JSON.
+- `--plan PLAN`: With --metrics, limit to one plan.
 
 ## route
 

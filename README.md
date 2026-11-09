@@ -118,6 +118,10 @@ mythify report      # a plain-language play-by-play of recent progress
 mythify summary     # the whole session: plans, products, evidence, lessons
 ```
 
+`mythify report --metrics` adds read-only flow numbers (runs, failures, reused
+runs, seconds saved, time to first failure and first pass, findings rounds)
+without moving the report cursor; `--json` and `--plan NAME` are available.
+
 Prefer not to install anything? From your project directory, run
 `python3 /path/to/mythify/scripts/mythify.py ...` wherever this page says
 `mythify ...`.

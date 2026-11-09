@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `report --metrics [--json] [--plan NAME]` prints read-only flow metrics:
+  per step, verify runs, failures, reused runs and seconds saved, executed
+  seconds, and time from `started_at` to the first failing and first passing
+  run (`n/a` without `started_at`); totals add test-count drops and findings
+  review rounds with open, fixed, and dismissed findings. It never moves the
+  report cursor and writes nothing.
+- CI cancels superseded pull request runs through a workflow `concurrency`
+  group; pushes to `main` are never cancelled.
 - `verify run --reuse` and `plan verify --reuse` record an earlier passing run
   as reused, without executing the command again, when the command, git
   commit, worktree digest, Mythify version, and environment digest all match.

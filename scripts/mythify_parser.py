@@ -184,6 +184,13 @@ def build_parser(symbols):
         action="store_true",
         help="Advance the report cursor to the latest event without showing old events.",
     )
+    p.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Show read-only flow metrics per step and in total; never moves the cursor.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="With --metrics, print JSON.")
+    p.add_argument("--plan", default=None, help="With --metrics, limit to one plan.")
     p.set_defaults(handler=cmd_report)
 
     p = sub.add_parser(
