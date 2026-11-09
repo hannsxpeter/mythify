@@ -351,7 +351,7 @@ class TestStepSelection(PolicyCase):
         for task in (
             "deploy the app and take screenshots of every page",
             "generate a logo and push it to production",
-            "rename all the functions across the repo then deploy",
+            "rename all the functions across the repo then deploy it",
         ):
             with self.subTest(task=task):
                 self.assertEqual(self.delegation(task)["matched"]["id"], "production")
@@ -572,7 +572,7 @@ class TestGuards(PolicyCase):
                 self.assertTrue(delegation["guards"]["effort_clamped"])
                 out = self.text(TASKS["build"], policy)
                 self.assertIn("Effort: xhigh", out)
-                self.assertIn("clamped to it", out)
+                self.assertIn("lowered to the highest allowed level", out)
                 self.assertIsNone(re.search(r"\b(max|ultra)\b", out, re.IGNORECASE))
 
     def test_a_tier_reviewer_effort_above_the_ceiling_is_clamped(self):
@@ -598,15 +598,111 @@ class TestGuards(PolicyCase):
         self.assertIsNone(delegation["role"]["effort"])
         self.assertTrue(delegation["guards"]["effort_withheld"])
 
-    def test_policy_text_naming_a_forbidden_effort_is_withheld(self):
+    def test_policy_text_naming_a_forbidden_effort_is_replaced(self):
         policy = policy_with()
         policy["roles"]["maker"]["effort_text"] = "medium; max for tricky code"
         policy["review_tiers"][1]["note_text"] = "use ultra here"
         out = self.text(MEDIUM_RISK, policy)
         self.assertIsNone(re.search(r"\b(max|ultra)\b", out, re.IGNORECASE))
-        self.assertIn("note_text: [withheld]", out)
-        self.assertNotIn("Effort note", out)
-        self.assertIn("withheld", out)
+        self.assertIn("note_text: use [withheld] here", out)
+        self.assertIn("Effort note: medium; [withheld] for tricky code", out)
+        self.assertIn("replaced with [withheld]", out)
+
+    def all_output(self, task, policy):
+        """Text and JSON output of a route run, lower-cased, to search for leaks."""
+        path = self.write_policy(policy)
+        text = self.run_route(task, policy=path).stdout
+        data = self.run_route(task, "--json", policy=path).stdout
+        return text.lower(), data.lower(), json.loads(data)["delegation"]
+
+    def test_a_banned_model_is_replaced_in_every_emitted_field(self):
+        policy = policy_with()
+        policy["hard_rules"] = {"banned_models": ["Badmodel", "Evilone"]}
+        policy["routing"][6].update(when="Use Badmodel for code", note="Prefer EVILONE here")
+        policy["roles"]["badmodel_maker"] = policy["roles"].pop("maker")
+        policy["routing"][6]["role"] = "badmodel_maker"
+        role = policy["roles"]["badmodel_maker"]
+        role["options"] = [
+            {"tool": "Badmodel CLI", "model": "Zorblat 3"},
+            {"tool": "Toolone", "model": "Badmodel 2"},
+        ]
+        role["effort_text"] = "run on Evilone at medium"
+        for tier in policy["review_tiers"]:
+            tier["Evilone"] = "Badmodel is fine"
+            tier["list"] = ["x badmodel y"]
+        text, data, delegation = self.all_output(TASKS["build"], policy)
+        for name in ("badmodel", "evilone"):
+            self.assertNotIn(name, text)
+            self.assertNotIn(name, data)
+        self.assertIn("[withheld]", text)
+        self.assertEqual(delegation["matched"]["when"], "Use [withheld] for code")
+        self.assertEqual(delegation["matched"]["note"], "Prefer [withheld] here")
+        self.assertEqual(delegation["role"]["name"], "[withheld]_maker")
+        self.assertEqual(delegation["role"]["options"], [{"tool": "[withheld] CLI", "model": "Zorblat 3"}])
+        self.assertEqual(delegation["role"]["options_withheld"], 1)
+        self.assertTrue(delegation["guards"]["text_withheld"])
+        self.assertEqual(
+            delegation["review_tier"]["extra"]["list"], ["x [withheld] y"]
+        )
+        self.assertEqual(delegation["review_tier"]["extra"]["[withheld]"], "[withheld] is fine")
+
+    def test_a_forbidden_effort_is_replaced_in_every_emitted_field(self):
+        policy = policy_with()
+        policy["hard_rules"] = {"never_efforts": ["ultra"], "effort_ceiling": "xhigh"}
+        policy["routing"][6].update(when="Use ultra for code", note="max effort is off")
+        policy["roles"]["ultra"] = policy["roles"].pop("maker")
+        policy["routing"][6]["role"] = "ultra"
+        policy["roles"]["ultra"]["effort_text"] = "ultra, then medium"
+        for tier in policy["review_tiers"]:
+            tier["ultra"] = "ultra value"
+        text, data, delegation = self.all_output(TASKS["build"], policy)
+        for pattern in (r"\bultra\b", r"\bmax\b(?!_)"):
+            self.assertIsNone(re.search(pattern, text), pattern)
+            self.assertIsNone(re.search(pattern, data), pattern)
+        self.assertEqual(delegation["matched"]["when"], "Use [withheld] for code")
+        self.assertEqual(delegation["role"]["name"], "[withheld]")
+        self.assertEqual(delegation["review_tier"]["extra"].get("[withheld]"), "[withheld] value")
+        self.assertIn("review_rounds_max", delegation["review_tier"])
+
+    def test_text_and_json_carry_the_same_cleaned_strings(self):
+        policy = policy_with()
+        policy["hard_rules"] = {"banned_models": ["Zorblat"]}
+        policy["routing"][6]["note"] = "Zorblat is great"
+        text, data, delegation = self.all_output(TASKS["build"], policy)
+        self.assertIn("policy note: [withheld] is great", text)
+        self.assertEqual(delegation["matched"]["note"], "[withheld] is great")
+
+    def test_clamping_never_lands_on_a_forbidden_level(self):
+        policy = policy_with()
+        policy["hard_rules"] = {"effort_ceiling": "xhigh", "never_efforts": ["xhigh"]}
+        policy["roles"]["maker"]["effort"] = {"default": "ultra"}
+        delegation = self.delegation(TASKS["build"], policy)
+        self.assertEqual(delegation["role"]["effort"], "high")
+        self.assertTrue(delegation["guards"]["effort_clamped"])
+        policy["review_tiers"][0]["reviewer_effort"] = "xhigh"
+        self.assertEqual(self.delegation(HIGH_RISK, policy)["review_tier"]["reviewer_effort"], "high")
+        text, data, _ = self.all_output(TASKS["build"], policy)
+        self.assertNotIn("xhigh", text)
+        self.assertNotIn("xhigh", data)
+
+    def test_a_forbidden_level_below_the_ceiling_steps_down_not_up(self):
+        policy = policy_with()
+        policy["hard_rules"] = {"effort_ceiling": "xhigh", "never_efforts": ["high"]}
+        policy["roles"]["maker"]["effort"] = {"default": "high"}
+        self.assertEqual(self.delegation(TASKS["build"], policy)["role"]["effort"], "medium")
+
+    def test_no_allowed_level_withholds_the_effort(self):
+        policy = policy_with()
+        policy["hard_rules"] = {
+            "effort_ceiling": "xhigh",
+            "never_efforts": ["none", "low", "medium", "high", "xhigh"],
+        }
+        policy["roles"]["maker"]["effort"] = {"default": "ultra"}
+        delegation = self.delegation(TASKS["build"], policy)
+        self.assertIsNone(delegation["role"]["effort"])
+        self.assertTrue(delegation["guards"]["effort_withheld"])
+        self.assertFalse(delegation["guards"]["effort_clamped"])
+        self.assertIn("withheld", self.text(TASKS["build"], policy))
 
     def test_a_policy_without_hard_rules_applies_no_guard(self):
         policy = policy_with()

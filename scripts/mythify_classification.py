@@ -68,6 +68,19 @@ def load_classification_rules():
     return manifest
 
 
+def valid_code_work(code_work, strings, count):
+    if code_work is None:
+        return True
+    return (
+        isinstance(code_work, dict)
+        and strings(code_work.get("verbs"))
+        and bool(code_work["verbs"])
+        and strings(code_work.get("nouns"))
+        and bool(code_work["nouns"])
+        and count(code_work.get("after"))
+    )
+
+
 def validate_policy_steps(section):
     """Raise ValueError unless the policy_steps section has the documented shape."""
 
@@ -103,6 +116,7 @@ def validate_policy_steps(section):
                 for pair in pairs
             )
             and (step["terms"] or pairs)
+            and valid_code_work(step.get("code_work"), strings, count)
         )
         if not valid:
             raise ValueError("Invalid classification policy_steps entry")
@@ -460,6 +474,22 @@ def _guarded(tokens, end, near_miss, window):
     return bool(near_miss) and bool(contains_any(" ".join(tokens[end:end + window]), near_miss))
 
 
+def _code_work(tokens, start, end, code_work):
+    """True when the match is code work on a component named after the operation.
+
+    A code-work verb (implement, write, fix, and kin) must come before the match
+    and a code noun (client, parser, script, flag, and kin) within "after" words
+    after it, as in "fix the deploy command parser" or "write a deploy script".
+    """
+    if not code_work:
+        return False
+    before = " ".join(tokens[:start])
+    after = " ".join(tokens[end:end + int(code_work["after"])])
+    return bool(contains_any(before, code_work["verbs"])) and bool(
+        contains_any(after, code_work["nouns"])
+    )
+
+
 def policy_step_signal(tokens, step):
     """The first term or pair of STEP found in TOKENS and not cancelled, else None.
 
@@ -467,13 +497,18 @@ def policy_step_signal(tokens, step):
     followed by a "then" phrase with at most "within" words between them. Either
     kind is cancelled when a near-miss word (docs, upload, feature, and kin)
     starts in the next few words after the term, or after either half of a
-    pair, so incidental wording stays out.
+    pair, and when the step's code_work rule says the wording is code work on a
+    component named after the operation, so incidental wording stays out.
     """
     near_miss = step.get("near_miss", [])
+    code_work = step.get("code_work")
     window = int(step.get("guard_window", POLICY_GUARD_WINDOW))
     for term in step.get("terms", []):
         for start in term_positions(tokens, term):
-            if not _guarded(tokens, start + term_count(term), near_miss, window):
+            span_end = start + term_count(term)
+            if not _guarded(tokens, span_end, near_miss, window) and not _code_work(
+                tokens, start, span_end, code_work
+            ):
                 return str(term)
     for pair in step.get("pairs", []):
         for first in pair["first"]:
@@ -483,8 +518,11 @@ def policy_step_signal(tokens, step):
                     continue
                 for then in pair["then"]:
                     for at in term_positions(tokens, then):
-                        if first_end <= at <= first_end + int(pair["within"]) and not _guarded(
-                            tokens, at + term_count(then), near_miss, window
+                        span_end = at + term_count(then)
+                        if (
+                            first_end <= at <= first_end + int(pair["within"])
+                            and not _guarded(tokens, span_end, near_miss, window)
+                            and not _code_work(tokens, start, span_end, code_work)
                         ):
                             return "{0} ... {1}".format(first, then)
     return None

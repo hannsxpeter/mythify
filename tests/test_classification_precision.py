@@ -21,7 +21,7 @@ CLI = REPO_ROOT / "scripts" / "mythify.py"
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from mythify_classification import classify_task_text  # noqa: E402
+from mythify_classification import classify_policy_step, classify_task_text  # noqa: E402
 from mythify_router import ROUTE_SELECTING_TERMS  # noqa: E402
 
 
@@ -173,6 +173,49 @@ class TestPhraseTieBreak(unittest.TestCase):
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
         self.assertEqual(classify("adjust css positioning of the modal")["task_type"], "frontend_ui")
+
+
+class TestProductionNeedsOperationalWording(unittest.TestCase):
+    """A command name in code work is not an operation: production stays rare."""
+
+    def step(self, task):
+        hit = classify_policy_step(task)
+        return hit["id"] if hit else None
+
+    def test_code_work_named_after_an_operation_is_not_production(self):
+        for task in (
+            "Implement an SSH client with mocked connection tests",
+            "Fix the deploy command argument parser",
+            "write a deploy script",
+            "add a --deploy flag",
+            "test the ssh connection helper",
+            "fix the release notes generator",
+            "refactor the rsync wrapper",
+            "debug the scp upload helper",
+            "add a deploy to production button to the admin page",
+            "write tests for the deploy handler",
+            "fix the deploy config",
+            "add an option to the ssh library",
+        ):
+            with self.subTest(task=task):
+                self.assertIsNone(self.step(task))
+
+    def test_operational_wording_stays_production(self):
+        for task in (
+            "deploy the app to the staging server",
+            "ssh into the prod box and restart nginx",
+            "deploy to staging",
+            "run the deploy script",
+            "release to production on Friday",
+            "run the migration on production",
+            "restart the production server",
+            "roll back production",
+            "buy more credits for the account",
+            "rsync the build to the server",
+            "fix the failing test and then deploy the app to the server",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(self.step(task), "production")
 
 
 if __name__ == "__main__":

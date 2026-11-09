@@ -297,7 +297,9 @@ the task falls under (production, question, design, image, bulk,
 browser_check, or build), that step's action and role, the options and effort
 the file lists for the role, and the review tier for the task's risk. It is a
 copy of your file, not a choice: options your own banned-model list names are
-left out, and an effort above your ceiling is clamped. A missing file changes
+left out, an effort above your ceiling (or one your file forbids) is lowered to
+the highest allowed level, and any banned model name or forbidden effort word in
+the text it prints is replaced with `[withheld]`. A missing file changes
 nothing. An unreadable or invalid file prints one `[WARN]` line and is ignored.
 A minimal file, with invented names:
 

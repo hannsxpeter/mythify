@@ -45,7 +45,6 @@ REVIEW_ROUTE = "review"
 REVIEWER_ROLE = "reviewer"
 TIER_SHOWN_FIRST = ("reviewer_effort", "user_review")
 TIER_NOT_EXTRA = ("id",) + TIER_SHOWN_FIRST
-WITHHELD = "[withheld]"
 
 
 class PolicyShapeError(ValueError):
@@ -158,51 +157,106 @@ def _rank(level):
     return EFFORT_ORDER.index(level) if level in EFFORT_ORDER else None
 
 
+WITHHELD = "[withheld]"
+# Keys Mythify itself puts in the delegation block; scrub() keeps them as they are.
+OWN_KEYS = frozenset((
+    "advisory", "matched", "step", "id", "when", "action", "note", "role", "name",
+    "in_policy", "options", "tool", "model", "options_withheld", "effort",
+    "effort_basis", "effort_text", "review_tier", "risk", "reviewer_effort",
+    "user_review", "extra", "review_rounds_max", "guards", "banned_models_withheld",
+    "effort_ceiling", "effort_clamped", "effort_withheld", "text_withheld",
+))
+
+
 class Guards(object):
-    """The policy's hard rules: banned models and the effort ceiling."""
+    """The policy's hard rules: banned models and efforts.
+
+    Two jobs. effort() picks the effort to show, never above the ceiling and
+    never one the file forbids. scrub() is the single place that cleans every
+    string the delegation block emits, so text and JSON cannot diverge.
+    """
 
     def __init__(self, rules):
         rules = rules or {}
-        self.banned = [item.lower() for item in rules.get("banned_models", []) if item.strip()]
+        self.banned = sorted(
+            set(item.strip().lower() for item in rules.get("banned_models", []) if item.strip()),
+            key=len, reverse=True,
+        )
         ceiling = rules.get("effort_ceiling")
         self.ceiling = ceiling.lower() if ceiling else None
-        never = set(item.lower() for item in rules.get("never_efforts", []))
+        self.never = set(item.strip().lower() for item in rules.get("never_efforts", []))
         above = set()
         if self.ceiling:
             above = set(level for level in EFFORT_ORDER if _rank(level) > _rank(self.ceiling))
-        self.blocked = never | above
+        self.blocked = self.never | above
         self.clamped = False
         self.withheld_effort = False
         self.withheld_text = False
+        parts = [re.escape(name) for name in self.banned]
+        words = sorted((re.escape(word) for word in self.blocked if word), key=len, reverse=True)
+        if words:
+            parts.append("(?<![A-Za-z0-9])(?:{0})(?![A-Za-z0-9])".format("|".join(words)))
+        self._pattern = re.compile("|".join(parts), re.IGNORECASE) if parts else None
 
     def allows_model(self, model):
         lowered = model.lower()
         return not any(banned in lowered for banned in self.banned)
 
     def effort(self, value):
-        """VALUE clamped to the ceiling; None when it cannot be shown safely."""
+        """VALUE limited to what the rules allow; None when nothing can be shown.
+
+        A level above the ceiling, or one the file forbids, is replaced by the
+        highest level at or below both the ceiling and the level itself that
+        the file does not forbid. Without a ceiling, or with no such level, it
+        is withheld.
+        """
         if not _is_text(value):
             return None
         level = value.strip().lower()
-        if level in self.blocked:
-            if self.ceiling:
-                self.clamped = True
-                return self.ceiling
-            self.withheld_effort = True
-            return None
-        if self.ceiling and level not in EFFORT_ORDER:
-            self.withheld_effort = True
-            return None
-        return value.strip()
+        if level not in self.blocked:
+            if self.ceiling and level not in EFFORT_ORDER:
+                self.withheld_effort = True
+                return None
+            return value.strip()
+        cap = _rank(level)
+        if self.ceiling and cap is not None:
+            cap = min(cap, _rank(self.ceiling))
+        if self.ceiling and cap is not None:
+            for name in reversed(EFFORT_ORDER[: cap + 1]):
+                if name not in self.never:
+                    self.clamped = True
+                    return name
+        self.withheld_effort = True
+        return None
 
-    def text(self, value):
-        """VALUE unless it names an effort the rules forbid; then None."""
-        if not _is_text(value):
-            return value
-        words = set(re.findall(r"[a-z0-9]+", value.lower()))
-        if words & self.blocked:
-            self.withheld_text = True
-            return None
+    def scrub(self, value, own=OWN_KEYS):
+        """VALUE with banned model names and forbidden efforts replaced by [withheld].
+
+        Walks strings, list items, dict keys, and dict values. Banned names
+        match as case-insensitive substrings; forbidden efforts as whole words.
+        Keys in OWN are Mythify's field names and stay as they are, except
+        inside "extra", whose keys come from the policy file.
+        """
+        if isinstance(value, str):
+            if self._pattern is None:
+                return value
+            cleaned, count = self._pattern.subn(WITHHELD, value)
+            if count:
+                self.withheld_text = True
+            return cleaned
+        if isinstance(value, list):
+            return [self.scrub(item, own) for item in value]
+        if isinstance(value, dict):
+            cleaned = {}
+            for key, item in value.items():
+                name = key if (key in own or not isinstance(key, str)) else self.scrub(key, own)
+                suffix = 2
+                unique = name
+                while unique in cleaned:
+                    unique = "{0} {1}".format(name, suffix)
+                    suffix += 1
+                cleaned[unique] = self.scrub(item, () if key == "extra" else own)
+            return cleaned
         return value
 
 
@@ -221,7 +275,7 @@ def _tier_view(policy, risk, guards):
     extra = {}
     for key, value in tier.items():
         if key not in TIER_NOT_EXTRA:
-            extra[key] = value if guards.text(_plain(value)) is not None else WITHHELD
+            extra[key] = value
     view = {
         "id": tier_id,
         "risk": risk,
@@ -258,7 +312,7 @@ def _role_view(policy, role_name, risk, tier, guards):
     view["effort"] = raw
     view["effort_basis"] = basis
     if role.get("effort_text") is not None:
-        view["effort_text"] = guards.text(role["effort_text"])
+        view["effort_text"] = role["effort_text"]
     return view
 
 
@@ -302,14 +356,20 @@ def build_delegation(task, route, classification):
     tier = _tier_view(policy, risk, guards)
     delegation["role"] = _role_view(policy, role_name, risk, tier, guards) if role_name else None
     delegation["review_tier"] = tier
-    delegation["guards"] = {
+    # One pass over everything taken from the policy file, so the text and the
+    # JSON cannot disagree. source and basis are Mythify's own.
+    own = dict((key, delegation.pop(key)) for key in ("source", "basis"))
+    cleaned = guards.scrub(delegation)
+    cleaned["guards"] = {
         "banned_models_withheld": (delegation["role"] or {}).get("options_withheld", 0),
-        "effort_ceiling": guards.ceiling,
+        "effort_ceiling": guards.scrub(guards.ceiling),
         "effort_clamped": guards.clamped,
         "effort_withheld": guards.withheld_effort,
         "text_withheld": guards.withheld_text,
     }
-    return delegation
+    result = {"advisory": True, "source": own["source"], "basis": own["basis"]}
+    result.update(cleaned)
+    return result
 
 
 def _plain(value):
@@ -367,11 +427,11 @@ def format_delegation(delegation):
     guards = delegation["guards"]
     notes = []
     if guards["effort_clamped"]:
-        notes.append("an effort above the ceiling ({0}) was clamped to it".format(guards["effort_ceiling"]))
+        notes.append("an effort above the ceiling ({0}) or forbidden was lowered to the highest allowed level".format(guards["effort_ceiling"]))
     if guards["effort_withheld"]:
-        notes.append("an effort the hard rules forbid was withheld")
+        notes.append("an effort the hard rules forbid was withheld (no allowed level at or below the ceiling)")
     if guards["text_withheld"]:
-        notes.append("policy text naming a forbidden effort was withheld")
+        notes.append("policy text naming a banned model or a forbidden effort was replaced with [withheld]")
     if notes:
         lines.append("- Guards: {0}".format("; ".join(notes)))
     return lines

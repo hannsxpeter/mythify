@@ -635,7 +635,9 @@ the matched step, role, options, effort, and review tier. The file is found
 through `MYTHIFY_AGENT_POLICY`, else `~/.agents/policy.json`, and its schema
 (version 1) is owned outside Mythify, which reads only the keys it prints.
 Mythify never picks, ranks, or switches a model here: it copies the user's own
-words, drops options the file bans, and clamps efforts the file caps, and it
+words, drops options the file bans, lowers efforts the file caps or forbids to
+the highest allowed level, replaces banned names and forbidden efforts in every
+printed string with `[withheld]` in one pass (so text and JSON agree), and it
 contains no model or vendor name. Without a file, or with an invalid one, the
 output is byte-for-byte what it was. The task-to-step match uses a separate
 `policy_steps` section of `protocol/classification-rules.json` (production,
