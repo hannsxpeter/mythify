@@ -275,8 +275,8 @@ class TestDenylistEntriesFire(unittest.TestCase):
         self.assertTrue(lint.in_vendor_scope("scripts/mythify_router.py"))
         self.assertTrue(lint.in_vendor_scope("skills/mythify/references/chat-experience.md"))
         for path in (
-            "README.md", "SECURITY.md", "CONTRIBUTING.md", "MAINTAINING.md", "ROADMAP.md",
-            "RELEASE-CHECKLIST.md", "CODE_OF_CONDUCT.md", "docs/start-here.md",
+            "README.md", "SECURITY.md", "CONTRIBUTING.md", "docs/maintainers/MAINTAINING.md",
+            "docs/maintainers/ROADMAP.md", "docs/maintainers/RELEASE-CHECKLIST.md", "CODE_OF_CONDUCT.md", "docs/start-here.md",
             "docs/architecture.md", "scripts/check_prose_quality.py",
         ):
             self.assertTrue(lint.in_vendor_scope(path), path)
@@ -315,9 +315,9 @@ class TestDenylistEntriesFire(unittest.TestCase):
                 self.assertEqual(lint.model_agnostic_hits(line), [])
 
     def test_exemptions_are_historical_records_and_the_lint_itself(self):
-        for path in ("CHANGELOG.md", "docs/DRIFT.md", "docs/evidence/notes.md", "scripts/lint.py", "tests/test_lint.py"):
+        for path in ("CHANGELOG.md", "scripts/lint.py", "tests/test_lint.py"):
             self.assertTrue(lint.is_exempt(path), path)
-        for path in ("README.md", "docs/mcp.md", "tests/test_routes.py", "docs/evidence.md"):
+        for path in ("README.md", "docs/mcp.md", "tests/test_routes.py", "docs/evidence.md", "docs/DRIFT.md"):
             self.assertFalse(lint.is_exempt(path), path)
 
 

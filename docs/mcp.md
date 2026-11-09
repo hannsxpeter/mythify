@@ -68,7 +68,6 @@ Without an install, set `"command"` to the absolute path of your `python3`
 
 ## Where hosts keep MCP config
 
-These locations come from the host setup notes Mythify kept through 5.x.
 Hosts move these files between releases; if a path does not exist, check the
 host's own documentation.
 

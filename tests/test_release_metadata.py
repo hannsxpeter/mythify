@@ -20,10 +20,10 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_roadmap_is_a_static_file_of_outcomes_non_goals_and_bets(self):
         # Exact-case listing: a case-insensitive filesystem would let a stale
         # roadmap.md satisfy a plain exists() check.
-        names = os.listdir(ROOT)
+        names = os.listdir(ROOT / "docs" / "maintainers")
         self.assertIn("ROADMAP.md", names)
         self.assertNotIn("roadmap.md", names)
-        roadmap = self.text("ROADMAP.md")
+        roadmap = self.text("docs/maintainers/ROADMAP.md")
         for item in ("O1", "O2", "O3", "O4", "O5", "N1", "N2", "N3", "N4", "B1", "B2"):
             self.assertIn("- **{0}** ".format(item), roadmap)
         self.assertNotIn("- **B3** ", roadmap)
@@ -34,7 +34,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertNotIn("RELEASE_GATES_SHA256", self.text("scripts/mythify_protocol.py"))
 
     def test_release_docs_name_current_assets(self):
-        release = self.text("RELEASE-CHECKLIST.md")
+        release = self.text("docs/maintainers/RELEASE-CHECKLIST.md")
         self.assertIn("mythify-cli-{0}.tar.gz".format(VERSION), release)
         self.assertNotIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
         self.assertIn("docs/prose-quality.md", self.text("README.md"))

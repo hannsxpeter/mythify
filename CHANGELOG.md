@@ -335,9 +335,9 @@ tests. `scripts/lint.py` checks the repository for drift.
   the generated [docs/commands.md](docs/commands.md), and `scripts/lint.py`,
   the maintainer drift gate with a self-test.
 - [docs/architecture.md](docs/architecture.md) (replaces `docs/design.md`)
-  with a decision log, [docs/DRIFT.md](docs/DRIFT.md),
-  [docs/mcp.md](docs/mcp.md), [MAINTAINING.md](MAINTAINING.md), and
-  [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) (replaces `docs/release.md`).
+  with a decision log, `docs/DRIFT.md`,
+  [docs/mcp.md](docs/mcp.md), [MAINTAINING.md](docs/maintainers/MAINTAINING.md), and
+  [RELEASE-CHECKLIST.md](docs/maintainers/RELEASE-CHECKLIST.md) (replaces `docs/release.md`).
 
 ### Changed
 

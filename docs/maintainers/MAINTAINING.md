@@ -1,9 +1,9 @@
 # Maintaining Mythify
 
-Maintainer rituals. Contributors should read [CONTRIBUTING.md](CONTRIBUTING.md)
+Maintainer rituals. Contributors should read [CONTRIBUTING.md](../../CONTRIBUTING.md)
 first; this document covers the coordination work that keeps the code, the
 generated files, and the docs telling the same story. The design and its
-decision log are in [docs/architecture.md](docs/architecture.md).
+decision log are in [docs/architecture.md](../architecture.md).
 
 ## The version model
 
@@ -20,7 +20,7 @@ workflow runs:
 | :--- | :--- | :--- |
 | `CHANGELOG.md` | top release heading `## [X.Y.Z] - YYYY-MM-DD`, with the `[Unreleased]` and `[X.Y.Z]` compare links | lint `version`; `tests/test_release_version.py` checks the heading and every compare link |
 | `SECURITY.md` | supported line `X.x` | lint `version` |
-| `RELEASE-CHECKLIST.md` | ``Current release target: `vX.Y.Z` `` and the asset names | lint `version` (target line); `tests/test_release_version.py` and `tests/test_release_metadata.py` (asset names) |
+| `docs/maintainers/RELEASE-CHECKLIST.md` | ``Current release target: `vX.Y.Z` `` and the asset names | lint `version` (target line); `tests/test_release_version.py` and `tests/test_release_metadata.py` (asset names) |
 | release tag | `vX.Y.Z` | `python3 scripts/package_cli.py --check-release-tag vX.Y.Z`, run by the release workflow before anything is built |
 
 `tests/test_release_metadata.py` also pins the version and the release date
@@ -65,7 +65,7 @@ CI's `Repository hygiene` job and the release workflow run it.
 
 | Check | Fails when |
 | :--- | :--- |
-| `version` | the top `CHANGELOG.md` release heading, the `X.x` row marked Yes in `SECURITY.md`, or the release target in `RELEASE-CHECKLIST.md` disagrees with `VERSION` |
+| `version` | the top `CHANGELOG.md` release heading, the `X.x` row marked Yes in `SECURITY.md`, or the release target in `docs/maintainers/RELEASE-CHECKLIST.md` disagrees with `VERSION` |
 | `generated` | `build_variants.py --check` or `build_commands_doc.py --check` fails |
 | `protocol-budget` | `protocol/PROTOCOL.md` or `AGENTS.md` exceeds 12,000 bytes, or a `skills/*/SKILL.md` exceeds 16,000 bytes |
 | `text` | a file contains an en dash (U+2013), an em dash (U+2014), U+FE0F, or a code point in U+1F000-1FAFF, U+2600-27BF, or U+2B00-2BFF |
@@ -92,7 +92,7 @@ red build.
    returns 0, 1, or 2 and never 64; argparse owns usage errors. A handler that
    runs a command goes through `execute_recorded_verification`, refuses under
    `MYTHIFY_DISABLE_RUN=1` with exit 2, and joins the table in
-   [SECURITY.md](SECURITY.md).
+   [SECURITY.md](../../SECURITY.md).
 3. Tests. Cover success, every refusal, and the exit codes. The `--help` test
    reads the command list from the parser, so it covers the new command
    without edits.
@@ -120,15 +120,15 @@ kept only in `scripts/lint.py` (tests import them):
 - Model family names (`MODEL_NAMES`) and the identifiers of the removed
   model-routing layer (`ROUTING_IDENTIFIERS`: its JSON keys, flags, tool
   names, state file, and environment variables) are forbidden in every file
-  except `CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`,
+  except `CHANGELOG.md`,
   `scripts/lint.py`, and `tests/test_lint.py`. A test that asserts a removed
   key is absent checks keys with `lint.removed_identifier_keys` instead of
   spelling the key out.
 - Vendor and host names (`VENDOR_NAMES`) are forbidden in the shipped
   product surfaces (`VENDOR_SCOPE`): `scripts/mythify*.py`,
   `scripts/check_prose_quality.py`, `protocol/`, `skills/`, `AGENTS.md`,
-  `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `MAINTAINING.md`,
-  `ROADMAP.md`, `RELEASE-CHECKLIST.md`, `CODE_OF_CONDUCT.md`, and every
+  `README.md`, `SECURITY.md`, `CONTRIBUTING.md`,
+  `docs/maintainers/*.md`, `CODE_OF_CONDUCT.md`, and every
   `docs/*.md` except `docs/mcp.md`. Lower-case "cursor" is an ordinary word
   there (report cursors), so only the editor's vendor forms match.
 
@@ -156,12 +156,10 @@ seems to need a model name is a host feature, not a Mythify feature.
 ## Logging drift
 
 When two sources disagree (a doc and the code, a help string and the
-handler), fix the source that is wrong, then add a row to
-[docs/DRIFT.md](docs/DRIFT.md): where it was, what it claimed against what
-the code does, and the change that resolved it. Prefer a resolution that
-derives the fact from code or adds a lint check over one that edits prose.
-Drift found and not fixed goes under "Open" in that file until a release
-resolves it, and the release's CHANGELOG entry names it.
+handler), fix the source that is wrong, then name the drift in the CHANGELOG entry of
+the release that fixes it: where it was, what it claimed against what the code
+does, and the change that resolved it. Prefer a resolution that derives the
+fact from code or adds a lint check over one that edits prose.
 
 ## Releases
 

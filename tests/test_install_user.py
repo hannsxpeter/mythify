@@ -140,15 +140,16 @@ class TestUserInstaller(unittest.TestCase):
             root + "/CLAUDE.md",
             root + "/CHANGELOG.md",
             root + "/CONTRIBUTING.md",
-            root + "/ROADMAP.md",
             root + "/docs/architecture.md",
             root + "/docs/commands.md",
             root + "/docs/campaigns.md",
             root + "/docs/mcp.md",
             root + "/docs/start-here.md",
             root + "/docs/prose-quality.md",
-            root + "/docs/evidence/efficacy-reproduction.md",
-            root + "/docs/evidence/efficacy-smoke-2026-07-13.json",
+            root + "/docs/guide.md",
+            root + "/docs/maintainers/ROADMAP.md",
+            root + "/docs/maintainers/MAINTAINING.md",
+            root + "/docs/maintainers/RELEASE-CHECKLIST.md",
         }
         self.assertTrue(required.issubset(names), sorted(required - names))
         removed = {

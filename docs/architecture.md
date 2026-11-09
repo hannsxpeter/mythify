@@ -82,7 +82,7 @@ against), and the `PROTOCOL_SOURCE_SHA256` constant in
 `scripts/mythify_protocol.py`; `--check` writes nothing and exits 1 on drift.
 `scripts/build_commands_doc.py` writes [commands.md](commands.md) from the
 argparse tree. Maintainer tooling is described in
-[MAINTAINING.md](../MAINTAINING.md).
+[MAINTAINING.md](maintainers/MAINTAINING.md).
 
 ## State model
 
@@ -551,7 +551,7 @@ command:
 The `prompt research`, `prompt analysis`, and `prompt campaign` packets went
 with the research and campaign routes. `route` sends a research-like prompt to
 `map` when it asks several open questions, and to `direct` otherwise.
-[DRIFT.md](DRIFT.md) section 8 lists the drift these features carried in 5.8.
+The drift these features carried in 5.8 is recorded in `CHANGELOG.md`.
 
 ### 2026-10-01: status replaces seven views
 
@@ -561,7 +561,7 @@ breakdown, recent records, and the attention detectors, issues first.
 `outcome status` with no name and no active outcome lists every outcome. Why:
 the views overlapped, and `readiness` graded user projects against Mythify's
 own release gates, so every user project read as blocked. Maintainers use
-[RELEASE-CHECKLIST.md](../RELEASE-CHECKLIST.md) and `scripts/lint.py`.
+[RELEASE-CHECKLIST.md](maintainers/RELEASE-CHECKLIST.md) and `scripts/lint.py`.
 
 ### 2026-10-01: usage errors exit 64
 
@@ -650,5 +650,5 @@ ignored, never deleted or migrated, as in the 6.0 downsize: a `.mythify/products
 folder, an `active_product` pointer, a plan's `product_ref`, and a lineage
 parent of kind `product` are not read as anything, and ledger records that
 carry a `product` key stay scoped records that never count for a step.
-`ROADMAP.md` was rendered by `product show --markdown`; it is now a static
+`docs/maintainers/ROADMAP.md` was rendered by `product show --markdown`; it is now a static
 file.

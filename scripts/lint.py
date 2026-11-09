@@ -164,13 +164,13 @@ def check_version(root, files):
             "supported versions table has no `| {0}.x | Yes |` row for VERSION {1}".format(major, version),
         ))
 
-    checklist = read_text(root, "RELEASE-CHECKLIST.md")
+    checklist = read_text(root, "docs/maintainers/RELEASE-CHECKLIST.md")
     target = RELEASE_TARGET.search(checklist or "")
     if not target:
-        findings.append(Finding("RELEASE-CHECKLIST.md", 1, "version", "no `Current release target: `vX.Y.Z`` line"))
+        findings.append(Finding("docs/maintainers/RELEASE-CHECKLIST.md", 1, "version", "no `Current release target: `vX.Y.Z`` line"))
     elif target.group(1) != version:
         findings.append(Finding(
-            "RELEASE-CHECKLIST.md", line_of(checklist, target.start()), "version",
+            "docs/maintainers/RELEASE-CHECKLIST.md", line_of(checklist, target.start()), "version",
             "release target is v{0}, VERSION is {1}".format(target.group(1), version),
         ))
     return findings
@@ -423,8 +423,6 @@ PATH_ALLOWED_TOKENS = {
 # Historical records, plus this denylist and its self-test.
 MODEL_AGNOSTIC_EXEMPT = (
     "CHANGELOG.md",
-    "docs/DRIFT.md",
-    "docs/evidence/",
     "scripts/lint.py",
     "tests/test_lint.py",
 )
@@ -441,9 +439,7 @@ VENDOR_SCOPE = (
     "README.md",
     "SECURITY.md",
     "CONTRIBUTING.md",
-    "MAINTAINING.md",
-    "ROADMAP.md",
-    "RELEASE-CHECKLIST.md",
+    "docs/maintainers/*.md",
     "CODE_OF_CONDUCT.md",
     "docs/*.md",
     "docs/assets/*.svg",
