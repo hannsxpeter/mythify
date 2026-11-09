@@ -18,6 +18,7 @@ bucket" stay high.
 
 import fnmatch
 import json
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -81,6 +82,17 @@ def valid_code_work(code_work, strings, count):
     )
 
 
+def valid_bare(bare, strings):
+    if bare is None:
+        return True
+    return (
+        isinstance(bare, dict)
+        and strings(bare.get("terms"))
+        and bool(bare["terms"])
+        and strings(bare.get("lead_in"))
+    )
+
+
 def validate_policy_steps(section):
     """Raise ValueError unless the policy_steps section has the documented shape."""
 
@@ -113,10 +125,12 @@ def validate_policy_steps(section):
                 and strings(pair.get("then"))
                 and pair["then"]
                 and count(pair.get("within"))
+                and ("gap_words" not in pair or strings(pair["gap_words"]))
                 for pair in pairs
             )
             and (step["terms"] or pairs)
             and valid_code_work(step.get("code_work"), strings, count)
+            and valid_bare(step.get("bare"), strings)
         )
         if not valid:
             raise ValueError("Invalid classification policy_steps entry")
@@ -469,36 +483,104 @@ def classify_paths(paths):
     return {"risk": risk, "matches": matches}
 
 
+CLAUSE_BREAK = "|"
+CLAUSE_BREAK_WORDS = ("then", "before")
+
+
+def clause_tokens(text):
+    """Words of TEXT with CLAUSE_BREAK between clauses.
+
+    A clause ends at a comma, semicolon, period, colon, or line break, and at
+    the words "then", "before", and "after that", so a coding clause cannot
+    cancel a separate operational instruction.
+    """
+    tokens = []
+    for segment in re.split(r"[,;.!?:\n]+", str(text or "").lower()):
+        words = wordish(segment).split()
+        if tokens and words:
+            tokens.append(CLAUSE_BREAK)
+        index = 0
+        while index < len(words):
+            word = words[index]
+            if word in CLAUSE_BREAK_WORDS or (word == "after" and words[index + 1:index + 2] == ["that"]):
+                if tokens and tokens[-1] != CLAUSE_BREAK:
+                    tokens.append(CLAUSE_BREAK)
+                index += 2 if word == "after" else 1
+                continue
+            tokens.append(word)
+            index += 1
+    return tokens
+
+
+def _in_clause(tokens, start, stop):
+    """TOKENS[start:stop] cut at the first clause break."""
+    part = tokens[start:stop]
+    return part[:part.index(CLAUSE_BREAK)] if CLAUSE_BREAK in part else part
+
+
 def _guarded(tokens, end, near_miss, window):
-    """True when a near-miss word starts within WINDOW words after position END."""
-    return bool(near_miss) and bool(contains_any(" ".join(tokens[end:end + window]), near_miss))
+    """True when a near-miss word starts within WINDOW words after END, in its clause."""
+    return bool(near_miss) and bool(
+        contains_any(" ".join(_in_clause(tokens, end, end + window)), near_miss)
+    )
 
 
 def _code_work(tokens, start, end, code_work):
     """True when the match is code work on a component named after the operation.
 
     A code-work verb (implement, write, fix, and kin) must come before the match
-    and a code noun (client, parser, script, flag, and kin) within "after" words
-    after it, as in "fix the deploy command parser" or "write a deploy script".
+    in the same clause, and a code noun (client, parser, script, flag, and kin)
+    must follow the operation word within "after" words, as in "fix the deploy
+    command parser". END is the end of the operation word itself.
     """
     if not code_work:
         return False
-    before = " ".join(tokens[:start])
-    after = " ".join(tokens[end:end + int(code_work["after"])])
+    clause_start = max([i for i, token in enumerate(tokens[:start]) if token == CLAUSE_BREAK] + [-1]) + 1
+    before = " ".join(tokens[clause_start:start])
+    after = " ".join(_in_clause(tokens, end, end + int(code_work["after"])))
     return bool(contains_any(before, code_work["verbs"])) and bool(
         contains_any(after, code_work["nouns"])
     )
+
+
+def _bare_verb(tokens, step):
+    """A bare operation word that is the verb of its clause, such as "... then deploy".
+
+    It must end its clause, and the word before it must be the clause start or a
+    lead-in word (please, and, to, then), so "fix the deploy" does not match.
+    """
+    bare = step.get("bare")
+    if not bare:
+        return None
+    for term in bare["terms"]:
+        size = term_count(term)
+        for start in term_positions(tokens, term):
+            end = start + size
+            ends_clause = end == len(tokens) or tokens[end] == CLAUSE_BREAK
+            before = tokens[start - 1] if start else CLAUSE_BREAK
+            if ends_clause and (before == CLAUSE_BREAK or before in bare["lead_in"]):
+                return str(term)
+    return None
+
+
+def _gap_allowed(tokens, first_end, at, pair):
+    gap = tokens[first_end:at]
+    if CLAUSE_BREAK in gap:
+        return False
+    return "gap_words" not in pair or all(word in pair["gap_words"] for word in gap)
 
 
 def policy_step_signal(tokens, step):
     """The first term or pair of STEP found in TOKENS and not cancelled, else None.
 
     A term matches as a whole phrase. A pair matches when a "first" phrase is
-    followed by a "then" phrase with at most "within" words between them. Either
-    kind is cancelled when a near-miss word (docs, upload, feature, and kin)
-    starts in the next few words after the term, or after either half of a
-    pair, and when the step's code_work rule says the wording is code work on a
-    component named after the operation, so incidental wording stays out.
+    followed by a "then" phrase in the same clause with at most "within" words
+    between them (only "gap_words", when listed). A "bare" word matches as the
+    verb of its clause. A match is cancelled when a near-miss word (docs,
+    upload, feature, and kin) starts in the next few words after the term, or
+    after either half of a pair, and when the step's code_work rule says the
+    wording is code work on a component named after the operation, so
+    incidental wording stays out.
     """
     near_miss = step.get("near_miss", [])
     code_work = step.get("code_work")
@@ -514,18 +596,19 @@ def policy_step_signal(tokens, step):
         for first in pair["first"]:
             for start in term_positions(tokens, first):
                 first_end = start + term_count(first)
-                if _guarded(tokens, first_end, near_miss, window):
+                if _guarded(tokens, first_end, near_miss, window) or _code_work(
+                    tokens, start, first_end, code_work
+                ):
                     continue
                 for then in pair["then"]:
                     for at in term_positions(tokens, then):
-                        span_end = at + term_count(then)
                         if (
                             first_end <= at <= first_end + int(pair["within"])
-                            and not _guarded(tokens, span_end, near_miss, window)
-                            and not _code_work(tokens, start, span_end, code_work)
+                            and _gap_allowed(tokens, first_end, at, pair)
+                            and not _guarded(tokens, at + term_count(then), near_miss, window)
                         ):
                             return "{0} ... {1}".format(first, then)
-    return None
+    return _bare_verb(tokens, step)
 
 
 def classify_policy_step(task_text):
@@ -535,7 +618,7 @@ def classify_policy_step(task_text):
     first. This never changes classify_task_text and carries no model or
     vendor knowledge; it only reads terms from protocol/classification-rules.json.
     """
-    tokens = wordish(task_text).split()
+    tokens = clause_tokens(task_text)
     for step in POLICY_STEPS:
         signal = policy_step_signal(tokens, step)
         if signal:

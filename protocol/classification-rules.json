@@ -464,32 +464,69 @@
               "deploy"
             ],
             "then": [
-              "the app",
-              "the application",
-              "the service",
-              "the services",
-              "the site",
-              "the website",
-              "the api",
-              "the backend",
-              "the frontend",
-              "the build",
-              "the release",
-              "the fix",
-              "the change",
-              "the changes",
-              "the branch",
-              "the latest",
-              "the new version",
+              "app",
+              "application",
+              "service",
+              "services",
+              "site",
+              "website",
+              "api",
+              "backend",
+              "frontend",
+              "build",
+              "release",
+              "branch",
+              "version",
+              "fix",
+              "change",
+              "changes",
               "it",
               "this",
-              "everything",
+              "everything"
+            ],
+            "within": 2
+          },
+          {
+            "first": [
+              "deploy"
+            ],
+            "then": [
               "to",
               "and",
               "now",
               "again"
             ],
-            "within": 0
+            "within": 2,
+            "gap_words": [
+              "my",
+              "our",
+              "your",
+              "the",
+              "this",
+              "that",
+              "a",
+              "an",
+              "its",
+              "their",
+              "new",
+              "latest",
+              "current"
+            ]
+          },
+          {
+            "first": [
+              "ship",
+              "release",
+              "push",
+              "promote"
+            ],
+            "then": [
+              "to staging",
+              "to stage",
+              "to preprod",
+              "to live"
+            ],
+            "within": 3
           },
           {
             "first": [
@@ -508,7 +545,7 @@
               "production",
               "prod"
             ],
-            "within": 3
+            "within": 4
           },
           {
             "first": [
@@ -603,8 +640,6 @@
             "workflow",
             "pipeline",
             "endpoint",
-            "api",
-            "tool",
             "code",
             "logic",
             "mock",
@@ -614,11 +649,32 @@
             "util",
             "utils",
             "utility",
-            "button",
-            "page",
-            "ui"
+            "button"
           ],
           "after": 4
+        },
+        "bare": {
+          "terms": [
+            "deploy"
+          ],
+          "lead_in": [
+            "please",
+            "just",
+            "now",
+            "and",
+            "to",
+            "then",
+            "also",
+            "finally",
+            "next",
+            "should",
+            "must",
+            "can",
+            "will",
+            "let",
+            "lets",
+            "go"
+          ]
         }
       },
       {

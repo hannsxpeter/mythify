@@ -299,7 +299,8 @@ the file lists for the role, and the review tier for the task's risk. It is a
 copy of your file, not a choice: options your own banned-model list names are
 left out, an effort above your ceiling (or one your file forbids) is lowered to
 the highest allowed level, and any banned model name or forbidden effort word in
-the text it prints is replaced with `[withheld]`. A missing file changes
+the text it prints is replaced with `[withheld]` (a name containing a banned
+model or forbidden effort word is partly withheld). A missing file changes
 nothing. An unreadable or invalid file prints one `[WARN]` line and is ignored.
 A minimal file, with invented names:
 

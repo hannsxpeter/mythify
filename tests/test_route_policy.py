@@ -351,7 +351,7 @@ class TestStepSelection(PolicyCase):
         for task in (
             "deploy the app and take screenshots of every page",
             "generate a logo and push it to production",
-            "rename all the functions across the repo then deploy it",
+            "rename all the functions across the repo then deploy",
         ):
             with self.subTest(task=task):
                 self.assertEqual(self.delegation(task)["matched"]["id"], "production")
@@ -366,7 +366,7 @@ class TestStepSelection(PolicyCase):
         delegation = self.delegation(TASKS["production"])
         self.assertIsNone(delegation["role"])
         self.assertEqual(delegation["matched"]["action"], "stop_and_ask")
-        self.assertIn("Role: none", self.text(TASKS["production"]))
+        self.assertIn("Role: not set", self.text(TASKS["production"]))
 
     def test_a_policy_without_the_step_says_so(self):
         routing = [entry for entry in POLICY["routing"] if entry["id"] != "image"]
@@ -504,7 +504,7 @@ class TestRiskAndEffort(PolicyCase):
         self.assertIn("Review tier: high (risk high); reviewer_effort: xhigh; user_review: true;", out)
         self.assertIn("review_rounds_max: 3", out)
         out = self.text(LOW_RISK)
-        self.assertIn("Review tier: low (risk low); reviewer_effort: none; user_review: false;", out)
+        self.assertIn("Review tier: low (risk low); reviewer_effort: not set; user_review: false;", out)
 
     def test_extra_tier_keys_print_generically(self):
         out = self.text(HIGH_RISK)
@@ -671,6 +671,20 @@ class TestGuards(PolicyCase):
         text, data, delegation = self.all_output(TASKS["build"], policy)
         self.assertIn("policy note: [withheld] is great", text)
         self.assertEqual(delegation["matched"]["note"], "[withheld] is great")
+
+    def test_a_null_value_prints_without_an_effort_word(self):
+        policy = policy_with()
+        policy["hard_rules"] = {"never_efforts": ["none"], "effort_ceiling": "xhigh"}
+        for tier in policy["review_tiers"]:
+            tier["nothing_here"] = None
+        out = self.text(LOW_RISK, policy)
+        block = out[out.index("Delegation (advisory"):]
+        self.assertIsNone(re.search(r"\bnone\b", block, re.IGNORECASE), block)
+        self.assertIn("reviewer_effort: not set", out)
+        self.assertIn("nothing_here: not set", out)
+        extra = self.delegation(LOW_RISK, policy)["review_tier"]
+        self.assertIsNone(extra["reviewer_effort"])
+        self.assertIsNone(extra["extra"]["nothing_here"])
 
     def test_clamping_never_lands_on_a_forbidden_level(self):
         policy = policy_with()

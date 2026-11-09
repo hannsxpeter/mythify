@@ -196,6 +196,11 @@ class TestProductionNeedsOperationalWording(unittest.TestCase):
             "write tests for the deploy handler",
             "fix the deploy config",
             "add an option to the ssh library",
+            "Fix the deploy",
+            "explain the deploy process and the rollback",
+            "Deploy command parser needs a fix",
+            "push the branch to origin",
+            "write a deploy",
         ):
             with self.subTest(task=task):
                 self.assertIsNone(self.step(task))
@@ -213,9 +218,46 @@ class TestProductionNeedsOperationalWording(unittest.TestCase):
             "buy more credits for the account",
             "rsync the build to the server",
             "fix the failing test and then deploy the app to the server",
+            # determiners, possessives, and up to two words before the object
+            "Deploy my app to staging",
+            "Deploy our service to staging",
+            "deploy the payments service to staging",
+            "ship my app to staging",
+            "push my latest changes to production",
+            # an earlier coding clause does not cancel a separate operation
+            "Fix the failing test, then run the deploy script",
+            "Fix the bug, then ssh into the server and test it",
+            "Fix the test, then spend money on the monitoring tool",
+            "Fix the bug; after that deploy the app to the server",
+            "Fix the parser before you ssh into the staging server",
+            # a bare operation word is the verb of its clause
+            "rename all the functions across the repo then deploy",
+            "Fix the bug and deploy",
+            "please deploy",
+            "I want to deploy",
         ):
             with self.subTest(task=task):
                 self.assertEqual(self.step(task), "production")
+
+    def test_the_code_noun_must_attach_to_the_operation_word(self):
+        # The same words, but the coding verb and the noun sit with the operation.
+        for task in (
+            "implement an ssh into helper",
+            "fix the rsync wrapper",
+            "refactor the scp client",
+        ):
+            with self.subTest(task=task):
+                self.assertIsNone(self.step(task))
+        # A noun after the operation, in another clause, does not cancel it.
+        self.assertEqual(self.step("fix the bug, then rsync the build, then write the wrapper"), "production")
+
+    def test_clauses_split_at_punctuation_and_connectives(self):
+        from mythify_classification import CLAUSE_BREAK, clause_tokens
+        self.assertEqual(
+            clause_tokens("fix it, then run it; after that deploy before lunch. Done"),
+            ["fix", "it", CLAUSE_BREAK, "run", "it", CLAUSE_BREAK, "deploy", CLAUSE_BREAK,
+             "lunch", CLAUSE_BREAK, "done"],
+        )
 
 
 if __name__ == "__main__":

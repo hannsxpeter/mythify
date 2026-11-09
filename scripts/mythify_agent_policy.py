@@ -374,7 +374,7 @@ def build_delegation(task, route, classification):
 
 def _plain(value):
     if value is None:
-        return "none"
+        return "not set"
     if isinstance(value, bool):
         return "true" if value else "false"
     if _is_text(value):
@@ -400,7 +400,7 @@ def format_delegation(delegation):
         lines.append("- Policy note: {0}".format(matched["note"]))
     role = delegation.get("role")
     if role is None:
-        lines.append("- Role: none (the policy names no role for this step)")
+        lines.append("- Role: not set (the policy names no role for this step)")
     elif not role["in_policy"]:
         lines.append("- Role: {0} (no entry in the policy roles)".format(role["name"]))
     else:
@@ -409,7 +409,7 @@ def format_delegation(delegation):
         if role["options_withheld"]:
             options = (options + "; " if options else "") + (
                 "{0} option(s) withheld by the policy hard rules".format(role["options_withheld"]))
-        lines.append("- Options: {0}".format(options or "none listed"))
+        lines.append("- Options: {0}".format(options or "no options listed"))
         lines.append("- Effort: {0} ({1})".format(
             role["effort"] if role["effort"] is not None else "not set", role["effort_basis"]))
         if role.get("effort_text"):

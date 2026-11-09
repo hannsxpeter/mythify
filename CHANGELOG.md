@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   banned-model list are withheld, an effort above its ceiling or in its
   never-list is lowered to the highest allowed level (or withheld when none
   is), banned names and forbidden effort words in any printed policy text are
-  replaced with `[withheld]`, and
+  replaced with `[withheld]` (a name containing one is partly withheld), and
   Mythify still never picks, ranks, or switches a model. Without a file the
   output is byte-for-byte unchanged; an unreadable or invalid file prints one
   `[WARN]` line and is ignored. Production needs operational wording (deploy the
