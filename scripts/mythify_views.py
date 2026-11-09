@@ -34,6 +34,7 @@ from mythify_maps import (
     ungraduated_fog,
 )
 from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
+from mythify_checks import load_checks
 from mythify_findings import findings_attention
 from mythify_ratchet import latest_test_count_drops
 from mythify_product import active_product_view, list_product_records
@@ -1260,6 +1261,7 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
             "attested": sum(1 for record in records if record.get("kind") == "attested"),
             "recent": list(reversed(recent_tail(rows, recent))),
         },
+        "checks": sorted(load_checks(state)),
         "attention": shown,
         "attention_total": len(attention),
         "attention_omitted": len(attention) - len(shown),
@@ -1360,6 +1362,8 @@ def format_status_view(view):
             evidence["attested"],
         )
     )
+    if view.get("checks"):
+        lines.append("Checks: {0}".format(", ".join(view["checks"])))
     if evidence["recent"]:
         lines.append("Recent verification:")
         for row in evidence["recent"]:

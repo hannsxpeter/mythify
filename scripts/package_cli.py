@@ -29,6 +29,7 @@ STANDALONE_DOCS = (
     "docs/architecture.md",
     "docs/blast-radius.md",
     "docs/campaigns.md",
+    "docs/checks-and-gate.md",
     "docs/commands.md",
     "docs/mcp.md",
     "docs/product-planning.md",

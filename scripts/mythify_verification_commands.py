@@ -4,7 +4,9 @@ import json
 import os
 import re
 
+from mythify_checks import add_check_parsers
 from mythify_evidence_guard import run_disabled
+from mythify_gate import add_gate_parser
 from mythify_reuse import REUSE_HELP
 
 
@@ -176,6 +178,8 @@ def add_verification_parsers(sub, symbols):
     parser.add_argument("claim", help="The claim being attested.")
     parser.add_argument("evidence", help="Why you believe the claim holds.")
     parser.set_defaults(handler=cmd_verify_claim)
+    add_check_parsers(actions, symbols)
+    add_gate_parser(actions)
 
     parser = sub.add_parser("reflect", help="Record a structured reflection as JSON or flags.")
     parser.add_argument("json", nargs="?", help="Reflection as a JSON object.")

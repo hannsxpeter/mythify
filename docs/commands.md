@@ -1309,6 +1309,41 @@ Arguments:
 - `claim`: The claim being attested.
 - `evidence`: Why you believe the claim holds.
 
+### verify check
+
+```text
+mythify verify check [--set COMMAND] [--description DESCRIPTION] [--files PATH [PATH ...]] [--reuse] [--timeout N] [--claim CLAIM] [--json] [name]
+```
+
+Without NAME, list the defined checks. With NAME and --set COMMAND, define or replace the check without running it. With NAME alone, run it and record an executed verification stamped with the check name. {files} in the command expands to the shell-quoted changed files (--files, else working-tree changes against HEAD plus untracked files); with no changed files nothing runs and nothing is recorded. A step whose verify_command is @NAME runs this check through plan verify. Exits 0 verified, 2 failed or disabled, 1 refused.
+
+Arguments:
+
+- `[name]`: Check name: lowercase letters, digits, hyphens.
+
+Options:
+
+- `--set COMMAND`: Define or replace the check with COMMAND; nothing runs.
+- `--description DESCRIPTION`: With --set: what the check covers.
+- `--files PATH [PATH ...]`: Files for {files}, instead of the changed files.
+- `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
+- `--timeout N`: Timeout in seconds. Default: `300.0`.
+- `--claim CLAIM`: What this run verifies; default 'check NAME'.
+- `--json`: Print JSON.
+
+### verify gate
+
+```text
+mythify verify gate [--plan PLAN] [--json]
+```
+
+Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Never runs a command and never writes state. Exits 0 when nothing is in flight or every in-progress step is verified, 2 otherwise, with the next command per step on stderr.
+
+Options:
+
+- `--plan PLAN`: Plan name; defaults to the active plan.
+- `--json`: Print JSON.
+
 ## reflect
 
 ```text

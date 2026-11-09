@@ -11,6 +11,7 @@ import sys
 import time
 from types import SimpleNamespace
 
+from mythify_checks import add_checks_line
 from mythify_path_risk import HUMAN_INPUT_HELP
 from mythify_ratchet import ACCEPT_TEST_DROP_HELP
 
@@ -98,11 +99,11 @@ def build_campaign_prompt(state, name=None):
         "the work, runs checks, and reports results. No worker or background executor is started."
     )
     lines.append("Guardrail: " + guardrail)
-    return {
+    return add_checks_line({
         "kind": "campaign", "selected_kind": "campaign", "title": "Campaign prompt packet",
         "source": {"type": "plan", "id": slug}, "context": view,
         "next_prompt": "\n".join(lines), "guardrail": guardrail,
-    }
+    }, state)
 
 
 def start_campaign(args, state):

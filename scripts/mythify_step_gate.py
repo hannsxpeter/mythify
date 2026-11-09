@@ -8,6 +8,7 @@ changes the plan, so `step ... completed` and read-only callers can share it.
 import os
 from pathlib import Path
 
+from mythify_checks import check_reference
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_path_risk import judge_path_risk
 from mythify_provenance import current_verification_provenance, evidence_moved_since_run
@@ -155,6 +156,9 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
               "test_drop_accepted": None, "risk": None}
     messages = result["messages"]
     expected_command = str(step.get("verify_command") or "").strip()
+    # An @NAME verifier is met by any run of that check: its expanded command
+    # text can differ from run to run, so the record's check field decides.
+    expected_check = check_reference(expected_command)
     lower_bound = step.get("updated_at") or plan.get("created", "")
     records = read_jsonl_after_marker(
         Path(state) / "verifications.jsonl",
@@ -173,9 +177,14 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
     latest, scoped = {}, set()
     for record in records:
         command = str(record.get("command") or "").strip()
-        if record.get("kind") != "executed" or (
-            expected_command and command != expected_command
-        ) or not timestamp_at_or_after(record.get("timestamp", ""), lower_bound, True):
+        if expected_check:
+            # Runs of the check share one key, whatever command text they expanded to.
+            wrong_command, command = record.get("check") != expected_check, expected_command
+        else:
+            wrong_command = bool(expected_command) and command != expected_command
+        if record.get("kind") != "executed" or wrong_command or not timestamp_at_or_after(
+            record.get("timestamp", ""), lower_bound, True
+        ):
             continue
         latest.pop(command, None)
         latest[command] = record

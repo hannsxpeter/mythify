@@ -52,6 +52,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   advisory independent when the changed paths are riskier than the task
   wording.
 
+- Named checks. `verify check NAME --set COMMAND` stores a command in
+  `.mythify/checks.json` (names are `[a-z0-9-]+`; a command that cannot fail is
+  refused), `verify check` lists them, and `verify check NAME` runs one and
+  records an executed verification stamped with `check` and `check_template`.
+  `{files}` expands to the shell-quoted changed files, or to `--files`; with
+  none, nothing runs and nothing is recorded. `--reuse`, `--timeout`,
+  `--claim`, and `--json` are supported, and `MYTHIFY_DISABLE_RUN=1` refuses
+  with exit 2. A step's `verify_command` may be `@NAME`: `plan verify` runs the
+  check, a run of that check made while the step is in progress counts for it,
+  and the step gate accepts any passing run of the check whatever its expanded
+  text. `plan create` and `plan add-step` warn when `@NAME` is not defined yet.
+  Prompt packets (`prompt next`, `prompt handoff`, `campaign prompt`) and
+  `status` list the defined checks.
+- `verify gate [--plan NAME] [--json]`, a read-only check for host stop or
+  pre-commit hooks. It judges each in-progress step with the same rules as
+  `step ID completed` (including stale evidence, and a test-count drop or a
+  high-risk change under strict context), runs nothing, and writes nothing.
+  Exit 0 means nothing is in flight without evidence; exit 2 means unverified
+  work is in flight, with the step and the next command on stderr. See
+  [docs/checks-and-gate.md](docs/checks-and-gate.md).
+
 ## [6.1.0] - 2026-10-28
 
 ### Added

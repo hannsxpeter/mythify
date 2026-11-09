@@ -36,6 +36,7 @@ real commands and recording real exit codes:
 | Command | What it runs |
 | :--- | :--- |
 | `verify run COMMAND` | `COMMAND` |
+| `verify check NAME` | the named check's stored command, with `{files}` replaced by shell-quoted file names (`verify check NAME --set COMMAND` only stores it) |
 | `plan verify ID` | the step's stored `verify_command` |
 | `outcome check` | the outcome's verify command and optional metric command |
 | `outcome run` | the outcome's agent command, then its verify and metric commands, in a bounded loop |

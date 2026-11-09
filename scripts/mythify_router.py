@@ -13,6 +13,7 @@ from pathlib import Path
 from mythify_classification import classify_task_text
 from mythify_findings import findings_prompt_context, findings_prompt_lines
 from mythify_path_risk import apply_diff_risk, diff_risk
+from mythify_checks import add_checks_line
 from mythify_campaigns import build_campaign_prompt, campaign_metadata, load_campaign
 from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_loopfit import assess_loop_fit, loopfit_project_context, project_has_runnable_check
@@ -339,11 +340,12 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
             selected,
             payload.get("next_prompt", ""),
         )
-        return payload
+        return add_checks_line(payload, state)
     if kind == "failure":
         return add_prose_quality_instruction(build_failure_prompt_packet(state, verify_command=verify_command))
     if kind == "handoff":
-        return add_prose_quality_instruction(build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command))
+        return add_checks_line(add_prose_quality_instruction(
+            build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command)), state)
     if kind == "review":
         return add_prose_quality_instruction(build_review_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "map":

@@ -36,6 +36,8 @@ table, so no module imports the entry point.
 | `mythify_parser.py` | `build_parser`, `MythifyArgumentParser` (usage errors exit 64), and every command grammar not listed elsewhere |
 | `mythify_map_parser.py`, `mythify_product_parser.py` | the `map` and `product` grammars (the `verify`, `reflect`, `review`, and `lineage` grammars sit beside their handlers) |
 | `mythify_verification_commands.py` | `verify run`, `verify claim`, `reflect`, display-only test counts |
+| `mythify_checks.py` | named checks: `checks.json`, `verify check`, `{files}` expansion, `@NAME` step verifiers |
+| `mythify_gate.py` | `verify gate`: the read-only hook check over in-progress steps |
 | `mythify_io.py` | atomic writes, JSONL locks, tolerant reads, the chained append, verification anchors |
 | `mythify_evidence_guard.py` | no-op verifier detection, zero-test detection, ledger chain checks, legacy opt-out detection |
 | `mythify_provenance.py` | git commit, clean flag, and `worktree_digest` for each executed record |
@@ -113,6 +115,7 @@ lessons and is never a project workspace.
 |-- active_product                 slug of the active product
 |-- products/<slug>.json
 |-- reviews/<slug>.json
+|-- checks.json                    named checks for verify check
 |-- reports/<cursor>.json
 |-- verification-artifacts/<verification id>/stdout.txt, stderr.txt
 |-- logs/archive/<log stem>-<YYYYMMDDHHMMSS>.jsonl
@@ -179,7 +182,8 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   command), optional `reused_from` (the original run's id) with
   `reused_duration_seconds` (a reused record copies `exit_code`, `verified`,
   `test_count`, and the output tails, has `duration_seconds: 0`, and no
-  artifacts),
+  artifacts), optional `check` (the name of the named check that produced the
+  run) with `check_template` (the stored command before `{files}` expanded),
   optional `lineage`, then context: `plan`, `step_id`, `step_title`,
   `step_status` for `verify run` and `plan verify`; `map`, `ticket_id`,
   `ticket_title`, `ticket_type` for `map verify`; `review` and `proof_mode`
@@ -187,7 +191,9 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   Outcome iterations append an executed record without `id` that carries
   `outcome`, `iteration`, `outcome_verify`, and `outcome_metric`.
   `plan verify` stamps its own step. `verify run` and outcome records stamp
-  the in-progress step whose stored `verify_command` equals the command,
+  the in-progress step whose stored `verify_command` equals the command (a
+  `verify check NAME` record also matches a step whose `verify_command` is
+  `@NAME`),
   searching the active plan first and then every other plan, and otherwise
   the first in-progress step of the active plan.
 - attested: `kind: "attested"`, `claim`, `evidence`, `verified: null`,
@@ -331,6 +337,27 @@ hash chain still links, and leaves every verification artifact in place.
   latest passing run of that command before the step's evidence window, else
   the first passing run inside it) warns, and on a `strict_context` plan
   refuses unless the caller passes `--accept-test-drop REASON`.
+- Named checks. `.mythify/checks.json` is `{"schema_version": 1, "checks":
+  {NAME: {"command", "description", "updated"}}}` with names matching
+  `[a-z0-9-]+`. `verify check NAME` runs the command through the same runner as
+  `verify run` and stamps `check` and `check_template` on the record. A
+  `{files}` placeholder expands to the shell-quoted changed files (`--files`,
+  else working-tree changes against `HEAD` plus untracked files, minus deleted
+  files and `.mythify/`); with none, nothing runs and nothing is recorded. A
+  step whose `verify_command` is `@NAME` is run by `plan verify` as that check,
+  and the step gate counts a passing record whose `check` equals NAME and keys
+  "the latest run" by check name, because the expanded text varies per run.
+  `--set` refuses a command `noop_verifier_reason` flags.
+- Gate command. `verify gate [--plan NAME] [--json]` runs
+  `evaluate_step_evidence` for each in-progress step, with no test-drop reason
+  and no human input, and never executes a command or writes state. It exits 0
+  when nothing is in flight or every in-progress step is accepted (a stale
+  pass, a strict-context test-count drop, and a strict-context high-risk step
+  without its review or human input all count as not accepted), and 2
+  otherwise, with a failure line and a next-command line per step on stderr.
+  It ignores `MYTHIFY_REQUIRE_VERIFIED_STEP=0`: a hook asks whether evidence
+  exists, not whether the session waived the rule. A named plan that does not
+  exist, like no active plan, leaves nothing in flight and exits 0.
 - Reuse. `verify run --reuse` and `plan verify --reuse` look for the newest
   executed record with the identical command, `git_commit`, `worktree_digest`
   (both non-null), `mythify_version`, and `environment_digest`. They reuse it
@@ -377,7 +404,7 @@ hash chain still links, and leaves every verification artifact in place.
   current approval, and a bet verdict until the bet stops or a verdict with
   the human's words replaces it. `map show`, `plan show`, and `product show`
   mark waived decisions.
-- Fail closed. With `MYTHIFY_DISABLE_RUN=1`, `verify run`, `plan verify`,
+- Fail closed. With `MYTHIFY_DISABLE_RUN=1`, `verify run`, `verify check NAME`, `plan verify`,
   `map verify`, `outcome check`, `outcome run`, `review prove`, and `product
   measure` execute nothing, record nothing, and exit 2.
 - Material. Route output, prompt packets, maps, product records, reviews,
@@ -430,7 +457,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | 0 | success, or a verified check |
 | 1 | refusal or failure: no workspace, bad input, a gate refused, a record not found |
-| 2 | unverified: a check ran and failed, `product check` found gaps, an outcome is not met, or `MYTHIFY_DISABLE_RUN=1` refused to run |
+| 2 | unverified: a check ran and failed, `product check` found gaps, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, or `MYTHIFY_DISABLE_RUN=1` refused to run |
 | 64 | usage error from the argument parser |
 | 124 | MCP only: the call timed out and was terminated |
 | 130, 143 | the CLI received SIGINT or SIGTERM while a verify child ran |

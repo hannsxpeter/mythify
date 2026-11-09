@@ -168,6 +168,12 @@ runs that command and files the result against the step, which is what lets
   worktree, and environment instead of running it again. A run that executes
   fewer tests than the last passing run is flagged, and a strict plan refuses
   to complete on it without `--accept-test-drop REASON`.
+- `verify check NAME` runs a named command from `.mythify/checks.json`
+  (define it with `--set`), optionally on only the changed files with a
+  `{files}` placeholder, and a step can use `@NAME` as its verifier.
+  `verify gate` is a read-only check for a host's stop or pre-commit hook: it
+  exits 2 while an in-progress step lacks current passing evidence. See
+  [docs/checks-and-gate.md](docs/checks-and-gate.md).
 - `verify claim "CLAIM" "EVIDENCE"` records a statement when nothing can run.
   It is marked second-class forever and never counts as proof.
 
@@ -328,7 +334,7 @@ exits 1 when a copy no longer matches your installed CLI.
 | `route "TASK"`, `loop-fit "TASK"` | Recommend the next move. Read-only. |
 | `plan create\|add-step\|verify\|show\|list\|switch\|archive\|import` | Execution plans with checks per step. |
 | `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing check. |
-| `verify run "CMD"`, `verify claim`, `reflect` | Record executed or attested evidence and reflections. |
+| `verify run "CMD"`, `verify check`, `verify gate`, `verify claim`, `reflect` | Record executed or attested evidence, run named checks, gate on unverified work, and record reflections. |
 | `product create\|outcome\|non-goal\|bet\|risk\|check\|approve\|decide\|promote\|measure\|show\|list` | Product planning with human gates. |
 | `map create\|ticket\|claim\|verify\|resolve\|fog\|scope-out\|show\|list\|promote` | Decision maps. |
 | `outcome start\|check\|run\|status\|results\|stop` | Verifier-backed loops with budgets. |
@@ -380,6 +386,7 @@ decisions behind it.
 - [docs/mcp.md](docs/mcp.md): MCP setup for any host.
 - [docs/blast-radius.md](docs/blast-radius.md): safety cases for changes whose risk sits outside the diff.
 - [docs/reviews.md](docs/reviews.md): findings reviews and the high-risk path check.
+- [docs/checks-and-gate.md](docs/checks-and-gate.md): named checks and the verify gate for host hooks.
 - [docs/prose-quality.md](docs/prose-quality.md): the prose rewrite pass and the mechanical prose check.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the July 2026 smoke run and what it does not show.
 - [docs/architecture.md](docs/architecture.md): state model, runtime, decisions.

@@ -122,6 +122,13 @@ from mythify_reuse import (  # noqa: E402
     reuse_miss_message,
     reused_run_fields,
 )
+from mythify_checks import (  # noqa: E402
+    check_reference,
+    configure_checks,
+    verifier_matches,
+    warn_undefined_check,
+    run_check,
+)
 from mythify_step_gate import (  # noqa: E402,F401
     FALSE_ENV_VALUES,
     SCOPED_RECORD_KEYS,
@@ -332,7 +339,7 @@ configure_lineage_store(
 # ---------------------------------------------------------------------------
 
 def execute_recorded_verification(
-    state, command, claim, timeout=None, context=None, parents=None, reuse=False
+    state, command, claim, timeout=None, context=None, parents=None, reuse=False, extra=None
 ):
     """Run COMMAND, append an executed verification record, return the record.
 
@@ -345,7 +352,8 @@ def execute_recorded_verification(
 
     With ``reuse``, an earlier passing run of the same command, commit,
     worktree digest, version, and environment is recorded as reused instead of
-    being executed again (see mythify_reuse).
+    being executed again (see mythify_reuse). ``extra`` fields (the ``check``
+    and ``check_template`` of a named check) are stamped on the record.
     """
     lineage = capture_lineage(state, parents) if parents else None
     verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
@@ -420,7 +428,9 @@ def execute_recorded_verification(
     # Every executed record carries the step keys, null unless the caller or the
     # active plan sets them, so no record can pass as pre-6.0 legacy evidence.
     record.update(null_step_context())
-    record.update(context if context is not None else verification_step_context(state, command))
+    record.update(extra or {})
+    record.update(context if context is not None else verification_step_context(
+        state, command, (extra or {}).get("check")))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
 
@@ -500,10 +510,11 @@ def null_step_context():
     return {"plan": None, "step_id": None, "step_title": None, "step_status": None}
 
 
-def verification_step_context(state, command=None):
+def verification_step_context(state, command=None, check=None):
     """Step keys for a run of COMMAND: the in-progress step whose stored
-    verify_command equals it, searching the active plan first and then every
-    other plan, else the first in-progress step of the active plan."""
+    verify_command equals it (or is @CHECK for a run of named check CHECK),
+    searching the active plan first and then every other plan, else the first
+    in-progress step of the active plan."""
     active = get_active_slug(state)
     wanted = str(command or "").strip()
     slugs = [active] if active else []
@@ -516,7 +527,7 @@ def verification_step_context(state, command=None):
                 continue
             context = {"plan": slug, "step_id": step.get("id"),
                        "step_title": step.get("title"), "step_status": "in_progress"}
-            if wanted and str(step.get("verify_command") or "").strip() == wanted:
+            if wanted and verifier_matches(step.get("verify_command"), wanted, check):
                 return context
             if slug == active and fallback["plan"] is None:
                 fallback = context
@@ -654,7 +665,7 @@ def create_plan_record(
         verify_command = str(item.get("verify_command", "")).strip()
         if verify_command:
             step["verify_command"] = verify_command
-            warn_noop_verifier(step["id"], verify_command)
+            warn_noop_verifier(step["id"], verify_command, state)
         plan_steps.append(step)
     plan = {
         "name": slug,
@@ -680,8 +691,10 @@ def create_plan_record(
     return slug, None
 
 
-def warn_noop_verifier(step_id, verify_command):
+def warn_noop_verifier(step_id, verify_command, state=None):
     """Advisory pairing for the exit-code anchor: name the cheap way to win."""
+    if state is not None:
+        warn_undefined_check(state, step_id, verify_command)
     reason = noop_verifier_reason(verify_command)
     if reason:
         fail(
@@ -715,7 +728,7 @@ def cmd_plan_add_step(args, state):
     verify_command = (getattr(args, "verify", None) or "").strip()
     if verify_command:
         step["verify_command"] = verify_command
-        warn_noop_verifier(new_id, verify_command)
+        warn_noop_verifier(new_id, verify_command, state)
     plan["steps"].append(step)
     plan["last_updated"] = now_iso()
     save_plan(state, slug, plan)
@@ -783,9 +796,16 @@ def cmd_plan_verify(args, state):
         "step_status": "in_progress",
     }
     claim = "step {0}: {1}".format(step_id, step.get("title", ""))
-    record = execute_recorded_verification(
-        state, command, claim, args.timeout, context, reuse=getattr(args, "reuse", False)
-    )
+    if check_reference(command):
+        record, code = run_check(
+            state, check_reference(command), claim, args.timeout, context, getattr(args, "reuse", False)
+        )
+        if record is None:
+            return code
+    else:
+        record = execute_recorded_verification(
+            state, command, claim, args.timeout, context, reuse=getattr(args, "reuse", False)
+        )
     if record["verified"]:
         print(
             "[OK] VERIFIED step {0}: {1} (exit 0, {2:.2f}s)".format(
@@ -1261,6 +1281,12 @@ configure_verification_commands(
     append_jsonl_func=append_jsonl,
     reflect_outcomes=REFLECT_OUTCOMES,
     write_lesson_func=write_lesson,
+)
+
+configure_checks(
+    execute_func=execute_recorded_verification,
+    fail_func=fail,
+    disabled_message=VERIFY_RUN_DISABLED_MESSAGE,
 )
 
 
