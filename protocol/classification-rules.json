@@ -1214,7 +1214,16 @@
         "godplans",
         "approach",
         "proposal",
-        "spec"
+        "spec",
+        "specification",
+        "prd",
+        "product roadmap",
+        "product requirements",
+        "requirements doc",
+        "requirements document",
+        "rfc",
+        "design doc",
+        "technical design"
       ]
     }
   ]

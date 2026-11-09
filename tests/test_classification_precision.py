@@ -181,6 +181,26 @@ class TestPhraseTieBreak(unittest.TestCase):
             with self.subTest(task=task):
                 self.assertEqual(classify(task)["task_type"], task_type)
 
+    def test_planning_documents_classify_as_design_and_route_to_planning(self):
+        # Removing the product task type left "write a product roadmap and PRD"
+        # with no signal, so a short planning request became trivial and direct.
+        for task in (
+            "write a product roadmap and PRD for onboarding",
+            "draft an RFC for the cache layer",
+            "write the spec for the export API",
+            "write a technical design for the export queue",
+            "draft the product requirements for sharing",
+        ):
+            with self.subTest(task=task):
+                payload = classify(task)
+                self.assertEqual(payload["task_type"], "design")
+                self.assertNotEqual(payload["execution_profile"], "direct")
+
+    def test_planning_document_terms_stay_whole_words_and_near_misses_keep_their_type(self):
+        self.assertEqual(classify("fix a typo in the roadmap")["task_type"], "bugfix")
+        self.assertEqual(classify("update the README roadmap link")["task_type"], "docs")
+        self.assertNotEqual(classify("refactor the surface parser")["task_type"], "design")
+
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
         self.assertEqual(classify("adjust css positioning of the modal")["task_type"], "frontend_ui")
