@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI = REPO_ROOT / "scripts" / "mythify.py"
@@ -23,10 +27,7 @@ class QualityControlTests(unittest.TestCase):
         self.temp.cleanup()
 
     def run_cli(self, *args):
-        return subprocess.run(
-            [sys.executable, str(CLI), *args], cwd=self.root, env=self.env,
-            capture_output=True, text=True, check=False,
-        )
+        return warm_cli.run(list(args), cwd=self.root, env=self.env)
 
     def init_git_repo(self):
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)

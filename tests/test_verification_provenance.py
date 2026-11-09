@@ -8,12 +8,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI = SCRIPTS_DIR / "mythify.py"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import mythify_provenance  # noqa: E402
 from mythify_provenance import evidence_moved_since_run  # noqa: E402
 
 
@@ -28,14 +34,7 @@ class VerificationProvenanceTest(unittest.TestCase):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
         env["HOME"] = str(self.home)
-        return subprocess.run(
-            [sys.executable, str(CLI), *args],
-            cwd=str(self.project),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        return warm_cli.run(list(args), cwd=str(self.project), env=env, timeout=120)
 
     def init_git_repo(self):
         subprocess.run(["git", "init", "-q"], cwd=self.project, check=True)
@@ -189,6 +188,63 @@ class VerificationProvenanceTest(unittest.TestCase):
         self.assertEqual(rerun.returncode, 0, rerun.stderr)
         done = self.run_cli("step", "1", "completed", "verify run exit 0")
         self.assertEqual(done.returncode, 0, done.stderr)
+
+
+class GitReadSnapshotTest(unittest.TestCase):
+    """git_read_snapshot runs each distinct git read once and changes no result."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="mythify-snapshot-")).resolve()
+        self.addCleanup(shutil.rmtree, str(self.root), True)
+        for args in (
+            ["init", "-q"],
+            ["config", "user.email", "mythify@example.invalid"],
+            ["config", "user.name", "Mythify Test"],
+        ):
+            subprocess.run(["git", *args], cwd=str(self.root), check=True)
+        (self.root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=str(self.root), check=True)
+        subprocess.run(["git", "commit", "-qm", "initial"], cwd=str(self.root), check=True)
+        (self.root / "tracked.txt").write_text("changed\n", encoding="utf-8")
+        (self.root / "new.txt").write_text("new\n", encoding="utf-8")
+        self.state = self.root / ".mythify"
+        self.state.mkdir()
+
+    def sample(self):
+        """Provenance, changed paths, provenance again, and the git calls they ran."""
+        real_run = subprocess.run
+        calls = []
+
+        def counting_run(args, *rest, **kwargs):
+            calls.append(tuple(args))
+            return real_run(args, *rest, **kwargs)
+
+        with mock.patch.object(mythify_provenance.subprocess, "run", side_effect=counting_run):
+            first = mythify_provenance.current_verification_provenance("v", state=self.state)
+            paths = mythify_provenance.changed_paths(self.state)
+            second = mythify_provenance.current_verification_provenance("v", state=self.state)
+        return (first, paths, second), calls
+
+    def test_a_snapshot_runs_each_distinct_read_once_with_the_same_results(self):
+        plain, plain_calls = self.sample()
+        with mythify_provenance.git_read_snapshot():
+            cached, cached_calls = self.sample()
+        self.assertEqual(cached, plain)
+        self.assertEqual(plain[1], ["new.txt", "tracked.txt"])
+        self.assertIsNotNone(plain[0]["worktree_digest"])
+        self.assertEqual(sorted(cached_calls), sorted(set(plain_calls)))
+        self.assertLess(len(cached_calls), len(plain_calls))
+
+    def test_reads_after_the_snapshot_closes_see_new_writes(self):
+        with mythify_provenance.git_read_snapshot():
+            before = mythify_provenance.current_verification_provenance("v", state=self.state)
+            with mythify_provenance.git_read_snapshot():
+                nested = mythify_provenance.current_verification_provenance("v", state=self.state)
+        self.assertEqual(nested, before)
+        (self.root / "new.txt").write_text("edited\n", encoding="utf-8")
+        after = mythify_provenance.current_verification_provenance("v", state=self.state)
+        self.assertNotEqual(after["worktree_digest"], before["worktree_digest"])
+        self.assertEqual(after["git_commit"], before["git_commit"])
 
 
 if __name__ == "__main__":

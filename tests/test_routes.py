@@ -16,6 +16,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 
@@ -36,14 +40,7 @@ class RouteCase(unittest.TestCase):
         env.pop("MYTHIFY_DIR", None)
         env.pop("MYTHIFY_REQUIRE_VERIFIED_STEP", None)
         env["HOME"] = str(self.home)
-        return subprocess.run(
-            [sys.executable, str(CLI)] + list(args),
-            cwd=str(self.project),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        return warm_cli.run(list(args), cwd=str(self.project), env=env, timeout=120)
 
     def route(self, task):
         result = self.run_cli("route", task, "--json")

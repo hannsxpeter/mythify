@@ -40,6 +40,13 @@ python3 -m unittest discover -s tests -v
 
 Tests must not rewrite tracked files; generate into a temporary copy instead.
 
+Tests that drive the CLI call `warm_cli.run` from `tests/warm_cli.py` instead
+of starting `python3 scripts/mythify.py` themselves. It forks each call from
+an interpreter that has already imported the runtime and returns the exit
+code, stdout, and stderr a fresh run returns; `tests/test_warm_cli.py` checks
+that. Set `MYTHIFY_TEST_FRESH_CLI=1` to run every call as a fresh
+interpreter, for example after a change to code that runs at import time.
+
 ## Lint
 
 ```bash

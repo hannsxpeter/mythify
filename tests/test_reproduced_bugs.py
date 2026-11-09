@@ -19,6 +19,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI = SCRIPTS_DIR / "mythify.py"
@@ -69,12 +73,10 @@ class CliCase(unittest.TestCase):
         return env
 
     def run_cli(self, *args, cwd=None, **extra):
-        return subprocess.run(
-            [sys.executable, str(CLI)] + list(args),
+        return warm_cli.run(
+            list(args),
             cwd=str(cwd or self.project),
             env=self.env(**extra),
-            capture_output=True,
-            text=True,
             timeout=120,
         )
 

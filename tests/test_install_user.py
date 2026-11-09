@@ -10,6 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path, PurePosixPath
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = REPO_ROOT / "scripts" / "install_user.sh"

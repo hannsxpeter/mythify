@@ -12,6 +12,10 @@ import time
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 
@@ -42,14 +46,7 @@ class LoopCase(unittest.TestCase):
         env["HOME"] = str(self.home)
         if env_extra:
             env.update(env_extra)
-        return subprocess.run(
-            [sys.executable, str(CLI)] + list(args),
-            cwd=str(self.project),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        return warm_cli.run(list(args), cwd=str(self.project), env=env, timeout=120)
 
     def start(self, *extra, name, verify, agent, success="done"):
         args = ["outcome", "start", "goal", "--name", name, "--success", success,
