@@ -109,6 +109,12 @@ from mythify_verification_commands import (  # noqa: E402
     configure_verification_commands,
     extract_test_count,
 )
+from mythify_path_risk import (  # noqa: E402
+    format_step_risk,
+    judge_path_risk,
+    stamp_completion_risk,
+    stamp_step_start,
+)
 from mythify_ratchet import detect_test_count_drop, drop_warning  # noqa: E402
 from mythify_reuse import (  # noqa: E402
     environment_digest,
@@ -729,6 +735,7 @@ def mark_step_verification_anchor(state, step):
     """
     step["verification_anchor"] = jsonl_append_anchor(state / "verifications.jsonl")
     step.pop("verification_cursor", None)
+    stamp_step_start(state, step)
 
 
 def cmd_plan_verify(args, state):
@@ -887,6 +894,8 @@ def cmd_plan_show(args, state):
                 print("        verify: {0}".format(step["verify_command"]))
             if step.get("result"):
                 print("        result: {0}".format(step["result"]))
+            for line in format_step_risk(step):
+                print(line)
     else:
         print("Steps: none. Add with: plan add-step TITLE [--criteria TEXT]")
     return 0
@@ -968,8 +977,13 @@ def cmd_step(args, state):
     if accept_drop is not None and not accept_drop.strip():
         fail("[FAIL] --accept-test-drop needs a reason: say why running fewer tests is right.")
         return 1
+    human_input = getattr(args, "human_input", None)
+    if human_input is not None and not human_input.strip():
+        fail("[FAIL] --human-input needs the person's own words approving the change.")
+        return 1
+    risk = None
     if args.status == "completed" and strict_step_evidence_enabled():
-        verdict = evaluate_step_evidence(state, slug, plan, step, accept_drop)
+        verdict = evaluate_step_evidence(state, slug, plan, step, accept_drop, human_input)
         for _level, text in verdict["messages"]:
             fail(text)
         if not verdict["ok"]:
@@ -977,6 +991,7 @@ def cmd_step(args, state):
         step.pop("test_drop_accepted", None)
         if verdict["test_drop_accepted"]:
             step["test_drop_accepted"] = verdict["test_drop_accepted"]
+        risk = verdict["risk"]
     elif args.status == "completed":
         # The legacy opt-out stays available, but never silently: the waiver is
         # stamped on the step so watchers can surface prose-only completions.
@@ -986,6 +1001,13 @@ def cmd_step(args, state):
             "so this completion carries prose-only evidence. The waiver is "
             "stamped on the step as strict_gate_waived."
         )
+        risk = judge_path_risk(state, plan, step, human_input)
+        for _level, text in risk["messages"]:
+            fail(text)
+        if not risk["ok"]:
+            return 1
+    if args.status == "completed":
+        stamp_completion_risk(step, risk, human_input)
     if args.status == "in_progress":
         mark_step_verification_anchor(state, step)
     step["status"] = args.status

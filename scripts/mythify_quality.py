@@ -6,6 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from mythify_evidence_guard import noop_verifier_reason, run_disabled
+from mythify_findings import add_findings_parser, is_findings_review, render_findings_review
 
 
 REVIEW_STATUSES = ("pass", "warn", "fail")
@@ -323,6 +324,8 @@ def cmd_quality_review_show(args, state):
     if not isinstance(record, dict):
         _fail("[FAIL] Review not found: {0}".format(args.name))
         return 1
+    if is_findings_review(record):
+        return render_findings_review(state, slug, record, args.json_output)
     if record.get("kind") == "blast_radius_review":
         view = blast_review_view(state, record)
         if args.json_output:
@@ -362,7 +365,7 @@ def cmd_quality_review_show(args, state):
 
 
 def add_quality_parser(subparsers, symbols):
-    review = subparsers.add_parser("review", help="Record blast-radius safety cases and prove them.")
+    review = subparsers.add_parser("review", help="Record blast-radius safety cases and findings reviews.")
     actions = review.add_subparsers(dest="review_command", metavar="ACTION", required=True)
     blast = actions.add_parser("blast-radius", help="Create a material-only blast-radius safety case.")
     blast.add_argument("--status", choices=REVIEW_STATUSES, required=True, help="Review verdict.")
@@ -393,7 +396,8 @@ def add_quality_parser(subparsers, symbols):
     )
     prove.add_argument("--timeout", type=float, default=300.0, help="Timeout in seconds.")
     prove.set_defaults(handler=symbols["cmd_quality_review_prove"])
-    show = actions.add_parser("show", help="Show a blast-radius safety case.")
+    show = actions.add_parser("show", help="Show a blast-radius safety case or a findings review.")
     show.add_argument("name", help="Review name.")
     show.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
     show.set_defaults(handler=symbols["cmd_quality_review_show"])
+    add_findings_parser(actions)

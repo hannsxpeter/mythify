@@ -238,6 +238,41 @@ def git_worktree_digest(root, exclude=()):
     return digest.hexdigest()
 
 
+def changed_paths(state, base_commit=None, root=None):
+    """Paths changed in the working tree since BASE_COMMIT, or None when unknown.
+
+    Covers committed and uncommitted work (a working-tree diff against the
+    commit, HEAD when none is given or the commit is gone) plus untracked
+    files, leaves out the state directory, and returns paths relative to the
+    project root. None means git cannot answer (no repository, no commits).
+    """
+    project_root = Path(root) if root is not None else project_root_for_state(state)
+    if not git_inside_worktree(project_root):
+        return None
+    environment = git_environment()
+    exclude = state_exclude_pathspec(state, project_root)
+    command = ["diff", "--name-only", "--no-renames", "--relative", "-z"]
+    diff = _git_bytes(project_root, command + [base_commit or "HEAD", *(exclude or ["--"])], environment)
+    if diff is None and base_commit:
+        diff = _git_bytes(project_root, command + ["HEAD", *(exclude or ["--"])], environment)
+    untracked = _git_bytes(
+        project_root, ["ls-files", "--others", "--exclude-standard", "-z", *(exclude or ["--"])], environment
+    )
+    if diff is None or untracked is None:
+        return None
+    names = [os.fsdecode(item) for item in (diff + b"\0" + untracked).split(b"\0") if item]
+    return sorted(dict.fromkeys(names))
+
+
+def commits_since(root, commit):
+    """How many commits HEAD is ahead of COMMIT, or None when git cannot say."""
+    raw = _git_bytes(root, ["rev-list", "--count", str(commit) + "..HEAD"], git_environment())
+    try:
+        return int(raw.strip()) if raw is not None else None
+    except ValueError:
+        return None
+
+
 def current_verification_provenance(version, state=None, root=None):
     project_root = Path(root) if root is not None else project_root_for_state(state)
     exclude = state_exclude_pathspec(state, project_root)

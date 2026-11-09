@@ -48,6 +48,9 @@ table, so no module imports the entry point.
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
 | `mythify_product.py` | product records, readiness check, approval, verdicts, promote, measure, show |
 | `mythify_quality.py` | blast-radius safety cases: create, prove, show |
+| `mythify_findings.py` | findings reviews: rounds, findings, resolution, coverage, status attention |
+| `mythify_review_cover.py` | `review_covers_current_source`: the review, if any, that covers the source now |
+| `mythify_path_risk.py` | the high-risk completion check, the step start stamp, `route` diff risk |
 | `mythify_lineage.py` | typed parent references and current, stale, missing, or unknown status |
 | `mythify_plan_import.py`, `mythify_godfiles.py` | read-only godplans and godaudits parsing and `plan import` |
 | `mythify_classification.py` | deterministic task classification from `protocol/classification-rules.json` |
@@ -62,7 +65,7 @@ Data files in `protocol/`:
 | File | Read by | Content |
 | --- | --- | --- |
 | `PROTOCOL.md` | `build_variants.py`, `protocol check` | the protocol spine, the source of AGENTS.md |
-| `classification-rules.json` | `mythify_classification.py` | schema 4: task types, risk terms, framing, parallelism, and review advisories |
+| `classification-rules.json` | `mythify_classification.py` | schema 5: task types, risk terms, `path_risk` globs, framing, parallelism, and review advisories |
 | `workflow-router.json` | `mythify_router.py` | version 3: route ids, descriptions, and their prompt packet kinds |
 | `prose-quality.json` | `check_prose_quality.py` | scanned paths, forbidden characters, forbidden phrases |
 
@@ -150,9 +153,14 @@ store, including the active pointer, plan directory, and archive paths.
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
 `verify_command`, `verification_anchor` (`{"after_sha256": <hex or null>}`),
-`updated_at`, `strict_gate_waived`, and `test_drop_accepted` (`reason`,
-`baseline`, `current`, stamped when `--accept-test-drop` let a lower test count
-through). Imported steps add `source_id`,
+`updated_at`, `started_commit` (the git commit when the step went in progress,
+null outside git), `started_at`, `strict_gate_waived`, `test_drop_accepted`
+(`reason`, `baseline`, `current`, stamped when `--accept-test-drop` let a lower
+test count through), `risk` (`level: "high"`, `paths`, `review`, `human_input`,
+stamped when the step's changed paths were high risk), `human_input` (the
+person's words from `--human-input`), and `risk_gate_waived` (`true` when
+`MYTHIFY_RISK_GATE=0` let a high-risk completion through). A step already in
+progress keeps its first `started_commit` and `started_at`. Imported steps add `source_id`,
 `wave`, `phase`, and `artifact_checked: true` when the task's box was checked
 in the artifact; such a step still imports as `pending`. A step written before 6.0 may carry an integer
 `verification_cursor`; it is still read and is dropped when the step restarts.
@@ -260,6 +268,17 @@ Review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 `updated`, `evidence_status`. Never rewritten; proof status is derived from
 linked records at read time ([blast-radius.md](blast-radius.md)).
 
+Findings review (`reviews/<slug>.json`, `schema_version` 1, `kind`
+`findings_review`, `review_type` `findings`): `name`, `rounds`, `created`,
+`updated`, `evidence_status`. Each round has `number`, `opened_at`,
+`provenance` (`git_commit`, `worktree_digest` at the round), `clean`,
+`closed_at` (clean rounds only), optional `note` and `rethink`, and
+`findings`. Each finding has `id` (`F1`..., counted across the whole review),
+`summary`, `path`, `severity`, `status` (`open`, `fixed`, `dismissed`),
+`reason`, `created_at`, `resolved_at`, and `repeat_of` when it repeats a fixed
+finding. Unlike a blast-radius review it is edited by `review round|finding|resolve`;
+it is material and never verification evidence ([reviews.md](reviews.md)).
+
 Lineage block (on plans, maps, outcomes, products, and executed records):
 `captured_at` and `parents`, each `kind` (`map`, `plan`, `outcome`, `review`,
 `product`, `verification`), `id`, `revision` (SHA-256 of the parent's
@@ -288,6 +307,13 @@ hash chain still links, and leaves every verification artifact in place.
 
 ## Evidence rules
 
+- High-risk paths. `step ID completed` lists the paths changed since the
+  step's `started_commit` (working tree against that commit, plus untracked
+  files, minus `.mythify/`) and rates them with `path_risk` from
+  `protocol/classification-rules.json`. High risk wants a review that covers
+  the current source ([reviews.md](reviews.md)) and `--human-input TEXT`. A
+  missing piece warns; on a `strict_context` plan it refuses (exit 1).
+  Outside git the check is skipped. `MYTHIFY_RISK_GATE=0` waives it.
 - Strict gate. `step ID completed RESULT` needs a non-empty RESULT and, unless
   `MYTHIFY_REQUIRE_VERIFIED_STEP` is `0`, `false`, `no`, or `off`, an executed
   record with `verified: true` and exit 0, recorded after the step's anchor,
@@ -413,6 +439,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | `MYTHIFY_DIR` | state directory; skips upward discovery |
 | `MYTHIFY_REQUIRE_VERIFIED_STEP` | `0`, `false`, `no`, or `off` waives the strict gate (stamped, warned) |
+| `MYTHIFY_RISK_GATE` | `0`, `false`, `no`, or `off` waives the high-risk path check at step completion, even under strict context (stamped `risk_gate_waived`, warned) |
 | `MYTHIFY_REQUIRE_HUMAN_INPUT` | `0`, `false`, `no`, or `off` waives human gates (stamped, warned) |
 | `MYTHIFY_DISABLE_RUN` | `1` makes every command runner refuse and exit 2; so does any value other than empty, `0`, `false`, `no`, or `off` (case and surrounding space ignored), so a malformed value fails closed |
 | `MYTHIFY_REUSE_ENV` | comma-separated environment variable names whose values join `provenance.environment_digest`, so changing one stops `--reuse` from matching |

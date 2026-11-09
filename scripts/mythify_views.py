@@ -34,6 +34,7 @@ from mythify_maps import (
     ungraduated_fog,
 )
 from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
+from mythify_findings import findings_attention
 from mythify_ratchet import latest_test_count_drops
 from mythify_product import active_product_view, list_product_records
 
@@ -1226,6 +1227,7 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
         + evidence_attention_from_verifications(records, recent)
         + evidence_attention_from_trivial_passes(records, recent)
         + evidence_attention_from_test_drops(records)
+        + findings_attention(state)
         + evidence_attention_from_outcomes(recent_tail(outcomes, recent))
         + evidence_attention_from_god_artifacts(god_views)
         + evidence_attention_from_drift(records, recent)

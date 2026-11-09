@@ -27,6 +27,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step as `test_drop_accepted`. `campaign advance` takes the same flag, and
   `status` lists each command whose latest passing run dropped until a later
   run no longer does.
+- Findings reviews with bounded rounds: `review round NAME` opens a round
+  stamped with the commit and worktree digest it saw (or records a clean pass
+  with `--clean`), `review finding` records a finding on the latest round, and
+  `review resolve` marks it fixed or dismissed (a dismissal needs a reason).
+  A new round is refused while an earlier finding is open, and round 4 needs
+  `--rethink TEXT` explaining why the approach still stands after three
+  rounds. A finding that repeats a dismissed one is refused; one that repeats
+  a fixed one is recorded with `repeat_of` and a warning. `review show`
+  reports whether the latest clean round still covers the current source,
+  `status` lists open findings, a round-3 review without a clean pass, and a
+  stale clean round, and `prompt review` carries the re-review scope and the
+  dismissed findings. `review prove` still accepts only blast-radius reviews.
+- Risk from the changed paths. `protocol/classification-rules.json` (schema 5)
+  gains `path_risk` globs, and `classify_paths` rates a list of paths high,
+  medium, or low. A step stamps `started_commit` and `started_at` when it goes
+  in progress. Completing a step whose changed paths are high risk needs a
+  review that covers the current source and `--human-input TEXT`, the person's
+  own words approving the change: it warns by default and refuses on a
+  `strict_context` plan. The step records `risk`, `human_input`, and, when
+  `MYTHIFY_RISK_GATE=0` waived the check, `risk_gate_waived`. `step` and
+  `campaign advance` take `--human-input`, `plan show` prints a step's risk,
+  and `route --json` adds `classification.diff_risk`, which makes the review
+  advisory independent when the changed paths are riskier than the task
+  wording.
 
 ## [6.1.0] - 2026-10-28
 

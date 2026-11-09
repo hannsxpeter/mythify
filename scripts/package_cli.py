@@ -33,6 +33,7 @@ STANDALONE_DOCS = (
     "docs/mcp.md",
     "docs/product-planning.md",
     "docs/prose-quality.md",
+    "docs/reviews.md",
     "docs/start-here.md",
     "docs/evidence/efficacy-reproduction.md",
     "docs/evidence/efficacy-smoke-2026-07-13.json",

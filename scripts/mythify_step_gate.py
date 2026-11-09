@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
+from mythify_path_risk import judge_path_risk
 from mythify_provenance import current_verification_provenance, evidence_moved_since_run
 from mythify_ratchet import step_baseline
 from mythify_runtime_helpers import timestamp_at_or_after
@@ -134,7 +135,7 @@ def _judge_test_count(state, result, window, accept_test_drop):
         ))
 
 
-def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None):
+def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human_input=None):
     """Judge whether STEP of PLAN has passing executed evidence.
 
     Returns a dict: ok (bool, False means refuse), satisfying (the latest
@@ -142,14 +143,16 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None):
     level is "fail" for lines meant for stderr), moved (staleness reason or
     None), strict_context (bool), test_drop (the baseline comparison when the
     satisfying run executed fewer tests, else None), and test_drop_accepted
-    (what to stamp on the step when ACCEPT_TEST_DROP gave a reason). Pure: no
-    printing, no plan changes. A read-only caller passes no reason.
+    (what to stamp on the step when ACCEPT_TEST_DROP gave a reason), and risk
+    (the high-risk path verdict from judge_path_risk, judged with HUMAN_INPUT;
+    None when the evidence is already refused). Pure: no printing, no plan
+    changes. A read-only caller passes no reason and no human input.
     """
     step_id = step.get("id")
     strict_context = bool(plan.get("strict_context"))
     result = {"ok": True, "satisfying": None, "messages": [], "moved": None,
               "strict_context": strict_context, "test_drop": None,
-              "test_drop_accepted": None}
+              "test_drop_accepted": None, "risk": None}
     messages = result["messages"]
     expected_command = str(step.get("verify_command") or "").strip()
     lower_bound = step.get("updated_at") or plan.get("created", "")
@@ -248,4 +251,7 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None):
             "the verifier if in doubt.".format(moved),
         ))
     _judge_test_count(state, result, records, accept_test_drop)
+    result["risk"] = judge_path_risk(state, plan, step, human_input)
+    result["messages"].extend(result["risk"]["messages"])
+    result["ok"] = result["ok"] and result["risk"]["ok"]
     return result

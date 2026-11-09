@@ -25,7 +25,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 - `map`: Chart and work a wayfinding decision map.
 - `product`: Plan a product: problem, user, outcomes, non-goals, bets, risks.
 - `lineage`: Attach and inspect typed artifact lineage.
-- `review`: Record blast-radius safety cases and prove them.
+- `review`: Record blast-radius safety cases and findings reviews.
 - `loop-fit`: Advise whether a task should be a loop, supervised, or done directly.
 - `outcome`: Run outcome-driven loops with verifier and iteration budget.
 - `plan`: Manage plans: create, import, add-step, verify, list, show, switch, archive.
@@ -115,7 +115,7 @@ Options:
 ### campaign advance
 
 ```text
-mythify campaign advance --result RESULT [--accept-test-drop REASON] [name]
+mythify campaign advance --result RESULT [--accept-test-drop REASON] [--human-input TEXT] [name]
 ```
 
 Complete the current plan step through its strict evidence gate.
@@ -128,6 +128,7 @@ Options:
 
 - `--result RESULT`: Executed evidence supporting completion. Required.
 - `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ### campaign learn
 
@@ -781,7 +782,7 @@ Options:
 
 ## review
 
-Record blast-radius safety cases and prove them.
+Record blast-radius safety cases and findings reviews.
 
 ### review blast-radius
 
@@ -827,7 +828,7 @@ Options:
 mythify review show [--json] name
 ```
 
-Show a blast-radius safety case.
+Show a blast-radius safety case or a findings review.
 
 Arguments:
 
@@ -836,6 +837,62 @@ Arguments:
 Options:
 
 - `--json`: Print JSON.
+
+### review round
+
+```text
+mythify review round [--note NOTE] [--clean] [--rethink TEXT] [--json] name
+```
+
+Open a findings-review round (at most three before a rethink) or record a clean pass.
+
+Arguments:
+
+- `name`: Review name; the first round creates the review.
+
+Options:
+
+- `--note NOTE`: Note stored on the round.
+- `--clean`: Record a completed round in which the reviewer found nothing at the current source.
+- `--rethink TEXT`: Required for round 4 and later: why the approach still stands after three rounds.
+- `--json`: Print JSON.
+
+### review finding
+
+```text
+mythify review finding [--path PATH] [--severity {high,medium,low}] [--json] name summary
+```
+
+Record a finding in the latest findings-review round.
+
+Arguments:
+
+- `name`: Review name.
+- `summary`: One-line statement of the finding.
+
+Options:
+
+- `--path PATH`: File the finding concerns; part of repeat detection.
+- `--severity {high,medium,low}`: Finding severity. Default: `medium`.
+- `--json`: Print JSON.
+
+### review resolve
+
+```text
+mythify review resolve --status {fixed,dismissed} [--reason REASON] name finding_id
+```
+
+Mark a findings-review finding fixed or dismissed.
+
+Arguments:
+
+- `name`: Review name.
+- `finding_id`: Finding id such as F1.
+
+Options:
+
+- `--status {fixed,dismissed}`: Resolution. Required.
+- `--reason REASON`: Why; required to dismiss, which bars the finding from returning.
 
 ## loop-fit
 
@@ -1092,7 +1149,7 @@ Arguments:
 ## step
 
 ```text
-mythify step [--plan PLAN] [--accept-test-drop REASON] id status [result]
+mythify step [--plan PLAN] [--accept-test-drop REASON] [--human-input TEXT] id status [result]
 ```
 
 Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run recorded for this step since it started; a later failing run of the same command cancels an earlier pass, whatever step or ticket it was recorded for. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
@@ -1107,6 +1164,7 @@ Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
 - `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ## memory
 

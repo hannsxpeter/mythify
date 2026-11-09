@@ -37,6 +37,13 @@ same command prints a `[WARN]` and records `test_count_drop`. Completing a
 step on such a run warns, and on a campaign plan refuses unless
 `--accept-test-drop REASON` says why fewer tests is right.
 
+Completing a step whose changed paths match the high-risk globs (auth,
+payments, migrations, deploy files, and the like) needs a review that covers
+the current source (`review round NAME --clean` after an independent pass) and
+`--human-input TEXT`, the person's own words approving it. Ask the person; never
+write those words yourself. It warns by default and refuses on a campaign plan.
+`MYTHIFY_RISK_GATE=0` waives it only when the user asks.
+
 For a plan step that stores a `verify_command`, `plan verify ID` runs that
 exact command and records the result against the step, which is what the
 strict gate looks for.

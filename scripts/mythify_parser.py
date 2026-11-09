@@ -8,6 +8,7 @@ import sys
 from mythify_lineage import add_lineage_parser
 from mythify_quality import add_quality_parser
 from mythify_verification_commands import add_verification_parsers
+from mythify_path_risk import HUMAN_INPUT_HELP
 from mythify_ratchet import ACCEPT_TEST_DROP_HELP
 from mythify_reuse import REUSE_HELP
 from mythify_map_parser import add_map_parser
@@ -638,6 +639,7 @@ def build_parser(symbols):
     )
     p.add_argument("--plan", help="Plan name; defaults to the active plan.")
     p.add_argument("--accept-test-drop", metavar="REASON", help=ACCEPT_TEST_DROP_HELP)
+    p.add_argument("--human-input", metavar="TEXT", help=HUMAN_INPUT_HELP)
     p.set_defaults(handler=cmd_step)
 
     memory = sub.add_parser(

@@ -246,6 +246,14 @@ cheapest command that would catch the real failure. `review prove` runs that
 command and links the evidence only while the reviewed tree is unchanged. See
 [docs/blast-radius.md](docs/blast-radius.md).
 
+A findings review records an independent reviewer's rounds: `review round`
+opens one stamped with the source it saw, `review finding` and `review resolve`
+track what was raised and settled, and a fourth round needs a stated reason to
+continue. A step that touches high-risk paths (auth, payments, migrations,
+deploy files) needs a review that covers the current source and the person's
+own words (`--human-input`) before it completes. See
+[docs/reviews.md](docs/reviews.md).
+
 ### Memory and lessons
 
 `memory set` and `memory get` hold facts, decisions, and discoveries.
@@ -258,6 +266,9 @@ informed instead of blank.
 recommends one move: just do it, plan, map, product, outcome loop, review,
 recover from a failure, or resume. It advises only. `mythify loop-fit` answers a
 narrower question: should this run hands-off, supervised, or by hand?
+`route --json` also rates the paths you have already changed
+(`classification.diff_risk`) and asks for an independent review when they are
+riskier than your wording.
 
 ## Works with any model
 
@@ -321,7 +332,7 @@ exits 1 when a copy no longer matches your installed CLI.
 | `product create\|outcome\|non-goal\|bet\|risk\|check\|approve\|decide\|promote\|measure\|show\|list` | Product planning with human gates. |
 | `map create\|ticket\|claim\|verify\|resolve\|fog\|scope-out\|show\|list\|promote` | Decision maps. |
 | `outcome start\|check\|run\|status\|results\|stop` | Verifier-backed loops with budgets. |
-| `review blast-radius\|prove\|show`, `lineage attach\|status` | Safety cases and artifact lineage. |
+| `review blast-radius\|prove\|show\|round\|finding\|resolve`, `lineage attach\|status` | Safety cases, findings reviews, and artifact lineage. |
 | `memory set\|get\|clear`, `lesson add\|list`, `logs compact` | Durable memory and housekeeping. |
 | `prompt KIND`, `protocol check`, `mcp` | Prompt packets, drop-in checks, the MCP server. |
 
@@ -368,6 +379,7 @@ decisions behind it.
 - [docs/commands.md](docs/commands.md): every command and flag.
 - [docs/mcp.md](docs/mcp.md): MCP setup for any host.
 - [docs/blast-radius.md](docs/blast-radius.md): safety cases for changes whose risk sits outside the diff.
+- [docs/reviews.md](docs/reviews.md): findings reviews and the high-risk path check.
 - [docs/prose-quality.md](docs/prose-quality.md): the prose rewrite pass and the mechanical prose check.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the July 2026 smoke run and what it does not show.
 - [docs/architecture.md](docs/architecture.md): state model, runtime, decisions.
