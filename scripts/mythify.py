@@ -311,12 +311,13 @@ def discover_state_dir():
     return None
 
 
-def resolve_state_dir():
-    """MYTHIFY_DIR (created on demand) beats upward discovery."""
+def resolve_state_dir(create=True):
+    """MYTHIFY_DIR (created on demand unless CREATE is false) beats upward discovery."""
     env_dir = os.environ.get("MYTHIFY_DIR")
     if env_dir:
         state = Path(env_dir).expanduser()
-        ensure_layout(state)
+        if create:
+            ensure_layout(state)
         return state
     return discover_state_dir()
 
@@ -1506,7 +1507,7 @@ def main(argv=None):
             return args.handler(args, resolve_state_dir())
         if not args.needs_state:
             return args.handler(args, None)
-        state = resolve_state_dir()
+        state = resolve_state_dir(create=args.needs_state != "readonly")
         if state is None:
             fail(NO_WORKSPACE_MESSAGE)
             return 1

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -150,8 +151,9 @@ class PassingTests(GateProject):
         self.assertEqual(refused.returncode, 2)
         self.assertIn("plan p step 1", refused.stderr)
 
-    def test_an_unknown_named_plan_leaves_nothing_in_flight(self):
-        self.assertEqual(self.gate("--plan", "nope").returncode, 0)
+    def test_no_active_pointer_leaves_nothing_in_flight(self):
+        self.assertFalse((self.state / "plans" / "active").exists())
+        self.assertEqual(self.gate().returncode, 0)
 
 
 class FailingTests(GateProject):
@@ -224,6 +226,38 @@ class FailingTests(GateProject):
         self.assertEqual(again.returncode, 2)
         self.assertNotIn("step 1 (", again.stderr)
         self.assertIn("step 2 (", again.stderr)
+
+
+class PlanRefusalTests(GateProject):
+    """A plan that is named or pointed at but missing or unreadable is a refusal, not a pass."""
+
+    def test_an_unknown_named_plan_is_refused(self):
+        result = self.gate("--plan", "nope")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("[FAIL] verify gate cannot judge: Plan not found: nope", result.stderr)
+
+    def test_an_active_pointer_to_a_missing_plan_is_refused(self):
+        self.start()
+        (self.state / "plans" / "p.json").unlink()
+        result = self.gate()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("The active plan does not exist: p", result.stderr)
+
+    def test_a_malformed_plan_file_is_refused_and_left_alone(self):
+        self.start()
+        plan_file = self.state / "plans" / "p.json"
+        plan_file.write_text("{not json", encoding="utf-8")
+        before = self.snapshot()
+        for args in ((), ("--plan", "p"), ("--json",)):
+            result = self.gate(*args)
+            self.assertEqual(result.returncode, 1, args)
+            self.assertIn("Plan p cannot be loaded", result.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_an_empty_pointer_leaves_nothing_in_flight(self):
+        (self.state / "plans").mkdir(exist_ok=True)
+        (self.state / "plans" / "active").write_text("\n", encoding="utf-8")
+        self.assertEqual(self.gate().returncode, 0)
 
 
 class StrictContextTests(GateProject):
@@ -336,6 +370,41 @@ class ReadOnlyTests(GateProject):
             for args in ((), ("--json",), ("--plan", "p"), ("--plan", "missing")):
                 self.gate(*args)
             self.assertEqual(self.snapshot(), before)
+
+    def test_a_malformed_review_is_left_in_place_and_named_as_a_reason(self):
+        self.start(strict=True)
+        self.write("auth.py")
+        self.ok("plan", "verify", "1", "--plan", "p")
+        (self.state / "reviews").mkdir(exist_ok=True)
+        bad = self.state / "reviews" / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        before = self.snapshot()
+        result = self.gate("--json")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        reasons = json.loads(result.stdout)["steps"][0]["reasons"]
+        self.assertTrue(any("bad" in reason and "could not be read" in reason for reason in reasons), reasons)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(path.name for path in bad.parent.iterdir()), ["bad.json"])
+
+    def test_a_state_directory_with_missing_subdirectories_is_not_filled_in(self):
+        self.start()
+        self.ok("plan", "verify", "1", "--plan", "p")
+        env = self.project.parent / "env-state"
+        shutil.copytree(self.state, env)
+        for missing in ("reviews", "locks", "lessons", "outcomes", "maps", "reports"):
+            shutil.rmtree(env / missing, ignore_errors=True)
+
+        def listing(root):
+            return sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+
+        before = listing(env)
+        result = self.run_cli("verify", "gate", env_extra={"MYTHIFY_DIR": str(env)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(listing(env), before)
+        empty = self.project.parent / "empty-state"
+        self.assertEqual(
+            self.run_cli("verify", "gate", env_extra={"MYTHIFY_DIR": str(empty)}).returncode, 0)
+        self.assertFalse(empty.exists())
 
     def test_the_gate_runs_no_command(self):
         marker = self.project.parent / "ran.txt"

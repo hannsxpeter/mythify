@@ -34,7 +34,11 @@ mythify verify check lint --files src/a.py "src/b c.py"
 ```
 
 `{files}` becomes the shell-quoted list, so a name with spaces or shell
-characters stays one argument. Deleted files and `.mythify/` are left out. With
+characters stays one argument. Because Mythify quotes each path itself,
+`{files}` must be a bare word: a template that puts it inside single or double
+quotes, or right after a backslash, is refused (exit 1) when you define it and
+again when it runs, since a path named `$(...)` would otherwise execute inside
+double quotes. Write `ruff check {files}`, not `ruff check "{files}"`. Deleted files and `.mythify/` are left out. With
 no changed files, Mythify prints `[OK] No changed files for check lint; nothing
 to run.`, records nothing, and exits 0. Outside git, pass `--files`.
 
@@ -53,7 +57,10 @@ mythify step 1 completed "fast check passed"
 step gate accepts any passing run of the check made since the step started,
 because a `{files}` command expands differently each time; a run of a different
 check, or a plain `verify run` of the same text, does not count, and a later
-failing run of the check cancels an earlier pass. `plan create` and `plan
+failing run of the check cancels an earlier pass. Redefining the check
+(`--set` with a different command) also retires its evidence: only runs whose
+`check_template` equals the check's current command count, and the gate says
+the check changed since the run. `plan create` and `plan
 add-step` warn when `@NAME` is not defined yet. Prompt packets and `status` list
 the defined checks.
 
@@ -70,8 +77,10 @@ step of the active plan (or `--plan NAME`) it applies the same rules as
   pass without a recorded reason, and a high-risk change without a covering
   review and the person's words does not pass.
 
-Exit 0 means nothing is in flight without evidence, or there is no active
-plan. Exit 2 means unverified work is in flight. Each failing step prints two
+Exit 0 means nothing is in flight without evidence, or there is no active plan
+pointer at all. Exit 1 means the gate could not judge: `--plan` names a plan that
+does not exist, or the active plan is missing or unreadable, so a typo in a
+hook never passes silently. Exit 2 means unverified work is in flight. Each failing step prints two
 lines on stderr: the plan and step, and the next command, usually `mythify plan
 verify ID --plan SLUG`. `--json` prints `{"ok", "plan", "steps": [{"id",
 "title", "ok", "reasons", "next"}]}` on stdout.
@@ -83,6 +92,10 @@ it. A non-zero exit means "unverified work in flight":
 # A stop or pre-commit hook: block while a step has no current evidence.
 mythify verify gate || exit 1
 ```
+
+The gate writes nothing: it does not create missing state directories, and it
+does not move aside a damaged review file (that file is ignored, covers
+nothing, and is named in the step's `reasons`).
 
 A hook cannot supply the person's approval, so a strict-context step that
 touches high-risk paths keeps the gate at exit 2 until `step ID completed

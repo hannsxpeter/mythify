@@ -122,12 +122,27 @@ def coverage(state, record, current=None):
     return {"covers": False, "text": text, "commits_since": count}
 
 
-def list_findings_reviews(state):
-    """(name, record) of every findings review, most recently updated first."""
+def read_review_readonly(path):
+    """The parsed review at PATH, or None when it is missing or malformed.
+
+    Unlike read_json it never moves a damaged file aside, so read-only
+    callers (the verify gate) leave the state directory untouched.
+    """
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def list_findings_reviews(state, readonly=False):
+    """(name, record) of every findings review, most recently updated first.
+
+    READONLY reads without quarantining a malformed file.
+    """
     folder = Path(state) / "reviews"
     rows = []
     for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
-        record = read_json(path, None)
+        record = read_review_readonly(path) if readonly else read_json(path, None)
         if is_findings_review(record):
             rows.append((path.stem, record))
     return sorted(rows, key=lambda row: row[1].get("updated", ""), reverse=True)
@@ -385,7 +400,7 @@ def findings_attention(state):
     """Status attention items for findings reviews (dicts shaped like attention_item)."""
     items = []
     current = None
-    for name, record in list_findings_reviews(state):
+    for position, (name, record) in enumerate(list_findings_reviews(state)):
         last = latest_round(record)
         stamp = record.get("updated", "")
         pending = open_findings(record)
@@ -404,7 +419,9 @@ def findings_attention(state):
                     name, last["number"]),
                 "detail": "three rounds did not converge; rethink the approach before another round",
             })
-        elif last and last.get("clean") is True:
+        elif last and last.get("clean") is True and position == 0:
+            # Only the newest review is the one being worked on; an older clean
+            # review that no longer covers the source is history, not a warning.
             current = current or source_stamp(state)
             if not round_covers(record, current):
                 items.append({

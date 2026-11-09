@@ -44,11 +44,24 @@ def _first_word(command):
         words = list(lexer)
     except ValueError:
         words = text.split()
-    for word in words:
-        if _ASSIGNMENT.match(word) or all(char in "();&|<>" for char in word):
+    skip_target = False
+    for index, word in enumerate(words):
+        if skip_target:
+            skip_target = False
+        elif _ASSIGNMENT.match(word) or all(char in "();&|" for char in word):
             continue
-        return word
+        elif _redirect(word):
+            skip_target = True
+        elif word.isdigit() and _redirect((words[index + 1:index + 2] or [""])[0]):
+            continue  # a file descriptor written before its redirect, as in 2>/dev/null
+        else:
+            return word
     return ""
+
+
+def _redirect(word):
+    """True for a redirection operator token (>, >>, <, <<, >&, &>, ...)."""
+    return bool(word) and all(char in "();&|<>" for char in word) and ("<" in word or ">" in word)
 
 
 def environment_digest(command, environ=None):

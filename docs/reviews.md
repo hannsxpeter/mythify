@@ -63,8 +63,9 @@ every finding with its status. The last line says what the review covers:
 `review prove` accepts only blast-radius reviews and refuses a findings review.
 
 `status` lists a review with open findings (an issue), a review at round 3 or
-later without a clean pass (a warning to rethink), and a clean round that no
-longer covers the current source (a warning). `prompt review` includes the
+later without a clean pass (a warning to rethink), and, for the most recently
+updated review only, a clean round that no longer covers the current source (a
+warning). Older clean reviews that went stale are history and stay quiet. `prompt review` includes the
 active findings review's round, re-review scope, and dismissed findings.
 
 ## The high-risk path check
@@ -73,7 +74,9 @@ When a step goes `in_progress`, Mythify stamps `started_commit` and
 `started_at` on it. At `step ID completed`, the changed paths are
 `git diff --name-only <started_commit>` (the working tree against that commit,
 so committed and uncommitted work both count) plus untracked files, minus the
-`.mythify/` directory. They are rated by the `path_risk` globs in
+`.mythify/` directory. In a repository with no commits yet, or for a step that
+started without a commit, there is no baseline, so every tracked and untracked
+file counts as changed. They are rated by the `path_risk` globs in
 `protocol/classification-rules.json`. Globs are matched case-insensitively
 against the repo-relative path and its basename, and a path takes the highest
 tier it matches. `route --json` shows the same rating for your current

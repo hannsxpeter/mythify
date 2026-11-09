@@ -343,6 +343,61 @@ class CompletionGateTests(RiskProject):
         self.assertEqual(self.step()["risk"]["level"], "high")
 
 
+class UnbornRepositoryTests(RiskProject):
+    """A repository with no commits has no baseline: all current work counts as changed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name).resolve()
+        self.project = base / "project"
+        self.project.mkdir()
+        self.home = base / "home"
+        self.home.mkdir()
+        self.state = self.project / ".mythify"
+        self.git("init", "-q")
+        self.git("config", "user.email", "mythify@example.invalid")
+        self.git("config", "user.name", "Mythify Test")
+        (self.project / "check.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+        self.ok("init")
+        self.command = "{0} check.py".format(sys.executable)
+
+    def test_changed_paths_lists_tracked_and_untracked_files_without_the_state_directory(self):
+        from mythify_provenance import changed_paths
+        self.write("auth.py")
+        self.write("src/staged.py")
+        self.git("add", "src/staged.py")
+        self.assertEqual(changed_paths(self.state, root=self.project),
+                         [".gitignore", "auth.py", "check.py", "src/staged.py"])
+
+    def test_a_strict_high_risk_step_cannot_complete_without_review_or_human_input(self):
+        self.start_step(strict=True)
+        self.assertIsNone(self.step()["started_commit"])
+        self.write("auth.py")
+        self.ok("plan", "verify", "1", "--plan", "p")
+        refused = self.run_cli("step", "1", "completed", "checked", "--plan", "p")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("[FAIL] " + HIGH_RISK_STEP_MESSAGE, refused.stderr)
+        self.assertIn("auth.py", refused.stderr)
+        self.assertEqual(self.step()["status"], "in_progress")
+
+    def test_a_step_started_before_the_first_commit_keeps_its_whole_tree_baseline(self):
+        self.start_step(strict=True)
+        self.write("auth.py")
+        self.ok("plan", "verify", "1", "--plan", "p")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "first commit")
+        self.ok("plan", "verify", "1", "--plan", "p")
+        refused = self.run_cli("step", "1", "completed", "checked", "--plan", "p")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("auth.py", refused.stderr)
+
+    def test_route_diff_risk_sees_the_files_of_an_unborn_repository(self):
+        self.write("auth.py")
+        payload = json.loads(self.ok("route", "--json", "tidy the readme").stdout)
+        self.assertEqual(payload["classification"]["diff_risk"]["risk"], "high")
+
+
 class NoGitTests(RiskProject):
     use_git = False
 

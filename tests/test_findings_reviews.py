@@ -294,6 +294,27 @@ class AttentionAndPromptTests(FindingsCase):
         self.assertIn("no longer covers the current source", items[0]["summary"])
         self.assertIn("since round 1", items[0]["detail"])
 
+    def test_only_the_newest_review_warns_that_it_no_longer_covers_the_source(self):
+        self.ok("review", "round", "old", "--clean")
+        self.ok("review", "round", "new", "--clean")
+        path = self.state / "reviews" / "old.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["updated"] = "2020-01-01T00:00:00+00:00"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        (self.project / "app.py").write_text("print('v2')\n", encoding="utf-8")
+        items = [i for i in self.attention() if i["source"] == "review"]
+        self.assertEqual(len(items), 1, items)
+        self.assertIn("findings review new no longer covers", items[0]["summary"])
+        # Open findings and the round-3 warning still apply to an older review.
+        self.ok("review", "round", "old")
+        self.ok("review", "finding", "old", "Still open")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["updated"] = "2020-01-01T00:00:00+00:00"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        summaries = [i["summary"] for i in self.attention() if i["source"] == "review"]
+        self.assertTrue(any("findings review old has 1 open finding" in s for s in summaries), summaries)
+        self.assertFalse(any("old no longer covers" in s for s in summaries), summaries)
+
     def test_review_prompt_packet_carries_round_scope_and_dismissed_findings(self):
         self.ok("review", "round", "rv")
         self.ok("review", "finding", "rv", "Unused branch", "--path", "app.py")

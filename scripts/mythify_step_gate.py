@@ -8,7 +8,7 @@ changes the plan, so `step ... completed` and read-only callers can share it.
 import os
 from pathlib import Path
 
-from mythify_checks import check_reference
+from mythify_checks import check_reference, load_checks
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_path_risk import judge_path_risk
 from mythify_provenance import current_verification_provenance, evidence_moved_since_run
@@ -159,6 +159,9 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
     # An @NAME verifier is met by any run of that check: its expanded command
     # text can differ from run to run, so the record's check field decides.
     expected_check = check_reference(expected_command)
+    # A redefined check is a different check: only runs of its current command count.
+    current_template = (load_checks(state).get(expected_check) or {}).get("command") if expected_check else None
+    changed_runs = []
     lower_bound = step.get("updated_at") or plan.get("created", "")
     records = read_jsonl_after_marker(
         Path(state) / "verifications.jsonl",
@@ -185,6 +188,10 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
         if record.get("kind") != "executed" or wrong_command or not timestamp_at_or_after(
             record.get("timestamp", ""), lower_bound, True
         ):
+            continue
+        if expected_check and record.get("check_template") != current_template:
+            if verification_record_passed(record):
+                changed_runs.append(record)
             continue
         latest.pop(command, None)
         latest[command] = record
@@ -235,6 +242,14 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
                     " Record one for this step with: plan verify {0} --plan {1}".format(
                         step_id, slug) if expected_command else "",
                 ),
+            ))
+        if changed_runs:
+            messages.append((
+                "fail",
+                "The check {0} changed since the run{1}: runs of an earlier command do not "
+                "count. Run it again: plan verify {2} --plan {3}".format(
+                    expected_command,
+                    "" if current_template else " (it is no longer defined)", step_id, slug),
             ))
         if strict_context:
             messages.append(("fail", STRICT_CONTEXT_NOTICE))

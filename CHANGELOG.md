@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a fixed one is recorded with `repeat_of` and a warning. `review show`
   reports whether the latest clean round still covers the current source,
   `status` lists open findings, a round-3 review without a clean pass, and a
-  stale clean round, and `prompt review` carries the re-review scope and the
+  stale clean round (newest review only), and `prompt review` carries the re-review scope and the
   dismissed findings. `review prove` still accepts only blast-radius reviews.
 - Risk from the changed paths. `protocol/classification-rules.json` (schema 5)
   gains `path_risk` globs, and `classify_paths` rates a list of paths high,
@@ -78,7 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `step ID completed` (including stale evidence, and a test-count drop or a
   high-risk change under strict context), runs nothing, and writes nothing.
   Exit 0 means nothing is in flight without evidence; exit 2 means unverified
-  work is in flight, with the step and the next command on stderr. See
+  work is in flight, with the step and the next command on stderr; exit 1
+  means the active or named plan is missing or unreadable. See
   [docs/checks-and-gate.md](docs/checks-and-gate.md).
 
 ## [6.1.0] - 2026-10-28

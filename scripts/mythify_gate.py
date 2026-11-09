@@ -12,13 +12,16 @@ import json
 import shlex
 import sys
 
-from mythify_plans import load_plan, target_plan_slug
+from mythify_plans import active_pointer_path, find_plan_slug, load_plan, plan_path
+from mythify_review_cover import unreadable_reviews
 from mythify_step_gate import evaluate_step_evidence
 
 
 def _failure(verdict):
     """(short label, kind) for a verdict the gate does not pass, else None."""
     if verdict["satisfying"] is None:
+        if any("changed since the run" in text for _level, text in verdict["messages"]):
+            return "the check changed since its last passing run, so that run no longer counts", "evidence"
         return "no passing executed run was recorded since the step started", "evidence"
     if verdict["moved"]:
         return "the passing run predates the current source state ({0})".format(verdict["moved"]), "evidence"
@@ -43,15 +46,47 @@ def _next_command(step, slug, kind):
     return 'mythify verify run "COMMAND" --claim "step {0}"'.format(step_id)
 
 
+def _plan_to_judge(state, plan_name):
+    """(slug, plan, error): the plan the gate judges.
+
+    No active pointer at all means nothing is in flight: (None, None, None).
+    A pointer or --plan that names a plan which is missing or cannot be read is
+    an error, so a typo in a hook never passes silently.
+    """
+    if plan_name:
+        slug = find_plan_slug(state, plan_name)
+        if slug is None:
+            return None, None, "Plan not found: {0}".format(plan_name)
+    else:
+        pointer = active_pointer_path(state)
+        if not pointer.is_file():
+            return None, None, None
+        try:
+            slug = pointer.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            return None, None, "The active plan pointer cannot be read: {0}".format(pointer)
+        if not slug:
+            return None, None, None
+        if not plan_path(state, slug).exists():
+            return slug, None, "The active plan does not exist: {0}".format(slug)
+    plan = load_plan(state, slug)
+    if plan is None:
+        return slug, None, "Plan {0} cannot be loaded: its file is unreadable or malformed.".format(slug)
+    return slug, plan, None
+
+
 def evaluate_gate(state, plan_name=None):
     """The gate verdict: {"ok", "plan", "steps": [{id, title, ok, reasons, next}]}.
 
-    Only in-progress steps are judged. A named plan that does not exist, like
-    no active plan, leaves nothing in flight.
+    Only in-progress steps are judged. With no active plan pointer nothing is
+    in flight. A plan that is named or pointed at but missing or unreadable
+    adds an "error" key and a False "ok": the gate refuses rather than pass.
     """
-    slug = target_plan_slug(state, plan_name)
-    plan = load_plan(state, slug) if slug else None
-    view = {"ok": True, "plan": slug if plan is not None else None, "steps": []}
+    slug, plan, error = _plan_to_judge(state, plan_name)
+    view = {"ok": error is None, "plan": slug, "steps": []}
+    if error:
+        view["error"] = error
+        return view
     for step in (plan or {}).get("steps", []):
         if step.get("status") != "in_progress":
             continue
@@ -61,6 +96,9 @@ def evaluate_gate(state, plan_name=None):
                "reasons": [], "next": ""}
         if failure is not None:
             row["reasons"] = [failure[0]] + [text for _level, text in verdict["messages"]]
+            if failure[1] == "risk" and unreadable_reviews(state):
+                row["reasons"].append("Review file(s) {0} could not be read and were ignored; they "
+                                      "cover nothing.".format(", ".join(unreadable_reviews(state))))
             row["next"] = _next_command(step, slug, failure[1])
             view["ok"] = False
         view["steps"].append(row)
@@ -69,6 +107,9 @@ def evaluate_gate(state, plan_name=None):
 
 def cmd_verify_gate(args, state):
     view = evaluate_gate(state, args.plan)
+    if view.get("error"):
+        sys.stderr.write("[FAIL] verify gate cannot judge: {0}\n".format(view["error"]))
+        return 1
     for row in view["steps"]:
         if row["ok"]:
             continue
@@ -96,9 +137,11 @@ def add_gate_parser(actions):
             "including stale evidence, a test-count drop and a high-risk change "
             "under strict context. Never runs a command and never writes state. "
             "Exits 0 when nothing is in flight or every in-progress step is "
-            "verified, 2 otherwise, with the next command per step on stderr."
+            "verified, 2 otherwise, with the next command per step on stderr, "
+            "and 1 when the active or named plan is missing or unreadable."
         ),
     )
     p.add_argument("--plan", help="Plan name; defaults to the active plan.")
     p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
-    p.set_defaults(handler=cmd_verify_gate)
+    # "readonly": resolve the state directory without creating any of it.
+    p.set_defaults(handler=cmd_verify_gate, needs_state="readonly")

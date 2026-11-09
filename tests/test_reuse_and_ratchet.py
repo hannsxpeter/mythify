@@ -289,6 +289,12 @@ class ReuseTests(GitProjectCase):
                         "tool&& other", "(tool)", "  tool  "):
             self.assertEqual(_first_word(command), "tool", command)
         self.assertEqual(_first_word(""), "")
+        for command in ("2>/dev/null tool a", "2> /dev/null tool", ">out tool", "FOO=1 2>&1 tool",
+                        "&>log tool", "</dev/null tool", "2>>log FOO=1 tool x", "(2>/dev/null tool)"):
+            self.assertEqual(_first_word(command), "tool", command)
+        self.assertEqual(_first_word("echo 2 > file"), "echo")
+        self.assertEqual(_first_word("tool 2>/dev/null"), "tool")
+        self.assertEqual(_first_word("2>/dev/null"), "")
         self.assertEqual(_first_word("FOO=1"), "")
 
     def test_digest_follows_the_program_even_with_attached_operators(self):

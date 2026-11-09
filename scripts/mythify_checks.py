@@ -50,6 +50,44 @@ def verifier_matches(stored, command, check=None):
     return bool(stored) and (stored == command or (check is not None and stored == "@" + check))
 
 
+def files_placeholder_unsafe(template):
+    """True when {files} sits inside quotes or right after a backslash.
+
+    Mythify shell-quotes every path itself, so the placeholder must be a bare
+    word. Inside double quotes a quoted path would still run `$(...)` or
+    backticks from a file name, and inside single quotes the added quoting
+    breaks out of them. A small quote-state walk, as the shell reads it:
+    backslash escapes the next character except inside single quotes.
+    """
+    quote, index = None, 0
+    while index < len(template):
+        char = template[index]
+        if template.startswith(FILES_TOKEN, index):
+            if quote is not None:
+                return True
+            index += len(FILES_TOKEN)
+            continue
+        if char == "\\" and quote != "'":
+            if template.startswith(FILES_TOKEN, index + 1):
+                return True
+            index += 2
+            continue
+        if quote is None and char in "'\"":
+            quote = char
+        elif char == quote:
+            quote = None
+        index += 1
+    return False
+
+
+def _unsafe_message(name):
+    return (
+        "[FAIL] Check '{0}' puts {1} inside quotes or after a backslash. {1} must be a bare "
+        "word because Mythify quotes each path itself; write, for example, "
+        "'ruff check {1}'.".format(name, FILES_TOKEN)
+    )
+
+
 def checks_path(state):
     return Path(state) / CHECKS_FILE
 
@@ -153,6 +191,9 @@ def run_check(state, name, claim=None, timeout=None, context=None, reuse=False, 
         fail(_deps["disabled_message"])
         return None, 2
     template = checks[name]["command"]
+    if files_placeholder_unsafe(template):
+        fail(_unsafe_message(name))
+        return None, 1
     command = template
     if FILES_TOKEN in template:
         listed = list(files) if files else changed_files(state)
@@ -218,6 +259,9 @@ def _define_check(args, state):
     name, command = args.name, args.set_command.strip()
     if not NAME_PATTERN.fullmatch(name):
         fail("[FAIL] Invalid check name '{0}': use lowercase letters, digits, and hyphens.".format(name))
+        return 1
+    if files_placeholder_unsafe(command):
+        fail(_unsafe_message(name))
         return 1
     reason = noop_verifier_reason(command) if command else "empty command"
     if reason:

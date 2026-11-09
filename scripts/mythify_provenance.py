@@ -240,19 +240,29 @@ def git_worktree_digest(root, exclude=()):
     return digest.hexdigest()
 
 
-def changed_paths(state, base_commit=None, root=None):
+def changed_paths(state, base_commit=None, root=None, whole_tree=False):
     """Paths changed in the working tree since BASE_COMMIT, or None when unknown.
 
     Covers committed and uncommitted work (a working-tree diff against the
     commit, HEAD when none is given or the commit is gone) plus untracked
     files, leaves out the state directory, and returns paths relative to the
-    project root. None means git cannot answer (no repository, no commits).
+    project root. None means git cannot answer (no repository). With no
+    commit to compare against (an unborn repository) or WHOLE_TREE, every
+    tracked and untracked file counts as changed: all of it is new work.
     """
     project_root = Path(root) if root is not None else project_root_for_state(state)
     if not git_inside_worktree(project_root):
         return None
     environment = git_environment()
     exclude = state_exclude_pathspec(state, project_root)
+    if whole_tree or git_commit(project_root) is None:
+        listed = _git_bytes(
+            project_root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", *(exclude or ["--"])],
+            environment,
+        )
+        if listed is None:
+            return None
+        return sorted(dict.fromkeys(os.fsdecode(item) for item in listed.split(b"\0") if item))
     command = ["diff", "--name-only", "--no-renames", "--relative", "-z"]
     diff = _git_bytes(project_root, command + [base_commit or "HEAD", *(exclude or ["--"])], environment)
     if diff is None and base_commit:

@@ -1340,7 +1340,7 @@ Options:
 mythify verify gate [--plan PLAN] [--json]
 ```
 
-Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Never runs a command and never writes state. Exits 0 when nothing is in flight or every in-progress step is verified, 2 otherwise, with the next command per step on stderr.
+Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Never runs a command and never writes state. Exits 0 when nothing is in flight or every in-progress step is verified, 2 otherwise, with the next command per step on stderr, and 1 when the active or named plan is missing or unreadable.
 
 Options:
 

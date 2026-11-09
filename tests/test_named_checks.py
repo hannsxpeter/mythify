@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from mythify_checks import (  # noqa: E402
     add_checks_line,
     check_reference,
+    files_placeholder_unsafe,
     load_checks,
     verifier_matches,
 )
@@ -189,6 +190,67 @@ class DefineAndListTests(CheckProject):
         self.assertFalse(verifier_matches("", ""))
 
 
+class QuotedPlaceholderTests(CheckProject):
+    """{files} must be a bare word: Mythify quotes each path, so quotes around it re-open the shell."""
+
+    UNSAFE = (
+        'ruff check "{files}"',
+        "ruff check '{files}'",
+        "ruff check \\{files}",
+        'echo "a $(true) {files}"',
+        "echo 'x' \"{files}\"",
+        'echo "a\\"b" "{files}"',
+    )
+    SAFE = (
+        "ruff check {files}",
+        "echo 'a' {files} \"b\"",
+        "echo \"a\" {files}",
+        "echo --paths={files}",
+        "echo '\\' {files}",
+        "echo \\' {files}",
+        "echo {files} && echo {files}",
+        "echo no placeholder 'here'",
+    )
+
+    def test_the_quote_state_tracker(self):
+        for template in self.UNSAFE:
+            self.assertTrue(files_placeholder_unsafe(template), template)
+        for template in self.SAFE:
+            self.assertFalse(files_placeholder_unsafe(template), template)
+
+    def test_set_refuses_a_quoted_placeholder(self):
+        for template in self.UNSAFE:
+            result = self.run_cli("verify", "check", "lint", "--set", template)
+            self.assertEqual(result.returncode, 1, template)
+            self.assertIn("{files} must be a bare word because Mythify quotes each path itself",
+                          result.stderr)
+        self.assertFalse((self.state / "checks.json").exists())
+        self.define("lint", "test -f {files}")
+
+    def test_a_hand_edited_template_is_refused_at_run_time_and_nothing_executes(self):
+        (self.state / "checks.json").write_text(json.dumps({"schema_version": 1, "checks": {
+            "lint": {"command": 'printf "%s\\n" "{files}"', "description": "", "updated": "x"}}}),
+            encoding="utf-8")
+        self.write("$(touch pwned.txt).py")
+        result = self.run_cli("verify", "check", "lint")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("must be a bare word", result.stderr)
+        self.assertFalse((self.project / "pwned.txt").exists())
+        self.assertEqual(self.records(), [])
+        planned = self.run_cli("plan", "create", "g", "--name", "p", "--steps",
+                               json.dumps([{"title": "s", "verify_command": "@lint"}]))
+        self.assertEqual(planned.returncode, 0)
+        self.assertEqual(self.run_cli("plan", "verify", "1", "--plan", "p").returncode, 1)
+        self.assertFalse((self.project / "pwned.txt").exists())
+
+    def test_a_bare_placeholder_keeps_a_command_substitution_name_inert(self):
+        self.define("show", self.show)
+        self.write("$(touch pwned.txt).py")
+        self.ok("verify", "check", "show")
+        self.assertFalse((self.project / "pwned.txt").exists())
+        self.assertIn("FILE:$(touch pwned.txt).py", self.records()[0]["stdout_tail"])
+
+
 class RunTests(CheckProject):
     def test_pass_exits_0_and_the_record_carries_the_check(self):
         self.define("fast", "test -f tracked.txt")
@@ -340,6 +402,31 @@ class StepReferenceTests(CheckProject):
         self.assertEqual(record["claim"], "step 1: only step")
         done = self.ok("step", "1", "completed", "check fast passed", "--plan", "p")
         self.assertEqual(self.plan()["steps"][0]["status"], "completed", done.stderr)
+
+    def test_redefining_the_check_invalidates_earlier_evidence(self):
+        self.define("fast", "test -f tracked.txt")
+        self.create_check_plan()
+        self.ok("plan", "verify", "1", "--plan", "p")
+        self.define("fast", "test -f show.py")
+        refused = self.run_cli("step", "1", "completed", "old command passed", "--plan", "p")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("The check @fast changed since the run", refused.stderr)
+        self.assertEqual(self.plan()["steps"][0]["status"], "in_progress")
+        gate = self.run_cli("verify", "gate")
+        self.assertEqual(gate.returncode, 2)
+        self.assertIn("the check changed since its last passing run", gate.stderr)
+        self.ok("plan", "verify", "1", "--plan", "p")
+        self.assertEqual(self.records()[-1]["check_template"], "test -f show.py")
+        self.ok("step", "1", "completed", "new command passed", "--plan", "p")
+
+    def test_a_removed_check_leaves_no_evidence_that_counts(self):
+        self.define("fast", "test -f tracked.txt")
+        self.create_check_plan()
+        self.ok("plan", "verify", "1", "--plan", "p")
+        (self.state / "checks.json").unlink()
+        refused = self.run_cli("step", "1", "completed", "x", "--plan", "p")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("no longer defined", refused.stderr)
 
     def test_plan_verify_failure_exits_2(self):
         self.define("fast", "test -f missing.txt")

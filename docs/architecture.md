@@ -319,6 +319,8 @@ hash chain still links, and leaves every verification artifact in place.
   `protocol/classification-rules.json`. High risk wants a review that covers
   the current source ([reviews.md](reviews.md)) and `--human-input TEXT`. A
   missing piece warns; on a `strict_context` plan it refuses (exit 1).
+  With no commit to compare against (an unborn repository, or a step that
+  started without one) every tracked and untracked file counts as changed.
   Outside git the check is skipped. `MYTHIFY_RISK_GATE=0` waives it.
 - Strict gate. `step ID completed RESULT` needs a non-empty RESULT and, unless
   `MYTHIFY_REQUIRE_VERIFIED_STEP` is `0`, `false`, `no`, or `off`, an executed
@@ -347,7 +349,10 @@ hash chain still links, and leaves every verification artifact in place.
   step whose `verify_command` is `@NAME` is run by `plan verify` as that check,
   and the step gate counts a passing record whose `check` equals NAME and keys
   "the latest run" by check name, because the expanded text varies per run.
-  `--set` refuses a command `noop_verifier_reason` flags.
+  `--set` refuses a command `noop_verifier_reason` flags, and a template that
+  puts `{files}` inside quotes or after a backslash (refused again at run time).
+  A record satisfies an `@NAME` step only when its `check_template` equals the
+  check's current command, so redefining a check retires its earlier evidence.
 - Gate command. `verify gate [--plan NAME] [--json]` runs
   `evaluate_step_evidence` for each in-progress step, with no test-drop reason
   and no human input, and never executes a command or writes state. It exits 0
@@ -356,8 +361,11 @@ hash chain still links, and leaves every verification artifact in place.
   without its review or human input all count as not accepted), and 2
   otherwise, with a failure line and a next-command line per step on stderr.
   It ignores `MYTHIFY_REQUIRE_VERIFIED_STEP=0`: a hook asks whether evidence
-  exists, not whether the session waived the rule. A named plan that does not
-  exist, like no active plan, leaves nothing in flight and exits 0.
+  exists, not whether the session waived the rule. With no active plan pointer
+  it exits 0; a `--plan` or active pointer that names a missing or unreadable
+  plan exits 1. It resolves the state directory without creating anything
+  (`needs_state: "readonly"`), reads review files without quarantining a
+  malformed one, and treats that file as covering nothing.
 - Reuse. `verify run --reuse` and `plan verify --reuse` look for the newest
   executed record with the identical command, `git_commit`, `worktree_digest`
   (both non-null), `mythify_version`, and `environment_digest`. They reuse it

@@ -58,7 +58,12 @@ def judge_path_risk(state, plan, step, human_input=None, environ=None):
     """
     verdict = {"level": None, "paths": [], "review": None, "human_input": False,
                "waived": False, "ok": True, "messages": [], "stamp": None}
-    changed = changed_paths(state, step.get("started_commit"))
+    # A step that started with no commit (an unborn repository, or outside git)
+    # has no baseline, so all current work counts as its own.
+    changed = changed_paths(
+        state, step.get("started_commit"),
+        whole_tree=bool(step.get("started_at")) and not step.get("started_commit"),
+    )
     if changed is None:
         return verdict
     classified = classify_paths(changed)
