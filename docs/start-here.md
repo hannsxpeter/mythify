@@ -105,6 +105,11 @@ mythify verify run "python3 -m unittest discover -s tests" --claim "tests still 
 `.mythify/verifications.jsonl`. When `route` answers `plan` but reports
 `profile=fast`, the same short path applies.
 
+Once a command is stable, name it with `mythify verify check fast --set
+"COMMAND"` and run it as `verify check fast`; add `--reuse` to skip a run an
+identical passing run already proves. See
+[checks-and-gate.md](checks-and-gate.md).
+
 ### Serious change
 
 Several steps, or a real chance of breaking something. Give every step its own

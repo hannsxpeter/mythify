@@ -198,7 +198,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "6.1.0"
+VERSION = "6.2.0"
 configure_step_gate(VERSION)
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"

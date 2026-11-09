@@ -604,3 +604,19 @@ memory, lessons, outcomes, maps, products); every other command runs through
 the `mythify` tool, whose description lists them. Why: the 5.8 listing of 63
 tools cost about 68 KB of host context each session, mostly for tools a
 session never called. The 6.0 listing of 38 tools is about 30 KB.
+
+### 2026-11-08: fast, selective verification
+
+`verify run --reuse` stands in an earlier passing run, and it is opt-in: the
+environment digest covers the command, commit, worktree digest, Mythify
+version, platform, `PATH`, and the executable, but not files ignored by
+`.gitignore`, services, or the network, so the caller decides when that is
+enough (`MYTHIFY_REUSE_ENV` adds inputs). The test-count drop and high-risk
+path checks warn by default and refuse only under strict context, the same
+precedent as stale evidence, which keeps 6.2 a minor release.
+`verify gate` is read-only so a host stop or pre-commit hook can call it
+without changing state. Findings review rounds are capped at three, and a
+fourth needs `--rethink TEXT`, because a loop that does not converge in three
+rounds usually has the wrong approach, not too few rounds. Why: verification
+cost grew with the suite, and the fix had to speed up honest runs without
+letting a self-report stand in for one.

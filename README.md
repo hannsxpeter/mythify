@@ -66,6 +66,13 @@ See the [campaign guide](docs/campaigns.md) for setup, resumption, and upgrade c
   sentence and Mythify says no. That refusal is the product.
 - **A record anyone can read.** Every check, exit code, and reversal is written
   to plain files in `.mythify/`.
+- **Verification that is fast without trusting anyone's word.** Reuse an
+  identical passing run, name your project's checks, notice when a check ran
+  fewer tests than before, and let a host hook block work that has no current
+  evidence.
+- **Reviews that end.** Findings reviews stop after three rounds unless the
+  agent says why the approach still stands, and a change to auth, payments,
+  migrations, or deploy files needs a review and the person's own words.
 - **Product plans with teeth.** Problem, user, measurable outcomes, non-goals,
   bets with kill criteria, and the four product risks, approved by a human
   before any of it becomes an execution plan.
@@ -258,11 +265,13 @@ command and links the evidence only while the reviewed tree is unchanged. See
 
 A findings review records an independent reviewer's rounds: `review round`
 opens one stamped with the source it saw, `review finding` and `review resolve`
-track what was raised and settled, and a fourth round needs a stated reason to
-continue. A step that touches high-risk paths (auth, payments, migrations,
-deploy files) needs a review that covers the current source and the person's
-own words (`--human-input`) before it completes. See
-[docs/reviews.md](docs/reviews.md).
+track what was raised and settled (a dismissed finding cannot be raised
+again), and a fourth round needs `--rethink TEXT`. A step that touches
+high-risk paths (auth, secrets, migrations, schema, deploy and CI config,
+payments) needs a review that covers the current source and the person's own
+words (`--human-input`) before it completes. That check, like the test-count
+drop, warns by default and refuses on a campaign plan; `MYTHIFY_RISK_GATE=0`
+waives it with a stamp. See [docs/reviews.md](docs/reviews.md).
 
 ### Memory and lessons
 

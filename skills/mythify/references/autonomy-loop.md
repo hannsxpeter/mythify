@@ -61,7 +61,7 @@ that step:
 
 Otherwise run any check directly:
 
-    verify run COMMAND [--claim TEXT] [--timeout N]
+    verify run COMMAND [--claim TEXT] [--timeout N] [--reuse]
 
 Exit 0 means verified, exit 2 means unverified. A check that cannot fail
 (`true`, `exit 0`, a bare `echo`) proves nothing: Mythify warns when a step

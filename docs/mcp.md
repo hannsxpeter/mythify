@@ -112,7 +112,7 @@ Two JSON lines come back: the `initialize` result with `serverInfo`, then the
 
 `tools/list` returns the typed tools below plus one escape-hatch tool. The list is
 built from the CLI's argument parser at startup, so `tools/list` is
-authoritative and these tables are a snapshot of 6.1.0.
+authoritative and these tables are a snapshot of 6.2.0.
 
 A typed tool's name is the command path joined with `_`, with `-` turned into
 `_`:

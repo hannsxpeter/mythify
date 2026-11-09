@@ -7,7 +7,7 @@ verified. Executed beats attested, always.
 
 ## Executed verification
 
-    verify run COMMAND [--claim TEXT] [--timeout N]
+    verify run COMMAND [--claim TEXT] [--timeout N] [--reuse]
 
 The command runs through the shell. Mythify records the exit code, duration,
 and output tails, then prints the verdict:
@@ -43,6 +43,19 @@ the current source (`review round NAME --clean` after an independent pass) and
 `--human-input TEXT`, the person's own words approving it. Ask the person; never
 write those words yourself. It warns by default and refuses on a campaign plan.
 `MYTHIFY_RISK_GATE=0` waives it only when the user asks.
+
+Name a project check once and reuse the name: `verify check NAME --set
+COMMAND` stores it (`{files}` expands to the changed files), `verify check
+NAME` runs and records it, and a step's `verify_command` may be `@NAME`.
+
+`verify gate` is read-only. It runs nothing and exits 2 while an in-progress
+step lacks current passing evidence, so a host stop or pre-commit hook can
+call it.
+
+Findings reviews are bounded: `review round NAME` per round, `review finding`
+per finding, `review resolve` to mark it fixed or dismissed (a dismissal needs
+a reason). Never raise a dismissed finding again. Round four needs `--rethink
+TEXT`: after three rounds, reconsider the approach.
 
 For a plan step that stores a `verify_command`, `plan verify ID` runs that
 exact command and records the result against the step, which is what the
