@@ -289,6 +289,41 @@ narrower question: should this run hands-off, supervised, or by hand?
 (`classification.diff_risk`) and asks for an independent review when they are
 riskier than your wording.
 
+If you keep a routing policy file of your own, `route` shows what it says about
+the task. Set `MYTHIFY_AGENT_POLICY` to its path, or leave it at
+`~/.agents/policy.json`. With a file present, the text output ends with a
+`Delegation` section and `--json` gains a `delegation` object: the policy step
+the task falls under (production, question, design, image, bulk,
+browser_check, or build), that step's action and role, the options and effort
+the file lists for the role, and the review tier for the task's risk. It is a
+copy of your file, not a choice: options your own banned-model list names are
+left out, and an effort above your ceiling is clamped. A missing file changes
+nothing. An unreadable or invalid file prints one `[WARN]` line and is ignored.
+A minimal file, with invented names:
+
+```json
+{
+  "version": 1,
+  "routing": [
+    {"step": 1, "id": "production", "when": "Deploys or money?", "role": null, "action": "stop_and_ask"},
+    {"step": 7, "id": "build", "when": "Anything that writes code?", "role": "builder", "action": "delegate"}
+  ],
+  "roles": {
+    "builder": {
+      "options": [{"tool": "Appone", "model": "Modelone"}],
+      "effort": {"default": "medium", "tricky": "high"}
+    }
+  },
+  "review_tiers": [
+    {"id": "low", "reviewer_effort": null, "user_review": false},
+    {"id": "normal", "reviewer_effort": "high", "user_review": false},
+    {"id": "high", "reviewer_effort": "xhigh", "user_review": true}
+  ],
+  "review_rounds_max": 3,
+  "hard_rules": {"banned_models": ["Modelzero"], "effort_ceiling": "xhigh", "never_efforts": ["max"]}
+}
+```
+
 ## Works with any model
 
 Mythify never names, ranks, picks, or switches a model, and it never spawns a
@@ -296,7 +331,8 @@ helper on its own initiative. When `route` sees work that splits into
 independent parts, it says so (`parallelism.fit`), and your agent decides
 whether to use subagents, which ones, and on which models. Whatever comes back
 is material, not proof: it gets merged, and the merged result is verified like
-anything else.
+anything else. Printing a routing policy file you own is not choosing a model;
+see the routing section above.
 
 The protocol file names no model, so the same file applies to whatever model
 your host runs.

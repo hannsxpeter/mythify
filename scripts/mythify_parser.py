@@ -202,7 +202,9 @@ def build_parser(symbols):
             "failure_recovery, or handoff routing. The JSON output carries the "
             "deterministic classification with neutral framing, parallelism, and "
             "review advisories plus the loop-fit assessment; the host chooses "
-            "whether and where to delegate."
+            "whether and where to delegate. When a routing policy file exists "
+            "(MYTHIFY_AGENT_POLICY, else ~/.agents/policy.json), the output "
+            "also shows what that file says about the task, as advisory text."
         ),
     )
     p.add_argument("task", help="Task request or problem statement to route.")

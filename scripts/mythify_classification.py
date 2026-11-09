@@ -64,7 +64,49 @@ def load_classification_rules():
         raise ValueError("Invalid classification path_risk section")
     if "feature" not in manifest["verification_hints"]:
         raise ValueError("Classification verification hints are missing feature fallback")
+    validate_policy_steps(manifest.get("policy_steps"))
     return manifest
+
+
+def validate_policy_steps(section):
+    """Raise ValueError unless the policy_steps section has the documented shape."""
+
+    def strings(value):
+        return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
+
+    def count(value):
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    if not isinstance(section, dict) or not count(section.get("guard_window")):
+        raise ValueError("Invalid classification policy_steps section")
+    steps = section.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("Invalid classification policy_steps section")
+    seen = set()
+    for step in steps:
+        step_id = step.get("id") if isinstance(step, dict) else None
+        pairs = step.get("pairs", []) if isinstance(step, dict) else None
+        valid = (
+            isinstance(step_id, str)
+            and step_id.strip()
+            and step_id not in seen
+            and strings(step.get("terms", []))
+            and strings(step.get("near_miss", []))
+            and isinstance(pairs, list)
+            and all(
+                isinstance(pair, dict)
+                and strings(pair.get("first"))
+                and pair["first"]
+                and strings(pair.get("then"))
+                and pair["then"]
+                and count(pair.get("within"))
+                for pair in pairs
+            )
+            and (step["terms"] or pairs)
+        )
+        if not valid:
+            raise ValueError("Invalid classification policy_steps entry")
+        seen.add(step_id)
 
 
 def classification_task_rules(manifest):
@@ -116,6 +158,8 @@ PATH_RISK_GLOBS = tuple(
     for tier in PATH_RISK_TIERS
 )
 RISK_RANK = {"low": 0, "medium": 1, "high": 2}
+POLICY_GUARD_WINDOW = int(CLASSIFICATION_MANIFEST["policy_steps"]["guard_window"])
+POLICY_STEPS = tuple(CLASSIFICATION_MANIFEST["policy_steps"]["steps"])
 
 
 def wordish(text):
@@ -409,3 +453,53 @@ def classify_paths(paths):
             matches.append({"path": path, "glob": found[1], "risk": found[0]})
     risk = max((m["risk"] for m in matches), key=RISK_RANK.get, default="low")
     return {"risk": risk, "matches": matches}
+
+
+def _guarded(tokens, end, near_miss, window):
+    """True when a near-miss word starts within WINDOW words after position END."""
+    return bool(near_miss) and bool(contains_any(" ".join(tokens[end:end + window]), near_miss))
+
+
+def policy_step_signal(tokens, step):
+    """The first term or pair of STEP found in TOKENS and not cancelled, else None.
+
+    A term matches as a whole phrase. A pair matches when a "first" phrase is
+    followed by a "then" phrase with at most "within" words between them. Either
+    kind is cancelled when a near-miss word (docs, upload, feature, and kin)
+    starts in the next few words after the term, or after either half of a
+    pair, so incidental wording stays out.
+    """
+    near_miss = step.get("near_miss", [])
+    window = int(step.get("guard_window", POLICY_GUARD_WINDOW))
+    for term in step.get("terms", []):
+        for start in term_positions(tokens, term):
+            if not _guarded(tokens, start + term_count(term), near_miss, window):
+                return str(term)
+    for pair in step.get("pairs", []):
+        for first in pair["first"]:
+            for start in term_positions(tokens, first):
+                first_end = start + term_count(first)
+                if _guarded(tokens, first_end, near_miss, window):
+                    continue
+                for then in pair["then"]:
+                    for at in term_positions(tokens, then):
+                        if first_end <= at <= first_end + int(pair["within"]) and not _guarded(
+                            tokens, at + term_count(then), near_miss, window
+                        ):
+                            return "{0} ... {1}".format(first, then)
+    return None
+
+
+def classify_policy_step(task_text):
+    """Which policy step the wording names, or None.
+
+    Steps are checked in manifest order, which is precedence order: production
+    first. This never changes classify_task_text and carries no model or
+    vendor knowledge; it only reads terms from protocol/classification-rules.json.
+    """
+    tokens = wordish(task_text).split()
+    for step in POLICY_STEPS:
+        signal = policy_step_signal(tokens, step)
+        if signal:
+            return {"id": str(step["id"]), "signal": signal}
+    return None

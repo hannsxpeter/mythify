@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "description": "Deterministic task classification policy for the Mythify CLI.",
   "thresholds": {
     "trivial_word_count": 12,
@@ -397,6 +397,347 @@
     "product": "Run product check until it exits 0, get the human's approval before promote, and record product measure for each outcome after shipping.",
     "question": "No executable check is required unless the answer makes a factual or time-sensitive claim.",
     "trivial": "Use the smallest available check, or no protocol command for a one-line answer."
+  },
+  "policy_steps": {
+    "guard_window": 2,
+    "steps": [
+      {
+        "id": "production",
+        "terms": [
+          "deploy",
+          "redeploy",
+          "go live",
+          "ssh",
+          "scp",
+          "rsync",
+          "restart the server",
+          "restart the servers",
+          "restart the service",
+          "restart services",
+          "reboot the server",
+          "provision a server",
+          "provision servers",
+          "spend money",
+          "spending money",
+          "spend budget",
+          "spending limit",
+          "spending limits",
+          "buy a",
+          "buy more",
+          "buy credits",
+          "purchase a",
+          "purchase more",
+          "purchase credits",
+          "pay for",
+          "upgrade the plan",
+          "upgrade our plan",
+          "upgrade my plan",
+          "plan upgrade",
+          "add credits",
+          "change the billing plan",
+          "change billing plan",
+          "update billing details",
+          "update the billing details",
+          "enable overage",
+          "overage charges"
+        ],
+        "pairs": [
+          {
+            "first": [
+              "migrate",
+              "migration",
+              "migrations",
+              "release",
+              "releases",
+              "ship",
+              "push",
+              "promote",
+              "roll out",
+              "rollout"
+            ],
+            "then": [
+              "production",
+              "prod"
+            ],
+            "within": 3
+          },
+          {
+            "first": [
+              "production",
+              "prod"
+            ],
+            "then": [
+              "migrate",
+              "migration",
+              "migrations",
+              "release",
+              "releases",
+              "rollout",
+              "deployment",
+              "server",
+              "servers",
+              "database",
+              "data"
+            ],
+            "within": 0
+          }
+        ],
+        "near_miss": [
+          "docs",
+          "doc",
+          "documentation",
+          "typo",
+          "typos",
+          "readme",
+          "comment",
+          "comments",
+          "changelog",
+          "wording",
+          "notes",
+          "runbook",
+          "guide",
+          "tutorial",
+          "diagram",
+          "docstring"
+        ]
+      },
+      {
+        "id": "image",
+        "terms": [
+          "concept art"
+        ],
+        "pairs": [
+          {
+            "first": [
+              "generate",
+              "create",
+              "design",
+              "draw",
+              "paint"
+            ],
+            "then": [
+              "image",
+              "images",
+              "picture",
+              "pictures",
+              "logo",
+              "logos",
+              "illustration",
+              "illustrations",
+              "artwork",
+              "art",
+              "poster",
+              "posters",
+              "mascot",
+              "cartoon"
+            ],
+            "within": 3
+          }
+        ],
+        "near_miss": [
+          "upload",
+          "uploads",
+          "uploader",
+          "gallery",
+          "galleries",
+          "component",
+          "components",
+          "loader",
+          "cache",
+          "caching",
+          "resize",
+          "resizing",
+          "processing",
+          "pipeline",
+          "tag",
+          "tags",
+          "handler",
+          "field",
+          "fields",
+          "viewer",
+          "carousel",
+          "thumbnail",
+          "thumbnails",
+          "optimization",
+          "endpoint",
+          "api",
+          "diagram",
+          "diagrams",
+          "docs",
+          "doc",
+          "readme",
+          "alt",
+          "metadata",
+          "format",
+          "compression",
+          "lazy",
+          "size",
+          "sizes",
+          "dimensions",
+          "attribute",
+          "element",
+          "class",
+          "css",
+          "url",
+          "path",
+          "library",
+          "service",
+          "model",
+          "table",
+          "column",
+          "test",
+          "tests",
+          "fixture",
+          "fixtures",
+          "support",
+          "feature",
+          "generation",
+          "generator",
+          "direction"
+        ]
+      },
+      {
+        "id": "bulk",
+        "terms": [
+          "codemod",
+          "codemods",
+          "mass rename",
+          "bulk rename",
+          "bulk edit",
+          "bulk update",
+          "bulk replace",
+          "mass reformat",
+          "reformat the whole",
+          "reformat the entire",
+          "reformat every",
+          "bump dependencies",
+          "bump all dependencies",
+          "bump the dependencies",
+          "update all dependencies",
+          "upgrade all dependencies",
+          "dependency bump",
+          "dependency bumps",
+          "long running command",
+          "long running commands"
+        ],
+        "pairs": [
+          {
+            "first": [
+              "rename",
+              "replace",
+              "reformat",
+              "format",
+              "lint",
+              "fix",
+              "update",
+              "upgrade",
+              "bump",
+              "convert",
+              "migrate",
+              "change",
+              "refactor",
+              "apply",
+              "add",
+              "remove",
+              "delete",
+              "sort"
+            ],
+            "then": [
+              "across the repo",
+              "across the repository",
+              "across the codebase",
+              "across all files",
+              "across many files",
+              "across multiple files",
+              "across every file",
+              "in every file",
+              "in all files",
+              "in all the files",
+              "repo wide",
+              "repository wide",
+              "codebase wide",
+              "project wide",
+              "throughout the repo",
+              "throughout the codebase",
+              "everywhere in the repo",
+              "in every package",
+              "in every module"
+            ],
+            "within": 8
+          }
+        ],
+        "near_miss": []
+      },
+      {
+        "id": "browser_check",
+        "terms": [
+          "real browser",
+          "click through",
+          "clicking through",
+          "click around",
+          "take a screenshot",
+          "take screenshots",
+          "take a screen shot",
+          "capture a screenshot",
+          "capture screenshots",
+          "screen recording",
+          "screen recordings",
+          "record a video",
+          "record the screen",
+          "record a screen",
+          "record a demo",
+          "screen capture",
+          "visual regression",
+          "visually check",
+          "visual check",
+          "browser check",
+          "browser checks",
+          "walk through the ui"
+        ],
+        "pairs": [
+          {
+            "first": [
+              "check",
+              "verify",
+              "try",
+              "view",
+              "inspect",
+              "preview",
+              "click",
+              "open",
+              "load"
+            ],
+            "then": [
+              "in a browser",
+              "in the browser",
+              "in a real browser",
+              "in browsers",
+              "in a web browser"
+            ],
+            "within": 5
+          }
+        ],
+        "near_miss": [
+          "tool",
+          "library",
+          "api",
+          "feature",
+          "support",
+          "button",
+          "shortcut",
+          "handler",
+          "service",
+          "script",
+          "testing",
+          "tests",
+          "test",
+          "ci",
+          "suite",
+          "setup",
+          "config"
+        ]
+      }
+    ]
   },
   "task_types": [
     {

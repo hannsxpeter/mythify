@@ -57,7 +57,7 @@ class ClassifyPathsTests(unittest.TestCase):
 
     def test_rules_file_carries_the_path_risk_section(self):
         manifest = json.loads(mythify_classification.CLASSIFICATION_RULES_PATH.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["schema_version"], 5)
+        self.assertEqual(manifest["schema_version"], 6)
         self.assertIn("*auth*", manifest["path_risk"]["high"])
         self.assertIn("pyproject.toml", manifest["path_risk"]["medium"])
 

@@ -10,6 +10,7 @@ import shlex
 import sys
 from pathlib import Path
 
+from mythify_agent_policy import build_delegation, format_delegation
 from mythify_classification import classify_task_text
 from mythify_findings import findings_prompt_context, findings_prompt_lines
 from mythify_path_risk import apply_diff_risk, diff_risk
@@ -1242,6 +1243,8 @@ def format_workflow_route(payload):
         for item in payload["pause_rules"]:
             lines.append("- {0}".format(item))
     lines.append("Guardrail: {0}".format(payload.get("guardrail", WORKFLOW_ROUTE_GUARDRAIL)))
+    if payload.get("delegation"):
+        lines.extend(format_delegation(payload["delegation"]))
     return "\n".join(lines)
 
 
@@ -1250,6 +1253,9 @@ def cmd_route(args, state):
         classify_task_text(args.task, route_terms=ROUTE_SELECTING_TERMS), diff_risk(state)
     )
     payload = build_workflow_route(args.task, state, classification)
+    delegation = build_delegation(args.task, payload["route"], classification)
+    if delegation:
+        payload["delegation"] = delegation
     if args.json_output:
         print(json.dumps(payload, indent=2))
     else:

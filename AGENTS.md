@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: a8450b0075afe6f3e00b7e3074fce0ff7e2e77f46888e26683a967b74bae213d -->
+<!-- Mythify protocol-sha256: 11b028671b6cf14fc5adca24236a6465c9d51d5671a0ef2ef6780f581fddd575 -->
 
 # The Mythify Protocol
 
@@ -120,7 +120,8 @@ independent parts, you may hand parts to any subagent, worker, or model your
 host offers, or to none. Write each delegated prompt so it stands alone.
 Delegated output is material, not evidence: merge it into the deliverable, then
 `verify run` the integrated result. If a delegation choice mattered, say why in
-a `reflect`.
+a `reflect`. When the user's or project's rules define who does what, follow
+them; `mythify route` shows them when a policy file is present.
 
 ## Human decisions stay human
 

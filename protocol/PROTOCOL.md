@@ -117,7 +117,8 @@ independent parts, you may hand parts to any subagent, worker, or model your
 host offers, or to none. Write each delegated prompt so it stands alone.
 Delegated output is material, not evidence: merge it into the deliverable, then
 `verify run` the integrated result. If a delegation choice mattered, say why in
-a `reflect`.
+a `reflect`. When the user's or project's rules define who does what, follow
+them; `mythify route` shows them when a policy file is present.
 
 ## Human decisions stay human
 
