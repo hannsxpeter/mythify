@@ -643,7 +643,7 @@ output is byte-for-byte what it was. The task-to-step match uses a separate
 `policy_steps` section of `protocol/classification-rules.json` (production,
 image, bulk, browser_check) so the `classification` block never changes (step 1
 prefers recall: a clause whose operative verb is an operation verb such as
-deploy, ship, or release, ssh, rsync, or scp to any host, or a money phrase;
+deploy, ship, or release, ssh, rsync, or scp as the main verb, or a money phrase;
 only a coding verb whose object is a code noun that the operation word modifies
 stays build, and an ambiguous prompt goes to step 1; step 1 and any
 `high_tier_terms` word such as auth, billing, or migration raise the delegation

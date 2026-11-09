@@ -25,14 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[WARN]` line and is ignored. Step 1 (production, deploys, servers, or money)
   prefers recall: a clause whose operative verb is an operation verb (deploy,
   ship, release, publish, promote, restart, roll back, stop or start a service),
-  ssh, scp, or rsync to any host, a migration against production, or an explicit
+  ssh, scp, or rsync as the main verb, a migration against production, or an explicit
   money phrase is step 1, with or without an environment word. Only clear code
   work stays build: a coding verb whose object is a code noun that the operation
   word modifies (a deploy script, an ssh client); an ambiguous prompt goes to
   step 1. The delegation review tier is at least high for step 1, and also when
   the wording names a risky-code term from the new `high_tier_terms` list (auth,
-  billing, checkout, migration, secrets, and similar), with the reason in the
-  basis; route's own classification is unchanged. The image step also takes icons
+  billing, checkout, race, migration, secrets, and similar, whole words only),
+  with the reason in the basis; route's own classification is unchanged.
+  ssh, scp, and rsync are operation verbs whatever follows them, stop, start,
+  restart, reload, or kill plus a service, server, container, or worker is step
+  1, run or apply a migration with an environment word is step 1, "and" before
+  an operation verb starts a new clause, and documentation words (docs, typo,
+  notes) cancel step 1 only together with a coding verb. The image step also takes icons
   and favicons. The task-to-step terms for production, image,
   bulk, and browser_check live in a new `policy_steps` section of
   `protocol/classification-rules.json` (schema 6) and do not change the

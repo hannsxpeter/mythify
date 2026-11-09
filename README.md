@@ -302,7 +302,7 @@ the highest allowed level, and any banned model name or forbidden effort word in
 the text it prints is replaced with `[withheld]` (a name containing a banned
 model or forbidden effort word is partly withheld). Step 1 (production, deploys, servers, or
 money) prefers recall: a clause whose main verb is an operation verb (deploy, ship,
-release, publish, restart, roll back, and the like), ssh, scp, or rsync to any host,
+release, publish, restart, roll back, and the like), ssh, scp, or rsync as the main verb (whatever follows),
 or an explicit money phrase is step 1, with or without an environment word. Only
 clear code work on a component stays out ("write a deploy script", "add a --deploy
 flag"), and an ambiguous prompt goes to step 1. Step 1 and wording that names risky

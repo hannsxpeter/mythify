@@ -142,6 +142,20 @@ STEP_TIER_CORPUS = (
     ("Add SSH to the API", "production", "high", "step 1 production"),
     ("buy a domain", "production", "high", "step 1 production"),
     ("upgrade the plan to pro", "production", "high", "step 1 production"),
+    # review round 5: recall gaps
+    ("publish the documentation", "production", "high", "step 1 production"),
+    ("deploy docs to production", "production", "high", None),
+    ("ssh hxp-linux and check the logs", "production", "high", "step 1 production"),
+    ("scp build.tar.gz hxp-linux:/srv/app", "production", "high", "step 1 production"),
+    ("stop the nginx service", "production", "high", "step 1 production"),
+    ("start the inhouse service", "production", "high", "step 1 production"),
+    ("fix the bug and deploy api to production", "production", "high", None),
+    ("apply a migration to the live database", "production", "high", None),
+    ("run a migration against prod", "production", "high", None),
+    ("fix the cache race", "build", "high", "names race"),
+    ("fix the deploy docs typo", "build", "high", None),
+    ("implement an ssh client", "build", "normal", None),
+    ("Fix the rsync, scp, and ssh wrapper", "build", "low", None),
     # item 1: clear code work stays build
     ("add a --deploy flag", "build", "high", None),
     ("write a deploy script", "build", "high", None),
@@ -542,15 +556,14 @@ class TestPolicyStepPrecision(unittest.TestCase):
             ("empty step", lambda m: (
                 m["steps"][0].update(terms=[], pairs=[]),
                 m["steps"][0].pop("environment"),
-                m["steps"][0].pop("remote"),
                 m["steps"][0].pop("operations"),
             )),
             ("no high tier terms", lambda m: m.pop("high_tier_terms")),
             ("operations without verbs", lambda m: m["steps"][0]["operations"].update(verbs=[])),
             ("no comma starters", lambda m: m.pop("comma_starters")),
             ("environment without words", lambda m: m["steps"][0]["environment"].pop("words")),
-            ("remote without links", lambda m: m["steps"][0]["remote"].update(links=[])),
-            ("remote window not a count", lambda m: m["steps"][0]["remote"].update(link_within=-1)),
+            ("environment pair without then", lambda m: m["steps"][0]["environment"]["pairs"][0].pop("then")),
+            ("no and starters", lambda m: m.pop("and_starters")),
             ("pair without then", lambda m: m["steps"][1]["pairs"][0].pop("then")),
             ("term not text", lambda m: m["steps"][0].update(terms=[1])),
         ):
@@ -590,7 +603,7 @@ class TestStepOneAndTierFloors(PolicyCase):
 
     def test_step_one_is_at_least_high_in_the_text_output(self):
         out = self.text("ssh into the server and check the logs")
-        self.assertIn("-> stop_and_ask (policy step production (matched: ssh ... the); raised to high: step 1 production)", out)
+        self.assertIn("-> stop_and_ask (policy step production (matched: ssh); raised to high: step 1 production)", out)
         self.assertIn("Review tier: high (risk low, raised to high: step 1 production); reviewer_effort: xhigh", out)
 
     def test_a_risky_code_term_raises_the_tier_and_the_tricky_effort(self):
@@ -610,7 +623,7 @@ class TestStepOneAndTierFloors(PolicyCase):
     def test_high_tier_terms_match_whole_words_and_phrases(self):
         for task, term in (
             ("implement stripe billing for subscriptions", "billing"),
-            ("fix the race condition in the queue", "race condition"),
+            ("fix the race condition in the queue", "race"),
             ("add a login page", "login"),
             ("rotate the deployment config", "deployment config"),
             ("write a mutex around the cache", "mutex"),

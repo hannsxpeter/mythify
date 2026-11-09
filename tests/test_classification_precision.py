@@ -222,6 +222,19 @@ PRODUCTION_CORPUS = (
     ("restart the production server", "production"),
     ("roll back production", "production"),
     ("ship my app to staging", "production"),
+    # review round 5: documentation words cancel only with a coding verb
+    ("publish the documentation", "production"),
+    ("deploy docs to production", "production"),
+    # ssh, scp, and rsync are operations whatever follows
+    ("ssh hxp-linux and check the logs", "production"),
+    ("scp build.tar.gz hxp-linux:/srv/app", "production"),
+    # service control, and "and" before an operation verb starts a new clause
+    ("stop the nginx service", "production"),
+    ("start the inhouse service", "production"),
+    ("fix the bug and deploy api to production", "production"),
+    # migrations with optional determiners
+    ("apply a migration to the live database", "production"),
+    ("run a migration against prod", "production"),
     # money
     ("buy a domain", "production"),
     ("upgrade the plan to pro", "production"),
@@ -307,12 +320,76 @@ class TestProductionRecallFirst(unittest.TestCase):
         # the clause break between them keeps them apart
         self.assertIsNone(self.step("tidy up on production; push it now"))
 
-    def test_remote_access_needs_a_link_word_and_a_host_word(self):
-        self.assertEqual(self.step("ssh onto the host"), "production")
-        self.assertEqual(self.step("ssh to anything"), "production")
-        self.assertIsNone(self.step("ssh keys for the api"))
-        self.assertIsNone(self.step("scp the build"))
-        self.assertIsNone(self.step("ssh into"))
+    def test_ssh_scp_and_rsync_are_operations_whatever_follows(self):
+        for task in (
+            "ssh onto the host", "ssh to anything", "ssh into", "scp the build",
+            "ssh hxp-linux and check the logs", "scp build.tar.gz hxp-linux:/srv/app",
+            "rsync -av dist/ deploy@box:/srv/app", "ssh user@10.0.0.5 uptime",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(self.step(task), "production")
+        # only the code-work cancel keeps them build
+        for task in ("implement an ssh client", "Fix the rsync, scp, and ssh wrapper"):
+            with self.subTest(task=task):
+                self.assertIsNone(self.step(task))
+
+    def test_a_near_miss_word_cancels_only_with_a_coding_verb(self):
+        self.assertIsNone(self.step("fix the deploy docs typo"))
+        self.assertIsNone(self.step("write the deploy docs"))
+        self.assertEqual(self.step("publish the documentation"), "production")
+        self.assertEqual(self.step("deploy docs to production"), "production")
+        self.assertEqual(self.step("release notes for v6.3.0"), "production")
+
+    def test_and_before_an_operation_verb_starts_a_new_clause(self):
+        from mythify_classification import CLAUSE_BREAK, clause_tokens
+        self.assertEqual(
+            clause_tokens("fix the bug and deploy api to production"),
+            ["fix", "the", "bug", CLAUSE_BREAK, "deploy", "api", "to", "production"],
+        )
+        # a list is not split: ssh, scp, and rsync are not and_starters
+        self.assertEqual(
+            clause_tokens("fix the ssh and scp wrapper"), ["fix", "the", "ssh", "and", "scp", "wrapper"]
+        )
+        self.assertEqual(self.step("fix the bug and deploy api to production"), "production")
+
+    def test_service_control_verbs_within_three_words_of_a_service_noun(self):
+        for task in (
+            "stop the nginx service", "start the inhouse service", "reload the worker pool daemon",
+            "kill the stuck container", "restart the staging cluster", "stop all three api workers",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(self.step(task), "production")
+        for task in ("start the project", "stop the presses", "write a restart handler for the worker"):
+            with self.subTest(task=task):
+                self.assertIsNone(self.step(task))
+
+    def test_migrations_with_optional_determiners_and_an_environment(self):
+        for task in (
+            "apply a migration to the live database", "run a migration against prod",
+            "execute the pending migrations on production", "run all the pending migrations on production",
+            "apply any new migrations to the live database", "migrate prod", "migrate production",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(self.step(task), "production")
+        for task in ("run the migration locally", "write a migration to add a column", "apply the migration"):
+            with self.subTest(task=task):
+                self.assertIsNone(self.step(task))
+
+    def test_high_tier_terms_match_only_whole_words(self):
+        from mythify_classification import high_tier_term
+        for task, term in (
+            ("fix the cache race", "race"), ("remove the lock", "lock"),
+            ("end the session early", "session"), ("check auth", "auth"),
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(high_tier_term(task), term)
+        for task in (
+            "trace the call", "embrace change", "grace under pressure",
+            "block the user", "check the clock", "an obsession with details",
+            "the author page", "authority matters", "many obsessions",
+        ):
+            with self.subTest(task=task):
+                self.assertIsNone(high_tier_term(task))
 
     def test_the_operation_word_must_modify_the_code_noun_to_be_cancelled(self):
         # "script" follows the operation word directly: a modifier.

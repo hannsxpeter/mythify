@@ -434,22 +434,12 @@
           "on the prod server",
           "production migration",
           "production migrations",
-          "go live",
-          "stop the service",
-          "start the service",
-          "stop a service",
-          "start a service",
-          "stop services",
-          "start services"
+          "go live"
         ],
         "environment": {
           "verbs": [
             "push",
             "migrate",
-            "run the migration",
-            "apply the migration",
-            "run migrations",
-            "apply migrations",
             "drop",
             "truncate",
             "scale",
@@ -468,20 +458,21 @@
             "droplet",
             "instance"
           ],
-          "within": 6
-        },
-        "remote": {
-          "tools": [
-            "ssh",
-            "rsync",
-            "scp"
-          ],
-          "links": [
-            "into",
-            "onto",
-            "to"
-          ],
-          "link_within": 4
+          "within": 6,
+          "pairs": [
+            {
+              "first": [
+                "run",
+                "apply",
+                "execute"
+              ],
+              "then": [
+                "migration",
+                "migrations"
+              ],
+              "within": 3
+            }
+          ]
         },
         "near_miss": [
           "docs",
@@ -613,9 +604,36 @@
             "promote",
             "roll back",
             "rollback",
-            "restart"
+            "restart",
+            "ssh",
+            "scp",
+            "rsync"
           ]
-        }
+        },
+        "pairs": [
+          {
+            "first": [
+              "stop",
+              "start",
+              "restart",
+              "reload",
+              "kill"
+            ],
+            "then": [
+              "service",
+              "services",
+              "server",
+              "daemon",
+              "container",
+              "containers",
+              "cluster",
+              "worker",
+              "workers",
+              "pod"
+            ],
+            "within": 3
+          }
+        ]
       },
       {
         "id": "image",
@@ -943,6 +961,7 @@
       "migrations",
       "schema",
       "concurrency",
+      "race",
       "race condition",
       "deadlock",
       "lock",
@@ -951,6 +970,27 @@
       "deployment config",
       "ci config",
       "secrets"
+    ],
+    "and_starters": [
+      "deploy",
+      "ship",
+      "release",
+      "publish",
+      "promote",
+      "rollback",
+      "restart",
+      "spend",
+      "buy",
+      "purchase",
+      "stop",
+      "start",
+      "reload",
+      "kill",
+      "run",
+      "apply",
+      "execute",
+      "migrate",
+      "push"
     ]
   },
   "task_types": [
