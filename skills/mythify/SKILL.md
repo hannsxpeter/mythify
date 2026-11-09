@@ -111,6 +111,8 @@ when to escalate ceremony. When the project has `.godplans/PLAN.mdx` or
   recorded after the step started. A stored `verify_command` must match the
   recorded command. `MYTHIFY_REQUIRE_VERIFIED_STEP=0` waives this only when
   the user asks, and the waiver is stamped on the step.
+- `--reuse`, `verify check`, `verify gate`, findings reviews, test-count
+  drops, and high-risk paths: see `references/self-verification.md`.
 - `verify claim CLAIM EVIDENCE` records a statement when nothing can run. It
   never counts as verified.
 - A check that cannot fail proves nothing. Never use `true`, `exit 0`, or a
@@ -179,8 +181,9 @@ for constraint blocks to paste into delegated prompts.
 
 Mythify refuses these without a non-empty `--human-input`:
 `map resolve` on a `grilling` or `prototype` ticket (or a task ticket added
-with `--mode hitl`), `product approve`, and `product decide`. It records the
-words but cannot verify who supplied them. Never write those words yourself.
+with `--mode hitl`), `product approve`, `product decide`. A high-risk
+step wants it too (`step N completed --human-input`). Mythify cannot verify
+who supplied the words. Never write those words yourself.
 Ask, wait, then record what the person said.
 
 ## Pause rules

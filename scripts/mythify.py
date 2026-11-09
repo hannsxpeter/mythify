@@ -47,8 +47,7 @@ from mythify_io import (  # noqa: E402
     jsonl_append_anchor,
     read_json,
     read_jsonl,
-    read_jsonl_after_marker,
-    read_jsonl_since,
+    read_jsonl_since,  # noqa: F401
     write_json_atomic,
 )
 from mythify_memory import (  # noqa: E402
@@ -110,10 +109,43 @@ from mythify_verification_commands import (  # noqa: E402
     configure_verification_commands,
     extract_test_count,
 )
+from mythify_path_risk import (  # noqa: E402
+    format_step_risk,
+    judge_path_risk,
+    stamp_completion_risk,
+    stamp_step_start,
+)
+from mythify_ratchet import detect_test_count_drop, drop_warning  # noqa: E402
+from mythify_reuse import (  # noqa: E402
+    find_reusable_run,
+    reuse_hit_message,
+    reuse_miss_message,
+    reused_run_fields,
+)
+from mythify_checks import (  # noqa: E402
+    check_reference,
+    configure_checks,
+    verifier_matches,
+    warn_undefined_check,
+    run_check,
+)
+from mythify_step_gate import (  # noqa: E402,F401
+    FALSE_ENV_VALUES,
+    SCOPED_RECORD_KEYS,
+    STRICT_CONTEXT_NOTICE,
+    VERIFIED_EVIDENCE_MESSAGE,
+    configure_step_gate,
+    describe_record_scope,
+    evaluate_step_evidence,
+    strict_step_evidence_enabled,
+    verification_record_counts_for_step,
+    verification_record_has_explicit_step_context,
+    verification_record_matches_step,
+    verification_record_passed,
+)
 from mythify_protocol import cmd_protocol_check  # noqa: E402,F401
 from mythify_provenance import (  # noqa: E402
     current_verification_provenance,
-    evidence_moved_since_run,
     git_inside_worktree,
 )
 from mythify_runtime_helpers import (  # noqa: E402
@@ -166,24 +198,13 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "6.1.0"
+VERSION = "6.2.0"
+configure_step_gate(VERSION)
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
 )
 EVIDENCE_MESSAGE = (
     "[FAIL] Evidence required: pass a RESULT describing what proves this status."
-)
-VERIFIED_EVIDENCE_MESSAGE = (
-    "[FAIL] Verified evidence required: strict evidence mode is enabled by "
-    "default, but no passing executed 'verify run' with exit code 0 was recorded "
-    "since this step started. When the step stores a verify_command, the recorded "
-    "command must match it. Run the step's verifier first, or set "
-    "MYTHIFY_REQUIRE_VERIFIED_STEP=0 to use legacy prose-only completion."
-)
-STRICT_CONTEXT_NOTICE = (
-    "This plan was imported with strict step context: only verifications "
-    "recorded while the step was in_progress count. Mark the step in_progress, "
-    "run its verify command, then complete it."
 )
 VERIFY_RUN_DISABLED_MESSAGE = (
     "[FAIL] verify run is disabled: MYTHIFY_DISABLE_RUN=1 is set. No command was "
@@ -191,7 +212,6 @@ VERIFY_RUN_DISABLED_MESSAGE = (
     "verify claim to record a self-reported attestation."
 )
 STEP_STATUSES = ("pending", "in_progress", "completed", "failed", "skipped")
-FALSE_ENV_VALUES = ("0", "false", "no", "off")
 STATUS_ICONS = {
     "pending": "[ ]",
     "in_progress": "[>]",
@@ -291,12 +311,13 @@ def discover_state_dir():
     return None
 
 
-def resolve_state_dir():
-    """MYTHIFY_DIR (created on demand) beats upward discovery."""
+def resolve_state_dir(create=True):
+    """MYTHIFY_DIR (created on demand unless CREATE is false) beats upward discovery."""
     env_dir = os.environ.get("MYTHIFY_DIR")
     if env_dir:
         state = Path(env_dir).expanduser()
-        ensure_layout(state)
+        if create:
+            ensure_layout(state)
         return state
     return discover_state_dir()
 
@@ -319,7 +340,7 @@ configure_lineage_store(
 # ---------------------------------------------------------------------------
 
 def execute_recorded_verification(
-    state, command, claim, timeout=None, context=None, parents=None
+    state, command, claim, timeout=None, context=None, parents=None, reuse=False, extra=None
 ):
     """Run COMMAND, append an executed verification record, return the record.
 
@@ -329,15 +350,31 @@ def execute_recorded_verification(
     first, then every other plan), falling back to the active plan's first
     in-progress step. An explicit context lets ``plan verify`` scope evidence
     to a specific step of any plan.
+
+    With ``reuse``, an earlier passing run of the same command, commit,
+    worktree digest, version, and environment is recorded as reused instead of
+    being executed again (see mythify_reuse). ``extra`` fields (the ``check``
+    and ``check_template`` of a named check) are stamped on the record.
     """
     lineage = capture_lineage(state, parents) if parents else None
     verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
     artifact_dir = state / "verification-artifacts" / verification_id
-    run = run_shell_capture(
-        command,
-        timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
-        artifact_dir=artifact_dir,
-    )
+    original = current = None
+    if reuse:
+        # One sample serves the lookup and, on a hit, the record itself.
+        current = current_verification_provenance(VERSION, state=state, command=command)
+        original, why = find_reusable_run(
+            read_jsonl(state / "verifications.jsonl"), command, current
+        )
+        print(reuse_hit_message(original) if original else reuse_miss_message(why))
+    if original:
+        run = reused_run_fields(original)
+    else:
+        run = run_shell_capture(
+            command,
+            timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
+            artifact_dir=artifact_dir,
+        )
     record = {
         "id": verification_id,
         "kind": "executed",
@@ -349,8 +386,12 @@ def execute_recorded_verification(
         "stderr_tail": run["stderr_tail"],
         "verified": run["verified"],
         "timestamp": now_iso(),
-        "provenance": current_verification_provenance(VERSION, state=state),
+        "provenance": current if original else current_verification_provenance(
+            VERSION, state=state, command=command
+        ),
     }
+    if original:
+        record.update(run)
     artifacts = run.get("artifacts")
     if isinstance(artifacts, dict):
         normalized = {}
@@ -372,17 +413,25 @@ def execute_recorded_verification(
             artifact_texts.append(Path(item["path"]).read_text(encoding="utf-8"))
         except (KeyError, OSError):
             pass
-    test_count = extract_test_count(
+    test_count = record.get("test_count") if original else extract_test_count(
         run.get("stdout_tail", ""), run.get("stderr_tail", ""), *artifact_texts
     )
     if test_count is not None:
         record["test_count"] = test_count
+        drop = None if original or not record["verified"] else detect_test_count_drop(
+            read_jsonl(state / "verifications.jsonl"), command, test_count
+        )
+        if drop:
+            record["test_count_drop"] = drop
+            fail(drop_warning(command, drop))
     if lineage is not None:
         record["lineage"] = lineage
     # Every executed record carries the step keys, null unless the caller or the
     # active plan sets them, so no record can pass as pre-6.0 legacy evidence.
     record.update(null_step_context())
-    record.update(context if context is not None else verification_step_context(state, command))
+    record.update(extra or {})
+    record.update(context if context is not None else verification_step_context(
+        state, command, (extra or {}).get("check")))
     append_chained_jsonl(state / "verifications.jsonl", record)
     return record
 
@@ -462,10 +511,11 @@ def null_step_context():
     return {"plan": None, "step_id": None, "step_title": None, "step_status": None}
 
 
-def verification_step_context(state, command=None):
+def verification_step_context(state, command=None, check=None):
     """Step keys for a run of COMMAND: the in-progress step whose stored
-    verify_command equals it, searching the active plan first and then every
-    other plan, else the first in-progress step of the active plan."""
+    verify_command equals it (or is @CHECK for a run of named check CHECK),
+    searching the active plan first and then every other plan, else the first
+    in-progress step of the active plan."""
     active = get_active_slug(state)
     wanted = str(command or "").strip()
     slugs = [active] if active else []
@@ -478,65 +528,11 @@ def verification_step_context(state, command=None):
                 continue
             context = {"plan": slug, "step_id": step.get("id"),
                        "step_title": step.get("title"), "step_status": "in_progress"}
-            if wanted and str(step.get("verify_command") or "").strip() == wanted:
+            if wanted and verifier_matches(step.get("verify_command"), wanted, check):
                 return context
             if slug == active and fallback["plan"] is None:
                 fallback = context
     return fallback
-
-
-# Keys that scope a record to a map ticket, product, review, or outcome. A
-# record carrying one is never pre-6.0 legacy evidence, even without step keys.
-SCOPED_RECORD_KEYS = ("map", "ticket_id", "product", "review", "outcome")
-
-
-def verification_record_matches_step(record, slug, step_id):
-    has_legacy_context = (
-        "plan" not in record
-        and "step_id" not in record
-        and not any(key in record for key in SCOPED_RECORD_KEYS)
-    )
-    if has_legacy_context:
-        return True
-    return record.get("plan") == slug and record.get("step_id") == step_id
-
-
-def verification_record_has_explicit_step_context(record, slug, step_id):
-    return (
-        "plan" in record
-        and "step_id" in record
-        and record.get("plan") == slug
-        and record.get("step_id") == step_id
-    )
-
-
-def verification_record_passed(record):
-    return record.get("verified") is True and record.get("exit_code") == 0
-
-
-def describe_record_scope(record):
-    parts = []
-    if record.get("plan") is not None:
-        parts.append("plan {0} step {1}".format(record["plan"], record.get("step_id")))
-    if record.get("map") is not None:
-        parts.append("map {0} ticket {1}".format(record["map"], record.get("ticket_id")))
-    parts.extend(
-        "{0} {1}".format(key, record[key])
-        for key in ("review", "product", "outcome")
-        if record.get(key) is not None
-    )
-    return ", ".join(parts) or "no plan step"
-
-
-def verification_record_counts_for_step(record, slug, step_id, strict_context):
-    if strict_context:
-        return verification_record_has_explicit_step_context(record, slug, step_id)
-    return verification_record_matches_step(record, slug, step_id)
-
-
-def strict_step_evidence_enabled():
-    raw = os.environ.get("MYTHIFY_REQUIRE_VERIFIED_STEP", "")
-    return raw.strip().lower() not in FALSE_ENV_VALUES
 
 
 def format_step_line(step, indent="  "):
@@ -670,7 +666,7 @@ def create_plan_record(
         verify_command = str(item.get("verify_command", "")).strip()
         if verify_command:
             step["verify_command"] = verify_command
-            warn_noop_verifier(step["id"], verify_command)
+            warn_noop_verifier(step["id"], verify_command, state)
         plan_steps.append(step)
     plan = {
         "name": slug,
@@ -696,8 +692,10 @@ def create_plan_record(
     return slug, None
 
 
-def warn_noop_verifier(step_id, verify_command):
+def warn_noop_verifier(step_id, verify_command, state=None):
     """Advisory pairing for the exit-code anchor: name the cheap way to win."""
+    if state is not None:
+        warn_undefined_check(state, step_id, verify_command)
     reason = noop_verifier_reason(verify_command)
     if reason:
         fail(
@@ -731,7 +729,7 @@ def cmd_plan_add_step(args, state):
     verify_command = (getattr(args, "verify", None) or "").strip()
     if verify_command:
         step["verify_command"] = verify_command
-        warn_noop_verifier(new_id, verify_command)
+        warn_noop_verifier(new_id, verify_command, state)
     plan["steps"].append(step)
     plan["last_updated"] = now_iso()
     save_plan(state, slug, plan)
@@ -749,6 +747,7 @@ def mark_step_verification_anchor(state, step):
     """
     step["verification_anchor"] = jsonl_append_anchor(state / "verifications.jsonl")
     step.pop("verification_cursor", None)
+    stamp_step_start(state, step)
 
 
 def cmd_plan_verify(args, state):
@@ -798,7 +797,16 @@ def cmd_plan_verify(args, state):
         "step_status": "in_progress",
     }
     claim = "step {0}: {1}".format(step_id, step.get("title", ""))
-    record = execute_recorded_verification(state, command, claim, args.timeout, context)
+    if check_reference(command):
+        record, code = run_check(
+            state, check_reference(command), claim, args.timeout, context, getattr(args, "reuse", False)
+        )
+        if record is None:
+            return code
+    else:
+        record = execute_recorded_verification(
+            state, command, claim, args.timeout, context, reuse=getattr(args, "reuse", False)
+        )
     if record["verified"]:
         print(
             "[OK] VERIFIED step {0}: {1} (exit 0, {2:.2f}s)".format(
@@ -905,6 +913,8 @@ def cmd_plan_show(args, state):
                 print("        verify: {0}".format(step["verify_command"]))
             if step.get("result"):
                 print("        result: {0}".format(step["result"]))
+            for line in format_step_risk(step):
+                print(line)
     else:
         print("Steps: none. Add with: plan add-step TITLE [--criteria TEXT]")
     return 0
@@ -982,97 +992,25 @@ def cmd_step(args, state):
     ):
         fail(EVIDENCE_MESSAGE)
         return 1
+    accept_drop = getattr(args, "accept_test_drop", None)
+    if accept_drop is not None and not accept_drop.strip():
+        fail("[FAIL] --accept-test-drop needs a reason: say why running fewer tests is right.")
+        return 1
+    human_input = getattr(args, "human_input", None)
+    if human_input is not None and not human_input.strip():
+        fail("[FAIL] --human-input needs the person's own words approving the change.")
+        return 1
+    risk = None
     if args.status == "completed" and strict_step_evidence_enabled():
-        strict_context = bool(plan.get("strict_context"))
-        expected_command = str(step.get("verify_command") or "").strip()
-        lower_bound = step.get("updated_at") or plan.get("created", "")
-        records = read_jsonl_after_marker(
-            state / "verifications.jsonl",
-            # A step completed straight from pending has no anchor of its own;
-            # the plan's anchor keeps an older plan's records out.
-            anchor=step.get("verification_anchor") or plan.get("verification_anchor"),
-            legacy_cursor=step.get("verification_cursor"),
-            lower_bound=lower_bound,
-        )
-        if records is None:
-            records = read_jsonl_since(state / "verifications.jsonl", lower_bound)
-        # The latest run of each command since the step started decides it,
-        # whatever plan, step, ticket, review, or outcome the run is stamped
-        # to, so a pass followed by a failing run never completes on red. Only
-        # a passing run scoped to this step can satisfy the gate.
-        latest, scoped = {}, set()
-        for record in records:
-            command = str(record.get("command") or "").strip()
-            if record.get("kind") != "executed" or (
-                expected_command and command != expected_command
-            ) or not timestamp_at_or_after(record.get("timestamp", ""), lower_bound, True):
-                continue
-            latest.pop(command, None)
-            latest[command] = record
-            if (
-                verification_record_passed(record)
-                and verification_record_counts_for_step(record, slug, step_id, strict_context)
-                and timestamp_at_or_after(
-                    record.get("timestamp", ""),
-                    lower_bound,
-                    verification_record_has_explicit_step_context(record, slug, step_id),
-                )
-            ):
-                scoped.add(command)
-        satisfying = [
-            record
-            for command, record in latest.items()
-            if command in scoped and verification_record_passed(record)
-        ]
-        if not satisfying:
-            fail(VERIFIED_EVIDENCE_MESSAGE)
-            failing = [
-                record for command, record in latest.items()
-                if (command in scoped or expected_command)
-                and not verification_record_passed(record)
-            ]
-            elsewhere = [r for r in latest.values() if verification_record_passed(r)]
-            if failing:
-                fail(
-                    "The latest run of '{0}' since this step started exited {1} "
-                    "(recorded for {2}); a failing run cancels an earlier pass of "
-                    "the same command wherever it was recorded. Fix the cause, then "
-                    "re-run it.".format(
-                        failing[-1].get("command"), failing[-1].get("exit_code"),
-                        describe_record_scope(failing[-1]),
-                    )
-                )
-            elif elsewhere:
-                fail(
-                    "The passing run of '{0}' since this step started was recorded "
-                    "for {1}, not plan {2} step {3}: a run counts for the "
-                    "in-progress step whose verify_command matches it, else the "
-                    "first in-progress step of the active plan.{4}".format(
-                        elsewhere[-1].get("command"), describe_record_scope(elsewhere[-1]),
-                        slug, step_id,
-                        " Record one for this step with: plan verify {0} --plan {1}".format(
-                            step_id, slug) if expected_command else "",
-                    )
-                )
-            if strict_context:
-                fail(STRICT_CONTEXT_NOTICE)
+        verdict = evaluate_step_evidence(state, slug, plan, step, accept_drop, human_input)
+        for _level, text in verdict["messages"]:
+            fail(text)
+        if not verdict["ok"]:
             return 1
-        moved = evidence_moved_since_run(
-            satisfying[-1], current_verification_provenance(VERSION, state=state)
-        )
-        if moved and strict_context:
-            fail(
-                "[FAIL] Stale evidence under strict context: {0}. The passing "
-                "run predates the current source state; re-run the step's "
-                "verifier, then complete.".format(moved)
-            )
-            return 1
-        if moved:
-            fail(
-                "[WARN] The world moved since the passing run ({0}); the "
-                "evidence may not describe the current source state. Re-run "
-                "the verifier if in doubt.".format(moved)
-            )
+        step.pop("test_drop_accepted", None)
+        if verdict["test_drop_accepted"]:
+            step["test_drop_accepted"] = verdict["test_drop_accepted"]
+        risk = verdict["risk"]
     elif args.status == "completed":
         # The legacy opt-out stays available, but never silently: the waiver is
         # stamped on the step so watchers can surface prose-only completions.
@@ -1082,6 +1020,13 @@ def cmd_step(args, state):
             "so this completion carries prose-only evidence. The waiver is "
             "stamped on the step as strict_gate_waived."
         )
+        risk = judge_path_risk(state, plan, step, human_input)
+        for _level, text in risk["messages"]:
+            fail(text)
+        if not risk["ok"]:
+            return 1
+    if args.status == "completed":
+        stamp_completion_risk(step, risk, human_input)
     if args.status == "in_progress":
         mark_step_verification_anchor(state, step)
     step["status"] = args.status
@@ -1321,8 +1266,8 @@ configure_outcome_loops(
     slugify_func=slugify,
     run_shell_capture_func=run_shell_capture,
     verification_step_context_func=verification_step_context,
-    verification_provenance_func=lambda state: current_verification_provenance(
-        VERSION, state=state
+    verification_provenance_func=lambda state, command=None: current_verification_provenance(
+        VERSION, state=state, command=command
     ),
     fail_func=fail,
 )
@@ -1337,6 +1282,12 @@ configure_verification_commands(
     append_jsonl_func=append_jsonl,
     reflect_outcomes=REFLECT_OUTCOMES,
     write_lesson_func=write_lesson,
+)
+
+configure_checks(
+    execute_func=execute_recorded_verification,
+    fail_func=fail,
+    disabled_message=VERIFY_RUN_DISABLED_MESSAGE,
 )
 
 
@@ -1556,7 +1507,8 @@ def main(argv=None):
             return args.handler(args, resolve_state_dir())
         if not args.needs_state:
             return args.handler(args, None)
-        state = resolve_state_dir()
+        read_only = args.needs_state == "readonly" or getattr(args, "metrics", False)
+        state = resolve_state_dir(create=not read_only)
         if state is None:
             fail(NO_WORKSPACE_MESSAGE)
             return 1

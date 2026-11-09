@@ -66,6 +66,13 @@ See the [campaign guide](docs/campaigns.md) for setup, resumption, and upgrade c
   sentence and Mythify says no. That refusal is the product.
 - **A record anyone can read.** Every check, exit code, and reversal is written
   to plain files in `.mythify/`.
+- **Verification that is fast without trusting anyone's word.** Reuse an
+  identical passing run, name your project's checks, notice when a check ran
+  fewer tests than before, and let a host hook block work that has no current
+  evidence.
+- **Reviews that end.** Findings reviews stop after three rounds unless the
+  agent says why the approach still stands, and a change to auth, payments,
+  migrations, or deploy files needs a review and the person's own words.
 - **Product plans with teeth.** Problem, user, measurable outcomes, non-goals,
   bets with kill criteria, and the four product risks, approved by a human
   before any of it becomes an execution plan.
@@ -118,6 +125,10 @@ mythify report      # a plain-language play-by-play of recent progress
 mythify summary     # the whole session: plans, products, evidence, lessons
 ```
 
+`mythify report --metrics` adds read-only flow numbers (runs, failures, reused
+runs, seconds saved, time to first failure and first pass, findings rounds)
+without moving the report cursor; `--json` and `--plan NAME` are available.
+
 Prefer not to install anything? From your project directory, run
 `python3 /path/to/mythify/scripts/mythify.py ...` wherever this page says
 `mythify ...`.
@@ -164,6 +175,16 @@ runs that command and files the result against the step, which is what lets
 - `verify run "COMMAND"` runs a command and records the exit code as evidence,
   with the output, the git commit and a fingerprint of uncommitted changes, and
   a hash chain that makes later edits to the ledger visible in `status`.
+  `--reuse` records an earlier passing run of the same command, commit,
+  worktree, and environment instead of running it again. A run that executes
+  fewer tests than the last passing run is flagged, and a strict plan refuses
+  to complete on it without `--accept-test-drop REASON`.
+- `verify check NAME` runs a named command from `.mythify/checks.json`
+  (define it with `--set`), optionally on only the changed files with a
+  `{files}` placeholder, and a step can use `@NAME` as its verifier.
+  `verify gate` is a read-only check for a host's stop or pre-commit hook: it
+  exits 2 while an in-progress step lacks current passing evidence. See
+  [docs/checks-and-gate.md](docs/checks-and-gate.md).
 - `verify claim "CLAIM" "EVIDENCE"` records a statement when nothing can run.
   It is marked second-class forever and never counts as proof.
 
@@ -242,6 +263,16 @@ cheapest command that would catch the real failure. `review prove` runs that
 command and links the evidence only while the reviewed tree is unchanged. See
 [docs/blast-radius.md](docs/blast-radius.md).
 
+A findings review records an independent reviewer's rounds: `review round`
+opens one stamped with the source it saw, `review finding` and `review resolve`
+track what was raised and settled (a dismissed finding cannot be raised
+again), and a fourth round needs `--rethink TEXT`. A step that touches
+high-risk paths (auth, secrets, migrations, schema, deploy and CI config,
+payments) needs a review that covers the current source and the person's own
+words (`--human-input`) before it completes. That check, like the test-count
+drop, warns by default and refuses on a campaign plan; `MYTHIFY_RISK_GATE=0`
+waives it with a stamp. See [docs/reviews.md](docs/reviews.md).
+
 ### Memory and lessons
 
 `memory set` and `memory get` hold facts, decisions, and discoveries.
@@ -254,6 +285,9 @@ informed instead of blank.
 recommends one move: just do it, plan, map, product, outcome loop, review,
 recover from a failure, or resume. It advises only. `mythify loop-fit` answers a
 narrower question: should this run hands-off, supervised, or by hand?
+`route --json` also rates the paths you have already changed
+(`classification.diff_risk`) and asks for an independent review when they are
+riskier than your wording.
 
 ## Works with any model
 
@@ -313,11 +347,11 @@ exits 1 when a copy no longer matches your installed CLI.
 | `route "TASK"`, `loop-fit "TASK"` | Recommend the next move. Read-only. |
 | `plan create\|add-step\|verify\|show\|list\|switch\|archive\|import` | Execution plans with checks per step. |
 | `step ID STATUS [RESULT]` | Update a step. `completed` needs a passing check. |
-| `verify run "CMD"`, `verify claim`, `reflect` | Record executed or attested evidence and reflections. |
+| `verify run "CMD"`, `verify check`, `verify gate`, `verify claim`, `reflect` | Record executed or attested evidence, run named checks, gate on unverified work, and record reflections. |
 | `product create\|outcome\|non-goal\|bet\|risk\|check\|approve\|decide\|promote\|measure\|show\|list` | Product planning with human gates. |
 | `map create\|ticket\|claim\|verify\|resolve\|fog\|scope-out\|show\|list\|promote` | Decision maps. |
 | `outcome start\|check\|run\|status\|results\|stop` | Verifier-backed loops with budgets. |
-| `review blast-radius\|prove\|show`, `lineage attach\|status` | Safety cases and artifact lineage. |
+| `review blast-radius\|prove\|show\|round\|finding\|resolve`, `lineage attach\|status` | Safety cases, findings reviews, and artifact lineage. |
 | `memory set\|get\|clear`, `lesson add\|list`, `logs compact` | Durable memory and housekeeping. |
 | `prompt KIND`, `protocol check`, `mcp` | Prompt packets, drop-in checks, the MCP server. |
 
@@ -364,6 +398,8 @@ decisions behind it.
 - [docs/commands.md](docs/commands.md): every command and flag.
 - [docs/mcp.md](docs/mcp.md): MCP setup for any host.
 - [docs/blast-radius.md](docs/blast-radius.md): safety cases for changes whose risk sits outside the diff.
+- [docs/reviews.md](docs/reviews.md): findings reviews and the high-risk path check.
+- [docs/checks-and-gate.md](docs/checks-and-gate.md): named checks and the verify gate for host hooks.
 - [docs/prose-quality.md](docs/prose-quality.md): the prose rewrite pass and the mechanical prose check.
 - [docs/evidence/efficacy-reproduction.md](docs/evidence/efficacy-reproduction.md): the July 2026 smoke run and what it does not show.
 - [docs/architecture.md](docs/architecture.md): state model, runtime, decisions.

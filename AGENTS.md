@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 27489e51279d548482fbbfb41730ead60a79268f9cfc67d7fb8ec2de09776ee0 -->
+<!-- Mythify protocol-sha256: a8450b0075afe6f3e00b7e3074fce0ff7e2e77f46888e26683a967b74bae213d -->
 
 # The Mythify Protocol
 
@@ -86,6 +86,31 @@ task's exact verify command.
   ticket stores `true`, `exit 0`, or a bare `echo` as its verifier, and
   `status` flags passing runs that checked nothing or ran zero tests. Never
   use such a check to satisfy a step.
+- Reuse is opt-in. `verify run COMMAND --reuse` (also `plan verify --reuse`)
+  stands in an earlier passing run, without executing again, only when the
+  command, git commit, worktree digest, and environment all match. It does not
+  see ignored files, services, or the network.
+- Name project checks once: `verify check NAME --set COMMAND`, then
+  `verify check NAME` runs it. A step's `verify_command` may be `@NAME`.
+- A passing run with fewer tests than before is flagged. Under strict context
+  (plans started by `campaign start`) `step ID completed` refuses it unless you
+  pass `--accept-test-drop REASON`; otherwise it warns.
+- Hooks: `verify gate` runs nothing and exits non-zero while an in-progress
+  step lacks current passing evidence. Hosts can wire it into stop or
+  pre-commit hooks.
+
+## Reviews and risk
+
+- Findings reviews are bounded. `review round NAME` records each round at the
+  current source (`--clean` when nothing was found), `review finding` records
+  a finding, and `review resolve` marks it fixed or dismissed with a reason.
+  Never raise a dismissed finding again. After three rounds, rethink the
+  approach; round four needs `--rethink TEXT`.
+- Risk comes from the changed paths. A step that changed high-risk paths
+  (auth, secrets, migrations, schema, deploy and CI config, payments) needs a
+  review that covers the current source and the person's own words via
+  `--human-input`. It warns by default and refuses under strict context;
+  `MYTHIFY_RISK_GATE=0` waives it, and the waiver is stamped on the step.
 
 ## Delegation is your choice
 
@@ -105,6 +130,8 @@ the person's words:
 - `map resolve` on a `grilling` or `prototype` ticket, or on a task ticket
   added with `--mode hitl`, needs `--human-input`.
 - `product approve` and `product decide` need `--human-input`.
+- `step ID completed` on a high-risk change takes `--human-input`: the
+  person's approval of the change. Under strict context it is required.
 
 Never write those words yourself. Ask, wait, then record what the person said.
 
@@ -132,15 +159,15 @@ result as executed evidence.
 
 ## Commands
 
-Orient: `status`, `report`, `history`, `summary`, `route TASK`, `loop-fit TASK`,
+Orient: `status`, `report [--metrics]`, `history`, `summary`, `route TASK`, `loop-fit TASK`,
 `prompt next|handoff|failure|review|map|product`.
 Plan: `plan create|add-step|verify|show|list|switch|archive|import`, `step ID STATUS [RESULT]`.
 Campaign: `campaign start|status|prompt|watch|advance|learn`, `prompt campaign`.
-Evidence: `verify run COMMAND [--claim TEXT]`, `verify claim CLAIM EVIDENCE`, `reflect`.
+Evidence: `verify run COMMAND [--claim TEXT] [--reuse]`, `verify check [NAME]`, `verify gate`, `verify claim CLAIM EVIDENCE`, `reflect`.
 Decide: `map create|ticket|claim|verify|resolve|fog|scope-out|show|list|promote`.
 Product: `product create|outcome|non-goal|bet|risk|check|approve|decide|promote|measure|show|list`.
 Loop: `outcome start|check|run|status|results|stop`.
-Review: `review blast-radius|prove|show`, `lineage attach|status`.
+Review: `review blast-radius|prove|show|round|finding|resolve`, `lineage attach|status`.
 State: `init`, `memory set|get|clear`, `lesson add|list`, `logs compact`, `protocol check`.
 Every command takes `--help` for its full options.
 

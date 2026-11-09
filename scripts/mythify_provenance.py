@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from mythify_reuse import environment_digest
+
 
 # fsmonitor and the untracked cache let git answer from cached state instead of
 # reading the worktree, so every inspection that feeds evidence turns them off.
@@ -238,15 +240,69 @@ def git_worktree_digest(root, exclude=()):
     return digest.hexdigest()
 
 
-def current_verification_provenance(version, state=None, root=None):
+def changed_paths(state, base_commit=None, root=None, whole_tree=False):
+    """Paths changed in the working tree since BASE_COMMIT, or None when unknown.
+
+    Covers committed and uncommitted work (a working-tree diff against the
+    commit, HEAD when none is given or the commit is gone) plus untracked
+    files, leaves out the state directory, and returns paths relative to the
+    project root. None means git cannot answer (no repository). With no
+    commit to compare against (an unborn repository) or WHOLE_TREE, every
+    tracked and untracked file counts as changed: all of it is new work.
+    """
+    project_root = Path(root) if root is not None else project_root_for_state(state)
+    if not git_inside_worktree(project_root):
+        return None
+    environment = git_environment()
+    exclude = state_exclude_pathspec(state, project_root)
+    if whole_tree or git_commit(project_root) is None:
+        listed = _git_bytes(
+            project_root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", *(exclude or ["--"])],
+            environment,
+        )
+        if listed is None:
+            return None
+        return sorted(dict.fromkeys(os.fsdecode(item) for item in listed.split(b"\0") if item))
+    command = ["diff", "--name-only", "--no-renames", "--relative", "-z"]
+    diff = _git_bytes(project_root, command + [base_commit or "HEAD", *(exclude or ["--"])], environment)
+    if diff is None and base_commit:
+        diff = _git_bytes(project_root, command + ["HEAD", *(exclude or ["--"])], environment)
+    untracked = _git_bytes(
+        project_root, ["ls-files", "--others", "--exclude-standard", "-z", *(exclude or ["--"])], environment
+    )
+    if diff is None or untracked is None:
+        return None
+    names = [os.fsdecode(item) for item in (diff + b"\0" + untracked).split(b"\0") if item]
+    return sorted(dict.fromkeys(names))
+
+
+def commits_since(root, commit):
+    """How many commits HEAD is ahead of COMMIT, or None when git cannot say."""
+    raw = _git_bytes(root, ["rev-list", "--count", str(commit) + "..HEAD"], git_environment())
+    try:
+        return int(raw.strip()) if raw is not None else None
+    except ValueError:
+        return None
+
+
+def current_verification_provenance(version, state=None, root=None, command=None):
+    """Provenance of the current source state.
+
+    With COMMAND (the shell command an executed record stands for) the result
+    also carries environment_digest, so every writer of executed records stamps
+    the same fields.
+    """
     project_root = Path(root) if root is not None else project_root_for_state(state)
     exclude = state_exclude_pathspec(state, project_root)
-    return {
+    provenance = {
         "git_commit": git_commit(project_root),
         "worktree_clean": git_worktree_clean(project_root, exclude),
         "worktree_digest": git_worktree_digest(project_root, exclude),
         "mythify_version": str(version),
     }
+    if command is not None:
+        provenance["environment_digest"] = environment_digest(command)
+    return provenance
 
 
 def evidence_moved_since_run(record, current):

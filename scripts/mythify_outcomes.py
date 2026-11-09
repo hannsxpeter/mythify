@@ -1067,7 +1067,7 @@ def perform_outcome_iteration(
         "timestamp": record["timestamp"],
         "outcome": slug,
         "iteration": next_iteration,
-        "provenance": verification_provenance(state),
+        "provenance": verification_provenance(state, goal["verify_command"]),
     }
     verification_record.update(verification_step_context(state, goal["verify_command"]))
     append_chained_jsonl(state / "verifications.jsonl", verification_record)
@@ -1128,7 +1128,7 @@ def run_outcome_audit(state, slug, goal, timeout, notes, json_output):
         "timestamp": stamp,
         "outcome": slug,
         "audit": True,
-        "provenance": verification_provenance(state),
+        "provenance": verification_provenance(state, goal["verify_command"]),
     }
     verification_record.update(verification_step_context(state, goal["verify_command"]))
     append_chained_jsonl(state / "verifications.jsonl", verification_record)

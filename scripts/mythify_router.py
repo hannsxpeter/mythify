@@ -11,6 +11,9 @@ import sys
 from pathlib import Path
 
 from mythify_classification import classify_task_text
+from mythify_findings import findings_prompt_context, findings_prompt_lines
+from mythify_path_risk import apply_diff_risk, diff_risk
+from mythify_checks import add_checks_line
 from mythify_campaigns import build_campaign_prompt, campaign_metadata, load_campaign
 from mythify_godfiles import godaudits_summary, godplans_summary
 from mythify_loopfit import assess_loop_fit, loopfit_project_context, project_has_runnable_check
@@ -337,11 +340,12 @@ def build_prompt_packet(kind, state, name=None, goal="", verify_command=""):
             selected,
             payload.get("next_prompt", ""),
         )
-        return payload
+        return add_checks_line(payload, state)
     if kind == "failure":
         return add_prose_quality_instruction(build_failure_prompt_packet(state, verify_command=verify_command))
     if kind == "handoff":
-        return add_prose_quality_instruction(build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command))
+        return add_checks_line(add_prose_quality_instruction(
+            build_handoff_prompt_packet(state, goal=goal, verify_command=verify_command)), state)
     if kind == "review":
         return add_prose_quality_instruction(build_review_prompt_packet(state, goal=goal, verify_command=verify_command))
     if kind == "map":
@@ -618,6 +622,8 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
     ]
     lines.extend(git_lines)
     lines.extend(prompt_plan_lines(plan_context))
+    findings_context = findings_prompt_context(state)
+    lines.extend(findings_prompt_lines(findings_context))
     if god_audit_present:
         lines.append(
             "Godaudits audit: {0} ({1})".format(
@@ -667,6 +673,7 @@ def build_review_prompt_packet(state, goal="", verify_command=""):
             "recent_evidence": recent,
             "verify_command": verify_command,
             "godaudits_audit": god_audit if god_audit_present else None,
+            "findings_review": findings_context,
         },
         "next_prompt": "\n".join(lines),
         "guardrail": PROMPT_PACKET_GUARDRAIL,
@@ -1201,6 +1208,11 @@ def format_workflow_route(payload):
             "yes" if review.get("independent") else "no",
         )
     )
+    if classification.get("diff_risk"):
+        lines.append("Diff risk: {0} ({1})".format(
+            classification["diff_risk"]["risk"],
+            ", ".join(m["path"] for m in classification["diff_risk"]["matches"][:5]) or "no risky paths",
+        ))
     loop_fit = payload.get("loop_fit") or {}
     if loop_fit:
         lines.append(
@@ -1234,7 +1246,9 @@ def format_workflow_route(payload):
 
 
 def cmd_route(args, state):
-    classification = classify_task_text(args.task, route_terms=ROUTE_SELECTING_TERMS)
+    classification = apply_diff_risk(
+        classify_task_text(args.task, route_terms=ROUTE_SELECTING_TERMS), diff_risk(state)
+    )
     payload = build_workflow_route(args.task, state, classification)
     if args.json_output:
         print(json.dumps(payload, indent=2))

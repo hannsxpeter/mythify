@@ -11,6 +11,10 @@ import sys
 import time
 from types import SimpleNamespace
 
+from mythify_checks import add_checks_line
+from mythify_path_risk import HUMAN_INPUT_HELP
+from mythify_ratchet import ACCEPT_TEST_DROP_HELP
+
 _store = {}
 
 
@@ -95,11 +99,11 @@ def build_campaign_prompt(state, name=None):
         "the work, runs checks, and reports results. No worker or background executor is started."
     )
     lines.append("Guardrail: " + guardrail)
-    return {
+    return add_checks_line({
         "kind": "campaign", "selected_kind": "campaign", "title": "Campaign prompt packet",
         "source": {"type": "plan", "id": slug}, "context": view,
         "next_prompt": "\n".join(lines), "guardrail": guardrail,
-    }
+    }, state)
 
 
 def start_campaign(args, state):
@@ -208,7 +212,8 @@ def cmd_campaign(args, state):
         if len(current) != 1:
             raise ValueError("Start exactly one step with step ID in_progress --plan " + shlex.quote(slug))
         return _store["cmd_step"](SimpleNamespace(
-            id=str(current[0]["id"]), status="completed", result=args.result, plan=slug), state)
+            id=str(current[0]["id"]), status="completed", result=args.result, plan=slug,
+            accept_test_drop=args.accept_test_drop, human_input=args.human_input), state)
     except ValueError as exc:
         print("[FAIL] " + str(exc), file=sys.stderr)
         return 1
@@ -244,6 +249,8 @@ def add_campaign_parser(sub):
             p.add_argument("--json", dest="json_output", action="store_true", help="Print JSON.")
         if action == "advance":
             p.add_argument("--result", required=True, help="Executed evidence supporting completion.")
+            p.add_argument("--accept-test-drop", metavar="REASON", help=ACCEPT_TEST_DROP_HELP)
+            p.add_argument("--human-input", metavar="TEXT", help=HUMAN_INPUT_HELP)
         if action == "watch":
             p.add_argument("--interval", type=float, default=5, help="Polling interval in seconds.")
             p.add_argument("--max-iterations", type=int, default=1, help="Poll count; 0 watches until interrupted.")

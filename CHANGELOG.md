@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.0] - 2026-11-09
+
+Mythify 6.2.0 makes verification faster and more selective without trusting
+self-report. It can reuse an identical passing run, flag a check that ran
+fewer tests, name project checks, gate host hooks on evidence, bound review
+loops, judge risk from the changed paths, and measure the flow. It adds
+commands, flags, and record fields only; the new completion checks warn by
+default and refuse only under strict context (plans started by
+`campaign start`).
+
+### Added
+
+- `report --metrics [--json] [--plan NAME]` prints read-only flow metrics:
+  per step, verify runs, failures, reused runs and seconds saved, executed
+  seconds, and time from `started_at` to the first failing and first passing
+  run (`n/a` without `started_at`); totals add test-count drops and findings
+  review rounds with open, fixed, and dismissed findings. It never moves the
+  report cursor and writes nothing.
+- CI cancels superseded pull request runs through a workflow `concurrency`
+  group; pushes to `main` are never cancelled.
+- `verify run --reuse` and `plan verify --reuse` record an earlier passing run
+  as reused, without executing the command again, when the command, git
+  commit, worktree digest, Mythify version, and environment digest all match.
+  The new record carries `reused_from` and `reused_duration_seconds`, counts
+  for the step gate like a fresh run, and shows as reused in `history`,
+  `status`, and `report`. Zero-test and no-op passes and failed runs are never
+  reused. Every executed record gains `provenance.environment_digest`;
+  `MYTHIFY_REUSE_ENV` names extra environment variables to include. Reuse is
+  opt-in because the digest does not cover files ignored by `.gitignore`,
+  services, or the network.
+- A test-count ratchet. A passing run that executed fewer tests than the
+  previous passing run of the same command records `test_count_drop` and
+  warns. `step ID completed` compares the satisfying run with the step's
+  baseline run and warns on a lower count; on a `strict_context` plan it
+  refuses unless `--accept-test-drop REASON` is given, which is stamped on the
+  step as `test_drop_accepted`. `campaign advance` takes the same flag, and
+  `status` lists each command whose latest passing run dropped until a later
+  run no longer does.
+- Findings reviews with bounded rounds: `review round NAME` opens a round
+  stamped with the commit and worktree digest it saw (or records a clean pass
+  with `--clean`), `review finding` records a finding on the latest round, and
+  `review resolve` marks it fixed or dismissed (a dismissal needs a reason).
+  A new round is refused while an earlier finding is open, and round 4 needs
+  `--rethink TEXT` explaining why the approach still stands after three
+  rounds. A finding that repeats a dismissed one is refused; one that repeats
+  a fixed one is recorded with `repeat_of` and a warning. `review show`
+  reports whether the latest clean round still covers the current source,
+  `status` lists open findings, a round-3 review without a clean pass, and a
+  stale clean round (newest review only), and `prompt review` carries the
+  re-review scope and the dismissed findings. `review prove` still accepts only blast-radius reviews.
+- Risk from the changed paths. `protocol/classification-rules.json` (schema 5)
+  gains `path_risk` globs, and `classify_paths` rates a list of paths high,
+  medium, or low. A step stamps `started_commit` and `started_at` when it goes
+  in progress. Completing a step whose changed paths are high risk needs a
+  review that covers the current source and `--human-input TEXT`, the person's
+  own words approving the change: it warns by default and refuses on a
+  `strict_context` plan. The step records `risk`, `human_input`, and, when
+  `MYTHIFY_RISK_GATE=0` waived the check, `risk_gate_waived`. `step` and
+  `campaign advance` take `--human-input`, `plan show` prints a step's risk,
+  and `route --json` adds `classification.diff_risk`, which makes the review
+  advisory independent when the changed paths are riskier than the task
+  wording.
+- Named checks. `verify check NAME --set COMMAND` stores a command in
+  `.mythify/checks.json` (names are `[a-z0-9-]+`; a command that cannot fail is
+  refused), `verify check` lists them, and `verify check NAME` runs one and
+  records an executed verification stamped with `check` and `check_template`.
+  `{files}` expands to the changed files, or to `--files`, passed to the
+  command as positional parameters (`"$@"`) so a file name is never parsed as
+  shell text; with none, nothing runs and nothing is recorded. `--reuse`, `--timeout`,
+  `--claim`, and `--json` are supported, and `MYTHIFY_DISABLE_RUN=1` refuses
+  with exit 2. A step's `verify_command` may be `@NAME`: `plan verify` runs the
+  check, a run of that check made while the step is in progress counts for it,
+  and the step gate accepts any passing run of the check whatever its expanded
+  text. `plan create` and `plan add-step` warn when `@NAME` is not defined yet.
+  Prompt packets (`prompt next`, `prompt handoff`, `campaign prompt`) and
+  `status` list the defined checks.
+- `verify gate [--plan NAME] [--json]`, a read-only check for host stop or
+  pre-commit hooks. It judges each in-progress step with the same rules as
+  `step ID completed` (including stale evidence, and a test-count drop or a
+  high-risk change under strict context), runs nothing, and writes nothing.
+  Exit 0 means nothing is in flight without evidence; exit 2 means unverified
+  work is in flight, with the step and the next command on stderr; exit 1
+  means the active or named plan is missing or unreadable. See
+  [docs/checks-and-gate.md](docs/checks-and-gate.md).
+
+### Changed
+
+- The step evidence gate moved out of `scripts/mythify.py` into
+  `scripts/mythify_step_gate.py`, with no change in behavior.
+
+### Protocol
+
+An agent following the 6.1 text now also: passes `--reuse` only when an
+identical passing run proves the claim; notices a test-count drop and gives
+`--accept-test-drop REASON` under strict context; runs named checks with
+`verify check NAME`; lets `verify gate` block unverified work in a host hook;
+records review rounds, fixes or dismisses each finding with a reason, never
+raises a dismissed finding again, and rethinks the approach after three
+rounds (`--rethink`); and asks the person for `--human-input` before
+completing a step that changed high-risk paths, never writing those words
+itself. `MYTHIFY_RISK_GATE=0` waives the risk check with a stamp.
+
 ## [6.1.0] - 2026-10-28
 
 ### Added
@@ -2025,7 +2127,8 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...HEAD
+[6.2.0]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...v6.2.0
 [6.1.0]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...v6.1.0
 [6.0.0]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...v6.0.0
 [5.8.0]: https://github.com/hannsxpeter/mythify/compare/v5.7.0...v5.8.0

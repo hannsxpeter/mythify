@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "description": "Deterministic task classification policy for the Mythify CLI.",
   "thresholds": {
     "trivial_word_count": 12,
@@ -286,6 +286,41 @@
   "review": {
     "independent_reason": "High-risk or heavy work deserves an independent review of the integrated result before completion; review output is material, not verification.",
     "self_check_reason": "A self-check against the executable verifier is enough; an independent review is optional."
+  },
+  "path_risk": {
+    "description": "fnmatch globs matched case-insensitively against repo-relative POSIX paths and their basenames; a path takes the highest tier it matches.",
+    "high": [
+      "*auth*",
+      "*login*",
+      "*session*",
+      "*permission*",
+      "*secret*",
+      "*credential*",
+      "*password*",
+      "*token*",
+      "*payment*",
+      "*billing*",
+      "*migration*",
+      "*migrations/*",
+      "*.sql",
+      "*schema*",
+      ".github/workflows/*",
+      "*deploy*",
+      "Dockerfile",
+      "*docker-compose*",
+      "*.tf",
+      "*k8s*",
+      "*helm*"
+    ],
+    "medium": [
+      "*config*",
+      "*settings*",
+      "*.env*",
+      "*requirements*",
+      "*lock*",
+      "package.json",
+      "pyproject.toml"
+    ]
   },
   "quality_climb": {
     "terms": [

@@ -16,11 +16,15 @@ user account", "delete production data", and "remove the imports from the s3
 bucket" stay high.
 """
 
+import fnmatch
 import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLASSIFICATION_RULES_PATH = REPO_ROOT / "protocol" / "classification-rules.json"
+
+
+PATH_RISK_TIERS = ("high", "medium")
 
 
 def load_classification_rules():
@@ -50,6 +54,14 @@ def load_classification_rules():
     for section in required_sections:
         if not isinstance(manifest.get(section), dict):
             raise ValueError("Invalid classification policy section")
+    path_risk = manifest.get("path_risk")
+    if not isinstance(path_risk, dict) or any(
+        not isinstance(path_risk.get(tier), list)
+        or not path_risk[tier]
+        or any(not isinstance(glob, str) or not glob for glob in path_risk[tier])
+        for tier in PATH_RISK_TIERS
+    ):
+        raise ValueError("Invalid classification path_risk section")
     if "feature" not in manifest["verification_hints"]:
         raise ValueError("Classification verification hints are missing feature fallback")
     return manifest
@@ -99,6 +111,11 @@ EXECUTION_PROFILE_POLICY = CLASSIFICATION_MANIFEST["execution_profile"]
 NEXT_ACTIONS = CLASSIFICATION_MANIFEST["next_actions"]
 VERIFICATION_HINTS = CLASSIFICATION_MANIFEST["verification_hints"]
 PARALLELISM_CHOOSER = "host"
+PATH_RISK_GLOBS = tuple(
+    (tier, tuple((str(glob), str(glob).lower()) for glob in CLASSIFICATION_MANIFEST["path_risk"][tier]))
+    for tier in PATH_RISK_TIERS
+)
+RISK_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
 def wordish(text):
@@ -365,3 +382,30 @@ def classify_task_text(task_text, route_terms=()):
         "signals": sorted(set(signals))[:10],
         "next_action": next_action,
     }
+
+
+def classify_paths(paths):
+    """Risk named by the changed paths alone: high, medium, or low.
+
+    Each path is matched case-insensitively, as a repo-relative POSIX path and
+    as its basename, against the path_risk globs. A path takes the highest tier
+    it matches; the overall risk is the highest of any path. Only medium and
+    high paths appear in "matches", each with the glob that matched.
+    """
+    matches = []
+    for raw in paths:
+        path = str(raw).replace("\\", "/").strip()
+        while path.startswith("./"):
+            path = path[2:]
+        if not path:
+            continue
+        candidates = (path.lower(), path.rsplit("/", 1)[-1].lower())
+        found = next(
+            ((tier, glob) for tier, globs in PATH_RISK_GLOBS for glob, lowered in globs
+             if any(fnmatch.fnmatchcase(name, lowered) for name in candidates)),
+            None,
+        )
+        if found:
+            matches.append({"path": path, "glob": found[1], "risk": found[0]})
+    risk = max((m["risk"] for m in matches), key=RISK_RANK.get, default="low")
+    return {"risk": risk, "matches": matches}

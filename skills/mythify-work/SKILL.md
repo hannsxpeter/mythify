@@ -51,6 +51,11 @@ Run commands through the host's Mythify MCP tools when they exist, else the
        mythify plan verify N
        mythify verify run "COMMAND" --claim "CLAIM"
 
+   `--reuse` skips an identical passing run; `mythify verify check NAME` runs
+   a named project check. If a step changed high-risk paths, run an
+   independent review (`mythify review round NAME`) and ask the person for
+   `--human-input`.
+
 6. Red: surface the failure in chat, record it, fix the root cause, and
    verify again. Never advance on red.
 
@@ -85,6 +90,7 @@ result before completing the step.
 - `step N completed` needs a RESULT and a passing `verify run` recorded after
   the step started. Never use a check that cannot fail, such as `true`.
 - Decisions that need a human (`grilling` and `prototype` map tickets,
-  `product approve`, `product decide`) wait for the person's words.
+  `product approve`, `product decide`, and completing a high-risk step) wait
+  for the person's words. A review loop stops at three rounds: rethink.
 - Pause only for destructive or irreversible actions, real scope changes, or
   input only the user can give.

@@ -25,7 +25,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 - `map`: Chart and work a wayfinding decision map.
 - `product`: Plan a product: problem, user, outcomes, non-goals, bets, risks.
 - `lineage`: Attach and inspect typed artifact lineage.
-- `review`: Record blast-radius safety cases and prove them.
+- `review`: Record blast-radius safety cases and findings reviews.
 - `loop-fit`: Advise whether a task should be a loop, supervised, or done directly.
 - `outcome`: Run outcome-driven loops with verifier and iteration budget.
 - `plan`: Manage plans: create, import, add-step, verify, list, show, switch, archive.
@@ -115,7 +115,7 @@ Options:
 ### campaign advance
 
 ```text
-mythify campaign advance --result RESULT [name]
+mythify campaign advance --result RESULT [--accept-test-drop REASON] [--human-input TEXT] [name]
 ```
 
 Complete the current plan step through its strict evidence gate.
@@ -127,6 +127,8 @@ Arguments:
 Options:
 
 - `--result RESULT`: Executed evidence supporting completion. Required.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ### campaign learn
 
@@ -202,7 +204,7 @@ Options:
 ## report
 
 ```text
-mythify report [--since {last,start}] [--format {chat,json}] [--recent RECENT] [--cursor CURSOR] [--peek] [--mark]
+mythify report [--since {last,start}] [--format {chat,json}] [--recent RECENT] [--cursor CURSOR] [--peek] [--mark] [--metrics] [--json] [--plan PLAN]
 ```
 
 Chat-ready live work report: plan creation, step updates, verification records, and reflections from durable state. By default it advances a cursor so repeated calls with --since last only show new events; use --peek to leave the cursor unchanged.
@@ -215,6 +217,9 @@ Options:
 - `--cursor CURSOR`: Report cursor name. Defaults to default.
 - `--peek`: Do not advance the report cursor.
 - `--mark`: Advance the report cursor to the latest event without showing old events.
+- `--metrics`: Show read-only flow metrics per step and in total; never moves the cursor.
+- `--json`: With --metrics, print JSON.
+- `--plan PLAN`: With --metrics, limit to one plan.
 
 ## route
 
@@ -780,7 +785,7 @@ Options:
 
 ## review
 
-Record blast-radius safety cases and prove them.
+Record blast-radius safety cases and findings reviews.
 
 ### review blast-radius
 
@@ -826,7 +831,7 @@ Options:
 mythify review show [--json] name
 ```
 
-Show a blast-radius safety case.
+Show a blast-radius safety case or a findings review.
 
 Arguments:
 
@@ -835,6 +840,62 @@ Arguments:
 Options:
 
 - `--json`: Print JSON.
+
+### review round
+
+```text
+mythify review round [--note NOTE] [--clean] [--rethink TEXT] [--json] name
+```
+
+Open a findings-review round (at most three before a rethink) or record a clean pass.
+
+Arguments:
+
+- `name`: Review name; the first round creates the review.
+
+Options:
+
+- `--note NOTE`: Note stored on the round.
+- `--clean`: Record a completed round in which the reviewer found nothing at the current source.
+- `--rethink TEXT`: Required for round 4 and later: why the approach still stands after three rounds.
+- `--json`: Print JSON.
+
+### review finding
+
+```text
+mythify review finding [--path PATH] [--severity {high,medium,low}] [--json] name summary
+```
+
+Record a finding in the latest findings-review round.
+
+Arguments:
+
+- `name`: Review name.
+- `summary`: One-line statement of the finding.
+
+Options:
+
+- `--path PATH`: File the finding concerns; part of repeat detection.
+- `--severity {high,medium,low}`: Finding severity. Default: `medium`.
+- `--json`: Print JSON.
+
+### review resolve
+
+```text
+mythify review resolve --status {fixed,dismissed} [--reason REASON] name finding_id
+```
+
+Mark a findings-review finding fixed or dismissed.
+
+Arguments:
+
+- `name`: Review name.
+- `finding_id`: Finding id such as F1.
+
+Options:
+
+- `--status {fixed,dismissed}`: Resolution. Required.
+- `--reason REASON`: Why; required to dismiss, which bars the finding from returning.
 
 ## loop-fit
 
@@ -1029,7 +1090,7 @@ Options:
 ### plan verify
 
 ```text
-mythify plan verify [--plan PLAN] [--timeout TIMEOUT] id
+mythify plan verify [--plan PLAN] [--timeout TIMEOUT] [--reuse] id
 ```
 
 Execute the step's verify_command, mark the step in progress, and record the executed verification against that step. On success the strict-evidence gate is satisfied, so step ID completed will pass. Exits 0 when verified, 2 when the command fails, 1 on usage errors.
@@ -1042,6 +1103,7 @@ Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
 - `--timeout TIMEOUT`: Timeout in seconds for the verify command. Default: `300.0`.
+- `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
 
 ### plan list
 
@@ -1090,7 +1152,7 @@ Arguments:
 ## step
 
 ```text
-mythify step [--plan PLAN] id status [result]
+mythify step [--plan PLAN] [--accept-test-drop REASON] [--human-input TEXT] id status [result]
 ```
 
 Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run recorded for this step since it started; a later failing run of the same command cancels an earlier pass, whatever step or ticket it was recorded for. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
@@ -1104,6 +1166,8 @@ Arguments:
 Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ## memory
 
@@ -1218,7 +1282,7 @@ Verification: run a command (executed) or record a claim (attested).
 ### verify run
 
 ```text
-mythify verify run [--claim CLAIM] [--parent PARENT] [--output {compact,full}] [--timeout N] command
+mythify verify run [--claim CLAIM] [--parent PARENT] [--output {compact,full}] [--timeout N] [--reuse] command
 ```
 
 Execute COMMAND and record an executed verification. The record counts for the in-progress step whose verify_command equals COMMAND, searching the active plan first and then every other plan; with no such step, for the first in-progress step of the active plan.
@@ -1233,6 +1297,7 @@ Options:
 - `--parent PARENT`: Parent artifact kind:id. Repeat as needed. Repeatable.
 - `--output {compact,full}`: Print compact verdicts or retained full output. Default: `compact`.
 - `--timeout N`: Timeout in seconds. Default: `300.0`.
+- `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
 
 ### verify claim
 
@@ -1246,6 +1311,41 @@ Arguments:
 
 - `claim`: The claim being attested.
 - `evidence`: Why you believe the claim holds.
+
+### verify check
+
+```text
+mythify verify check [--set COMMAND] [--description DESCRIPTION] [--files PATH [PATH ...]] [--reuse] [--timeout N] [--claim CLAIM] [--json] [name]
+```
+
+Without NAME, list the defined checks. With NAME and --set COMMAND, define or replace the check without running it. With NAME alone, run it and record an executed verification stamped with the check name. {files} in the command expands to the changed files, passed as positional parameters so no name is parsed as shell text (--files, else working-tree changes against HEAD plus untracked files); with no changed files nothing runs and nothing is recorded. A step whose verify_command is @NAME runs this check through plan verify. Exits 0 verified, 2 failed or disabled, 1 refused.
+
+Arguments:
+
+- `[name]`: Check name: lowercase letters, digits, hyphens.
+
+Options:
+
+- `--set COMMAND`: Define or replace the check with COMMAND; nothing runs.
+- `--description DESCRIPTION`: With --set: what the check covers.
+- `--files PATH [PATH ...]`: Files for {files}, instead of the changed files.
+- `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
+- `--timeout N`: Timeout in seconds. Default: `300.0`.
+- `--claim CLAIM`: What this run verifies; default 'check NAME'.
+- `--json`: Print JSON.
+
+### verify gate
+
+```text
+mythify verify gate [--plan PLAN] [--json]
+```
+
+Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Never runs a command and never writes state. Exits 0 when nothing is in flight or every in-progress step is verified, 2 otherwise, with the next command per step on stderr, and 1 when the active or named plan is missing or unreadable.
+
+Options:
+
+- `--plan PLAN`: Plan name; defaults to the active plan.
+- `--json`: Print JSON.
 
 ## reflect
 

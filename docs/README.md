@@ -13,6 +13,8 @@ four workflows worth learning. Come back here for reference material.
 | [product-planning.md](product-planning.md) | Product records: problem, user, outcomes, non-goals, bets, risks, and the human gates. |
 | [mcp.md](mcp.md) | MCP setup for any host: the launcher, `MYTHIFY_DIR`, config locations, tools, exit codes. |
 | [blast-radius.md](blast-radius.md) | Safety cases for changes whose risk sits outside the visible diff. |
+| [checks-and-gate.md](checks-and-gate.md) | Named checks for fast, selective verification, and `verify gate` for host stop and pre-commit hooks. |
+| [reviews.md](reviews.md) | Findings reviews with bounded rounds, and the high-risk path check at step completion. |
 | [prose-quality.md](prose-quality.md) | The prose rewrite pass and the mechanical prose check. |
 
 ## How it works and what is proven

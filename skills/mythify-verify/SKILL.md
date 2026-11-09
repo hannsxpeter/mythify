@@ -27,6 +27,11 @@ Run commands through the host's Mythify MCP tools when they exist, else the
        mythify verify run "COMMAND" --claim "CLAIM"
        mythify plan verify N
 
+   Add `--reuse` to skip a run an identical passing run already proves. A
+   named project check runs with `mythify verify check NAME`. `mythify verify
+   gate` reads the ledger and exits 2 while an in-progress step lacks current
+   passing evidence.
+
 4. Report:
 
        mythify report --since last --cursor chat
@@ -36,6 +41,7 @@ Run commands through the host's Mythify MCP tools when they exist, else the
    - Verified (exit 0): claim, command, exit code, duration.
    - Unverified (exit 2): command, exit code, the relevant output tail, and
      the next fix.
+   - A test count lower than before is flagged; say so, do not hide it.
    - Attested only: say it is self-reported and weaker than executed
      evidence.
 

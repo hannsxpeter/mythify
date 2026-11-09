@@ -36,9 +36,13 @@ table, so no module imports the entry point.
 | `mythify_parser.py` | `build_parser`, `MythifyArgumentParser` (usage errors exit 64), and every command grammar not listed elsewhere |
 | `mythify_map_parser.py`, `mythify_product_parser.py` | the `map` and `product` grammars (the `verify`, `reflect`, `review`, and `lineage` grammars sit beside their handlers) |
 | `mythify_verification_commands.py` | `verify run`, `verify claim`, `reflect`, display-only test counts |
+| `mythify_checks.py` | named checks: `checks.json`, `verify check`, `{files}` expansion, `@NAME` step verifiers |
+| `mythify_gate.py` | `verify gate`: the read-only hook check over in-progress steps |
 | `mythify_io.py` | atomic writes, JSONL locks, tolerant reads, the chained append, verification anchors |
 | `mythify_evidence_guard.py` | no-op verifier detection, zero-test detection, ledger chain checks, legacy opt-out detection |
 | `mythify_provenance.py` | git commit, clean flag, and `worktree_digest` for each executed record |
+| `mythify_reuse.py` | `environment_digest` and the `--reuse` lookup over the verification ledger |
+| `mythify_ratchet.py` | test-count drop detection, the step baseline, and the `status` drop list |
 | `mythify_memory.py`, `mythify_log_compaction.py`, `mythify_loopfit.py` | memory and lessons, `logs compact`, the `loop-fit` advisory |
 | `mythify_outcomes.py` | outcome loops: start, check, run, status, results, stop, scope and frozen paths |
 | `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
@@ -46,6 +50,9 @@ table, so no module imports the entry point.
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
 | `mythify_product.py` | product records, readiness check, approval, verdicts, promote, measure, show |
 | `mythify_quality.py` | blast-radius safety cases: create, prove, show |
+| `mythify_findings.py` | findings reviews: rounds, findings, resolution, coverage, status attention |
+| `mythify_review_cover.py` | `review_covers_current_source`: the review, if any, that covers the source now |
+| `mythify_path_risk.py` | the high-risk completion check, the step start stamp, `route` diff risk |
 | `mythify_lineage.py` | typed parent references and current, stale, missing, or unknown status |
 | `mythify_plan_import.py`, `mythify_godfiles.py` | read-only godplans and godaudits parsing and `plan import` |
 | `mythify_classification.py` | deterministic task classification from `protocol/classification-rules.json` |
@@ -60,7 +67,7 @@ Data files in `protocol/`:
 | File | Read by | Content |
 | --- | --- | --- |
 | `PROTOCOL.md` | `build_variants.py`, `protocol check` | the protocol spine, the source of AGENTS.md |
-| `classification-rules.json` | `mythify_classification.py` | schema 4: task types, risk terms, framing, parallelism, and review advisories |
+| `classification-rules.json` | `mythify_classification.py` | schema 5: task types, risk terms, `path_risk` globs, framing, parallelism, and review advisories |
 | `workflow-router.json` | `mythify_router.py` | version 3: route ids, descriptions, and their prompt packet kinds |
 | `prose-quality.json` | `check_prose_quality.py` | scanned paths, forbidden characters, forbidden phrases |
 
@@ -108,6 +115,7 @@ lessons and is never a project workspace.
 |-- active_product                 slug of the active product
 |-- products/<slug>.json
 |-- reviews/<slug>.json
+|-- checks.json                    named checks for verify check
 |-- reports/<cursor>.json
 |-- verification-artifacts/<verification id>/stdout.txt, stderr.txt
 |-- logs/archive/<log stem>-<YYYYMMDDHHMMSS>.jsonl
@@ -148,7 +156,14 @@ store, including the active pointer, plan directory, and archive paths.
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
 `verify_command`, `verification_anchor` (`{"after_sha256": <hex or null>}`),
-`updated_at`, and `strict_gate_waived`. Imported steps add `source_id`,
+`updated_at`, `started_commit` (the git commit when the step went in progress,
+null outside git), `started_at`, `strict_gate_waived`, `test_drop_accepted`
+(`reason`, `baseline`, `current`, stamped when `--accept-test-drop` let a lower
+test count through), `risk` (`level: "high"`, `paths`, `review`, `human_input`,
+stamped when the step's changed paths were high risk), `human_input` (the
+person's words from `--human-input`), and `risk_gate_waived` (`true` when
+`MYTHIFY_RISK_GATE=0` let a high-risk completion through). A step already in
+progress keeps its first `started_commit` and `started_at`. Imported steps add `source_id`,
 `wave`, `phase`, and `artifact_checked: true` when the task's box was checked
 in the artifact; such a step still imports as `pending`. A step written before 6.0 may carry an integer
 `verification_cursor`; it is still read and is dropped when the step restarts.
@@ -158,9 +173,17 @@ Verification record (`verifications.jsonl`, one JSON object per line):
 - executed: `id` (`v-<stamp>-<12 hex>`), `kind: "executed"`, `claim`,
   `command`, `exit_code`, `duration_seconds`, `stdout_tail`, `stderr_tail`
   (redacted, last 4000 characters), `verified`, `timestamp`, `provenance`
-  (`git_commit`, `worktree_clean`, `worktree_digest`, `mythify_version`),
+  (`git_commit`, `worktree_clean`, `worktree_digest`, `mythify_version`,
+  `environment_digest`),
   `artifacts` (`stdout` and `stderr`, each `path`, `bytes`, `source_bytes`,
   `sha256`, `truncated`, `redacted`), optional `test_count` (display only),
+  optional `test_count_drop` (`previous`, `previous_id`, `current`; set when a
+  passing run executed fewer tests than the previous passing run of the same
+  command), optional `reused_from` (the original run's id) with
+  `reused_duration_seconds` (a reused record copies `exit_code`, `verified`,
+  `test_count`, and the output tails, has `duration_seconds: 0`, and no
+  artifacts), optional `check` (the name of the named check that produced the
+  run) with `check_template` (the stored command before `{files}` expanded),
   optional `lineage`, then context: `plan`, `step_id`, `step_title`,
   `step_status` for `verify run` and `plan verify`; `map`, `ticket_id`,
   `ticket_title`, `ticket_type` for `map verify`; `review` and `proof_mode`
@@ -168,7 +191,9 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   Outcome iterations append an executed record without `id` that carries
   `outcome`, `iteration`, `outcome_verify`, and `outcome_metric`.
   `plan verify` stamps its own step. `verify run` and outcome records stamp
-  the in-progress step whose stored `verify_command` equals the command,
+  the in-progress step whose stored `verify_command` equals the command (a
+  `verify check NAME` record also matches a step whose `verify_command` is
+  `@NAME`),
   searching the active plan first and then every other plan, and otherwise
   the first in-progress step of the active plan.
 - attested: `kind: "attested"`, `claim`, `evidence`, `verified: null`,
@@ -249,6 +274,17 @@ Review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 `updated`, `evidence_status`. Never rewritten; proof status is derived from
 linked records at read time ([blast-radius.md](blast-radius.md)).
 
+Findings review (`reviews/<slug>.json`, `schema_version` 1, `kind`
+`findings_review`, `review_type` `findings`): `name`, `rounds`, `created`,
+`updated`, `evidence_status`. Each round has `number`, `opened_at`,
+`provenance` (`git_commit`, `worktree_digest` at the round), `clean`,
+`closed_at` (clean rounds only), optional `note` and `rethink`, and
+`findings`. Each finding has `id` (`F1`..., counted across the whole review),
+`summary`, `path`, `severity`, `status` (`open`, `fixed`, `dismissed`),
+`reason`, `created_at`, `resolved_at`, and `repeat_of` when it repeats a fixed
+finding. Unlike a blast-radius review it is edited by `review round|finding|resolve`;
+it is material and never verification evidence ([reviews.md](reviews.md)).
+
 Lineage block (on plans, maps, outcomes, products, and executed records):
 `captured_at` and `parents`, each `kind` (`map`, `plan`, `outcome`, `review`,
 `product`, `verification`), `id`, `revision` (SHA-256 of the parent's
@@ -277,6 +313,15 @@ hash chain still links, and leaves every verification artifact in place.
 
 ## Evidence rules
 
+- High-risk paths. `step ID completed` lists the paths changed since the
+  step's `started_commit` (working tree against that commit, plus untracked
+  files, minus `.mythify/`) and rates them with `path_risk` from
+  `protocol/classification-rules.json`. High risk wants a review that covers
+  the current source ([reviews.md](reviews.md)) and `--human-input TEXT`. A
+  missing piece warns; on a `strict_context` plan it refuses (exit 1).
+  With no commit to compare against (an unborn repository, or a step that
+  started without one) every tracked and untracked file counts as changed.
+  Outside git the check is skipped. `MYTHIFY_RISK_GATE=0` waives it.
 - Strict gate. `step ID completed RESULT` needs a non-empty RESULT and, unless
   `MYTHIFY_REQUIRE_VERIFIED_STEP` is `0`, `false`, `no`, or `off`, an executed
   record with `verified: true` and exit 0, recorded after the step's anchor,
@@ -289,7 +334,52 @@ hash chain still links, and leaves every verification artifact in place.
   command is refused until the command passes again. When the commit or
   worktree digest moved after the passing run, completion warns, and on an
   imported (`strict_context`) plan it refuses. The digest leaves the resolved
-  state directory out, so ledger writes never move it.
+  state directory out, so ledger writes never move it. Under the same
+  baseline rule, a satisfying run whose `test_count` is below the baseline (the
+  latest passing run of that command before the step's evidence window, else
+  the first passing run inside it) warns, and on a `strict_context` plan
+  refuses unless the caller passes `--accept-test-drop REASON`.
+- Named checks. `.mythify/checks.json` is `{"schema_version": 1, "checks":
+  {NAME: {"command", "description", "updated"}}}` with names matching
+  `[a-z0-9-]+`. `verify check NAME` runs the command through the same runner as
+  `verify run` and stamps `check` and `check_template` on the record. A
+  `{files}` placeholder expands to the changed files, bound as positional
+  parameters in a `set -- ...;` prefix with each `{files}` replaced by `"$@"`, so
+  no file name is ever parsed as shell text (`--files`,
+  else working-tree changes against `HEAD` plus untracked files, minus deleted
+  files and `.mythify/`); with none, nothing runs and nothing is recorded. A
+  step whose `verify_command` is `@NAME` is run by `plan verify` as that check,
+  and the step gate counts a passing record whose `check` equals NAME and keys
+  "the latest run" by check name, because the expanded text varies per run.
+  `--set` refuses a command `noop_verifier_reason` flags, and a template that
+  puts `{files}` inside single quotes or after a backslash, where `"$@"` would be
+  literal (refused again at run time).
+  A record satisfies an `@NAME` step only when its `check_template` equals the
+  check's current command, so redefining a check retires its earlier evidence.
+- Gate command. `verify gate [--plan NAME] [--json]` runs
+  `evaluate_step_evidence` for each in-progress step, with no test-drop reason
+  and no human input, and never executes a command or writes state. It exits 0
+  when nothing is in flight or every in-progress step is accepted (a stale
+  pass, a strict-context test-count drop, and a strict-context high-risk step
+  without its review or human input all count as not accepted), and 2
+  otherwise, with a failure line and a next-command line per step on stderr.
+  It ignores `MYTHIFY_REQUIRE_VERIFIED_STEP=0`: a hook asks whether evidence
+  exists, not whether the session waived the rule. With no active plan pointer
+  it exits 0; a `--plan` or active pointer that names a missing or unreadable
+  plan exits 1. It resolves the state directory without creating anything
+  (`needs_state: "readonly"`), reads review files without quarantining a
+  malformed one, and treats that file as covering nothing.
+- Reuse. `verify run --reuse` and `plan verify --reuse` look for the newest
+  executed record with the identical command, `git_commit`, `worktree_digest`
+  (both non-null), `mythify_version`, and `environment_digest`. They reuse it
+  only when it passed, is not a no-op or zero-test pass, and, if it is itself
+  a reused record, only through its original; otherwise the command runs and
+  one `[INFO]` line says why. A newer run of the command at the same commit
+  and worktree digest that did not pass cancels the reuse, whatever its
+  environment digest, and a record with `test_count` 0 is never reused. The environment digest hashes the platform,
+  `PATH`, the command's first program (resolved path, size, mtime), and the
+  variables named in `MYTHIFY_REUSE_ENV`. It does not cover files ignored by
+  `.gitignore`, services, or the network, so reuse is opt-in.
 - Anchors. `step ID in_progress`, `plan verify`, and `map claim` store
   `verification_anchor`, the hash of the ledger's last line; only later
   records count. Every new plan stores one too, and a step completed straight
@@ -325,7 +415,7 @@ hash chain still links, and leaves every verification artifact in place.
   current approval, and a bet verdict until the bet stops or a verdict with
   the human's words replaces it. `map show`, `plan show`, and `product show`
   mark waived decisions.
-- Fail closed. With `MYTHIFY_DISABLE_RUN=1`, `verify run`, `plan verify`,
+- Fail closed. With `MYTHIFY_DISABLE_RUN=1`, `verify run`, `verify check NAME`, `plan verify`,
   `map verify`, `outcome check`, `outcome run`, `review prove`, and `product
   measure` execute nothing, record nothing, and exit 2.
 - Material. Route output, prompt packets, maps, product records, reviews,
@@ -378,7 +468,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | 0 | success, or a verified check |
 | 1 | refusal or failure: no workspace, bad input, a gate refused, a record not found |
-| 2 | unverified: a check ran and failed, `product check` found gaps, an outcome is not met, or `MYTHIFY_DISABLE_RUN=1` refused to run |
+| 2 | unverified: a check ran and failed, `product check` found gaps, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, or `MYTHIFY_DISABLE_RUN=1` refused to run |
 | 64 | usage error from the argument parser |
 | 124 | MCP only: the call timed out and was terminated |
 | 130, 143 | the CLI received SIGINT or SIGTERM while a verify child ran |
@@ -389,8 +479,10 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | `MYTHIFY_DIR` | state directory; skips upward discovery |
 | `MYTHIFY_REQUIRE_VERIFIED_STEP` | `0`, `false`, `no`, or `off` waives the strict gate (stamped, warned) |
+| `MYTHIFY_RISK_GATE` | `0`, `false`, `no`, or `off` waives the high-risk path check at step completion, even under strict context (stamped `risk_gate_waived`, warned) |
 | `MYTHIFY_REQUIRE_HUMAN_INPUT` | `0`, `false`, `no`, or `off` waives human gates (stamped, warned) |
 | `MYTHIFY_DISABLE_RUN` | `1` makes every command runner refuse and exit 2; so does any value other than empty, `0`, `false`, `no`, or `off` (case and surrounding space ignored), so a malformed value fails closed |
+| `MYTHIFY_REUSE_ENV` | comma-separated environment variable names whose values join `provenance.environment_digest`, so changing one stops `--reuse` from matching |
 | `MYTHIFY_VERIFY_MAX_OUTPUT_BYTES` | output cap per run, default 16 MiB; a run over the cap fails |
 | `MYTHIFY_MAP_CLAIMANT` | default claimant for `map claim` |
 | `MYTHIFY_MCP_CALL_TIMEOUT` | MCP per-call timeout in seconds, default 900 |
@@ -515,3 +607,19 @@ memory, lessons, outcomes, maps, products); every other command runs through
 the `mythify` tool, whose description lists them. Why: the 5.8 listing of 63
 tools cost about 68 KB of host context each session, mostly for tools a
 session never called. The 6.0 listing of 38 tools is about 30 KB.
+
+### 2026-11-08: fast, selective verification
+
+`verify run --reuse` stands in an earlier passing run, and it is opt-in: the
+environment digest covers the command, commit, worktree digest, Mythify
+version, platform, `PATH`, and the executable, but not files ignored by
+`.gitignore`, services, or the network, so the caller decides when that is
+enough (`MYTHIFY_REUSE_ENV` adds inputs). The test-count drop and high-risk
+path checks warn by default and refuse only under strict context, the same
+precedent as stale evidence, which keeps 6.2 a minor release.
+`verify gate` is read-only so a host stop or pre-commit hook can call it
+without changing state. Findings review rounds are capped at three, and a
+fourth needs `--rethink TEXT`, because a loop that does not converge in three
+rounds usually has the wrong approach, not too few rounds. Why: verification
+cost grew with the suite, and the fix had to speed up honest runs without
+letting a self-report stand in for one.

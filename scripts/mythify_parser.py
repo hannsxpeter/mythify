@@ -8,6 +8,9 @@ import sys
 from mythify_lineage import add_lineage_parser
 from mythify_quality import add_quality_parser
 from mythify_verification_commands import add_verification_parsers
+from mythify_path_risk import HUMAN_INPUT_HELP
+from mythify_ratchet import ACCEPT_TEST_DROP_HELP
+from mythify_reuse import REUSE_HELP
 from mythify_map_parser import add_map_parser
 from mythify_product_parser import add_product_parser
 from mythify_campaigns import add_campaign_parser, cmd_campaign
@@ -181,6 +184,13 @@ def build_parser(symbols):
         action="store_true",
         help="Advance the report cursor to the latest event without showing old events.",
     )
+    p.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Show read-only flow metrics per step and in total; never moves the cursor.",
+    )
+    p.add_argument("--json", dest="json_output", action="store_true", help="With --metrics, print JSON.")
+    p.add_argument("--plan", default=None, help="With --metrics, limit to one plan.")
     p.set_defaults(handler=cmd_report)
 
     p = sub.add_parser(
@@ -575,6 +585,7 @@ def build_parser(symbols):
         default=DEFAULT_VERIFY_TIMEOUT,
         help="Timeout in seconds for the verify command.",
     )
+    p.add_argument("--reuse", action="store_true", help=REUSE_HELP)
     p.set_defaults(handler=cmd_plan_verify)
 
     p = plan_sub.add_parser(
@@ -634,6 +645,8 @@ def build_parser(symbols):
         help="Evidence or failure description; required for completed and failed.",
     )
     p.add_argument("--plan", help="Plan name; defaults to the active plan.")
+    p.add_argument("--accept-test-drop", metavar="REASON", help=ACCEPT_TEST_DROP_HELP)
+    p.add_argument("--human-input", metavar="TEXT", help=HUMAN_INPUT_HELP)
     p.set_defaults(handler=cmd_step)
 
     memory = sub.add_parser(

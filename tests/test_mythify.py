@@ -675,7 +675,7 @@ class TestClassification(CliTestCase):
 
     def test_classification_policy_manifest_contains_shared_decision_facts(self):
         manifest = self.read_json(CLASSIFICATION_RULES)
-        self.assertEqual(manifest["schema_version"], 4)
+        self.assertEqual(manifest["schema_version"], 5)
         self.assertEqual(manifest["thresholds"]["trivial_word_count"], 12)
         self.assertIn("what ", manifest["question_prefixes"])
         self.assertIn("better", manifest["vague_request_terms"])
@@ -1773,7 +1773,8 @@ class TestOutcome(CliTestCase):
         self.assertIsNone(verification["step_id"])
         self.assertEqual(
             sorted(verification["provenance"]),
-            ["git_commit", "mythify_version", "worktree_clean", "worktree_digest"],
+            ["environment_digest", "git_commit", "mythify_version", "worktree_clean",
+             "worktree_digest"],
         )
         self.assertIsNone(verification["provenance"]["git_commit"])
         self.assertRegex(
@@ -2098,7 +2099,8 @@ class TestVerify(CliTestCase):
         self.assertEqual(set(record["artifacts"]), {"stdout", "stderr"})
         self.assertEqual(
             sorted(record["provenance"]),
-            ["git_commit", "mythify_version", "worktree_clean", "worktree_digest"],
+            ["environment_digest", "git_commit", "mythify_version", "worktree_clean",
+             "worktree_digest"],
         )
 
     def test_run_without_disable_var_unchanged_passing(self):
