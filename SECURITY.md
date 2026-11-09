@@ -4,10 +4,10 @@
 
 | Version | Supported |
 | :--- | :--- |
-| 6.x | Yes |
-| 5.x and earlier | No |
+| 7.x | Yes |
+| 6.x and earlier | No |
 
-Fixes land on `main` and ship in the next 6.x release. Earlier lines get no
+Fixes land on `main` and ship in the next 7.x release. Earlier lines get no
 backports.
 
 ## Reporting a vulnerability

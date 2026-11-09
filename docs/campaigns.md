@@ -90,7 +90,7 @@ plan store are refused before they can be read or written.
 ## Upgrade and check the installed copy
 
 Re-run `scripts/install_user.sh` from the updated checkout or unpacked
-6.2.0 CLI archive. It installs the runtime and chat skills together while
+CLI archive. It installs the runtime and chat skills together while
 preserving project `.mythify` state. Confirm the launcher you actually use:
 
 ```bash
@@ -99,7 +99,7 @@ mythify --version
 mythify campaign --help
 ```
 
-The version should be 6.2.0 or later with campaign support. A stale launcher,
+The version should be 6.1.0 or later, the first release with campaign support. A stale launcher,
 workspace copy, or skill from another release can still recommend commands
 the runtime does not have. Use the same release for the CLI and skills, and
 check the saved MCP command if its tools still resolve to an older path.

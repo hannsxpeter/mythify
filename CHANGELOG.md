@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-11-09
+
+Mythify 7.0.0 narrows the tool to its job: evidence for agent work. Product
+planning is removed, which is the breaking change behind the major version.
+`route` can also show what your own routing policy file says about a task,
+and the README is now a short product page with the full feature guide in
+`docs/guide.md`. Existing `.mythify/` state keeps working; leftover product
+data is ignored and never deleted.
+
 ### Added
 
 - `route` shows what the user's own routing policy file says about the task. With
@@ -45,9 +54,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   choice": follow the user's or project's rules on who does what, which `route`
   shows when a policy file is present.
 
+### Changed
+
+- `route` sends requests to write a product roadmap, PRD, RFC, specification,
+  requirements document, or design document to planning (`plan`); without the
+  product task type they had classified as trivial. These terms count only
+  near a creation verb (write, draft, create, prepare, author, produce,
+  outline, plan), so "What is an RFC?" still routes as a question and "inspect
+  the product requirements document" as a review.
+- The README is a short product page: the problem, how it works, who it is
+  for, and a quickstart that ends at a first verified step. The full feature
+  tour moved to the new `docs/guide.md`.
+- Maintainer files moved off the top level: `MAINTAINING.md`,
+  `RELEASE-CHECKLIST.md`, and `ROADMAP.md` now live in `docs/maintainers/`.
+  User-facing docs no longer carry version numbers or release-history notes;
+  the CHANGELOG and the architecture decision log keep that history.
+
 ### Removed
 
-- Breaking: product planning is removed, so the next release is 7.0.0.
+- Breaking: product planning is removed.
   `mythify product ...` (`create`, `outcome`, `non-goal`, `bet`, `risk`,
   `check`, `approve`, `decide`, `promote`, `measure`, `show`, `list`) is an
   unknown command and exits 64, like any other removed command. Also removed:
@@ -67,10 +92,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an `active_product` pointer, and a plan's `product_ref` are never read,
   written, or deleted, and ledger records with a `product` key stay scoped
   records that never count for a step. `ROADMAP.md`, which `product show
-  --markdown` rendered, is now a static file of outcomes, non-goals, and bets.
+  --markdown` rendered, is now a static file of outcomes, non-goals, and bets
+  at `docs/maintainers/ROADMAP.md`.
   An agent following the old protocol text that runs `product create` now gets a
   usage error and should use `map create` for open decisions or `plan create`
   for work.
+- `docs/DRIFT.md` and `docs/evidence/` (efficacy reproduction notes and smoke
+  results), which described past releases rather than the current tool.
 
 ## [6.2.0] - 2026-11-09
 
@@ -2192,7 +2220,8 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.0.0...HEAD
+[7.0.0]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...v7.0.0
 [6.2.0]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...v6.2.0
 [6.1.0]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...v6.1.0
 [6.0.0]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...v6.0.0

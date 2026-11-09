@@ -1,7 +1,7 @@
 # Mythify architecture
 
-The maintainer contract for Mythify 6.x: runtime layout, on-disk state, the
-rules that make evidence count, and the 6.0 decisions. Commands are in the
+The maintainer contract for Mythify 7.x: runtime layout, on-disk state, the
+rules that make evidence count, and the decisions behind them. Commands are in the
 generated [commands.md](commands.md); MCP host setup is in [mcp.md](mcp.md).
 A design change adds a decision log entry here in the same pull request.
 
