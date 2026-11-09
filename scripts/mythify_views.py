@@ -34,6 +34,7 @@ from mythify_maps import (
     ungraduated_fog,
 )
 from mythify_outcomes import get_active_outcome_slug, list_outcome_rows
+from mythify_ratchet import latest_test_count_drops
 from mythify_product import active_product_view, list_product_records
 
 WORKSPACE_DIR_NAME = ".mythify"
@@ -186,6 +187,7 @@ def summarize_verification_record(record, index):
         "step_id": record.get("step_id"),
         "step_title": record.get("step_title"),
         "step_status": record.get("step_status"),
+        "reused_from": record.get("reused_from"),
     }
     if kind == "executed":
         summary.update(
@@ -257,6 +259,8 @@ def format_verification_history_row(row):
     if row.get("kind") == "executed":
         details.append("exit {0}".format(row.get("exit_code")))
         details.append("{0}s".format(row.get("duration_seconds", 0)))
+        if row.get("reused_from"):
+            details.append("reused {0}".format(row["reused_from"]))
         if row.get("stdout_tail_bytes"):
             details.append("stdout {0} bytes".format(row.get("stdout_tail_bytes")))
         if row.get("stderr_tail_bytes"):
@@ -453,6 +457,8 @@ def build_report_events(state, log_lower_bound=""):
             label = record.get("claim") or record.get("command") or "executed check"
             summary = "Verification {0}: {1}".format(verdict, compact_report_detail(label))
             detail = "exit {0}".format(record.get("exit_code"))
+            if record.get("reused_from"):
+                detail += ", reused {0}".format(record["reused_from"])
             verified = passed
         elif kind == "attested":
             label = record.get("claim") or "claim"
@@ -475,6 +481,7 @@ def build_report_events(state, log_lower_bound=""):
                 "plan": record.get("plan"),
                 "step_id": record.get("step_id"),
                 "verified": verified,
+                **({"reused_from": record["reused_from"]} if record.get("reused_from") else {}),
             }
         )
     reflections = read_jsonl_since(state / "reflections.jsonl", log_lower_bound)
@@ -822,6 +829,21 @@ def evidence_attention_from_drift(records, recent):
             window[-1].get("timestamp", "") if window else "",
         )]
     return []
+
+
+def evidence_attention_from_test_drops(records):
+    """Warn while a command's latest passing run executed fewer tests than before."""
+    return [
+        attention_item(
+            "warning",
+            "verification",
+            "test count dropped: {0}".format(compact_label(command, "verification")),
+            "{0} tests, down from {1} (run {2}); a check that runs fewer tests "
+            "proves less".format(drop["current"], drop["previous"], drop.get("previous_id")),
+            timestamp,
+        )
+        for command, drop, timestamp in latest_test_count_drops(records)
+    ]
 
 
 def evidence_attention_from_stale_executed(records):
@@ -1203,6 +1225,7 @@ def build_status_view(state, recent=DEFAULT_STATUS_RECENT):
         + evidence_attention_from_human_waivers(state)
         + evidence_attention_from_verifications(records, recent)
         + evidence_attention_from_trivial_passes(records, recent)
+        + evidence_attention_from_test_drops(records)
         + evidence_attention_from_outcomes(recent_tail(outcomes, recent))
         + evidence_attention_from_god_artifacts(god_views)
         + evidence_attention_from_drift(records, recent)

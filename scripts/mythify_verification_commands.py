@@ -5,6 +5,7 @@ import os
 import re
 
 from mythify_evidence_guard import run_disabled
+from mythify_reuse import REUSE_HELP
 
 
 _deps = {}
@@ -53,7 +54,8 @@ def cmd_verify_run(args, state):
         return 2
     try:
         record = _deps["execute_recorded_verification_func"](
-            state, args.command, args.claim, args.timeout, parents=args.parent
+            state, args.command, args.claim, args.timeout, parents=args.parent,
+            reuse=args.reuse,
         )
     except ValueError as exc:
         _deps["fail_func"]("[FAIL] Invalid lineage: {0}.".format(exc))
@@ -61,6 +63,8 @@ def cmd_verify_run(args, state):
     label = args.claim or args.command
     count = record.get("test_count")
     count_label = ", {0} tests".format(count) if isinstance(count, int) else ""
+    if record.get("reused_from"):
+        count_label += ", reused"
     print(
         "[{0}] {1}: {2} (exit {3}, {4:.2f}s{5})".format(
             "OK" if record["verified"] else "FAIL",
@@ -166,6 +170,7 @@ def add_verification_parsers(sub, symbols):
     parser.add_argument("--parent", action="append", default=[], help="Parent artifact kind:id. Repeat as needed.")
     parser.add_argument("--output", choices=("compact", "full"), default="compact", help="Print compact verdicts or retained full output.")
     parser.add_argument("--timeout", type=float, default=symbols["DEFAULT_VERIFY_TIMEOUT"], metavar="N", help="Timeout in seconds.")
+    parser.add_argument("--reuse", action="store_true", help=REUSE_HELP)
     parser.set_defaults(handler=cmd_verify_run)
     parser = actions.add_parser("claim", help="Record a self-reported attestation that never counts as verified.")
     parser.add_argument("claim", help="The claim being attested.")

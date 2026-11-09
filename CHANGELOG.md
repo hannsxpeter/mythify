@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `verify run --reuse` and `plan verify --reuse` record an earlier passing run
+  as reused, without executing the command again, when the command, git
+  commit, worktree digest, Mythify version, and environment digest all match.
+  The new record carries `reused_from` and `reused_duration_seconds`, counts
+  for the step gate like a fresh run, and shows as reused in `history`,
+  `status`, and `report`. Zero-test and no-op passes and failed runs are never
+  reused. Every executed record gains `provenance.environment_digest`;
+  `MYTHIFY_REUSE_ENV` names extra environment variables to include. Reuse is
+  opt-in because the digest does not cover files ignored by `.gitignore`,
+  services, or the network.
+- A test-count ratchet. A passing run that executed fewer tests than the
+  previous passing run of the same command records `test_count_drop` and
+  warns. `step ID completed` compares the satisfying run with the step's
+  baseline run and warns on a lower count; on a `strict_context` plan it
+  refuses unless `--accept-test-drop REASON` is given, which is stamped on the
+  step as `test_drop_accepted`. `campaign advance` takes the same flag, and
+  `status` lists each command whose latest passing run dropped until a later
+  run no longer does.
+
 ## [6.1.0] - 2026-10-28
 
 ### Added

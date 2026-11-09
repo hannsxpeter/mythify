@@ -115,7 +115,7 @@ Options:
 ### campaign advance
 
 ```text
-mythify campaign advance --result RESULT [name]
+mythify campaign advance --result RESULT [--accept-test-drop REASON] [name]
 ```
 
 Complete the current plan step through its strict evidence gate.
@@ -127,6 +127,7 @@ Arguments:
 Options:
 
 - `--result RESULT`: Executed evidence supporting completion. Required.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
 
 ### campaign learn
 
@@ -1029,7 +1030,7 @@ Options:
 ### plan verify
 
 ```text
-mythify plan verify [--plan PLAN] [--timeout TIMEOUT] id
+mythify plan verify [--plan PLAN] [--timeout TIMEOUT] [--reuse] id
 ```
 
 Execute the step's verify_command, mark the step in progress, and record the executed verification against that step. On success the strict-evidence gate is satisfied, so step ID completed will pass. Exits 0 when verified, 2 when the command fails, 1 on usage errors.
@@ -1042,6 +1043,7 @@ Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
 - `--timeout TIMEOUT`: Timeout in seconds for the verify command. Default: `300.0`.
+- `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
 
 ### plan list
 
@@ -1090,7 +1092,7 @@ Arguments:
 ## step
 
 ```text
-mythify step [--plan PLAN] id status [result]
+mythify step [--plan PLAN] [--accept-test-drop REASON] id status [result]
 ```
 
 Update step ID to STATUS (pending, in_progress, completed, failed, skipped). completed and failed require the RESULT argument: evidence or a failure description. By default, completed also requires a passing verify run recorded for this step since it started; a later failing run of the same command cancels an earlier pass, whatever step or ticket it was recorded for. Set MYTHIFY_REQUIRE_VERIFIED_STEP=0 only for legacy prose-only completion. Prints the next pending step afterward.
@@ -1104,6 +1106,7 @@ Arguments:
 Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
 
 ## memory
 
@@ -1218,7 +1221,7 @@ Verification: run a command (executed) or record a claim (attested).
 ### verify run
 
 ```text
-mythify verify run [--claim CLAIM] [--parent PARENT] [--output {compact,full}] [--timeout N] command
+mythify verify run [--claim CLAIM] [--parent PARENT] [--output {compact,full}] [--timeout N] [--reuse] command
 ```
 
 Execute COMMAND and record an executed verification. The record counts for the in-progress step whose verify_command equals COMMAND, searching the active plan first and then every other plan; with no such step, for the first in-progress step of the active plan.
@@ -1233,6 +1236,7 @@ Options:
 - `--parent PARENT`: Parent artifact kind:id. Repeat as needed. Repeatable.
 - `--output {compact,full}`: Print compact verdicts or retained full output. Default: `compact`.
 - `--timeout N`: Timeout in seconds. Default: `300.0`.
+- `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
 
 ### verify claim
 

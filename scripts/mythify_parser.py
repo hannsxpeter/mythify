@@ -8,6 +8,8 @@ import sys
 from mythify_lineage import add_lineage_parser
 from mythify_quality import add_quality_parser
 from mythify_verification_commands import add_verification_parsers
+from mythify_ratchet import ACCEPT_TEST_DROP_HELP
+from mythify_reuse import REUSE_HELP
 from mythify_map_parser import add_map_parser
 from mythify_product_parser import add_product_parser
 from mythify_campaigns import add_campaign_parser, cmd_campaign
@@ -575,6 +577,7 @@ def build_parser(symbols):
         default=DEFAULT_VERIFY_TIMEOUT,
         help="Timeout in seconds for the verify command.",
     )
+    p.add_argument("--reuse", action="store_true", help=REUSE_HELP)
     p.set_defaults(handler=cmd_plan_verify)
 
     p = plan_sub.add_parser(
@@ -634,6 +637,7 @@ def build_parser(symbols):
         help="Evidence or failure description; required for completed and failed.",
     )
     p.add_argument("--plan", help="Plan name; defaults to the active plan.")
+    p.add_argument("--accept-test-drop", metavar="REASON", help=ACCEPT_TEST_DROP_HELP)
     p.set_defaults(handler=cmd_step)
 
     memory = sub.add_parser(

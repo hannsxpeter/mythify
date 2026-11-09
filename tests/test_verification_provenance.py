@@ -89,8 +89,10 @@ class VerificationProvenanceTest(unittest.TestCase):
         result = self.run_cli("verify", "run", "true")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+        provenance = dict(self.latest_record()["provenance"])
+        self.assertEqual(len(provenance.pop("environment_digest")), 64)
         self.assertEqual(
-            self.latest_record()["provenance"],
+            provenance,
             {
                 "git_commit": None,
                 "worktree_clean": None,

@@ -39,6 +39,8 @@ table, so no module imports the entry point.
 | `mythify_io.py` | atomic writes, JSONL locks, tolerant reads, the chained append, verification anchors |
 | `mythify_evidence_guard.py` | no-op verifier detection, zero-test detection, ledger chain checks, legacy opt-out detection |
 | `mythify_provenance.py` | git commit, clean flag, and `worktree_digest` for each executed record |
+| `mythify_reuse.py` | `environment_digest` and the `--reuse` lookup over the verification ledger |
+| `mythify_ratchet.py` | test-count drop detection, the step baseline, and the `status` drop list |
 | `mythify_memory.py`, `mythify_log_compaction.py`, `mythify_loopfit.py` | memory and lessons, `logs compact`, the `loop-fit` advisory |
 | `mythify_outcomes.py` | outcome loops: start, check, run, status, results, stop, scope and frozen paths |
 | `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
@@ -148,7 +150,9 @@ store, including the active pointer, plan directory, and archive paths.
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
 `verify_command`, `verification_anchor` (`{"after_sha256": <hex or null>}`),
-`updated_at`, and `strict_gate_waived`. Imported steps add `source_id`,
+`updated_at`, `strict_gate_waived`, and `test_drop_accepted` (`reason`,
+`baseline`, `current`, stamped when `--accept-test-drop` let a lower test count
+through). Imported steps add `source_id`,
 `wave`, `phase`, and `artifact_checked: true` when the task's box was checked
 in the artifact; such a step still imports as `pending`. A step written before 6.0 may carry an integer
 `verification_cursor`; it is still read and is dropped when the step restarts.
@@ -158,9 +162,16 @@ Verification record (`verifications.jsonl`, one JSON object per line):
 - executed: `id` (`v-<stamp>-<12 hex>`), `kind: "executed"`, `claim`,
   `command`, `exit_code`, `duration_seconds`, `stdout_tail`, `stderr_tail`
   (redacted, last 4000 characters), `verified`, `timestamp`, `provenance`
-  (`git_commit`, `worktree_clean`, `worktree_digest`, `mythify_version`),
+  (`git_commit`, `worktree_clean`, `worktree_digest`, `mythify_version`,
+  `environment_digest`),
   `artifacts` (`stdout` and `stderr`, each `path`, `bytes`, `source_bytes`,
   `sha256`, `truncated`, `redacted`), optional `test_count` (display only),
+  optional `test_count_drop` (`previous`, `previous_id`, `current`; set when a
+  passing run executed fewer tests than the previous passing run of the same
+  command), optional `reused_from` (the original run's id) with
+  `reused_duration_seconds` (a reused record copies `exit_code`, `verified`,
+  `test_count`, and the output tails, has `duration_seconds: 0`, and no
+  artifacts),
   optional `lineage`, then context: `plan`, `step_id`, `step_title`,
   `step_status` for `verify run` and `plan verify`; `map`, `ticket_id`,
   `ticket_title`, `ticket_type` for `map verify`; `review` and `proof_mode`
@@ -289,7 +300,20 @@ hash chain still links, and leaves every verification artifact in place.
   command is refused until the command passes again. When the commit or
   worktree digest moved after the passing run, completion warns, and on an
   imported (`strict_context`) plan it refuses. The digest leaves the resolved
-  state directory out, so ledger writes never move it.
+  state directory out, so ledger writes never move it. Under the same
+  baseline rule, a satisfying run whose `test_count` is below the baseline (the
+  latest passing run of that command before the step's evidence window, else
+  the first passing run inside it) warns, and on a `strict_context` plan
+  refuses unless the caller passes `--accept-test-drop REASON`.
+- Reuse. `verify run --reuse` and `plan verify --reuse` look for the newest
+  executed record with the identical command, `git_commit`, `worktree_digest`
+  (both non-null), `mythify_version`, and `environment_digest`. They reuse it
+  only when it passed, is not a no-op or zero-test pass, and, if it is itself
+  a reused record, only through its original; otherwise the command runs and
+  one `[INFO]` line says why. The environment digest hashes the platform,
+  `PATH`, the command's first program (resolved path, size, mtime), and the
+  variables named in `MYTHIFY_REUSE_ENV`. It does not cover files ignored by
+  `.gitignore`, services, or the network, so reuse is opt-in.
 - Anchors. `step ID in_progress`, `plan verify`, and `map claim` store
   `verification_anchor`, the hash of the ledger's last line; only later
   records count. Every new plan stores one too, and a step completed straight
@@ -391,6 +415,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | `MYTHIFY_REQUIRE_VERIFIED_STEP` | `0`, `false`, `no`, or `off` waives the strict gate (stamped, warned) |
 | `MYTHIFY_REQUIRE_HUMAN_INPUT` | `0`, `false`, `no`, or `off` waives human gates (stamped, warned) |
 | `MYTHIFY_DISABLE_RUN` | `1` makes every command runner refuse and exit 2; so does any value other than empty, `0`, `false`, `no`, or `off` (case and surrounding space ignored), so a malformed value fails closed |
+| `MYTHIFY_REUSE_ENV` | comma-separated environment variable names whose values join `provenance.environment_digest`, so changing one stops `--reuse` from matching |
 | `MYTHIFY_VERIFY_MAX_OUTPUT_BYTES` | output cap per run, default 16 MiB; a run over the cap fails |
 | `MYTHIFY_MAP_CLAIMANT` | default claimant for `map claim` |
 | `MYTHIFY_MCP_CALL_TIMEOUT` | MCP per-call timeout in seconds, default 900 |

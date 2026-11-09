@@ -24,6 +24,19 @@ seconds; a timed-out command is recorded as unverified with exit code -1.
 Use `--claim` to state what the command proves; the claim is what appears in
 the verdict and the log.
 
+Add `--reuse` (also on `plan verify`) to skip a run the ledger already proves:
+when an earlier passing run has the same command, commit, worktree digest, and
+environment, Mythify records a reused record that points at it and does not
+execute the command again. It never reuses a failed, no-op, or zero-test run,
+and it cannot see files ignored by `.gitignore`, services, or the network, so
+use it only where those do not matter (`MYTHIFY_REUSE_ENV` names extra
+environment inputs).
+
+A passing run that executed fewer tests than the previous passing run of the
+same command prints a `[WARN]` and records `test_count_drop`. Completing a
+step on such a run warns, and on a campaign plan refuses unless
+`--accept-test-drop REASON` says why fewer tests is right.
+
 For a plan step that stores a `verify_command`, `plan verify ID` runs that
 exact command and records the result against the step, which is what the
 strict gate looks for.

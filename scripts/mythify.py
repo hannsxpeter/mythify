@@ -109,6 +109,14 @@ from mythify_verification_commands import (  # noqa: E402
     configure_verification_commands,
     extract_test_count,
 )
+from mythify_ratchet import detect_test_count_drop, drop_warning  # noqa: E402
+from mythify_reuse import (  # noqa: E402
+    environment_digest,
+    find_reusable_run,
+    reuse_hit_message,
+    reuse_miss_message,
+    reused_run_fields,
+)
 from mythify_step_gate import (  # noqa: E402,F401
     FALSE_ENV_VALUES,
     SCOPED_RECORD_KEYS,
@@ -319,7 +327,7 @@ configure_lineage_store(
 # ---------------------------------------------------------------------------
 
 def execute_recorded_verification(
-    state, command, claim, timeout=None, context=None, parents=None
+    state, command, claim, timeout=None, context=None, parents=None, reuse=False
 ):
     """Run COMMAND, append an executed verification record, return the record.
 
@@ -329,15 +337,30 @@ def execute_recorded_verification(
     first, then every other plan), falling back to the active plan's first
     in-progress step. An explicit context lets ``plan verify`` scope evidence
     to a specific step of any plan.
+
+    With ``reuse``, an earlier passing run of the same command, commit,
+    worktree digest, version, and environment is recorded as reused instead of
+    being executed again (see mythify_reuse).
     """
     lineage = capture_lineage(state, parents) if parents else None
     verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
     artifact_dir = state / "verification-artifacts" / verification_id
-    run = run_shell_capture(
-        command,
-        timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
-        artifact_dir=artifact_dir,
-    )
+    original = None
+    if reuse:
+        current = current_verification_provenance(VERSION, state=state)
+        current["environment_digest"] = environment_digest(command)
+        original, why = find_reusable_run(
+            read_jsonl(state / "verifications.jsonl"), command, current
+        )
+        print(reuse_hit_message(original) if original else reuse_miss_message(why))
+    if original:
+        run = reused_run_fields(original)
+    else:
+        run = run_shell_capture(
+            command,
+            timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
+            artifact_dir=artifact_dir,
+        )
     record = {
         "id": verification_id,
         "kind": "executed",
@@ -349,8 +372,13 @@ def execute_recorded_verification(
         "stderr_tail": run["stderr_tail"],
         "verified": run["verified"],
         "timestamp": now_iso(),
-        "provenance": current_verification_provenance(VERSION, state=state),
+        "provenance": {
+            **current_verification_provenance(VERSION, state=state),
+            "environment_digest": environment_digest(command),
+        },
     }
+    if original:
+        record.update(run)
     artifacts = run.get("artifacts")
     if isinstance(artifacts, dict):
         normalized = {}
@@ -372,11 +400,17 @@ def execute_recorded_verification(
             artifact_texts.append(Path(item["path"]).read_text(encoding="utf-8"))
         except (KeyError, OSError):
             pass
-    test_count = extract_test_count(
+    test_count = record.get("test_count") if original else extract_test_count(
         run.get("stdout_tail", ""), run.get("stderr_tail", ""), *artifact_texts
     )
     if test_count is not None:
         record["test_count"] = test_count
+        drop = None if original or not record["verified"] else detect_test_count_drop(
+            read_jsonl(state / "verifications.jsonl"), command, test_count
+        )
+        if drop:
+            record["test_count_drop"] = drop
+            fail(drop_warning(command, drop))
     if lineage is not None:
         record["lineage"] = lineage
     # Every executed record carries the step keys, null unless the caller or the
@@ -744,7 +778,9 @@ def cmd_plan_verify(args, state):
         "step_status": "in_progress",
     }
     claim = "step {0}: {1}".format(step_id, step.get("title", ""))
-    record = execute_recorded_verification(state, command, claim, args.timeout, context)
+    record = execute_recorded_verification(
+        state, command, claim, args.timeout, context, reuse=getattr(args, "reuse", False)
+    )
     if record["verified"]:
         print(
             "[OK] VERIFIED step {0}: {1} (exit 0, {2:.2f}s)".format(
@@ -928,12 +964,19 @@ def cmd_step(args, state):
     ):
         fail(EVIDENCE_MESSAGE)
         return 1
+    accept_drop = getattr(args, "accept_test_drop", None)
+    if accept_drop is not None and not accept_drop.strip():
+        fail("[FAIL] --accept-test-drop needs a reason: say why running fewer tests is right.")
+        return 1
     if args.status == "completed" and strict_step_evidence_enabled():
-        verdict = evaluate_step_evidence(state, slug, plan, step)
+        verdict = evaluate_step_evidence(state, slug, plan, step, accept_drop)
         for _level, text in verdict["messages"]:
             fail(text)
         if not verdict["ok"]:
             return 1
+        step.pop("test_drop_accepted", None)
+        if verdict["test_drop_accepted"]:
+            step["test_drop_accepted"] = verdict["test_drop_accepted"]
     elif args.status == "completed":
         # The legacy opt-out stays available, but never silently: the waiver is
         # stamped on the step so watchers can surface prose-only completions.

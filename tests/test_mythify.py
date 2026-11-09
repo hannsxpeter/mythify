@@ -2098,7 +2098,8 @@ class TestVerify(CliTestCase):
         self.assertEqual(set(record["artifacts"]), {"stdout", "stderr"})
         self.assertEqual(
             sorted(record["provenance"]),
-            ["git_commit", "mythify_version", "worktree_clean", "worktree_digest"],
+            ["environment_digest", "git_commit", "mythify_version", "worktree_clean",
+             "worktree_digest"],
         )
 
     def test_run_without_disable_var_unchanged_passing(self):

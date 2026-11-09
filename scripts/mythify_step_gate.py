@@ -8,8 +8,9 @@ changes the plan, so `step ... completed` and read-only callers can share it.
 import os
 from pathlib import Path
 
-from mythify_io import read_jsonl_after_marker, read_jsonl_since
+from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_provenance import current_verification_provenance, evidence_moved_since_run
+from mythify_ratchet import step_baseline
 from mythify_runtime_helpers import timestamp_at_or_after
 
 VERIFIED_EVIDENCE_MESSAGE = (
@@ -86,18 +87,69 @@ def strict_step_evidence_enabled():
     return raw.strip().lower() not in FALSE_ENV_VALUES
 
 
-def evaluate_step_evidence(state, slug, plan, step):
+def _judge_test_count(state, result, window, accept_test_drop):
+    """Hold the satisfying record's test count to the step's baseline.
+
+    Sets result["test_drop"] (a dict, or None) and result["test_drop_accepted"]
+    (the dict a caller stamps on the step, or None). A drop warns, and under
+    strict context refuses unless ACCEPT_TEST_DROP carries a reason.
+    """
+    result["test_drop"] = result["test_drop_accepted"] = None
+    satisfying = result["satisfying"]
+    count = satisfying.get("test_count")
+    if not isinstance(count, int) or isinstance(count, bool):
+        return
+    everything = read_jsonl(Path(state) / "verifications.jsonl")
+    prior = everything[:max(0, len(everything) - len(window))]
+    found = step_baseline(prior, window, satisfying.get("command"))
+    if found is None or count >= found[0]:
+        return
+    baseline, baseline_id = found
+    command = str(satisfying.get("command") or "").strip()
+    result["test_drop"] = {"command": command, "baseline": baseline,
+                           "baseline_id": baseline_id, "current": count}
+    detail = "{0} test(s) ran, below the baseline of {1} (run {2}) for '{3}'".format(
+        count, baseline, baseline_id, command)
+    reason = str(accept_test_drop or "").strip()
+    if reason:
+        result["test_drop_accepted"] = {"reason": reason, "baseline": baseline, "current": count}
+        result["messages"].append((
+            "fail",
+            "[WARN] Test count drop accepted ({0}): {1}. Stamped on the step as "
+            "test_drop_accepted.".format(reason, detail),
+        ))
+    elif result["strict_context"]:
+        result["ok"] = False
+        result["messages"].append((
+            "fail",
+            "[FAIL] Test count dropped under strict context: {0}. A check that "
+            "runs fewer tests proves less. Restore the tests, or complete with "
+            "--accept-test-drop REASON to say why fewer is right.".format(detail),
+        ))
+    else:
+        result["messages"].append((
+            "fail",
+            "[WARN] Test count dropped: {0}. A check that runs fewer tests "
+            "proves less; pass --accept-test-drop REASON to record why.".format(detail),
+        ))
+
+
+def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None):
     """Judge whether STEP of PLAN has passing executed evidence.
 
     Returns a dict: ok (bool, False means refuse), satisfying (the latest
     passing record, or None), messages (list of (level, text) in print order;
     level is "fail" for lines meant for stderr), moved (staleness reason or
-    None), and strict_context (bool). Pure: no printing, no plan changes.
+    None), strict_context (bool), test_drop (the baseline comparison when the
+    satisfying run executed fewer tests, else None), and test_drop_accepted
+    (what to stamp on the step when ACCEPT_TEST_DROP gave a reason). Pure: no
+    printing, no plan changes. A read-only caller passes no reason.
     """
     step_id = step.get("id")
     strict_context = bool(plan.get("strict_context"))
     result = {"ok": True, "satisfying": None, "messages": [], "moved": None,
-              "strict_context": strict_context}
+              "strict_context": strict_context, "test_drop": None,
+              "test_drop_accepted": None}
     messages = result["messages"]
     expected_command = str(step.get("verify_command") or "").strip()
     lower_bound = step.get("updated_at") or plan.get("created", "")
@@ -195,4 +247,5 @@ def evaluate_step_evidence(state, slug, plan, step):
             "evidence may not describe the current source state. Re-run "
             "the verifier if in doubt.".format(moved),
         ))
+    _judge_test_count(state, result, records, accept_test_drop)
     return result

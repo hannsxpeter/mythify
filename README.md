@@ -164,6 +164,10 @@ runs that command and files the result against the step, which is what lets
 - `verify run "COMMAND"` runs a command and records the exit code as evidence,
   with the output, the git commit and a fingerprint of uncommitted changes, and
   a hash chain that makes later edits to the ledger visible in `status`.
+  `--reuse` records an earlier passing run of the same command, commit,
+  worktree, and environment instead of running it again. A run that executes
+  fewer tests than the last passing run is flagged, and a strict plan refuses
+  to complete on it without `--accept-test-drop REASON`.
 - `verify claim "CLAIM" "EVIDENCE"` records a statement when nothing can run.
   It is marked second-class forever and never counts as proof.
 
