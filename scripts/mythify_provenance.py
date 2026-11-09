@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import subprocess
@@ -15,6 +16,52 @@ from mythify_reuse import environment_digest
 GIT_FRESH_READ = ("-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false")
 
 
+# Results of read-only git calls while a git_read_snapshot() block is open,
+# keyed by directory, arguments, and input; None outside a block.
+_SNAPSHOT = None
+
+
+@contextlib.contextmanager
+def git_read_snapshot():
+    """Run each distinct read-only git call once inside the block.
+
+    For a reader that inspects the tree several times with no write in
+    between: step completion samples the provenance, then lists the changed
+    paths, and a high-risk step samples the provenance again for the review
+    check. Inside the block a repeated call (the same directory, arguments,
+    and input) gets the first call's result instead of running git again.
+    Outside a block every call runs git. A nested block joins the outer one.
+    """
+    global _SNAPSHOT
+    if _SNAPSHOT is not None:
+        yield
+        return
+    _SNAPSHOT = {}
+    try:
+        yield
+    finally:
+        _SNAPSHOT = None
+
+
+def _run_git(root, argv, **options):
+    """Run ARGV in ROOT, or return the open snapshot's result for the same call."""
+    key = (str(root), tuple(argv), options.get("input"), bool(options.get("text")))
+    if _SNAPSHOT is not None and key in _SNAPSHOT:
+        outcome = _SNAPSHOT[key]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    try:
+        outcome = subprocess.run(argv, cwd=str(root), capture_output=True, **options)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if _SNAPSHOT is not None:
+            _SNAPSHOT[key] = exc
+        raise
+    if _SNAPSHOT is not None:
+        _SNAPSHOT[key] = outcome
+    return outcome
+
+
 def git_environment():
     return {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
 
@@ -22,10 +69,7 @@ def git_environment():
 def _git_bytes(root, args, environment, timeout=30):
     """stdout of `git ARGS` run in ROOT with fresh reads, or None on failure."""
     try:
-        run = subprocess.run(
-            ["git", *GIT_FRESH_READ, *args],
-            cwd=str(root), capture_output=True, timeout=timeout, env=environment,
-        )
+        run = _run_git(root, ["git", *GIT_FRESH_READ, *args], timeout=timeout, env=environment)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return run.stdout if run.returncode == 0 else None
@@ -70,9 +114,9 @@ def git_ignore_rules_digest(root, environment=None):
     if info is None or ignored is None:
         return None
     try:
-        configured = subprocess.run(
-            ["git", "config", "--path", "--get", "core.excludesFile"],
-            cwd=str(root), capture_output=True, timeout=30, env=environment,
+        configured = _run_git(
+            root, ["git", "config", "--path", "--get", "core.excludesFile"],
+            timeout=30, env=environment,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -133,10 +177,8 @@ def state_exclude_pathspec(state, root):
 
 def git_commit(root):
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(root),
-            capture_output=True,
+        result = _run_git(
+            root, ["git", "rev-parse", "HEAD"],
             text=True,
             timeout=10,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
@@ -151,10 +193,8 @@ def git_commit(root):
 
 def git_worktree_clean(root, exclude=()):
     try:
-        result = subprocess.run(
-            ["git", *GIT_FRESH_READ, "status", "--porcelain", "--untracked-files=all", *exclude],
-            cwd=str(root),
-            capture_output=True,
+        result = _run_git(
+            root, ["git", *GIT_FRESH_READ, "status", "--porcelain", "--untracked-files=all", *exclude],
             text=True,
             timeout=10,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
@@ -181,19 +221,18 @@ def _hash_objects(root, paths, environment):
     ids = {}
     try:
         if batch:
-            run = subprocess.run(
-                ["git", "hash-object", "--no-filters", "--stdin-paths"],
-                cwd=str(root), capture_output=True, timeout=60, env=environment,
-                input=os.fsencode("\n".join(batch) + "\n"),
+            run = _run_git(
+                root, ["git", "hash-object", "--no-filters", "--stdin-paths"],
+                timeout=60, env=environment, input=os.fsencode("\n".join(batch) + "\n"),
             )
             lines = run.stdout.splitlines()
             if run.returncode != 0 or len(lines) != len(batch):
                 return None
             ids.update(zip(batch, (line.strip() for line in lines)))
         for path in single:
-            run = subprocess.run(
-                ["git", "hash-object", "--no-filters", "--", path],
-                cwd=str(root), capture_output=True, timeout=30, env=environment,
+            run = _run_git(
+                root, ["git", "hash-object", "--no-filters", "--", path],
+                timeout=30, env=environment,
             )
             if run.returncode != 0:
                 return None

@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   choice": follow the user's or project's rules on who does what, which `route`
   shows when a policy file is present.
 
+### Changed
+
+- Judging a step's evidence (`step ... completed`, `verify gate`) runs each
+  distinct read-only git command once: the provenance sample, the changed-path
+  check, and a high-risk step's review check share one snapshot
+  (`git_read_snapshot` in `scripts/mythify_provenance.py`). A completion now
+  starts 11 git processes instead of 13, and a high-risk completion with a
+  findings review no longer runs the provenance's git commands twice. Output,
+  exit codes, and records are unchanged.
+
 ### Removed
 
 - Breaking: product planning is removed, so the next release is 7.0.0.

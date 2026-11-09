@@ -11,7 +11,11 @@ from pathlib import Path
 from mythify_checks import check_reference, load_checks
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_path_risk import judge_path_risk
-from mythify_provenance import current_verification_provenance, evidence_moved_since_run
+from mythify_provenance import (
+    current_verification_provenance,
+    evidence_moved_since_run,
+    git_read_snapshot,
+)
 from mythify_ratchet import records_before_window, step_baseline
 from mythify_runtime_helpers import timestamp_at_or_after
 
@@ -257,9 +261,12 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
             messages.append(("fail", STRICT_CONTEXT_NOTICE))
         return result
     result["satisfying"] = satisfying[-1]
-    moved = evidence_moved_since_run(
-        satisfying[-1], current_verification_provenance(_config["version"], state=state)
-    )
+    # Both reads are pure and nothing writes between them, so one git snapshot
+    # serves the provenance, the changed paths, and a high-risk review check.
+    with git_read_snapshot():
+        current = current_verification_provenance(_config["version"], state=state)
+        risk = judge_path_risk(state, plan, step, human_input)
+    moved = evidence_moved_since_run(satisfying[-1], current)
     result["moved"] = moved
     if moved and strict_context:
         result["ok"] = False
@@ -277,7 +284,7 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
             "the verifier if in doubt.".format(moved),
         ))
     _judge_test_count(state, result, records, accept_test_drop)
-    result["risk"] = judge_path_risk(state, plan, step, human_input)
+    result["risk"] = risk
     result["messages"].extend(result["risk"]["messages"])
     result["ok"] = result["ok"] and result["risk"]["ok"]
     return result
