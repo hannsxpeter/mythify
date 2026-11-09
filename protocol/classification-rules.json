@@ -431,25 +431,19 @@
           "log in to the server",
           "on the production server",
           "on the staging server",
-          "on the prod server"
+          "on the prod server",
+          "production migration",
+          "production migrations",
+          "go live"
         ],
         "environment": {
           "verbs": [
-            "deploy",
-            "ship",
-            "release",
             "push",
-            "promote",
-            "roll out",
-            "roll back",
-            "rollback",
-            "restart",
             "migrate",
-            "run the migration",
-            "run migrations",
             "drop",
             "truncate",
-            "scale"
+            "scale",
+            "roll out"
           ],
           "words": [
             "production",
@@ -464,35 +458,21 @@
             "droplet",
             "instance"
           ],
-          "within": 6
-        },
-        "remote": {
-          "tools": [
-            "ssh",
-            "rsync",
-            "scp"
-          ],
-          "links": [
-            "into",
-            "onto",
-            "to"
-          ],
-          "targets": [
-            "server",
-            "servers",
-            "box",
-            "host",
-            "hosts",
-            "droplet",
-            "instance",
-            "cluster",
-            "production",
-            "prod",
-            "staging",
-            "live"
-          ],
-          "link_within": 4,
-          "target_within": 3
+          "within": 6,
+          "pairs": [
+            {
+              "first": [
+                "run",
+                "apply",
+                "execute"
+              ],
+              "then": [
+                "migration",
+                "migrations"
+              ],
+              "within": 3
+            }
+          ]
         },
         "near_miss": [
           "docs",
@@ -582,10 +562,79 @@
             "fixture",
             "util",
             "utils",
-            "utility"
+            "utility",
+            "process",
+            "docs",
+            "guide",
+            "readme",
+            "notes"
           ],
-          "after": 3
-        }
+          "after": 4,
+          "stop_words": [
+            "the",
+            "a",
+            "an",
+            "my",
+            "our",
+            "your",
+            "this",
+            "that",
+            "its",
+            "their",
+            "to",
+            "into",
+            "onto",
+            "on",
+            "in",
+            "of",
+            "for",
+            "from",
+            "with",
+            "at",
+            "by",
+            "it"
+          ]
+        },
+        "operations": {
+          "verbs": [
+            "deploy",
+            "ship",
+            "release",
+            "publish",
+            "promote",
+            "roll back",
+            "rollback",
+            "restart",
+            "ssh",
+            "scp",
+            "rsync",
+            "spin up"
+          ]
+        },
+        "pairs": [
+          {
+            "first": [
+              "stop",
+              "start",
+              "restart",
+              "reload",
+              "kill"
+            ],
+            "then": [
+              "service",
+              "services",
+              "server",
+              "daemon",
+              "container",
+              "containers",
+              "cluster",
+              "worker",
+              "workers",
+              "pod"
+            ],
+            "within": 3
+          }
+        ]
       },
       {
         "id": "image",
@@ -615,9 +664,28 @@
               "poster",
               "posters",
               "mascot",
-              "cartoon"
+              "cartoon",
+              "icon",
+              "icons",
+              "icon set",
+              "icon sets",
+              "favicon",
+              "favicons"
             ],
             "within": 3
+          },
+          {
+            "first": [
+              "make"
+            ],
+            "then": [
+              "an icon",
+              "an icon set",
+              "a favicon",
+              "icons",
+              "a set of icons"
+            ],
+            "within": 0
           }
         ],
         "near_miss": [
@@ -679,7 +747,12 @@
           "feature",
           "generation",
           "generator",
-          "direction"
+          "direction",
+          "prop",
+          "props",
+          "alignment",
+          "alignments",
+          "button"
         ]
       },
       {
@@ -856,6 +929,78 @@
       "build",
       "create",
       "update"
+    ],
+    "high_tier_terms": [
+      "auth",
+      "authentication",
+      "authorization",
+      "sign-in",
+      "sign in",
+      "signin",
+      "login",
+      "log in",
+      "oauth",
+      "sso",
+      "session",
+      "sessions",
+      "permission",
+      "permissions",
+      "privacy",
+      "gdpr",
+      "pii",
+      "payment",
+      "payments",
+      "billing",
+      "checkout",
+      "subscription",
+      "subscriptions",
+      "invoice",
+      "invoices",
+      "refund",
+      "refunds",
+      "migration",
+      "migrations",
+      "schema",
+      "concurrency",
+      "race",
+      "race condition",
+      "deadlock",
+      "lock",
+      "mutex",
+      "deploy config",
+      "deployment config",
+      "ci config",
+      "secrets"
+    ],
+    "and_starters": [
+      "deploy",
+      "ship",
+      "release",
+      "publish",
+      "promote",
+      "rollback",
+      "restart",
+      "spend",
+      "buy",
+      "purchase",
+      "stop",
+      "start",
+      "reload",
+      "kill",
+      "run",
+      "apply",
+      "execute",
+      "migrate",
+      "push",
+      "roll back",
+      "roll out",
+      "spin up"
+    ],
+    "and_lead_ins": [
+      "please",
+      "also",
+      "then",
+      "now"
     ]
   },
   "task_types": [

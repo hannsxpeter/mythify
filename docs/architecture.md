@@ -641,11 +641,13 @@ printed string with `[withheld]` in one pass (so text and JSON agree), and it
 contains no model or vendor name. Without a file, or with an invalid one, the
 output is byte-for-byte what it was. The task-to-step match uses a separate
 `policy_steps` section of `protocol/classification-rules.json` (production,
-image, bulk, browser_check) so the `classification` block never changes (the
-production step needs an operation verb with an environment word in one clause,
-ssh, rsync, or scp to a host, or a money phrase; a bare "deploy" is a miss by
-design, and still lands at the high review tier because the deploy term makes
-the text risk high); the
+image, bulk, browser_check) so the `classification` block never changes (step 1
+prefers recall: a clause whose operative verb is an operation verb such as
+deploy, ship, or release, ssh, rsync, or scp as the main verb, or a money phrase;
+only a coding verb whose object is a code noun that the operation word modifies
+stays build, and an ambiguous prompt goes to step 1; step 1 and any
+`high_tier_terms` word such as auth, billing, or migration raise the delegation
+review tier to at least high, in the block only); the
 other steps come from the route (direct is question only for a question or
 research task with no file changes and build otherwise, map and product are
 design, the rest are build, and review uses the reviewer role). Why: users who
