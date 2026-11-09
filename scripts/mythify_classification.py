@@ -74,6 +74,7 @@ def valid_code_work(code_work, strings, count):
         return True
     return (
         isinstance(code_work, dict)
+        and strings(code_work.get("stop_words", []))
         and strings(code_work.get("verbs"))
         and bool(code_work["verbs"])
         and strings(code_work.get("nouns"))
@@ -100,10 +101,15 @@ def valid_remote(rule, strings, count):
         return True
     return (
         isinstance(rule, dict)
-        and all(strings(rule.get(key)) and bool(rule[key]) for key in ("tools", "links", "targets"))
+        and all(strings(rule.get(key)) and bool(rule[key]) for key in ("tools", "links"))
         and count(rule.get("link_within"))
-        and count(rule.get("target_within"))
     )
+
+
+def valid_operations(rule, strings):
+    if rule is None:
+        return True
+    return isinstance(rule, dict) and strings(rule.get("verbs")) and bool(rule["verbs"])
 
 
 def validate_policy_steps(section):
@@ -119,6 +125,7 @@ def validate_policy_steps(section):
         not isinstance(section, dict)
         or not count(section.get("guard_window"))
         or not strings(section.get("comma_starters"))
+        or not strings(section.get("high_tier_terms"))
     ):
         raise ValueError("Invalid classification policy_steps section")
     steps = section.get("steps")
@@ -144,10 +151,14 @@ def validate_policy_steps(section):
                 and count(pair.get("within"))
                 for pair in pairs
             )
-            and (step["terms"] or pairs or step.get("environment") or step.get("remote"))
+            and (
+                step["terms"] or pairs or step.get("environment") or step.get("remote")
+                or step.get("operations")
+            )
             and valid_code_work(step.get("code_work"), strings, count)
             and valid_environment(step.get("environment"), strings, count)
             and valid_remote(step.get("remote"), strings, count)
+            and valid_operations(step.get("operations"), strings)
         )
         if not valid:
             raise ValueError("Invalid classification policy_steps entry")
@@ -205,6 +216,7 @@ PATH_RISK_GLOBS = tuple(
 RISK_RANK = {"low": 0, "medium": 1, "high": 2}
 POLICY_GUARD_WINDOW = int(CLASSIFICATION_MANIFEST["policy_steps"]["guard_window"])
 POLICY_STEPS = tuple(CLASSIFICATION_MANIFEST["policy_steps"]["steps"])
+POLICY_HIGH_TIER_TERMS = tuple(str(t) for t in CLASSIFICATION_MANIFEST["policy_steps"]["high_tier_terms"])
 POLICY_COMMA_STARTERS = frozenset(str(w) for w in CLASSIFICATION_MANIFEST["policy_steps"]["comma_starters"])
 
 
@@ -556,21 +568,28 @@ def _guarded(tokens, end, near_miss, window):
 
 
 def _code_work(tokens, start, end, code_work):
-    """True when the match is code work on a component named after the operation.
+    """True when the operation word only modifies a code noun in code work.
 
     A coding verb (implement, write, fix, and kin) must come before the
     operation word in the same clause, and a code noun (client, wrapper, script,
-    button, and kin) must follow the operation word within "after" words, as in
-    "fix the deploy command parser". START and END bound the operation word.
+    button, process, and kin) must follow the operation word within "after"
+    words with no stop word (the, a, to, of, and kin) between, as in "fix the
+    deploy command parser". "deploy the api" is the verb with an object, not a
+    modifier, so it is not cancelled. START and END bound the operation word.
     """
     if not code_work:
         return False
     clause_start = max([i for i, token in enumerate(tokens[:start]) if token == CLAUSE_BREAK] + [-1]) + 1
-    before = " ".join(tokens[clause_start:start])
-    after = " ".join(_in_clause(tokens, end, end + int(code_work["after"])))
-    return bool(contains_any(before, code_work["verbs"])) and bool(
-        contains_any(after, code_work["nouns"])
-    )
+    if not contains_any(" ".join(tokens[clause_start:start]), code_work["verbs"]):
+        return False
+    stops = set(code_work.get("stop_words", []))
+    nouns = set(wordish(" ".join(code_work["nouns"])).split())
+    for token in _in_clause(tokens, end, end + int(code_work["after"])):
+        if token in stops:
+            return False
+        if token in nouns:
+            return True
+    return False
 
 
 def _operation_allowed(tokens, start, end, step):
@@ -599,8 +618,20 @@ def _environment_signal(tokens, step):
     return None
 
 
+def _operations_signal(tokens, step):
+    """A clause whose operative verb is an operation verb, with or without an environment."""
+    rule = step.get("operations")
+    if not rule:
+        return None
+    for verb in rule["verbs"]:
+        for start in term_positions(tokens, verb):
+            if _operation_allowed(tokens, start, start + term_count(verb), step):
+                return str(verb)
+    return None
+
+
 def _remote_signal(tokens, step):
-    """ssh, rsync, or scp, then into/onto/to, then a host-like word, in one clause."""
+    """ssh, rsync, or scp, then into/onto/to, then any word (the host), in one clause."""
     rule = step.get("remote")
     if not rule:
         return None
@@ -614,28 +645,28 @@ def _remote_signal(tokens, step):
                     link_end = at + term_count(link)
                     if not (end <= at <= end + int(rule["link_within"])) or CLAUSE_BREAK in tokens[end:at]:
                         continue
-                    for target in rule["targets"]:
-                        for hit in term_positions(tokens, target):
-                            if (
-                                link_end <= hit <= link_end + int(rule["target_within"])
-                                and CLAUSE_BREAK not in tokens[link_end:hit]
-                            ):
-                                return "{0} ... {1}".format(tool, target)
+                    host = tokens[link_end:link_end + 1]
+                    if host and host[0] != CLAUSE_BREAK:
+                        return "{0} ... {1}".format(tool, host[0])
     return None
 
 
 def policy_step_signal(tokens, step):
     """The first way STEP matches TOKENS, or None.
 
-    Four kinds, each cancelled when a near-miss word (docs, upload, feature,
+    Five kinds, each cancelled when a near-miss word (docs, upload, feature,
     and kin) starts right after the operation word, or when the step's code_work
     rule says the wording is code work on a component named after the operation:
     - a term, matched as a whole phrase;
     - a pair, a "first" phrase then a "then" phrase in the same clause with at
       most "within" words between;
-    - an environment rule, an operation verb and an environment word in one
-      clause within "within" words of each other, in either order;
-    - a remote rule, a tool, then a link word, then a host-like word.
+    - an operations rule, an operation verb alone (deploy, ship, release, and
+      kin): a clause whose operative verb is one is step 1 without any marker;
+    - an environment rule, a verb that needs an environment (push, migrate, and
+      kin) and an environment word in one clause within "within" words of each
+      other, in either order;
+    - a remote rule, a tool, then a link word, then any word, which counts as
+      the host.
     """
     near_miss = step.get("near_miss", [])
     window = int(step.get("guard_window", POLICY_GUARD_WINDOW))
@@ -657,7 +688,22 @@ def policy_step_signal(tokens, step):
                             and not _guarded(tokens, at + term_count(then), near_miss, window)
                         ):
                             return "{0} ... {1}".format(first, then)
-    return _environment_signal(tokens, step) or _remote_signal(tokens, step)
+    return (
+        _operations_signal(tokens, step)
+        or _environment_signal(tokens, step)
+        or _remote_signal(tokens, step)
+    )
+
+
+def high_tier_term(task_text):
+    """The first high_tier_terms entry the wording names, or None.
+
+    Terms such as auth, billing, checkout, and migration mark risky code; the
+    delegation block raises its review tier to high for them. Whole words or
+    phrases only. This never changes classify_task_text.
+    """
+    matches = contains_any(task_text, POLICY_HIGH_TIER_TERMS)
+    return matches[0] if matches else None
 
 
 def classify_policy_step(task_text):

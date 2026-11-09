@@ -22,15 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replaced with `[withheld]` (a name containing one is partly withheld), and
   Mythify still never picks, ranks, or switches a model. Without a file the
   output is byte-for-byte unchanged; an unreadable or invalid file prints one
-  `[WARN]` line and is ignored. The production step needs an environment marker: an
-  operation verb (deploy, ship, release, push, restart, migrate, and the like)
-  and an environment word (production, staging, server, and the like) in one
-  clause, ssh, rsync, or scp to a host, or an explicit money phrase. It is
-  cancelled for code work on a component named after the operation (a deploy
-  script, an ssh client). A bare "deploy" with no environment, server, or money
-  marker is not production; a false positive would halt ordinary work, and a miss
-  still lands at the high review tier with user review, because the deploy term
-  makes route's text risk high. The task-to-step terms for production, image,
+  `[WARN]` line and is ignored. Step 1 (production, deploys, servers, or money)
+  prefers recall: a clause whose operative verb is an operation verb (deploy,
+  ship, release, publish, promote, restart, roll back, stop or start a service),
+  ssh, scp, or rsync to any host, a migration against production, or an explicit
+  money phrase is step 1, with or without an environment word. Only clear code
+  work stays build: a coding verb whose object is a code noun that the operation
+  word modifies (a deploy script, an ssh client); an ambiguous prompt goes to
+  step 1. The delegation review tier is at least high for step 1, and also when
+  the wording names a risky-code term from the new `high_tier_terms` list (auth,
+  billing, checkout, migration, secrets, and similar), with the reason in the
+  basis; route's own classification is unchanged. The image step also takes icons
+  and favicons. The task-to-step terms for production, image,
   bulk, and browser_check live in a new `policy_steps` section of
   `protocol/classification-rules.json` (schema 6) and do not change the
   `classification` block. The protocol gains one sentence in "Delegation is your

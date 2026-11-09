@@ -431,25 +431,29 @@
           "log in to the server",
           "on the production server",
           "on the staging server",
-          "on the prod server"
+          "on the prod server",
+          "production migration",
+          "production migrations",
+          "go live",
+          "stop the service",
+          "start the service",
+          "stop a service",
+          "start a service",
+          "stop services",
+          "start services"
         ],
         "environment": {
           "verbs": [
-            "deploy",
-            "ship",
-            "release",
             "push",
-            "promote",
-            "roll out",
-            "roll back",
-            "rollback",
-            "restart",
             "migrate",
             "run the migration",
+            "apply the migration",
             "run migrations",
+            "apply migrations",
             "drop",
             "truncate",
-            "scale"
+            "scale",
+            "roll out"
           ],
           "words": [
             "production",
@@ -477,22 +481,7 @@
             "onto",
             "to"
           ],
-          "targets": [
-            "server",
-            "servers",
-            "box",
-            "host",
-            "hosts",
-            "droplet",
-            "instance",
-            "cluster",
-            "production",
-            "prod",
-            "staging",
-            "live"
-          ],
-          "link_within": 4,
-          "target_within": 3
+          "link_within": 4
         },
         "near_miss": [
           "docs",
@@ -582,9 +571,50 @@
             "fixture",
             "util",
             "utils",
-            "utility"
+            "utility",
+            "process",
+            "docs",
+            "guide",
+            "readme",
+            "notes"
           ],
-          "after": 3
+          "after": 4,
+          "stop_words": [
+            "the",
+            "a",
+            "an",
+            "my",
+            "our",
+            "your",
+            "this",
+            "that",
+            "its",
+            "their",
+            "to",
+            "into",
+            "onto",
+            "on",
+            "in",
+            "of",
+            "for",
+            "from",
+            "with",
+            "at",
+            "by",
+            "it"
+          ]
+        },
+        "operations": {
+          "verbs": [
+            "deploy",
+            "ship",
+            "release",
+            "publish",
+            "promote",
+            "roll back",
+            "rollback",
+            "restart"
+          ]
         }
       },
       {
@@ -615,9 +645,28 @@
               "poster",
               "posters",
               "mascot",
-              "cartoon"
+              "cartoon",
+              "icon",
+              "icons",
+              "icon set",
+              "icon sets",
+              "favicon",
+              "favicons"
             ],
             "within": 3
+          },
+          {
+            "first": [
+              "make"
+            ],
+            "then": [
+              "an icon",
+              "an icon set",
+              "a favicon",
+              "icons",
+              "a set of icons"
+            ],
+            "within": 0
           }
         ],
         "near_miss": [
@@ -679,7 +728,12 @@
           "feature",
           "generation",
           "generator",
-          "direction"
+          "direction",
+          "prop",
+          "props",
+          "alignment",
+          "alignments",
+          "button"
         ]
       },
       {
@@ -856,6 +910,47 @@
       "build",
       "create",
       "update"
+    ],
+    "high_tier_terms": [
+      "auth",
+      "authentication",
+      "authorization",
+      "sign-in",
+      "sign in",
+      "signin",
+      "login",
+      "log in",
+      "oauth",
+      "sso",
+      "session",
+      "sessions",
+      "permission",
+      "permissions",
+      "privacy",
+      "gdpr",
+      "pii",
+      "payment",
+      "payments",
+      "billing",
+      "checkout",
+      "subscription",
+      "subscriptions",
+      "invoice",
+      "invoices",
+      "refund",
+      "refunds",
+      "migration",
+      "migrations",
+      "schema",
+      "concurrency",
+      "race condition",
+      "deadlock",
+      "lock",
+      "mutex",
+      "deploy config",
+      "deployment config",
+      "ci config",
+      "secrets"
     ]
   },
   "task_types": [

@@ -18,14 +18,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import mythify_agent_policy  # noqa: E402
 import mythify_classification  # noqa: E402
-from mythify_classification import classify_policy_step  # noqa: E402
+from mythify_classification import classify_policy_step, classify_task_text, high_tier_term  # noqa: E402
+from mythify_router import ROUTE_SELECTING_TERMS, select_workflow_route  # noqa: E402
 
 POLICY = {
     "version": 1,
@@ -107,6 +110,58 @@ MEDIUM_RISK = "Add a retry to the http client"
 HIGH_RISK = "write payment code for the checkout service"
 
 
+# Prompts for the step 1 and risky-code tier floors; the plain-output checks
+# above also run them, to show the floors never touch a run without a policy.
+FLOOR_SAMPLES = (
+    "ssh into the server and check the logs",
+    "implement stripe billing for subscriptions",
+    "fix the checkout bug",
+)
+
+# (task, expected policy step id, expected review tier id, raised_by). Step 1
+# always lands at the high tier; wording that names a risky-code term does too.
+# raised_by is None when route's own risk already says high.
+STEP_TIER_CORPUS = (
+    # item 1: step 1 prefers recall
+    ("deploy the app", "production", "high", None),
+    ("deploy keyvra", "production", "high", None),
+    ("ship it", "production", "high", None),
+    ("release v6.3.0", "production", "high", None),
+    ("publish the package to npm", "production", "high", None),
+    ("roll back the last release", "production", "high", None),
+    ("run the production migration", "production", "high", None),
+    ("apply the migration to the live database", "production", "high", None),
+    ("restart the inhouse service", "production", "high", "step 1 production"),
+    ("ssh into hxp-linux and check the logs", "production", "high", "step 1 production"),
+    ("push main to origin on the keyvra server", "production", "high", "step 1 production"),
+    ("ssh into the server and check the logs", "production", "high", "step 1 production"),
+    ("then deploy", "production", "high", None),
+    ("Rename the function to deploy", "production", "high", None),
+    ("Implement a button to deploy", "production", "high", None),
+    ("Fix deploy errors in app.py", "production", "high", None),
+    ("Add SSH to the API", "production", "high", "step 1 production"),
+    ("buy a domain", "production", "high", "step 1 production"),
+    ("upgrade the plan to pro", "production", "high", "step 1 production"),
+    # item 1: clear code work stays build
+    ("add a --deploy flag", "build", "high", None),
+    ("write a deploy script", "build", "high", None),
+    ("add payment processing to checkout", "build", "high", None),
+    # item 3: risky-code wording raises the tier
+    ("implement stripe billing for subscriptions", "build", "high", "names billing"),
+    ("fix the checkout bug", "build", "high", "names checkout"),
+    ("add a sign-in page with oauth", "build", "high", "names sign-in"),
+    # item 4: icons are images; their near misses are not
+    ("make an icon set", "image", "low", None),
+    ("draw an icon for the settings page", "image", "normal", None),
+    ("fix the icon alignment in the navbar", "build", "low", None),
+    ("rename the favicon file", "build", "normal", None),
+    ("add an icon prop to the Button component", "build", "normal", None),
+    # ordinary work keeps the tier route's risk gives it
+    ("update the footer text", "build", "low", None),
+    ("Add a retry to the http client", "build", "normal", None),
+)
+
+
 def policy_with(**changes):
     policy = copy.deepcopy(POLICY)
     for key, value in changes.items():
@@ -169,7 +224,7 @@ class PolicyCase(unittest.TestCase):
 
 class TestNoPolicyIsUnchanged(PolicyCase):
     def test_output_is_identical_without_a_policy_file(self):
-        for task in list(TASKS.values()) + [LOW_RISK, MEDIUM_RISK, HIGH_RISK]:
+        for task in list(TASKS.values()) + [LOW_RISK, MEDIUM_RISK, HIGH_RISK] + list(FLOOR_SAMPLES):
             for flags in ((), ("--json",)):
                 with self.subTest(task=task, flags=flags):
                     home_only = self.run_route(task, *flags)
@@ -356,14 +411,15 @@ class TestStepSelection(PolicyCase):
             with self.subTest(task=task):
                 self.assertEqual(self.delegation(task)["matched"]["id"], "production")
 
-    def test_a_bare_deploy_is_not_production(self):
-        # By design (production needs an environment, server, or money marker):
-        # a bare "deploy" is not the stop-and-ask step, so these route on their
-        # other words. The deploy term still makes route's text risk high.
-        self.assertEqual(
-            self.delegation("rename all the functions across the repo then deploy")["matched"]["id"], "bulk"
-        )
-        self.assertEqual(self.delegation("fix the parser bug then deploy")["matched"]["id"], "build")
+    def test_a_bare_deploy_is_production(self):
+        # Policy owner: step 1 prefers recall; ambiguous goes to step 1. A bare
+        # "deploy" is step 1 and outranks the bulk step.
+        for task in (
+            "rename all the functions across the repo then deploy",
+            "fix the parser bug then deploy",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(self.delegation(task)["matched"]["id"], "production")
 
     def test_payment_code_is_build_at_the_high_tier_not_production(self):
         delegation = self.delegation(HIGH_RISK)
@@ -418,6 +474,8 @@ class TestPolicyStepPrecision(unittest.TestCase):
                 "generate a logo for the landing page", "create an illustration for the blog post",
                 "design a new logo for the app", "draw a mascot for the docs site",
                 "generate images for the hero section",
+                "make an icon set", "draw an icon for the settings page",
+                "generate favicons for the site", "create an icon set for the dashboard",
             )),
             ("bulk", (
                 "rename all the functions across the repo", "run a codemod over the services",
@@ -450,6 +508,10 @@ class TestPolicyStepPrecision(unittest.TestCase):
             "create an image upload endpoint",
             "resize the image on the profile page",
             "add an image to the README",
+            "fix the icon alignment in the navbar",
+            "rename the favicon file",
+            "add an icon prop to the Button component",
+            "make the icon bigger",
             "draw a sequence diagram in mermaid",
             "fix the parser",
             "What does the status command show?",
@@ -481,7 +543,10 @@ class TestPolicyStepPrecision(unittest.TestCase):
                 m["steps"][0].update(terms=[], pairs=[]),
                 m["steps"][0].pop("environment"),
                 m["steps"][0].pop("remote"),
+                m["steps"][0].pop("operations"),
             )),
+            ("no high tier terms", lambda m: m.pop("high_tier_terms")),
+            ("operations without verbs", lambda m: m["steps"][0]["operations"].update(verbs=[])),
             ("no comma starters", lambda m: m.pop("comma_starters")),
             ("environment without words", lambda m: m["steps"][0]["environment"].pop("words")),
             ("remote without links", lambda m: m["steps"][0]["remote"].update(links=[])),
@@ -500,6 +565,77 @@ class TestPolicyStepPrecision(unittest.TestCase):
     def test_schema_version_was_bumped(self):
         path = REPO_ROOT / "protocol" / "classification-rules.json"
         self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["schema_version"], 6)
+
+
+class TestStepOneAndTierFloors(PolicyCase):
+    def delegate(self, task):
+        """build_delegation in process, with route's own classification and route."""
+        path = self.write_policy(POLICY)
+        classification = classify_task_text(task, route_terms=ROUTE_SELECTING_TERMS)
+        route = select_workflow_route(task, {}, classification)[0]
+        with mock.patch.dict(os.environ, {"MYTHIFY_AGENT_POLICY": path}):
+            return mythify_agent_policy.build_delegation(task, route, classification)
+
+    def test_regression_corpus_has_the_expected_step_and_tier(self):
+        for task, step_id, tier_id, raised_by in STEP_TIER_CORPUS:
+            with self.subTest(task=task):
+                delegation = self.delegate(task)
+                self.assertEqual(delegation["matched"]["id"], step_id)
+                self.assertEqual(delegation["review_tier"]["id"], tier_id)
+                self.assertEqual(delegation["review_tier"]["raised_by"], raised_by)
+                if raised_by:
+                    self.assertIn("raised to high: " + raised_by, delegation["basis"])
+                else:
+                    self.assertNotIn("raised to high", delegation["basis"])
+
+    def test_step_one_is_at_least_high_in_the_text_output(self):
+        out = self.text("ssh into the server and check the logs")
+        self.assertIn("-> stop_and_ask (policy step production (matched: ssh ... the); raised to high: step 1 production)", out)
+        self.assertIn("Review tier: high (risk low, raised to high: step 1 production); reviewer_effort: xhigh", out)
+
+    def test_a_risky_code_term_raises_the_tier_and_the_tricky_effort(self):
+        delegation = self.delegation("fix the checkout bug")
+        self.assertEqual(delegation["review_tier"]["id"], "high")
+        self.assertEqual(delegation["review_tier"]["risk"], "low")
+        self.assertEqual(delegation["role"]["effort"], "high")
+        self.assertEqual(delegation["role"]["effort_basis"], "tricky effort, tier raised to high")
+        self.assertEqual(self.delegation(LOW_RISK)["role"]["effort"], "medium")
+
+    def test_the_floors_never_lower_a_tier(self):
+        # route's own risk is already high: no raise note, same tier.
+        delegation = self.delegate("write payment code for the checkout service")
+        self.assertEqual(delegation["review_tier"]["id"], "high")
+        self.assertIsNone(delegation["review_tier"]["raised_by"])
+
+    def test_high_tier_terms_match_whole_words_and_phrases(self):
+        for task, term in (
+            ("implement stripe billing for subscriptions", "billing"),
+            ("fix the race condition in the queue", "race condition"),
+            ("add a login page", "login"),
+            ("rotate the deployment config", "deployment config"),
+            ("write a mutex around the cache", "mutex"),
+            ("handle gdpr deletion requests", "gdpr"),
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(high_tier_term(task), term)
+        for task in ("tidy the footer", "write a blocking queue", "fix the authority page", "update the logins"):
+            with self.subTest(task=task):
+                self.assertIsNone(high_tier_term(task))
+
+    def test_the_term_list_is_vendor_free_and_in_the_manifest(self):
+        terms = mythify_classification.POLICY_HIGH_TIER_TERMS
+        for expected in ("auth", "billing", "checkout", "migration", "secrets", "race condition"):
+            self.assertIn(expected, terms)
+        for vendor in ("stripe", "paypal", "braintree"):
+            self.assertNotIn(vendor, terms)
+
+    def test_the_route_classification_is_not_changed_by_the_floors(self):
+        path = self.write_policy(POLICY)
+        for task in ("fix the checkout bug", "ssh into the server and check the logs"):
+            plain = json.loads(self.run_route(task, "--json", policy=self.missing).stdout)
+            with_policy = json.loads(self.run_route(task, "--json", policy=path).stdout)
+            with_policy.pop("delegation")
+            self.assertEqual(plain, with_policy)
 
 
 class TestRiskAndEffort(PolicyCase):

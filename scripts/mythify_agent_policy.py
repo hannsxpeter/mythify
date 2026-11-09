@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-from mythify_classification import classify_policy_step
+from mythify_classification import classify_policy_step, high_tier_term
 
 POLICY_ENV = "MYTHIFY_AGENT_POLICY"
 POLICY_VERSION = 1
@@ -164,7 +164,7 @@ OWN_KEYS = frozenset((
     "in_policy", "options", "tool", "model", "options_withheld", "effort",
     "effort_basis", "effort_text", "review_tier", "risk", "reviewer_effort",
     "user_review", "extra", "review_rounds_max", "guards", "banned_models_withheld",
-    "effort_ceiling", "effort_clamped", "effort_withheld", "text_withheld",
+    "effort_ceiling", "effort_clamped", "effort_withheld", "text_withheld", "raised_by",
 ))
 
 
@@ -267,11 +267,11 @@ def _find(items, key, wanted):
     return None
 
 
-def _tier_view(policy, risk, guards):
-    tier_id = RISK_TO_TIER.get(risk, "normal")
+def _tier_view(policy, risk, guards, raised_by=None):
+    tier_id = "high" if raised_by else RISK_TO_TIER.get(risk, "normal")
     tier = _find(policy["review_tiers"], "id", tier_id)
     if tier is None:
-        return {"id": tier_id, "risk": risk, "in_policy": False}
+        return {"id": tier_id, "risk": risk, "in_policy": False, "raised_by": raised_by}
     extra = {}
     for key, value in tier.items():
         if key not in TIER_NOT_EXTRA:
@@ -280,6 +280,7 @@ def _tier_view(policy, risk, guards):
         "id": tier_id,
         "risk": risk,
         "in_policy": True,
+        "raised_by": raised_by,
         "reviewer_effort": guards.effort(tier.get("reviewer_effort")),
         "user_review": tier.get("user_review"),
         "extra": extra,
@@ -289,7 +290,7 @@ def _tier_view(policy, risk, guards):
     return view
 
 
-def _role_view(policy, role_name, risk, tier, guards):
+def _role_view(policy, role_name, risk, tier, guards, raised=False):
     view = {"name": role_name, "in_policy": False}
     role = policy["roles"].get(role_name)
     if role is None:
@@ -305,8 +306,9 @@ def _role_view(policy, role_name, risk, tier, guards):
     efforts = role["effort"]
     if efforts.get("by_tier"):
         raw, basis = tier.get("reviewer_effort"), "review tier"
-    elif risk == "high" and efforts.get("tricky"):
-        raw, basis = guards.effort(efforts["tricky"]), "tricky effort, risk high"
+    elif (risk == "high" or raised) and efforts.get("tricky"):
+        raw = guards.effort(efforts["tricky"])
+        basis = "tricky effort, risk high" if risk == "high" else "tricky effort, tier raised to high"
     else:
         raw, basis = guards.effort(efforts.get("default")), "default"
     view["effort"] = raw
@@ -353,8 +355,21 @@ def build_delegation(task, route, classification):
         key: step[key] for key in ("step", "id", "when", "action") + (("note",) if step.get("note") else ())
     }
     role_name = REVIEWER_ROLE if (route == REVIEW_ROUTE and not hit) else step.get("role")
-    tier = _tier_view(policy, risk, guards)
-    delegation["role"] = _role_view(policy, role_name, risk, tier, guards) if role_name else None
+    # Tier floors: step 1 and risky-code wording are at least the high tier,
+    # whatever route's own risk says. The block says why in basis and raised_by.
+    floor = None
+    if risk != "high":
+        if hit and hit["id"] == "production":
+            floor = "step 1 production"
+        else:
+            term = high_tier_term(task)
+            floor = "names {0}".format(term) if term else None
+    if floor:
+        delegation["basis"] += "; raised to high: {0}".format(floor)
+    tier = _tier_view(policy, risk, guards, floor)
+    delegation["role"] = (
+        _role_view(policy, role_name, risk, tier, guards, bool(floor)) if role_name else None
+    )
     delegation["review_tier"] = tier
     # One pass over everything taken from the policy file, so the text and the
     # JSON cannot disagree. source and basis are Mythify's own.
@@ -423,7 +438,10 @@ def format_delegation(delegation):
         parts.extend("{0}: {1}".format(key, _plain(value)) for key, value in tier["extra"].items())
         if "review_rounds_max" in tier:
             parts.append("review_rounds_max: {0}".format(tier["review_rounds_max"]))
-        lines.append("- Review tier: {0} (risk {1}); {2}".format(tier["id"], tier["risk"], "; ".join(parts)))
+        risk_note = "risk {0}".format(tier["risk"])
+        if tier.get("raised_by"):
+            risk_note += ", raised to high: {0}".format(tier["raised_by"])
+        lines.append("- Review tier: {0} ({1}); {2}".format(tier["id"], risk_note, "; ".join(parts)))
     guards = delegation["guards"]
     notes = []
     if guards["effort_clamped"]:

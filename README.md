@@ -300,10 +300,14 @@ copy of your file, not a choice: options your own banned-model list names are
 left out, an effort above your ceiling (or one your file forbids) is lowered to
 the highest allowed level, and any banned model name or forbidden effort word in
 the text it prints is replaced with `[withheld]` (a name containing a banned
-model or forbidden effort word is partly withheld). Production (the stop-and-ask step) needs
-an environment marker such as "deploy to staging" or "ssh into the server"; a bare
-"deploy" is not production, but its text risk is still high, so it keeps the high
-review tier with user review. A missing file changes
+model or forbidden effort word is partly withheld). Step 1 (production, deploys, servers, or
+money) prefers recall: a clause whose main verb is an operation verb (deploy, ship,
+release, publish, restart, roll back, and the like), ssh, scp, or rsync to any host,
+or an explicit money phrase is step 1, with or without an environment word. Only
+clear code work on a component stays out ("write a deploy script", "add a --deploy
+flag"), and an ambiguous prompt goes to step 1. Step 1 and wording that names risky
+code (auth, billing, checkout, migration, secrets, and similar) raise the printed
+review tier to at least high, and the block says why. A missing file changes
 nothing. An unreadable or invalid file prints one `[WARN]` line and is ignored.
 A minimal file, with invented names:
 

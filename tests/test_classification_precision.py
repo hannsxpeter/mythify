@@ -175,84 +175,112 @@ class TestPhraseTieBreak(unittest.TestCase):
         self.assertEqual(classify("adjust css positioning of the modal")["task_type"], "frontend_ui")
 
 
-# Production regression corpus: every prompt from the three review rounds and
-# from earlier tests, with its expected policy step under the environment-marker
-# rule. "production" means classify_policy_step names the production step;
-# None means it names no step, so route falls through to build (or to another
-# step the prompt names on its own).
+# Production regression corpus: every prompt from the review rounds, the policy
+# owner's recall change, and earlier tests, with its expected policy step. Step 1
+# prefers recall (policy owner: step 1 prefers recall; ambiguous goes to step 1):
+# a clause whose operative verb is an operation verb is production with or
+# without an environment marker. Only clear code work on a component stays out:
+# a coding verb whose object is a code noun that the operation word modifies.
+# "production" means classify_policy_step names the production step; None means
+# it names no step, so route falls through to build.
 PRODUCTION_CORPUS = (
-    # operational: an operation plus an environment, a remote host, or money
-    ("deploy the app to the staging server", "production"),
-    ("ssh into the prod box and restart nginx", "production"),
-    ("Deploy my app to staging", "production"),
-    ("Deploy our service to staging", "production"),
-    ("Deploy the latest production build to staging", "production"),
-    ("Fix the failing test, then run the deploy script on the production server", "production"),
-    ("Fix the bug, then ssh into the server and test it", "production"),
-    ("Fix the test, then spend money on the monitoring tool", "production"),
-    ("push my latest changes to production", "production"),
+    # operation verbs alone
+    ("deploy the app", "production"),
+    ("deploy keyvra", "production"),
+    ("ship it", "production"),
+    ("release v6.3.0", "production"),
+    ("publish the package to npm", "production"),
+    ("roll back the last release", "production"),
+    ("restart the inhouse service", "production"),
+    ("stop the service and start the service", "production"),
+    ("go live with the new site", "production"),
+    # migrations against an environment
+    ("run the production migration", "production"),
+    ("apply the migration to the live database", "production"),
     ("run the migration in production", "production"),
-    ("deploy to staging", "production"),
-    ("release to production on Friday", "production"),
     ("run the migration on production", "production"),
-    ("restart the production server", "production"),
-    ("roll back production", "production"),
-    ("deploy the api to production", "production"),
-    ("deploy the payments service to staging", "production"),
-    ("ship my app to staging", "production"),
+    # remote access to any host, named or not
+    ("ssh into hxp-linux and check the logs", "production"),
+    ("ssh into the server and check the logs", "production"),
+    ("ssh into the prod box and restart nginx", "production"),
+    ("push main to origin on the keyvra server", "production"),
     ("scp the build to the staging box", "production"),
     ("rsync the build to the server", "production"),
     ("ssh to prod and tail the logs", "production"),
     ("log into the server and check the disk", "production"),
+    # with an environment marker
+    ("deploy the app to the staging server", "production"),
+    ("Deploy my app to staging", "production"),
+    ("Deploy our service to staging", "production"),
+    ("Deploy the latest production build to staging", "production"),
+    ("deploy to staging", "production"),
+    ("deploy the payments service to staging", "production"),
+    ("deploy the api to production", "production"),
+    ("Fix the bug and deploy the api to production", "production"),
+    ("release to production on Friday", "production"),
+    ("push my latest changes to production", "production"),
+    ("restart the production server", "production"),
+    ("roll back production", "production"),
+    ("ship my app to staging", "production"),
+    # money
+    ("buy a domain", "production"),
+    ("upgrade the plan to pro", "production"),
     ("buy more credits for the account", "production"),
     ("spend money on ads", "production"),
     ("upgrade our plan to the larger tier", "production"),
+    # clauses: an earlier coding clause does not cancel a later operation
+    ("Fix the failing test, then run the deploy script on the production server", "production"),
+    ("Fix the bug, then ssh into the server and test it", "production"),
+    ("Fix the test, then spend money on the monitoring tool", "production"),
     ("fix the failing test and then deploy the app to the server", "production"),
     ("Fix the bug; after that deploy the app to the server", "production"),
     ("Fix the parser before you ssh into the staging server", "production"),
     ("fix the bug, then rsync the build to the server, then write the wrapper", "production"),
-    # code work named after an operation, or an operation word with no environment
+    # policy owner: step 1 prefers recall; ambiguous goes to step 1
+    ("then deploy", "production"),
+    ("please deploy", "production"),
+    ("Fix the bug and deploy", "production"),
+    ("I want to deploy", "production"),
+    ("run the deploy script", "production"),
+    ("Fix the deploy", "production"),
+    ("write a deploy", "production"),
+    ("Rename the function to deploy", "production"),
+    ("Implement a button to deploy", "production"),
+    ("Fix deploy errors in app.py", "production"),
+    ("Add SSH to the API", "production"),
+    ("explain the deploy process and the rollback", "production"),
+    ("Deploy command parser needs a fix", "production"),
+    ("add a deploy to production button to the admin page", "production"),
+    # clear code work: a coding verb, and a code noun the operation word modifies
     ("Implement an SSH client with mocked connection tests", None),
+    ("implement an ssh client", None),
     ("Fix the deploy command argument parser", None),
     ("write a deploy script", None),
     ("add a --deploy flag", None),
     ("test the ssh connection helper", None),
     ("fix the release notes generator", None),
-    ("Rename the function to deploy", None),
-    ("Implement a button to deploy", None),
     ("Fix the rsync, scp, and ssh wrapper", None),
-    ("Fix deploy errors in app.py", None),
     ("Implement an scp tool", None),
-    ("Add SSH to the API", None),
-    ("add payment processing to checkout", None),
+    ("document the deploy process", None),
     ("fix the deploy docs typo", None),
     ("update the release notes for production", None),
-    ("add a deploy to production button to the admin page", None),
     ("refactor the rsync wrapper", None),
     ("debug the scp upload helper", None),
     ("write tests for the deploy handler", None),
     ("fix the deploy config", None),
     ("add an option to the ssh library", None),
-    ("explain the deploy process and the rollback", None),
-    ("Deploy command parser needs a fix", None),
-    ("push the branch to origin", None),
-    ("implement an ssh into helper", None),
+    ("write a production deploy script", None),
+    ("fix the server restart handler", None),
     ("refactor the scp client", None),
-    # accepted cost: a bare operation word with no environment, server, or money
-    # marker is not production (the stop-and-ask step); the high-risk term
-    # "deploy" still puts route's text risk, and so the review tier, at high.
-    ("then deploy", None),
-    ("please deploy", None),
-    ("Fix the bug and deploy", None),
-    ("I want to deploy", None),
-    ("run the deploy script", None),
-    ("Fix the deploy", None),
-    ("write a deploy", None),
+    # not an operation at all
+    ("add payment processing to checkout", None),
+    ("push the branch to origin", None),
+    ("write payment code for the checkout service", None),
 )
 
 
-class TestProductionNeedsAnEnvironmentMarker(unittest.TestCase):
-    """Production needs an operation plus an environment, a remote host, or money."""
+class TestProductionRecallFirst(unittest.TestCase):
+    """Step 1 prefers recall: an operation verb, remote access, or money is production."""
 
     def step(self, task):
         hit = classify_policy_step(task)
@@ -281,8 +309,19 @@ class TestProductionNeedsAnEnvironmentMarker(unittest.TestCase):
 
     def test_remote_access_needs_a_link_word_and_a_host_word(self):
         self.assertEqual(self.step("ssh onto the host"), "production")
+        self.assertEqual(self.step("ssh to anything"), "production")
         self.assertIsNone(self.step("ssh keys for the api"))
         self.assertIsNone(self.step("scp the build"))
+        self.assertIsNone(self.step("ssh into"))
+
+    def test_the_operation_word_must_modify_the_code_noun_to_be_cancelled(self):
+        # "script" follows the operation word directly: a modifier.
+        self.assertIsNone(self.step("write a deploy script"))
+        # a stop word between them makes the operation the verb of its own object.
+        self.assertEqual(self.step("write a script to deploy"), "production")
+        self.assertEqual(self.step("write the script and deploy the api"), "production")
+        # no coding verb earlier in the clause: nothing to cancel.
+        self.assertEqual(self.step("the deploy script is broken"), "production")
 
     def test_clauses_split_at_punctuation_and_connectives(self):
         from mythify_classification import CLAUSE_BREAK, clause_tokens
