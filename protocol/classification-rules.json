@@ -404,36 +404,6 @@
       {
         "id": "production",
         "terms": [
-          "go live",
-          "ssh into",
-          "ssh to",
-          "ssh onto",
-          "over ssh",
-          "via ssh",
-          "log into the server",
-          "log in to the server",
-          "scp",
-          "rsync",
-          "redeploy",
-          "run the deploy",
-          "run a deploy",
-          "run deploy",
-          "trigger a deploy",
-          "trigger the deploy",
-          "kick off a deploy",
-          "start a deploy",
-          "do a deploy",
-          "rollback the deploy",
-          "roll back the deploy",
-          "rollback production",
-          "roll back production",
-          "restart the server",
-          "restart the servers",
-          "restart the service",
-          "restart services",
-          "reboot the server",
-          "provision a server",
-          "provision servers",
           "spend money",
           "spending money",
           "spend budget",
@@ -456,118 +426,74 @@
           "update billing details",
           "update the billing details",
           "enable overage",
-          "overage charges"
+          "overage charges",
+          "log into the server",
+          "log in to the server",
+          "on the production server",
+          "on the staging server",
+          "on the prod server"
         ],
-        "pairs": [
-          {
-            "first": [
-              "deploy"
-            ],
-            "then": [
-              "app",
-              "application",
-              "service",
-              "services",
-              "site",
-              "website",
-              "api",
-              "backend",
-              "frontend",
-              "build",
-              "release",
-              "branch",
-              "version",
-              "fix",
-              "change",
-              "changes",
-              "it",
-              "this",
-              "everything"
-            ],
-            "within": 2
-          },
-          {
-            "first": [
-              "deploy"
-            ],
-            "then": [
-              "to",
-              "and",
-              "now",
-              "again"
-            ],
-            "within": 2,
-            "gap_words": [
-              "my",
-              "our",
-              "your",
-              "the",
-              "this",
-              "that",
-              "a",
-              "an",
-              "its",
-              "their",
-              "new",
-              "latest",
-              "current"
-            ]
-          },
-          {
-            "first": [
-              "ship",
-              "release",
-              "push",
-              "promote"
-            ],
-            "then": [
-              "to staging",
-              "to stage",
-              "to preprod",
-              "to live"
-            ],
-            "within": 3
-          },
-          {
-            "first": [
-              "migrate",
-              "migration",
-              "migrations",
-              "release",
-              "releases",
-              "ship",
-              "push",
-              "promote",
-              "roll out",
-              "rollout"
-            ],
-            "then": [
-              "production",
-              "prod"
-            ],
-            "within": 4
-          },
-          {
-            "first": [
-              "production",
-              "prod"
-            ],
-            "then": [
-              "migrate",
-              "migration",
-              "migrations",
-              "release",
-              "releases",
-              "rollout",
-              "deployment",
-              "server",
-              "servers",
-              "database",
-              "data"
-            ],
-            "within": 0
-          }
-        ],
+        "environment": {
+          "verbs": [
+            "deploy",
+            "ship",
+            "release",
+            "push",
+            "promote",
+            "roll out",
+            "roll back",
+            "rollback",
+            "restart",
+            "migrate",
+            "run the migration",
+            "run migrations",
+            "drop",
+            "truncate",
+            "scale"
+          ],
+          "words": [
+            "production",
+            "prod",
+            "staging",
+            "live",
+            "server",
+            "servers",
+            "cluster",
+            "host",
+            "box",
+            "droplet",
+            "instance"
+          ],
+          "within": 6
+        },
+        "remote": {
+          "tools": [
+            "ssh",
+            "rsync",
+            "scp"
+          ],
+          "links": [
+            "into",
+            "onto",
+            "to"
+          ],
+          "targets": [
+            "server",
+            "servers",
+            "box",
+            "host",
+            "hosts",
+            "droplet",
+            "instance",
+            "cluster",
+            "production",
+            "prod",
+            "staging",
+            "live"
+          ],
+          "link_within": 4,
+          "target_within": 3
+        },
         "near_miss": [
           "docs",
           "doc",
@@ -595,13 +521,13 @@
             "test",
             "add",
             "debug",
+            "rename",
+            "build",
+            "create",
             "update",
             "change",
             "modify",
             "improve",
-            "create",
-            "build",
-            "rename",
             "extend",
             "mock",
             "document"
@@ -609,6 +535,7 @@
           "nouns": [
             "client",
             "clients",
+            "wrapper",
             "parser",
             "command",
             "commands",
@@ -630,15 +557,22 @@
             "arguments",
             "handler",
             "handlers",
+            "button",
+            "tool",
+            "api",
+            "page",
+            "ui",
             "helper",
             "helpers",
-            "wrapper",
-            "library",
-            "generator",
             "config",
             "configuration",
-            "workflow",
+            "loader",
+            "generator",
+            "flow",
             "pipeline",
+            "job",
+            "workflow",
+            "library",
             "endpoint",
             "code",
             "logic",
@@ -648,33 +582,9 @@
             "fixture",
             "util",
             "utils",
-            "utility",
-            "button"
+            "utility"
           ],
-          "after": 4
-        },
-        "bare": {
-          "terms": [
-            "deploy"
-          ],
-          "lead_in": [
-            "please",
-            "just",
-            "now",
-            "and",
-            "to",
-            "then",
-            "also",
-            "finally",
-            "next",
-            "should",
-            "must",
-            "can",
-            "will",
-            "let",
-            "lets",
-            "go"
-          ]
+          "after": 3
         }
       },
       {
@@ -913,6 +823,39 @@
           "config"
         ]
       }
+    ],
+    "comma_starters": [
+      "please",
+      "then",
+      "run",
+      "also",
+      "next",
+      "finally",
+      "deploy",
+      "ship",
+      "release",
+      "push",
+      "promote",
+      "rollback",
+      "restart",
+      "migrate",
+      "drop",
+      "truncate",
+      "scale",
+      "spend",
+      "buy",
+      "purchase",
+      "implement",
+      "write",
+      "fix",
+      "refactor",
+      "test",
+      "add",
+      "debug",
+      "rename",
+      "build",
+      "create",
+      "update"
     ]
   },
   "task_types": [

@@ -82,14 +82,27 @@ def valid_code_work(code_work, strings, count):
     )
 
 
-def valid_bare(bare, strings):
-    if bare is None:
+def valid_environment(rule, strings, count):
+    if rule is None:
         return True
     return (
-        isinstance(bare, dict)
-        and strings(bare.get("terms"))
-        and bool(bare["terms"])
-        and strings(bare.get("lead_in"))
+        isinstance(rule, dict)
+        and strings(rule.get("verbs"))
+        and bool(rule["verbs"])
+        and strings(rule.get("words"))
+        and bool(rule["words"])
+        and count(rule.get("within"))
+    )
+
+
+def valid_remote(rule, strings, count):
+    if rule is None:
+        return True
+    return (
+        isinstance(rule, dict)
+        and all(strings(rule.get(key)) and bool(rule[key]) for key in ("tools", "links", "targets"))
+        and count(rule.get("link_within"))
+        and count(rule.get("target_within"))
     )
 
 
@@ -102,7 +115,11 @@ def validate_policy_steps(section):
     def count(value):
         return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
-    if not isinstance(section, dict) or not count(section.get("guard_window")):
+    if (
+        not isinstance(section, dict)
+        or not count(section.get("guard_window"))
+        or not strings(section.get("comma_starters"))
+    ):
         raise ValueError("Invalid classification policy_steps section")
     steps = section.get("steps")
     if not isinstance(steps, list) or not steps:
@@ -125,12 +142,12 @@ def validate_policy_steps(section):
                 and strings(pair.get("then"))
                 and pair["then"]
                 and count(pair.get("within"))
-                and ("gap_words" not in pair or strings(pair["gap_words"]))
                 for pair in pairs
             )
-            and (step["terms"] or pairs)
+            and (step["terms"] or pairs or step.get("environment") or step.get("remote"))
             and valid_code_work(step.get("code_work"), strings, count)
-            and valid_bare(step.get("bare"), strings)
+            and valid_environment(step.get("environment"), strings, count)
+            and valid_remote(step.get("remote"), strings, count)
         )
         if not valid:
             raise ValueError("Invalid classification policy_steps entry")
@@ -188,6 +205,7 @@ PATH_RISK_GLOBS = tuple(
 RISK_RANK = {"low": 0, "medium": 1, "high": 2}
 POLICY_GUARD_WINDOW = int(CLASSIFICATION_MANIFEST["policy_steps"]["guard_window"])
 POLICY_STEPS = tuple(CLASSIFICATION_MANIFEST["policy_steps"]["steps"])
+POLICY_COMMA_STARTERS = frozenset(str(w) for w in CLASSIFICATION_MANIFEST["policy_steps"]["comma_starters"])
 
 
 def wordish(text):
@@ -490,26 +508,38 @@ CLAUSE_BREAK_WORDS = ("then", "before")
 def clause_tokens(text):
     """Words of TEXT with CLAUSE_BREAK between clauses.
 
-    A clause ends at a comma, semicolon, period, colon, or line break, and at
-    the words "then", "before", and "after that", so a coding clause cannot
-    cancel a separate operational instruction.
+    A clause ends at a semicolon, a sentence period, a colon, a line break, and
+    at the words "then", "before", and "after that". A comma ends one only when
+    the next word starts a new verb phrase (a comma_starters word such as
+    "then", "please", or an operation or coding verb), so a list such as
+    "rsync, scp, and ssh wrapper" stays in one clause.
     """
     tokens = []
-    for segment in re.split(r"[,;.!?:\n]+", str(text or "").lower()):
-        words = wordish(segment).split()
-        if tokens and words:
-            tokens.append(CLAUSE_BREAK)
-        index = 0
-        while index < len(words):
-            word = words[index]
-            if word in CLAUSE_BREAK_WORDS or (word == "after" and words[index + 1:index + 2] == ["that"]):
-                if tokens and tokens[-1] != CLAUSE_BREAK:
-                    tokens.append(CLAUSE_BREAK)
-                index += 2 if word == "after" else 1
+    for segment in re.split(r"[;!?:\n]+|\.(?=\s|$)", str(text or "").lower()):
+        started = False
+        for piece in segment.split(","):
+            words = wordish(piece).split()
+            if not words:
                 continue
-            tokens.append(word)
+            if tokens and (not started or words[0] in POLICY_COMMA_STARTERS):
+                tokens.append(CLAUSE_BREAK)
+            started = True
+            tokens.extend(words)
+    out = []
+    index = 0
+    while index < len(tokens):
+        word = tokens[index]
+        if word in CLAUSE_BREAK_WORDS or (word == "after" and tokens[index + 1:index + 2] == ["that"]):
+            if out and out[-1] != CLAUSE_BREAK:
+                out.append(CLAUSE_BREAK)
+            index += 2 if word == "after" else 1
+            continue
+        if word == CLAUSE_BREAK and out and out[-1] == CLAUSE_BREAK:
             index += 1
-    return tokens
+            continue
+        out.append(word)
+        index += 1
+    return out
 
 
 def _in_clause(tokens, start, stop):
@@ -528,10 +558,10 @@ def _guarded(tokens, end, near_miss, window):
 def _code_work(tokens, start, end, code_work):
     """True when the match is code work on a component named after the operation.
 
-    A code-work verb (implement, write, fix, and kin) must come before the match
-    in the same clause, and a code noun (client, parser, script, flag, and kin)
-    must follow the operation word within "after" words, as in "fix the deploy
-    command parser". END is the end of the operation word itself.
+    A coding verb (implement, write, fix, and kin) must come before the
+    operation word in the same clause, and a code noun (client, wrapper, script,
+    button, and kin) must follow the operation word within "after" words, as in
+    "fix the deploy command parser". START and END bound the operation word.
     """
     if not code_work:
         return False
@@ -543,72 +573,91 @@ def _code_work(tokens, start, end, code_work):
     )
 
 
-def _bare_verb(tokens, step):
-    """A bare operation word that is the verb of its clause, such as "... then deploy".
+def _operation_allowed(tokens, start, end, step):
+    return not _guarded(
+        tokens, end, step.get("near_miss", []), int(step.get("guard_window", POLICY_GUARD_WINDOW))
+    ) and not _code_work(tokens, start, end, step.get("code_work"))
 
-    It must end its clause, and the word before it must be the clause start or a
-    lead-in word (please, and, to, then), so "fix the deploy" does not match.
-    """
-    bare = step.get("bare")
-    if not bare:
+
+def _environment_signal(tokens, step):
+    """An operation verb and an environment word in one clause, either order, near each other."""
+    rule = step.get("environment")
+    if not rule:
         return None
-    for term in bare["terms"]:
-        size = term_count(term)
-        for start in term_positions(tokens, term):
-            end = start + size
-            ends_clause = end == len(tokens) or tokens[end] == CLAUSE_BREAK
-            before = tokens[start - 1] if start else CLAUSE_BREAK
-            if ends_clause and (before == CLAUSE_BREAK or before in bare["lead_in"]):
-                return str(term)
+    within = int(rule["within"])
+    for verb in rule["verbs"]:
+        for start in term_positions(tokens, verb):
+            end = start + term_count(verb)
+            if not _operation_allowed(tokens, start, end, step):
+                continue
+            for word in rule["words"]:
+                for at in term_positions(tokens, word):
+                    size = term_count(word)
+                    gap = tokens[end:at] if at >= end else tokens[at + size:start]
+                    if (at >= end or at + size <= start) and len(gap) <= within and CLAUSE_BREAK not in gap:
+                        return "{0} ... {1}".format(verb, word)
     return None
 
 
-def _gap_allowed(tokens, first_end, at, pair):
-    gap = tokens[first_end:at]
-    if CLAUSE_BREAK in gap:
-        return False
-    return "gap_words" not in pair or all(word in pair["gap_words"] for word in gap)
+def _remote_signal(tokens, step):
+    """ssh, rsync, or scp, then into/onto/to, then a host-like word, in one clause."""
+    rule = step.get("remote")
+    if not rule:
+        return None
+    for tool in rule["tools"]:
+        for start in term_positions(tokens, tool):
+            end = start + term_count(tool)
+            if not _operation_allowed(tokens, start, end, step):
+                continue
+            for link in rule["links"]:
+                for at in term_positions(tokens, link):
+                    link_end = at + term_count(link)
+                    if not (end <= at <= end + int(rule["link_within"])) or CLAUSE_BREAK in tokens[end:at]:
+                        continue
+                    for target in rule["targets"]:
+                        for hit in term_positions(tokens, target):
+                            if (
+                                link_end <= hit <= link_end + int(rule["target_within"])
+                                and CLAUSE_BREAK not in tokens[link_end:hit]
+                            ):
+                                return "{0} ... {1}".format(tool, target)
+    return None
 
 
 def policy_step_signal(tokens, step):
-    """The first term or pair of STEP found in TOKENS and not cancelled, else None.
+    """The first way STEP matches TOKENS, or None.
 
-    A term matches as a whole phrase. A pair matches when a "first" phrase is
-    followed by a "then" phrase in the same clause with at most "within" words
-    between them (only "gap_words", when listed). A "bare" word matches as the
-    verb of its clause. A match is cancelled when a near-miss word (docs,
-    upload, feature, and kin) starts in the next few words after the term, or
-    after either half of a pair, and when the step's code_work rule says the
-    wording is code work on a component named after the operation, so
-    incidental wording stays out.
+    Four kinds, each cancelled when a near-miss word (docs, upload, feature,
+    and kin) starts right after the operation word, or when the step's code_work
+    rule says the wording is code work on a component named after the operation:
+    - a term, matched as a whole phrase;
+    - a pair, a "first" phrase then a "then" phrase in the same clause with at
+      most "within" words between;
+    - an environment rule, an operation verb and an environment word in one
+      clause within "within" words of each other, in either order;
+    - a remote rule, a tool, then a link word, then a host-like word.
     """
     near_miss = step.get("near_miss", [])
-    code_work = step.get("code_work")
     window = int(step.get("guard_window", POLICY_GUARD_WINDOW))
     for term in step.get("terms", []):
         for start in term_positions(tokens, term):
-            span_end = start + term_count(term)
-            if not _guarded(tokens, span_end, near_miss, window) and not _code_work(
-                tokens, start, span_end, code_work
-            ):
+            if _operation_allowed(tokens, start, start + term_count(term), step):
                 return str(term)
     for pair in step.get("pairs", []):
         for first in pair["first"]:
             for start in term_positions(tokens, first):
                 first_end = start + term_count(first)
-                if _guarded(tokens, first_end, near_miss, window) or _code_work(
-                    tokens, start, first_end, code_work
-                ):
+                if not _operation_allowed(tokens, start, first_end, step):
                     continue
                 for then in pair["then"]:
                     for at in term_positions(tokens, then):
                         if (
                             first_end <= at <= first_end + int(pair["within"])
-                            and _gap_allowed(tokens, first_end, at, pair)
+                            and CLAUSE_BREAK not in tokens[first_end:at]
                             and not _guarded(tokens, at + term_count(then), near_miss, window)
                         ):
                             return "{0} ... {1}".format(first, then)
-    return _bare_verb(tokens, step)
+    return _environment_signal(tokens, step) or _remote_signal(tokens, step)
 
 
 def classify_policy_step(task_text):

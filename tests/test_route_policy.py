@@ -349,12 +349,21 @@ class TestStepSelection(PolicyCase):
 
     def test_production_wins_over_later_steps(self):
         for task in (
-            "deploy the app and take screenshots of every page",
+            "deploy the app to staging and take screenshots of every page",
             "generate a logo and push it to production",
-            "rename all the functions across the repo then deploy",
+            "rename all the functions across the repo then deploy it to production",
         ):
             with self.subTest(task=task):
                 self.assertEqual(self.delegation(task)["matched"]["id"], "production")
+
+    def test_a_bare_deploy_is_not_production(self):
+        # By design (production needs an environment, server, or money marker):
+        # a bare "deploy" is not the stop-and-ask step, so these route on their
+        # other words. The deploy term still makes route's text risk high.
+        self.assertEqual(
+            self.delegation("rename all the functions across the repo then deploy")["matched"]["id"], "bulk"
+        )
+        self.assertEqual(self.delegation("fix the parser bug then deploy")["matched"]["id"], "build")
 
     def test_payment_code_is_build_at_the_high_tier_not_production(self):
         delegation = self.delegation(HIGH_RISK)
@@ -403,7 +412,7 @@ class TestPolicyStepPrecision(unittest.TestCase):
                 "push the fix to production", "migrate production data to the new schema",
                 "buy more credits for the account", "spend money on ads",
                 "upgrade our plan to the larger tier", "update billing details for the team",
-                "rsync the build to the server", "go live with the new site",
+                "rsync the build to the server", "scp the build to the staging box",
             )),
             ("image", (
                 "generate a logo for the landing page", "create an illustration for the blog post",
@@ -457,7 +466,7 @@ class TestPolicyStepPrecision(unittest.TestCase):
     def test_precedence_is_manifest_order(self):
         ids = [step["id"] for step in mythify_classification.POLICY_STEPS]
         self.assertEqual(ids, ["production", "image", "bulk", "browser_check"])
-        self.assertEqual(self.step("deploy and take screenshots of the app"), "production")
+        self.assertEqual(self.step("deploy to production and take screenshots of the app"), "production")
         self.assertEqual(self.step("generate a logo and click through the site in a real browser"), "image")
 
     def test_manifest_shape_is_validated(self):
@@ -468,8 +477,16 @@ class TestPolicyStepPrecision(unittest.TestCase):
             ("missing window", lambda m: m.pop("guard_window")),
             ("no steps", lambda m: m.update(steps=[])),
             ("duplicate id", lambda m: m["steps"].append(copy.deepcopy(m["steps"][0]))),
-            ("empty step", lambda m: m["steps"][0].update(terms=[], pairs=[])),
-            ("pair without then", lambda m: m["steps"][0]["pairs"][0].pop("then")),
+            ("empty step", lambda m: (
+                m["steps"][0].update(terms=[], pairs=[]),
+                m["steps"][0].pop("environment"),
+                m["steps"][0].pop("remote"),
+            )),
+            ("no comma starters", lambda m: m.pop("comma_starters")),
+            ("environment without words", lambda m: m["steps"][0]["environment"].pop("words")),
+            ("remote without links", lambda m: m["steps"][0]["remote"].update(links=[])),
+            ("remote window not a count", lambda m: m["steps"][0]["remote"].update(link_within=-1)),
+            ("pair without then", lambda m: m["steps"][1]["pairs"][0].pop("then")),
             ("term not text", lambda m: m["steps"][0].update(terms=[1])),
         ):
             with self.subTest(label):

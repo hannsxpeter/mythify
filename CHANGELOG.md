@@ -22,10 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replaced with `[withheld]` (a name containing one is partly withheld), and
   Mythify still never picks, ranks, or switches a model. Without a file the
   output is byte-for-byte unchanged; an unreadable or invalid file prints one
-  `[WARN]` line and is ignored. Production needs operational wording (deploy the
-  app, ssh into a host, release to production, spend money) and is cancelled for
-  code work on a component named after the operation (a deploy script, an ssh
-  client). The task-to-step terms for production, image,
+  `[WARN]` line and is ignored. The production step needs an environment marker: an
+  operation verb (deploy, ship, release, push, restart, migrate, and the like)
+  and an environment word (production, staging, server, and the like) in one
+  clause, ssh, rsync, or scp to a host, or an explicit money phrase. It is
+  cancelled for code work on a component named after the operation (a deploy
+  script, an ssh client). A bare "deploy" with no environment, server, or money
+  marker is not production; a false positive would halt ordinary work, and a miss
+  still lands at the high review tier with user review, because the deploy term
+  makes route's text risk high. The task-to-step terms for production, image,
   bulk, and browser_check live in a new `policy_steps` section of
   `protocol/classification-rules.json` (schema 6) and do not change the
   `classification` block. The protocol gains one sentence in "Delegation is your
