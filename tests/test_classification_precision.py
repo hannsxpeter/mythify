@@ -21,7 +21,7 @@ CLI = REPO_ROOT / "scripts" / "mythify.py"
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from mythify_classification import classify_task_text  # noqa: E402
+from mythify_classification import classify_policy_step, classify_task_text  # noqa: E402
 from mythify_router import ROUTE_SELECTING_TERMS  # noqa: E402
 
 
@@ -173,6 +173,136 @@ class TestPhraseTieBreak(unittest.TestCase):
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
         self.assertEqual(classify("adjust css positioning of the modal")["task_type"], "frontend_ui")
+
+
+# Production regression corpus: every prompt from the three review rounds and
+# from earlier tests, with its expected policy step under the environment-marker
+# rule. "production" means classify_policy_step names the production step;
+# None means it names no step, so route falls through to build (or to another
+# step the prompt names on its own).
+PRODUCTION_CORPUS = (
+    # operational: an operation plus an environment, a remote host, or money
+    ("deploy the app to the staging server", "production"),
+    ("ssh into the prod box and restart nginx", "production"),
+    ("Deploy my app to staging", "production"),
+    ("Deploy our service to staging", "production"),
+    ("Deploy the latest production build to staging", "production"),
+    ("Fix the failing test, then run the deploy script on the production server", "production"),
+    ("Fix the bug, then ssh into the server and test it", "production"),
+    ("Fix the test, then spend money on the monitoring tool", "production"),
+    ("push my latest changes to production", "production"),
+    ("run the migration in production", "production"),
+    ("deploy to staging", "production"),
+    ("release to production on Friday", "production"),
+    ("run the migration on production", "production"),
+    ("restart the production server", "production"),
+    ("roll back production", "production"),
+    ("deploy the api to production", "production"),
+    ("deploy the payments service to staging", "production"),
+    ("ship my app to staging", "production"),
+    ("scp the build to the staging box", "production"),
+    ("rsync the build to the server", "production"),
+    ("ssh to prod and tail the logs", "production"),
+    ("log into the server and check the disk", "production"),
+    ("buy more credits for the account", "production"),
+    ("spend money on ads", "production"),
+    ("upgrade our plan to the larger tier", "production"),
+    ("fix the failing test and then deploy the app to the server", "production"),
+    ("Fix the bug; after that deploy the app to the server", "production"),
+    ("Fix the parser before you ssh into the staging server", "production"),
+    ("fix the bug, then rsync the build to the server, then write the wrapper", "production"),
+    # code work named after an operation, or an operation word with no environment
+    ("Implement an SSH client with mocked connection tests", None),
+    ("Fix the deploy command argument parser", None),
+    ("write a deploy script", None),
+    ("add a --deploy flag", None),
+    ("test the ssh connection helper", None),
+    ("fix the release notes generator", None),
+    ("Rename the function to deploy", None),
+    ("Implement a button to deploy", None),
+    ("Fix the rsync, scp, and ssh wrapper", None),
+    ("Fix deploy errors in app.py", None),
+    ("Implement an scp tool", None),
+    ("Add SSH to the API", None),
+    ("add payment processing to checkout", None),
+    ("fix the deploy docs typo", None),
+    ("update the release notes for production", None),
+    ("add a deploy to production button to the admin page", None),
+    ("refactor the rsync wrapper", None),
+    ("debug the scp upload helper", None),
+    ("write tests for the deploy handler", None),
+    ("fix the deploy config", None),
+    ("add an option to the ssh library", None),
+    ("explain the deploy process and the rollback", None),
+    ("Deploy command parser needs a fix", None),
+    ("push the branch to origin", None),
+    ("implement an ssh into helper", None),
+    ("refactor the scp client", None),
+    # accepted cost: a bare operation word with no environment, server, or money
+    # marker is not production (the stop-and-ask step); the high-risk term
+    # "deploy" still puts route's text risk, and so the review tier, at high.
+    ("then deploy", None),
+    ("please deploy", None),
+    ("Fix the bug and deploy", None),
+    ("I want to deploy", None),
+    ("run the deploy script", None),
+    ("Fix the deploy", None),
+    ("write a deploy", None),
+)
+
+
+class TestProductionNeedsAnEnvironmentMarker(unittest.TestCase):
+    """Production needs an operation plus an environment, a remote host, or money."""
+
+    def step(self, task):
+        hit = classify_policy_step(task)
+        return hit["id"] if hit else None
+
+    def test_corpus(self):
+        for task, expected in PRODUCTION_CORPUS:
+            with self.subTest(task=task):
+                self.assertEqual(self.step(task), expected)
+
+    def test_a_coding_verb_in_the_same_clause_cancels_only_with_a_code_noun(self):
+        # No coding verb: the api is the thing being deployed.
+        self.assertEqual(self.step("deploy the api to production"), "production")
+        # A coding verb and a code noun right after the operation word: code work.
+        self.assertIsNone(self.step("write a production deploy script"))
+        self.assertIsNone(self.step("fix the server restart handler"))
+        # The coding verb is in an earlier clause, so it does not cancel.
+        self.assertEqual(self.step("write the handler, then restart the production server"), "production")
+
+    def test_environment_words_work_in_either_order_within_six_words(self):
+        self.assertEqual(self.step("on production push it now"), "production")
+        self.assertEqual(self.step("push the build of the app to prod"), "production")
+        self.assertIsNone(self.step("push the build of the whole app to prod"))
+        # the clause break between them keeps them apart
+        self.assertIsNone(self.step("tidy up on production; push it now"))
+
+    def test_remote_access_needs_a_link_word_and_a_host_word(self):
+        self.assertEqual(self.step("ssh onto the host"), "production")
+        self.assertIsNone(self.step("ssh keys for the api"))
+        self.assertIsNone(self.step("scp the build"))
+
+    def test_clauses_split_at_punctuation_and_connectives(self):
+        from mythify_classification import CLAUSE_BREAK, clause_tokens
+        self.assertEqual(
+            clause_tokens("fix it, then run it; after that deploy before lunch. Done"),
+            ["fix", "it", CLAUSE_BREAK, "run", "it", CLAUSE_BREAK, "deploy", CLAUSE_BREAK,
+             "lunch", CLAUSE_BREAK, "done"],
+        )
+
+    def test_a_comma_splits_only_before_a_new_verb_phrase(self):
+        from mythify_classification import CLAUSE_BREAK, clause_tokens
+        self.assertEqual(
+            clause_tokens("fix the rsync, scp, and ssh wrapper"),
+            ["fix", "the", "rsync", "scp", "and", "ssh", "wrapper"],
+        )
+        self.assertEqual(
+            clause_tokens("write tests, fix bugs, and please deploy"),
+            ["write", "tests", CLAUSE_BREAK, "fix", "bugs", "and", "please", "deploy"],
+        )
+        self.assertEqual(clause_tokens("see app.py, the deploy file")[:3], ["see", "app", "py"])
 
 
 if __name__ == "__main__":

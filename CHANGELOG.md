@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `route` shows what the user's own routing policy file says about the task. With
+  `MYTHIFY_AGENT_POLICY` (a path) or `~/.agents/policy.json` present, the text
+  output ends with a `Delegation` section and `--json` gains a `delegation`
+  object: the matched policy step and action, the role with its options and
+  effort (the role's `tricky` effort on high risk, the tier's reviewer effort for
+  the reviewer role), and the review tier for the task's risk with every extra
+  tier key printed as written. It is advisory: options named in the file's
+  banned-model list are withheld, an effort above its ceiling or in its
+  never-list is lowered to the highest allowed level (or withheld when none
+  is), banned names and forbidden effort words in any printed policy text are
+  replaced with `[withheld]` (a name containing one is partly withheld), and
+  Mythify still never picks, ranks, or switches a model. Without a file the
+  output is byte-for-byte unchanged; an unreadable or invalid file prints one
+  `[WARN]` line and is ignored. The production step needs an environment marker: an
+  operation verb (deploy, ship, release, push, restart, migrate, and the like)
+  and an environment word (production, staging, server, and the like) in one
+  clause, ssh, rsync, or scp to a host, or an explicit money phrase. It is
+  cancelled for code work on a component named after the operation (a deploy
+  script, an ssh client). A bare "deploy" with no environment, server, or money
+  marker is not production; a false positive would halt ordinary work, and a miss
+  still lands at the high review tier with user review, because the deploy term
+  makes route's text risk high. The task-to-step terms for production, image,
+  bulk, and browser_check live in a new `policy_steps` section of
+  `protocol/classification-rules.json` (schema 6) and do not change the
+  `classification` block. The protocol gains one sentence in "Delegation is your
+  choice": follow the user's or project's rules on who does what, which `route`
+  shows when a policy file is present.
+
 ## [6.2.0] - 2026-11-09
 
 Mythify 6.2.0 makes verification faster and more selective without trusting

@@ -227,7 +227,7 @@ Options:
 mythify route [--json] task
 ```
 
-Read-only workflow quarterback: classify a prompt, inspect durable state, and choose direct, plan, map, product, outcome, review, failure_recovery, or handoff routing. The JSON output carries the deterministic classification with neutral framing, parallelism, and review advisories plus the loop-fit assessment; the host chooses whether and where to delegate.
+Read-only workflow quarterback: classify a prompt, inspect durable state, and choose direct, plan, map, product, outcome, review, failure_recovery, or handoff routing. The JSON output carries the deterministic classification with neutral framing, parallelism, and review advisories plus the loop-fit assessment; the host chooses whether and where to delegate. When a routing policy file exists (MYTHIFY_AGENT_POLICY, else ~/.agents/policy.json), the output also shows what that file says about the task, as advisory text.
 
 Arguments:
 

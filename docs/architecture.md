@@ -21,6 +21,8 @@ vendor CLIs; spawning or orchestrating workers (hosts delegate, Mythify
 verifies the integrated result); sandboxing (commands run with the caller's
 privileges, see [SECURITY.md](../SECURITY.md)); hosted services, accounts, or
 telemetry; grading user projects against Mythify's own release gates.
+Printing a routing policy file the user owns is not choosing: see the
+2026-11-09 decision.
 
 ## Runtime layout
 
@@ -57,6 +59,7 @@ table, so no module imports the entry point.
 | `mythify_plan_import.py`, `mythify_godfiles.py` | read-only godplans and godaudits parsing and `plan import` |
 | `mythify_classification.py` | deterministic task classification from `protocol/classification-rules.json` |
 | `mythify_router.py` | `route` selection and `prompt` packets |
+| `mythify_agent_policy.py` | reads the user's routing policy file and builds the `route` delegation block (advisory) |
 | `mythify_views.py` | `status`, `history`, `report`, and the attention detectors |
 | `mythify_protocol.py` | `protocol check`, the embedded protocol digest, the CLAUDE.md pointer text |
 | `mythify_runtime_helpers.py` | timestamps, slugs, output redaction, `ChildTerminationGuard` |
@@ -67,7 +70,7 @@ Data files in `protocol/`:
 | File | Read by | Content |
 | --- | --- | --- |
 | `PROTOCOL.md` | `build_variants.py`, `protocol check` | the protocol spine, the source of AGENTS.md |
-| `classification-rules.json` | `mythify_classification.py` | schema 5: task types, risk terms, `path_risk` globs, framing, parallelism, and review advisories |
+| `classification-rules.json` | `mythify_classification.py` | schema 6: task types, risk terms, `path_risk` globs, framing, parallelism, review advisories, and `policy_steps` (the terms behind the delegation block) |
 | `workflow-router.json` | `mythify_router.py` | version 3: route ids, descriptions, and their prompt packet kinds |
 | `prose-quality.json` | `check_prose_quality.py` | scanned paths, forbidden characters, forbidden phrases |
 
@@ -485,6 +488,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | `MYTHIFY_REUSE_ENV` | comma-separated environment variable names whose values join `provenance.environment_digest`, so changing one stops `--reuse` from matching |
 | `MYTHIFY_VERIFY_MAX_OUTPUT_BYTES` | output cap per run, default 16 MiB; a run over the cap fails |
 | `MYTHIFY_MAP_CLAIMANT` | default claimant for `map claim` |
+| `MYTHIFY_AGENT_POLICY` | path to the user's routing policy file for `route`; overrides `~/.agents/policy.json`; a path that does not exist means no policy |
 | `MYTHIFY_MCP_CALL_TIMEOUT` | MCP per-call timeout in seconds, default 900 |
 | `HOME` | locates `~/.mythify/lessons` |
 
@@ -623,3 +627,29 @@ fourth needs `--rethink TEXT`, because a loop that does not converge in three
 rounds usually has the wrong approach, not too few rounds. Why: verification
 cost grew with the suite, and the fix had to speed up honest runs without
 letting a self-report stand in for one.
+
+### 2026-11-09: route reports a user-owned policy, advisory only
+
+`mythify route` shows what the user's routing policy file says about the task:
+the matched step, role, options, effort, and review tier. The file is found
+through `MYTHIFY_AGENT_POLICY`, else `~/.agents/policy.json`, and its schema
+(version 1) is owned outside Mythify, which reads only the keys it prints.
+Mythify never picks, ranks, or switches a model here: it copies the user's own
+words, drops options the file bans, lowers efforts the file caps or forbids to
+the highest allowed level, replaces banned names and forbidden efforts in every
+printed string with `[withheld]` in one pass (so text and JSON agree), and it
+contains no model or vendor name. Without a file, or with an invalid one, the
+output is byte-for-byte what it was. The task-to-step match uses a separate
+`policy_steps` section of `protocol/classification-rules.json` (production,
+image, bulk, browser_check) so the `classification` block never changes (the
+production step needs an operation verb with an environment word in one clause,
+ssh, rsync, or scp to a host, or a money phrase; a bare "deploy" is a miss by
+design, and still lands at the high review tier because the deploy term makes
+the text risk high); the
+other steps come from the route (direct is question only for a question or
+research task with no file changes and build otherwise, map and product are
+design, the rest are build, and review uses the reviewer role). Why: users who
+already decide who does what want the answer next to the evidence loop, and
+printing their own file is the neutral way to do it. This is the case the
+clarified product non-goal N1 allows: printing a policy file the user owns is
+not choosing a model.
