@@ -18,9 +18,14 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from mythify_ratchet import (  # noqa: E402
     detect_test_count_drop,
     latest_test_count_drops,
+    records_before_window,
     step_baseline,
 )
-from mythify_reuse import environment_digest, find_reusable_run  # noqa: E402
+from mythify_reuse import (  # noqa: E402
+    _first_word,
+    environment_digest,
+    find_reusable_run,
+)
 from mythify_step_gate import configure_step_gate, evaluate_step_evidence  # noqa: E402
 
 CHECK_SCRIPT = """\
@@ -224,6 +229,82 @@ class ReuseTests(GitProjectCase):
         self.assertIn("reused {0}".format(original["id"]), report)
         self.assertEqual(reused["reused_from"], original["id"])
 
+    def test_a_newer_outcome_failure_cancels_the_older_pass(self):
+        self.ok("verify", "run", self.command)
+        self.ok("outcome", "start", "goal", "--success", "passes", "--verify", self.command)
+        self.fail_flag.write_text("fail", encoding="utf-8")
+        self.assertEqual(self.run_cli("outcome", "check").returncode, 2)
+        self.fail_flag.unlink()
+        passed, failed = self.records()
+        self.assertEqual(failed["outcome"], "goal")
+        self.assertEqual(
+            failed["provenance"]["environment_digest"], passed["provenance"]["environment_digest"])
+        result = self.ok("verify", "run", self.command, "--reuse")
+        self.assertEqual(self.executions(), 3)
+        self.assertIn("[INFO]", result.stdout)
+        self.assertNotIn("reused_from", self.records()[2])
+
+    def test_failure_without_an_environment_digest_still_cancels_a_pass(self):
+        key = {"git_commit": "c", "worktree_digest": "w", "mythify_version": "1",
+               "environment_digest": "e"}
+        passing = {"id": "v-1", "kind": "executed", "command": "suite", "verified": True,
+                   "exit_code": 0, "provenance": dict(key)}
+        legacy = {"kind": "executed", "command": "suite", "verified": False, "exit_code": 1,
+                  "provenance": {k: v for k, v in key.items() if k != "environment_digest"}}
+        self.assertEqual(find_reusable_run([passing], "suite", key)[0], passing)
+        found, reason = find_reusable_run([passing, legacy], "suite", key)
+        self.assertIsNone(found)
+        self.assertIn("did not pass", reason)
+        # A failure at another source state does not cancel it.
+        elsewhere = dict(legacy, provenance=dict(legacy["provenance"], worktree_digest="other"))
+        self.assertEqual(find_reusable_run([passing, elsewhere], "suite", key)[0], passing)
+
+    def test_a_reused_record_is_followed_only_to_a_matching_original(self):
+        key = {"git_commit": "c", "worktree_digest": "w", "mythify_version": "1",
+               "environment_digest": "e"}
+        original = {"id": "v-1", "kind": "executed", "command": "suite", "verified": True,
+                    "exit_code": 0, "provenance": dict(key, worktree_digest="older")}
+        reused = {"id": "v-2", "kind": "executed", "command": "suite", "verified": True,
+                  "exit_code": 0, "reused_from": "v-1", "provenance": dict(key)}
+        found, reason = find_reusable_run([original, reused], "suite", key)
+        self.assertIsNone(found)
+        self.assertIn("does not match", reason)
+        original["provenance"] = dict(key)
+        self.assertEqual(find_reusable_run([original, reused], "suite", key)[0], original)
+
+    def test_a_zero_test_count_is_never_reused(self):
+        key = {"git_commit": "c", "worktree_digest": "w", "mythify_version": "1",
+               "environment_digest": "e"}
+        record = {"id": "v-1", "kind": "executed", "command": "suite", "verified": True,
+                  "exit_code": 0, "test_count": 0, "stdout_tail": "ok", "stderr_tail": "",
+                  "provenance": dict(key)}
+        found, reason = find_reusable_run([record], "suite", key)
+        self.assertIsNone(found)
+        self.assertIn("zero tests", reason)
+        record["test_count"] = 3
+        self.assertEqual(find_reusable_run([record], "suite", key)[0], record)
+
+    def test_first_word_skips_assignments_and_splits_shell_operators(self):
+        for command in ("tool>/dev/null", "FOO=1 BAR=2 tool --flag", "tool|cat",
+                        "tool&& other", "(tool)", "  tool  "):
+            self.assertEqual(_first_word(command), "tool", command)
+        self.assertEqual(_first_word(""), "")
+        self.assertEqual(_first_word("FOO=1"), "")
+
+    def test_digest_follows_the_program_even_with_attached_operators(self):
+        bin_dir = Path(self.tmp.name) / "bin"
+        bin_dir.mkdir()
+        tool = bin_dir / "check-tool"
+        tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        tool.chmod(0o755)
+        environ = {"PATH": str(bin_dir)}
+        before = environment_digest("check-tool>/dev/null", environ)
+        tool.write_text("#!/bin/sh\n# changed\nexit 0\n", encoding="utf-8")
+        self.assertNotEqual(before, environment_digest("check-tool>/dev/null", environ))
+        self.assertEqual(
+            environment_digest("check-tool>/dev/null", environ),
+            environment_digest("FOO=1 check-tool", environ))
+
     def test_find_reusable_run_requires_a_git_state(self):
         current = {"git_commit": None, "worktree_digest": None, "mythify_version": "1",
                    "environment_digest": "e"}
@@ -365,6 +446,21 @@ class RatchetTests(GitProjectCase):
         cleared = json.loads(self.ok("status", "--json").stdout)
         self.assertEqual(
             [i for i in cleared["attention"] if i["summary"].startswith("test count dropped")], [])
+
+    def test_baseline_window_ignores_records_appended_after_the_window_read(self):
+        def passing(rid, count):
+            return {"id": rid, "kind": "executed", "command": "c", "verified": True,
+                    "exit_code": 0, "test_count": count}
+
+        before, inside = passing("a", 10), passing("b", 3)
+        appended = passing("late", 3)
+        ledger = [before, inside, appended]
+        self.assertEqual(records_before_window(ledger, [inside]), [before])
+        self.assertEqual(records_before_window(ledger[:2], [inside]), [before])
+        self.assertEqual(records_before_window(ledger, []), ledger)
+        self.assertEqual(records_before_window(ledger, [passing("gone", 1)]), [])
+        baseline = step_baseline(records_before_window(ledger, [inside]), [inside], "c")
+        self.assertEqual(baseline, (10, "a"))
 
     def test_pure_helpers(self):
         def record(rid, count, command="c", verified=True, **extra):

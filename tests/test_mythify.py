@@ -1773,7 +1773,8 @@ class TestOutcome(CliTestCase):
         self.assertIsNone(verification["step_id"])
         self.assertEqual(
             sorted(verification["provenance"]),
-            ["git_commit", "mythify_version", "worktree_clean", "worktree_digest"],
+            ["environment_digest", "git_commit", "mythify_version", "worktree_clean",
+             "worktree_digest"],
         )
         self.assertIsNone(verification["provenance"]["git_commit"])
         self.assertRegex(

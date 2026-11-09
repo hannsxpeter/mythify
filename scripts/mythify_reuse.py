@@ -12,6 +12,7 @@ environment variables to fold into the digest.
 import hashlib
 import os
 import platform
+import re
 import shlex
 import shutil
 
@@ -31,12 +32,23 @@ REUSE_HELP = (
 )
 
 
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+
+
 def _first_word(command):
+    """The program word of COMMAND: shell operators split off, NAME=value skipped."""
+    text = str(command or "")
     try:
-        words = shlex.split(str(command or ""))
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        words = list(lexer)
     except ValueError:
-        words = str(command or "").split()
-    return words[0] if words else ""
+        words = text.split()
+    for word in words:
+        if _ASSIGNMENT.match(word) or all(char in "();&|<>" for char in word):
+            continue
+        return word
+    return ""
 
 
 def environment_digest(command, environ=None):
@@ -70,28 +82,43 @@ def _passed(record):
     return record.get("verified") is True and record.get("exit_code") == 0
 
 
+SOURCE_FIELDS = ("git_commit", "worktree_digest")
+
+
+def _matches(record, command, provenance, fields):
+    recorded = record.get("provenance")
+    return (
+        record.get("kind") == "executed"
+        and record.get("command") == command
+        and isinstance(recorded, dict)
+        and all(recorded.get(f) == provenance.get(f) for f in fields)
+    )
+
+
 def find_reusable_run(records, command, provenance):
     """Return (original, reason): the passing run to reuse, or None and why not.
 
     RECORDS is the parsed verification ledger and PROVENANCE the current one
-    (including environment_digest). The newest executed record whose key
-    matches decides: a reused record is followed to its original, and a
-    failing, no-op, or zero-test run is never reused. Pure: reads only.
+    (including environment_digest). Two rules, both about the newest executed
+    record of COMMAND: at the same commit and worktree digest it must have
+    passed, whatever its environment digest or version (or none, as outcome
+    records have), so a later failure cancels an earlier pass; and the newest
+    record matching the whole key decides what is reused. A reused record is
+    followed to its original, whose key is checked again; a failing, no-op, or
+    zero-test run is never reused. Pure: reads only.
     """
     provenance = provenance or {}
     for field in REQUIRED_FIELDS:
         if not provenance.get(field):
             return None, "the current {0} is unavailable".format(field)
-    latest = None
+    same_source = latest = None
     for record in records:
-        recorded = record.get("provenance")
-        if (
-            record.get("kind") == "executed"
-            and record.get("command") == command
-            and isinstance(recorded, dict)
-            and all(recorded.get(f) == provenance.get(f) for f in KEY_FIELDS)
-        ):
-            latest = record
+        if _matches(record, command, provenance, SOURCE_FIELDS):
+            same_source = record
+            if _matches(record, command, provenance, KEY_FIELDS):
+                latest = record
+    if same_source is not None and not _passed(same_source):
+        return None, "the newest run of the command at this source did not pass"
     if latest is None:
         return None, "no earlier run matches the command, commit, worktree, and environment"
     if latest.get("reused_from"):
@@ -99,6 +126,8 @@ def find_reusable_run(records, command, provenance):
         latest = next((r for r in records if r.get("id") == wanted), None)
         if latest is None:
             return None, "the original run {0} is missing from the ledger".format(wanted)
+        if not _matches(latest, command, provenance, KEY_FIELDS):
+            return None, "the original run {0} does not match the current key".format(wanted)
     if not _passed(latest):
         return None, "the latest matching run did not pass"
     if not latest.get("id"):
@@ -106,6 +135,8 @@ def find_reusable_run(records, command, provenance):
     trivial = noop_verifier_reason(command) or trivial_pass_reason(latest)
     if trivial:
         return None, "the matching run proves nothing ({0})".format(trivial)
+    if latest.get("test_count") == 0:
+        return None, "the matching run executed zero tests"
     return latest, ""
 
 

@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from mythify_reuse import environment_digest
+
 
 # fsmonitor and the untracked cache let git answer from cached state instead of
 # reading the worktree, so every inspection that feeds evidence turns them off.
@@ -273,15 +275,24 @@ def commits_since(root, commit):
         return None
 
 
-def current_verification_provenance(version, state=None, root=None):
+def current_verification_provenance(version, state=None, root=None, command=None):
+    """Provenance of the current source state.
+
+    With COMMAND (the shell command an executed record stands for) the result
+    also carries environment_digest, so every writer of executed records stamps
+    the same fields.
+    """
     project_root = Path(root) if root is not None else project_root_for_state(state)
     exclude = state_exclude_pathspec(state, project_root)
-    return {
+    provenance = {
         "git_commit": git_commit(project_root),
         "worktree_clean": git_worktree_clean(project_root, exclude),
         "worktree_digest": git_worktree_digest(project_root, exclude),
         "mythify_version": str(version),
     }
+    if command is not None:
+        provenance["environment_digest"] = environment_digest(command)
+    return provenance
 
 
 def evidence_moved_since_run(record, current):

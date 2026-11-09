@@ -11,7 +11,7 @@ from pathlib import Path
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_path_risk import judge_path_risk
 from mythify_provenance import current_verification_provenance, evidence_moved_since_run
-from mythify_ratchet import step_baseline
+from mythify_ratchet import records_before_window, step_baseline
 from mythify_runtime_helpers import timestamp_at_or_after
 
 VERIFIED_EVIDENCE_MESSAGE = (
@@ -101,7 +101,7 @@ def _judge_test_count(state, result, window, accept_test_drop):
     if not isinstance(count, int) or isinstance(count, bool):
         return
     everything = read_jsonl(Path(state) / "verifications.jsonl")
-    prior = everything[:max(0, len(everything) - len(window))]
+    prior = records_before_window(everything, window)
     found = step_baseline(prior, window, satisfying.get("command"))
     if found is None or count >= found[0]:
         return

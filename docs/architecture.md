@@ -336,7 +336,9 @@ hash chain still links, and leaves every verification artifact in place.
   (both non-null), `mythify_version`, and `environment_digest`. They reuse it
   only when it passed, is not a no-op or zero-test pass, and, if it is itself
   a reused record, only through its original; otherwise the command runs and
-  one `[INFO]` line says why. The environment digest hashes the platform,
+  one `[INFO]` line says why. A newer run of the command at the same commit
+  and worktree digest that did not pass cancels the reuse, whatever its
+  environment digest, and a record with `test_count` 0 is never reused. The environment digest hashes the platform,
   `PATH`, the command's first program (resolved path, size, mtime), and the
   variables named in `MYTHIFY_REUSE_ENV`. It does not cover files ignored by
   `.gitignore`, services, or the network, so reuse is opt-in.

@@ -55,6 +55,21 @@ def drop_warning(command, drop):
     )
 
 
+def records_before_window(everything, window):
+    """The records of EVERYTHING that precede WINDOW's first record.
+
+    Located by record identity (equality of the parsed record), never by list
+    lengths, so a record appended between two reads of the ledger cannot move
+    the boundary. An unplaceable window yields no prior records.
+    """
+    if not window:
+        return list(everything)
+    for index, record in enumerate(everything):
+        if record == window[0]:
+            return list(everything[:index])
+    return []
+
+
 def step_baseline(prior_records, window_records, command):
     """The test count a step's evidence is held to, as (count, run id) or None.
 

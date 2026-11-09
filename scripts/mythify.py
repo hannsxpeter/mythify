@@ -117,7 +117,6 @@ from mythify_path_risk import (  # noqa: E402
 )
 from mythify_ratchet import detect_test_count_drop, drop_warning  # noqa: E402
 from mythify_reuse import (  # noqa: E402
-    environment_digest,
     find_reusable_run,
     reuse_hit_message,
     reuse_miss_message,
@@ -351,10 +350,10 @@ def execute_recorded_verification(
     lineage = capture_lineage(state, parents) if parents else None
     verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
     artifact_dir = state / "verification-artifacts" / verification_id
-    original = None
+    original = current = None
     if reuse:
-        current = current_verification_provenance(VERSION, state=state)
-        current["environment_digest"] = environment_digest(command)
+        # One sample serves the lookup and, on a hit, the record itself.
+        current = current_verification_provenance(VERSION, state=state, command=command)
         original, why = find_reusable_run(
             read_jsonl(state / "verifications.jsonl"), command, current
         )
@@ -378,10 +377,9 @@ def execute_recorded_verification(
         "stderr_tail": run["stderr_tail"],
         "verified": run["verified"],
         "timestamp": now_iso(),
-        "provenance": {
-            **current_verification_provenance(VERSION, state=state),
-            "environment_digest": environment_digest(command),
-        },
+        "provenance": current if original else current_verification_provenance(
+            VERSION, state=state, command=command
+        ),
     }
     if original:
         record.update(run)
@@ -1247,8 +1245,8 @@ configure_outcome_loops(
     slugify_func=slugify,
     run_shell_capture_func=run_shell_capture,
     verification_step_context_func=verification_step_context,
-    verification_provenance_func=lambda state: current_verification_provenance(
-        VERSION, state=state
+    verification_provenance_func=lambda state, command=None: current_verification_provenance(
+        VERSION, state=state, command=command
     ),
     fail_func=fail,
 )
