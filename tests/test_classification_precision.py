@@ -32,7 +32,7 @@ def classify(task):
 class TestTrivialNeedsNoSignals(unittest.TestCase):
     def test_short_prompts_with_task_route_or_risk_terms_are_not_trivial(self):
         for task in (
-            "write a product roadmap and PRD for onboarding",
+            "design the onboarding architecture",
             "delete production data",
             "wayfind the onboarding revamp",
             "map the work for onboarding",
@@ -162,13 +162,53 @@ class TestRiskTermsAreTight(unittest.TestCase):
 
 class TestPhraseTieBreak(unittest.TestCase):
     def test_longer_phrase_wins_a_tie(self):
-        self.assertEqual(classify("write a product plan for onboarding")["task_type"], "product")
-        self.assertEqual(classify("what should we build next quarter")["task_type"], "product")
+        # "fix" scores bugfix and "memory leak" scores performance; "blast
+        # radius" scores review against the bare "add" for feature. One match
+        # each, so the two-word phrase decides.
+        self.assertEqual(classify("fix the memory leak in the cache")["task_type"], "performance")
+        self.assertEqual(classify("add a blast radius check for the api")["task_type"], "review")
 
-    def test_product_terms_win_ties_against_generic_verbs(self):
-        self.assertEqual(classify("build a roadmap for next quarter")["task_type"], "product")
-        self.assertEqual(classify("create a roadmap for the app")["task_type"], "product")
-        self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")
+    def test_product_wording_no_longer_has_a_task_type_of_its_own(self):
+        # The product task type was removed with product planning; wording that
+        # used to win it now follows the remaining rules.
+        expected = {
+            "write a product plan for onboarding": "design",
+            "what should we build next quarter": "feature",
+            "build a roadmap for next quarter": "feature",
+            "create a roadmap for the app": "feature",
+        }
+        for task, task_type in expected.items():
+            with self.subTest(task=task):
+                self.assertEqual(classify(task)["task_type"], task_type)
+
+    def test_planning_documents_classify_as_design_and_route_to_planning(self):
+        # Removing the product task type left "write a product roadmap and PRD"
+        # with no signal, so a short planning request became trivial and direct.
+        for task in (
+            "write a product roadmap and PRD for onboarding",
+            "draft an RFC for the cache layer",
+            "write the spec for the export API",
+            "write a technical design for the export queue",
+            "draft the product requirements for sharing",
+        ):
+            with self.subTest(task=task):
+                payload = classify(task)
+                self.assertEqual(payload["task_type"], "design")
+                self.assertNotEqual(payload["execution_profile"], "direct")
+
+    def test_planning_document_terms_stay_whole_words_and_near_misses_keep_their_type(self):
+        self.assertEqual(classify("fix a typo in the roadmap")["task_type"], "bugfix")
+        self.assertEqual(classify("update the README roadmap link")["task_type"], "docs")
+        self.assertNotEqual(classify("refactor the surface parser")["task_type"], "design")
+        # A planning-document word counts only beside a creation verb.
+        self.assertEqual(classify("What is an RFC?")["task_type"], "question")
+        self.assertEqual(classify("inspect the product requirements document")["task_type"], "review")
+        self.assertEqual(classify("summarize the RFC")["task_type"], "trivial")
+
+    def test_planning_document_requests_do_not_raise_risk(self):
+        for task in ("draft an RFC for the cache layer", "write a technical design for the export queue"):
+            with self.subTest(task=task):
+                self.assertNotEqual(classify(task)["risk"], "high")
 
     def test_ties_without_a_longer_phrase_stay_alphabetical(self):
         self.assertEqual(classify("fix the absolute positioning of the tooltip")["task_type"], "bugfix")

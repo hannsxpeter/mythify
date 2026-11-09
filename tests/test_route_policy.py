@@ -96,7 +96,6 @@ POLICY = {
 
 TASKS = {
     "question": "What does the status command show?",
-    "design_product": "write a product roadmap and PRD for onboarding",
     "design_map": "map the work for onboarding",
     "production": "deploy the app to the staging server",
     "image": "generate a logo for the landing page",
@@ -374,7 +373,6 @@ class TestStepSelection(PolicyCase):
             ("question", TASKS["question"], "question", 2),
             ("question about a command", "what does verify gate do?", "question", 2),
             ("trivial edit is build", "update the footer text", "build", 7),
-            ("design from product", TASKS["design_product"], "design", 3),
             ("design from map", TASKS["design_map"], "design", 3),
             ("production", TASKS["production"], "production", 1),
             ("image", TASKS["image"], "image", 4),

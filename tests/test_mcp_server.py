@@ -47,6 +47,19 @@ CUT_COMMAND_TOOLS = (
     "prompt_research",
     "prompt_analysis",
     "mcp",
+    "product_create",
+    "product_outcome",
+    "product_non_goal",
+    "product_bet",
+    "product_risk",
+    "product_check",
+    "product_approve",
+    "product_decide",
+    "product_promote",
+    "product_measure",
+    "product_show",
+    "product_list",
+    "prompt_product",
 )
 
 
@@ -250,6 +263,8 @@ class TestHandshake(McpServerCase):
         self.assertEqual(result["serverInfo"]["name"], "mythify-mcp")
         self.assertRegex(result["serverInfo"]["version"], r"^\d+\.\d+\.\d+$")
         self.assertIn("verify_run", result["instructions"])
+        self.assertIn("map_resolve", result["instructions"])
+        self.assertNotIn("product", result["instructions"])
         self.assertNotIn("_meta", result)
 
     def test_initialize_falls_back_for_unsupported_version(self):
@@ -356,6 +371,9 @@ class TestToolList(McpServerCase):
         self.assertEqual(len(names), len(set(names)))
         for cut in CUT_COMMAND_TOOLS:
             self.assertNotIn(cut, names)
+        self.assertEqual([name for name in names if name.startswith("product")], [])
+        hatch = next(tool for tool in tools if tool["name"] == "mythify")
+        self.assertNotIn("product", hatch["description"])
         # Tools of the removed routing layer, such as the host model switch.
         self.assertEqual(lint.removed_identifier_keys(names), [])
         for tool in tools:

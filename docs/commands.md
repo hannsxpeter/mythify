@@ -17,13 +17,12 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 - `campaign`: Continue durable goals through strict plan steps.
 - `init`: Create ./.mythify with subdirectories and an empty memory.json.
 - `protocol`: Protocol copy checks.
-- `status`: Orient: active plan, outcome, map, and product, evidence breakdown, and attention items.
+- `status`: Orient: active plan, outcome, and map, evidence breakdown, and attention items.
 - `history`: Show a read-only verification history.
 - `report`: Show a chat-ready live work report from durable Mythify events.
 - `route`: Choose the next workflow route from prompt text and durable state.
 - `prompt`: Render read-only workflow prompt packets.
 - `map`: Chart and work a wayfinding decision map.
-- `product`: Plan a product: problem, user, outcomes, non-goals, bets, risks.
 - `lineage`: Attach and inspect typed artifact lineage.
 - `review`: Record blast-radius safety cases and findings reviews.
 - `loop-fit`: Advise whether a task should be a loop, supervised, or done directly.
@@ -35,7 +34,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 - `logs`: Maintain Mythify jsonl logs.
 - `verify`: Verification: run a command (executed) or record a claim (attested).
 - `reflect`: Record a structured reflection as JSON or flags.
-- `summary`: Full session report: plans, outcomes, maps, products, memory, lessons, evidence, reflections.
+- `summary`: Full session report: plans, outcomes, maps, memory, lessons, evidence, reflections.
 - `mcp`: Serve Mythify commands as MCP tools over stdio.
 
 ## campaign
@@ -181,7 +180,7 @@ Options:
 mythify status [--recent RECENT] [--json]
 ```
 
-Read-only orientation: the active plan with step icons and the next pending step, the active outcome, map, and product (with readiness and traceability flag count), counts, the executed and attested evidence breakdown, recent verification records, and attention items (failed checks, no-op or zero-test passes, ledger chain breaks, legacy opt-outs, stale or drifted outcome evidence) sorted with issues before warnings.
+Read-only orientation: the active plan with step icons and the next pending step, the active outcome and map, counts, the executed and attested evidence breakdown, recent verification records, and attention items (failed checks, no-op or zero-test passes, ledger chain breaks, legacy opt-outs, stale or drifted outcome evidence) sorted with issues before warnings.
 
 Options:
 
@@ -227,7 +226,7 @@ Options:
 mythify route [--json] task
 ```
 
-Read-only workflow quarterback: classify a prompt, inspect durable state, and choose direct, plan, map, product, outcome, review, failure_recovery, or handoff routing. The JSON output carries the deterministic classification with neutral framing, parallelism, and review advisories plus the loop-fit assessment; the host chooses whether and where to delegate. When a routing policy file exists (MYTHIFY_AGENT_POLICY, else ~/.agents/policy.json), the output also shows what that file says about the task, as advisory text.
+Read-only workflow quarterback: classify a prompt, inspect durable state, and choose direct, plan, map, outcome, review, failure_recovery, or handoff routing. The JSON output carries the deterministic classification with neutral framing, parallelism, and review advisories plus the loop-fit assessment; the host chooses whether and where to delegate. When a routing policy file exists (MYTHIFY_AGENT_POLICY, else ~/.agents/policy.json), the output also shows what that file says about the task, as advisory text.
 
 Arguments:
 
@@ -310,24 +309,6 @@ Render a wayfinding map prompt packet for the next decision ticket.
 Arguments:
 
 - `[name]`: Map name. Defaults to the active map.
-
-Options:
-
-- `--goal GOAL`: Optional host goal to include in the packet.
-- `--verify VERIFY`: Optional verifier command to include in the packet.
-- `--json`: Print JSON.
-
-### prompt product
-
-```text
-mythify prompt product [--goal GOAL] [--verify VERIFY] [--json] [name]
-```
-
-Render a product planning prompt packet from a product manager and director lens.
-
-Arguments:
-
-- `[name]`: Product name. Defaults to the active product.
 
 Options:
 
@@ -528,223 +509,6 @@ Options:
 - `--plan PLAN`: Plan name. Defaults to the map name.
 - `--steps STEPS`: JSON array of step objects for the new plan.
 
-## product
-
-Product planning from a product manager or director lens: the problem in the user's words, one primary user, at most five measurable outcomes, non-goals, bets with kill criteria and human deciders, and the four product risks. The record is material. product check lints readiness per stage; approve and decide need the human's words; promote turns an approved bet into a plan; measure records an outcome's metric as executed evidence.
-
-### product create
-
-```text
-mythify product create --problem PROBLEM --user USER [--stage {prototype,pre-launch,growth,enterprise}] [--appetite APPETITE] [--name NAME] title
-```
-
-Create a draft product with the problem in the user's words and one primary user, then set it active. The stage sets how strict product check is: prototype, pre-launch, growth, or enterprise.
-
-Arguments:
-
-- `title`: Product or initiative title.
-
-Options:
-
-- `--problem PROBLEM`: The problem in the user's words, without naming the solution. Required.
-- `--user USER`: The one primary user this product serves. Required.
-- `--stage {prototype,pre-launch,growth,enterprise}`: Product stage; later stages add readiness rules. Defaults to prototype.
-- `--appetite APPETITE`: How much time or effort this is worth.
-- `--name NAME`: Product name. Defaults to a slug of the title.
-
-### product outcome
-
-```text
-mythify product outcome --metric METRIC --target TARGET [--baseline BASELINE] [--target-source {user,cited,decided,hypothesis}] [--measure MEASURE] [--product PRODUCT] statement
-```
-
-Add an outcome with a metric and a target, optionally a baseline, where the target came from, and a measure command that reads the metric. A product keeps at most five outcomes.
-
-Arguments:
-
-- `statement`: The change in the world this outcome describes.
-
-Options:
-
-- `--metric METRIC`: The metric that moves. Required.
-- `--target TARGET`: The target value for the metric. Required.
-- `--baseline BASELINE`: The metric's current value, when known.
-- `--target-source {user,cited,decided,hypothesis}`: Where the target came from: user, cited, decided, or hypothesis.
-- `--measure MEASURE`: Shell command that reads the metric and exits 0 only when the target is met.
-- `--product PRODUCT`: Product name. Defaults to the active product.
-
-### product non-goal
-
-```text
-mythify product non-goal --reason REASON [--revisit-when REVISIT_WHEN] [--product PRODUCT] text
-```
-
-Record what this product will not do, why, and what would reopen it.
-
-Arguments:
-
-- `text`: What is out.
-
-Options:
-
-- `--reason REASON`: Why it is out. Required.
-- `--revisit-when REVISIT_WHEN`: The trigger that would reopen it.
-- `--product PRODUCT`: Product name. Defaults to the active product.
-
-### product bet
-
-```text
-mythify product bet --outcome OUTCOME --kill KILL [--decider DECIDER] [--decide-by DECIDE_BY] [--priority PRIORITY] [--product PRODUCT] hypothesis
-```
-
-Add a bet: a hypothesis linked to the outcomes it should move, the result that would stop it, the human who decides, and when. Lower priority numbers go sooner.
-
-Arguments:
-
-- `hypothesis`: What we believe and will build to test it.
-
-Options:
-
-- `--outcome OUTCOME`: Outcome id this bet should move, such as O1. Repeat or comma separate. Required. Repeatable.
-- `--kill KILL`: The result that stops this bet. Required.
-- `--decider DECIDER`: The human who decides continue, pivot, or stop.
-- `--decide-by DECIDE_BY`: Decision date, as YYYY-MM-DD.
-- `--priority PRIORITY`: Priority; lower goes sooner. Defaults to after the last bet.
-- `--product PRODUCT`: Product name. Defaults to the active product.
-
-### product risk
-
-```text
-mythify product risk --kind {value,usability,feasibility,viability} [--mitigation MITIGATION] [--validation VALIDATION] [--product PRODUCT] text
-```
-
-Record one of the four product risks: value (will the user want it), usability (can the user work it), feasibility (can we build it), or viability (does it work for the business).
-
-Arguments:
-
-- `text`: The risk.
-
-Options:
-
-- `--kind {value,usability,feasibility,viability}`: value, usability, feasibility, or viability. Required.
-- `--mitigation MITIGATION`: How the risk is reduced.
-- `--validation VALIDATION`: How we will learn whether the risk is real.
-- `--product PRODUCT`: Product name. Defaults to the active product.
-
-### product check
-
-```text
-mythify product check [--json] [name]
-```
-
-Deterministic readiness lint. Every stage needs a problem, a user, at least one outcome with metric and target, a non-goal, and bets linked to existing outcomes. pre-launch adds target sources and a value risk; growth adds measure commands and bet deciders; enterprise adds decide-by dates, risk mitigations, and all four risk kinds. Exits 0 when ready and 2 when gaps remain.
-
-Arguments:
-
-- `[name]`: Product name. Defaults to the active product.
-
-Options:
-
-- `--json`: Print JSON.
-
-### product approve
-
-```text
-mythify product approve [--human-input HUMAN_INPUT] [name]
-```
-
-Approve the product direction. Refused without a non-empty --human-input carrying what the human said, and refused while product check has gaps. Mythify records the words but cannot verify who supplied them; an agent must never write them itself.
-
-Arguments:
-
-- `[name]`: Product name. Defaults to the active product.
-
-Options:
-
-- `--human-input HUMAN_INPUT`: What the human actually said when approving. Required.
-
-### product decide
-
-```text
-mythify product decide --verdict {continue,pivot,stop} [--human-input HUMAN_INPUT] [--product PRODUCT] bet
-```
-
-Record continue, pivot, or stop for a bet. Refused without a non-empty --human-input carrying the decider's verdict. Mythify records the words but cannot verify who supplied them; an agent must never write them itself. stop also stops the bet.
-
-Arguments:
-
-- `bet`: Bet id such as B1.
-
-Options:
-
-- `--verdict {continue,pivot,stop}`: continue, pivot, or stop. Required.
-- `--human-input HUMAN_INPUT`: What the decider actually decided. Required.
-- `--product PRODUCT`: Product name. Defaults to the active product.
-
-### product promote
-
-```text
-mythify product promote [--steps STEPS] [--plan PLAN] [--product PRODUCT] bet
-```
-
-Create a plan whose goal is the bet's hypothesis. Requires an approved product and a bet that is not stopped. The plan records lineage parent product:NAME and a product_ref; the bet goes in flight.
-
-Arguments:
-
-- `bet`: Bet id such as B1.
-
-Options:
-
-- `--steps STEPS`: JSON array of step objects for the new plan, as plan create takes.
-- `--plan PLAN`: Plan name. Defaults to the product name plus the bet id.
-- `--product PRODUCT`: Product name. Defaults to the active product.
-
-### product measure
-
-```text
-mythify product measure [--product PRODUCT] [--timeout TIMEOUT] outcome
-```
-
-Run the outcome's measure command through the same recorded verification path as verify run, with lineage parent product:NAME and the claim 'O1 measured: METRIC'. Exits 0 when the command passes, 2 when it fails, 1 when there is nothing to measure.
-
-Arguments:
-
-- `outcome`: Outcome id such as O1.
-
-Options:
-
-- `--product PRODUCT`: Product name. Defaults to the active product.
-- `--timeout TIMEOUT`: Timeout in seconds. Default 300.
-
-### product show
-
-```text
-mythify product show [--json | --markdown] [name]
-```
-
-Show the one-pager: problem, user, stage, appetite, approval, outcomes with their last measurement, non-goals, bets in priority order with plan progress, risks by kind, and traceability flags.
-
-Arguments:
-
-- `[name]`: Product name. Defaults to the active product.
-
-Options:
-
-- `--json`: Print the record plus computed flags as JSON.
-- `--markdown`: Print Markdown suitable for a ROADMAP.md.
-
-### product list
-
-```text
-mythify product list [--json]
-```
-
-List products with the active marker, status, stage, and readiness.
-
-Options:
-
-- `--json`: Print JSON.
-
 ## lineage
 
 Attach and inspect typed artifact lineage.
@@ -752,14 +516,14 @@ Attach and inspect typed artifact lineage.
 ### lineage attach
 
 ```text
-mythify lineage attach --parent PARENT {map,plan,outcome,review,product} id
+mythify lineage attach --parent PARENT {map,plan,outcome,review} id
 ```
 
 Attach current parent revisions to an artifact.
 
 Arguments:
 
-- `{map,plan,outcome,review,product}`: Artifact kind.
+- `{map,plan,outcome,review}`: Artifact kind.
 - `id`: Artifact id.
 
 Options:
@@ -769,14 +533,14 @@ Options:
 ### lineage status
 
 ```text
-mythify lineage status [--json] {map,plan,outcome,review,product,verification} id
+mythify lineage status [--json] {map,plan,outcome,review,verification} id
 ```
 
 Inspect current, stale, missing, or unknown parents.
 
 Arguments:
 
-- `{map,plan,outcome,review,product,verification}`: Artifact kind.
+- `{map,plan,outcome,review,verification}`: Artifact kind.
 - `id`: Artifact id.
 
 Options:
@@ -1374,7 +1138,7 @@ Options:
 mythify summary [--json]
 ```
 
-Full session report: plans and progress, outcome loops, decision maps, product records, memory count, project and global lesson counts, verification stats (executed passed, executed failed, attested count), and reflection count.
+Full session report: plans and progress, outcome loops, decision maps, memory count, project and global lesson counts, verification stats (executed passed, executed failed, attested count), and reflection count.
 
 Options:
 

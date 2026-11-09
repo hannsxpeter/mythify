@@ -77,7 +77,7 @@ class TestNoopVerifierReason(unittest.TestCase):
     def test_flags_separator_group_and_wrapper_variants(self):
         # Each of these always exits 0. The first cut compared the whole text
         # against a short list, so a trailing `;` or a wrapper slipped past
-        # review prove and product measure.
+        # review prove.
         for command in (
             "true;",
             "exit 0;",

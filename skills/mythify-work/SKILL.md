@@ -26,7 +26,7 @@ Run commands through the host's Mythify MCP tools when they exist, else the
 
        mythify route "TASK"
 
-   Follow its route: `direct`, `plan`, `map`, `product`, `outcome`, `review`,
+   Follow its route: `direct`, `plan`, `map`, `outcome`, `review`,
    `failure_recovery`, or `handoff`. For `failure_recovery`, fix the latest
    failed check before anything else.
 3. For multi-step work, create or resume a plan whose steps carry a success
@@ -89,8 +89,8 @@ result before completing the step.
 
 - `step N completed` needs a RESULT and a passing `verify run` recorded after
   the step started. Never use a check that cannot fail, such as `true`.
-- Decisions that need a human (`grilling` and `prototype` map tickets,
-  `product approve`, `product decide`, and completing a high-risk step) wait
+- Decisions that need a human (`grilling` and `prototype` map tickets
+  and completing a high-risk step) wait
   for the person's words. A review loop stops at three rounds: rethink.
 - Pause only for destructive or irreversible actions, real scope changes, or
   input only the user can give.

@@ -88,17 +88,6 @@ TOOL_ALLOWLIST = (
     ("map", "resolve"),
     ("map", "show"),
     ("map", "promote"),
-    ("product", "create"),
-    ("product", "outcome"),
-    ("product", "non-goal"),
-    ("product", "bet"),
-    ("product", "risk"),
-    ("product", "check"),
-    ("product", "approve"),
-    ("product", "decide"),
-    ("product", "promote"),
-    ("product", "measure"),
-    ("product", "show"),
 )
 
 INSTRUCTIONS = (
@@ -109,10 +98,10 @@ INSTRUCTIONS = (
     "it), not a tool error. Exit 1 is a refusal "
     "or failure; exit 64 is a usage error. Run verify_run before any "
     "completion claim: step with status completed is refused until a passing "
-    "verify run is recorded since the step started. product_approve and "
-    "product_decide are human decisions and are refused without human_input "
-    "carrying the human's words. Use the mythify tool with an args array for "
-    "commands that have no typed tool."
+    "verify run is recorded since the step started. map_resolve on a "
+    "human-in-the-loop ticket is a human decision and is refused without "
+    "human_input carrying the human's words. Use the mythify tool with an args "
+    "array for commands that have no typed tool."
 )
 
 

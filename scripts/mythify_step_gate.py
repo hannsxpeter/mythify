@@ -29,8 +29,10 @@ STRICT_CONTEXT_NOTICE = (
 )
 FALSE_ENV_VALUES = ("0", "false", "no", "off")
 
-# Keys that scope a record to a map ticket, product, review, or outcome. A
-# record carrying one is never pre-6.0 legacy evidence, even without step keys.
+# Keys that scope a record to a map ticket, review, or outcome. A record
+# carrying one is never pre-6.0 legacy evidence, even without step keys.
+# "product" stays so ledger records written by releases that had product
+# planning keep counting as scoped, never as legacy evidence for a step.
 SCOPED_RECORD_KEYS = ("map", "ticket_id", "product", "review", "outcome")
 
 _config = {"version": ""}

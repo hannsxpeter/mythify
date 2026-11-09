@@ -2,9 +2,12 @@
 
 Cut commands, flags, modules, and manifests stay gone; `status` is the single
 orientation view; `outcome status` lists every loop when none is active; init
-creates only the folders v6 uses; and state left behind by older versions
-(research, campaigns, designs, evals, fanout, plan archetypes) is ignored
-without error.
+creates only the folders the current version uses; and state left behind by
+older versions (research, campaigns, designs, evals, fanout, products, plan
+archetypes) is ignored without error. Product planning is cut the same way:
+`product` is an unknown command, and a leftover `.mythify/products/` folder,
+`active_product` pointer, plan `product_ref`, or `product` lineage parent is
+never read.
 """
 
 import json
@@ -17,6 +20,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
+if str(REPO_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+from mythify_step_gate import (  # noqa: E402
+    verification_record_counts_for_step,
+    verification_record_matches_step,
+)
 
 DELETED_PATHS = (
     "scripts/mythify_trace.py",
@@ -42,9 +52,13 @@ DELETED_PATHS = (
     "protocol/variants",
     "docs/artifact-hygiene.md",
     ".mythify/workspace.json",
+    "scripts/mythify_product.py",
+    "scripts/mythify_product_parser.py",
+    "docs/product-planning.md",
+    "tests/test_product.py",
 )
 
-REMOVED_FOLDERS = ("research", "campaigns", "designs", "evals", "fanout")
+REMOVED_FOLDERS = ("research", "campaigns", "designs", "evals", "fanout", "products")
 
 
 class DownsizeCase(unittest.TestCase):
@@ -114,6 +128,15 @@ class TestCutSurface(DownsizeCase):
             ("plan", "add-step", "s", "--phase", "build"),
             ("plan", "add-step", "s", "--vertical-slice", "{}"),
             ("map", "promote", "--horizon", "2"),
+            ("product",),
+            ("product", "show"),
+            ("product", "list"),
+            ("product", "create", "Title", "--problem", "p", "--user", "u"),
+            ("product", "check"),
+            ("product", "approve", "--human-input", "ok"),
+            ("product", "measure", "O1"),
+            ("prompt", "product"),
+            ("lineage", "attach", "product", "x", "--parent", "plan:y"),
         )
         for argv in cases:
             with self.subTest(argv=argv):
@@ -159,11 +182,17 @@ class TestLegacyStateIsIgnored(DownsizeCase):
             )
         (self.state / "fanout" / "fo-20260613151515-abcd").mkdir()
         (self.state / "workspace.json").write_text("{}\n", encoding="utf-8")
+        (self.state / "active_product").write_text("legacy\n", encoding="utf-8")
         plan = {
             "name": "legacy-plan",
             "goal": "Old design-heavy plan",
             "archetype": "design-heavy",
             "design": "old-design",
+            "product_ref": {"product": "legacy", "bet": "B1", "outcomes": ["O1"]},
+            "lineage": {
+                "captured_at": "2026-06-16T00:00:00+00:00",
+                "parents": [{"kind": "product", "id": "legacy", "revision": "abc"}],
+            },
             "created": "2026-06-16T00:00:00+00:00",
             "last_updated": "2026-06-16T00:00:00+00:00",
             "steps": [
@@ -207,6 +236,39 @@ class TestLegacyStateIsIgnored(DownsizeCase):
         self.ok("step", "1", "completed", "verify run exit 0")
         for folder in REMOVED_FOLDERS:
             self.assertTrue((self.state / folder / "legacy.json").exists(), folder)
+        self.assertEqual((self.state / "active_product").read_text(encoding="utf-8"), "legacy\n")
+
+    def test_leftover_product_state_is_never_shown(self):
+        self.seed_v5_leftovers()
+        for argv in (("status",), ("plan", "show"), ("summary",), ("report", "--peek"), ("history",)):
+            with self.subTest(argv=argv):
+                output = self.ok(*argv).stdout
+                self.assertNotIn("Active product", output)
+                self.assertNotIn("Products (", output)
+                self.assertNotIn("Product:", output)
+        status = json.loads(self.ok("status", "--json").stdout)
+        self.assertNotIn("active_product", status)
+        summary = json.loads(self.ok("summary", "--json").stdout)
+        self.assertNotIn("products", summary)
+        self.assertEqual(summary["plans"][0]["lineage"], "unknown")
+        route = self.ok("route", "plan the roadmap for next quarter", "--json").stdout
+        self.assertNotIn("product", json.loads(route)["route"])
+
+    def test_product_parent_is_refused_and_prompt_packet_is_gone(self):
+        self.ok("init")
+        self.ok("plan", "create", "Goal", "--steps", json.dumps([{"title": "a"}]))
+        result = self.run_cli("plan", "create", "Other", "--parent", "product:legacy")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("parent kind must be one of", result.stdout + result.stderr)
+        self.assertNotIn("product", result.stdout.split("one of")[-1])
+        self.assertEqual(self.run_cli("prompt", "product").returncode, 64)
+
+    def test_ledger_records_with_a_product_key_stay_scoped(self):
+        record = {"kind": "executed", "verified": True, "exit_code": 0,
+                  "product": "legacy", "outcome_id": "O1"}
+        self.assertFalse(verification_record_matches_step(record, "plan", 1))
+        for strict in (False, True):
+            self.assertFalse(verification_record_counts_for_step(record, "plan", 1, strict))
 
 
 class TestOutcomeStatusListing(DownsizeCase):

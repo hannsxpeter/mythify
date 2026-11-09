@@ -39,7 +39,7 @@ class ReleaseVersionTest(unittest.TestCase):
     def test_release_identity_is_consistent(self):
         cli = (REPO_ROOT / "scripts" / "mythify.py").read_text(encoding="utf-8")
         version = re.search(r'^VERSION = "([^"]+)"$', cli, re.MULTILINE).group(1)
-        release = (REPO_ROOT / "RELEASE-CHECKLIST.md").read_text(encoding="utf-8")
+        release = (REPO_ROOT / "docs" / "maintainers" / "RELEASE-CHECKLIST.md").read_text(encoding="utf-8")
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"

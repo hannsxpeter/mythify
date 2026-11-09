@@ -29,8 +29,8 @@ The checker reads `protocol/prose-quality.json` and scans the maintained
 Markdown paths listed there. It rejects the project's forbidden dash
 characters, decorative symbols in configured Unicode ranges, and a short list
 of canned phrases, matched without regard to case. Paths listed under
-`excluded_paths` in the manifest, such as committed evaluation evidence in
-`docs/evidence`, are outside the default scope. Pass explicit Markdown files
+`excluded_paths` in the manifest, such as a folder of generated or recorded data,
+are outside the default scope. Pass explicit Markdown files
 or directories to inspect them separately.
 
 Exit codes are:

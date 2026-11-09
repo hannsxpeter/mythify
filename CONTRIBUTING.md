@@ -2,8 +2,8 @@
 
 Thanks for considering a contribution. This document covers the development
 rules, the checks a pull request must pass, and how to get it merged.
-Maintainer rituals (versions, releases, the drift log) are in
-[MAINTAINING.md](MAINTAINING.md).
+Maintainer rituals (versions, releases, drift fixes) are in
+[docs/maintainers/MAINTAINING.md](docs/maintainers/MAINTAINING.md).
 
 ## One runtime, standard library only
 
@@ -30,8 +30,8 @@ python3 -m unittest discover -s tests -v
 ## Tests
 
 Every behavior change ships with a test that fails without it. Put it next to
-the code it covers (for example `tests/test_product.py` for
-`scripts/mythify_product.py`, `tests/test_mcp_server.py` for the MCP server),
+the code it covers (for example `tests/test_maps.py` for
+`scripts/mythify_maps.py`, `tests/test_mcp_server.py` for the MCP server),
 and run the full suite before you open a pull request:
 
 ```bash
@@ -50,7 +50,7 @@ python3 scripts/lint.py
 generated files, the protocol byte budget, the text rules below, the prose
 check, the model-agnostic rule, standard-library-only imports, the MCP
 surface, Markdown links, and file size. It must pass before you open a pull
-request. [MAINTAINING.md](MAINTAINING.md) lists each check.
+request. [docs/maintainers/MAINTAINING.md](docs/maintainers/MAINTAINING.md) lists each check.
 
 ## Generated files: never edit by hand
 
@@ -83,10 +83,10 @@ Mythify works with any host and any model, and it never names, ranks, routes
 to, or spawns one. Runtime code, help text, the protocol, the skills, and
 product docs name no AI model, provider, or vendor. The exceptions are host
 setup file locations in `docs/mcp.md` and the installer, historical records
-(`CHANGELOG.md`, `docs/DRIFT.md`, `docs/evidence/`), and the literal file name
+(`CHANGELOG.md`), and the literal file name
 `CLAUDE.md`. The lint `model-agnostic` check enforces it everywhere except
 those exceptions; its denylists live in `scripts/lint.py`, and
-[MAINTAINING.md](MAINTAINING.md) lists their scope.
+[docs/maintainers/MAINTAINING.md](docs/maintainers/MAINTAINING.md) lists their scope.
 
 ## Design changes
 
@@ -94,7 +94,7 @@ A change to a command, a flag, an exit code, an on-disk format, an evidence
 rule, or the MCP surface updates [docs/architecture.md](docs/architecture.md)
 in the same pull request. A change that alters a design decision adds a dated
 entry to its decision log saying what changed and why. New commands follow
-"Adding a command" in [MAINTAINING.md](MAINTAINING.md).
+"Adding a command" in [docs/maintainers/MAINTAINING.md](docs/maintainers/MAINTAINING.md).
 
 ## Pull requests
 
