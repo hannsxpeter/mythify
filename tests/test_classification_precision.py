@@ -232,6 +232,10 @@ PRODUCTION_CORPUS = (
     ("stop the nginx service", "production"),
     ("start the inhouse service", "production"),
     ("fix the bug and deploy api to production", "production"),
+    ("fix the bug and please deploy api to production", "production"),
+    ("fix the bug and roll back api to production", "production"),
+    # "and" does not split when the operation word only modifies a code noun
+    ("Fix the deploy and publish command parsers in cli.py without running any commands", None),
     # migrations with optional determiners
     ("apply a migration to the live database", "production"),
     ("run a migration against prod", "production"),
@@ -352,6 +356,38 @@ class TestProductionRecallFirst(unittest.TestCase):
         )
         self.assertEqual(self.step("fix the bug and deploy api to production"), "production")
 
+    def test_and_skips_a_lead_in_and_takes_two_word_operations(self):
+        from mythify_classification import CLAUSE_BREAK, clause_tokens
+        for text, after in (
+            ("fix the bug and please deploy api to production", ["please", "deploy"]),
+            ("fix the bug and roll back api to production", ["roll", "back"]),
+            ("fix the bug and also spin up the staging cluster", ["also", "spin"]),
+            ("fix the bug and now restart the service", ["now", "restart"]),
+        ):
+            with self.subTest(text=text):
+                tokens = clause_tokens(text)
+                at = tokens.index(CLAUSE_BREAK)
+                self.assertEqual(tokens[at + 1:at + 3], after)
+                self.assertNotIn("and", tokens)
+        for task in (
+            "fix the bug and please deploy api to production",
+            "fix the bug and roll back api to production",
+            "fix the bug and also spin up the staging cluster",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(self.step(task), "production")
+
+    def test_and_does_not_split_before_an_operation_that_modifies_a_code_noun(self):
+        from mythify_classification import CLAUSE_BREAK, clause_tokens
+        parsers = "Fix the deploy and publish command parsers in cli.py without running any commands"
+        self.assertNotIn(CLAUSE_BREAK, clause_tokens(parsers))
+        self.assertIsNone(self.step(parsers))
+        # an environment marker in the would-be clause makes it a real operation
+        self.assertIn(CLAUSE_BREAK, clause_tokens("fix the bug and deploy api to production"))
+        self.assertIn(CLAUSE_BREAK, clause_tokens("fix the deploy and publish command parsers on the staging server"))
+        # no code noun after the operation word: it splits as before
+        self.assertIn(CLAUSE_BREAK, clause_tokens("fix the bug and run the tests"))
+
     def test_service_control_verbs_within_three_words_of_a_service_noun(self):
         for task in (
             "stop the nginx service", "start the inhouse service", "reload the worker pool daemon",
@@ -416,7 +452,7 @@ class TestProductionRecallFirst(unittest.TestCase):
         )
         self.assertEqual(
             clause_tokens("write tests, fix bugs, and please deploy"),
-            ["write", "tests", CLAUSE_BREAK, "fix", "bugs", "and", "please", "deploy"],
+            ["write", "tests", CLAUSE_BREAK, "fix", "bugs", CLAUSE_BREAK, "please", "deploy"],
         )
         self.assertEqual(clause_tokens("see app.py, the deploy file")[:3], ["see", "app", "py"])
 

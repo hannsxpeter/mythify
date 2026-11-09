@@ -129,6 +129,7 @@ def validate_policy_steps(section):
         or not strings(section.get("comma_starters"))
         or not strings(section.get("high_tier_terms"))
         or not strings(section.get("and_starters"))
+        or not strings(section.get("and_lead_ins"))
     ):
         raise ValueError("Invalid classification policy_steps section")
     steps = section.get("steps")
@@ -220,6 +221,7 @@ POLICY_GUARD_WINDOW = int(CLASSIFICATION_MANIFEST["policy_steps"]["guard_window"
 POLICY_STEPS = tuple(CLASSIFICATION_MANIFEST["policy_steps"]["steps"])
 POLICY_HIGH_TIER_TERMS = tuple(str(t) for t in CLASSIFICATION_MANIFEST["policy_steps"]["high_tier_terms"])
 POLICY_AND_STARTERS = frozenset(str(w) for w in CLASSIFICATION_MANIFEST["policy_steps"]["and_starters"])
+POLICY_AND_LEAD_INS = frozenset(str(w) for w in CLASSIFICATION_MANIFEST["policy_steps"]["and_lead_ins"])
 POLICY_COMMA_STARTERS = frozenset(str(w) for w in CLASSIFICATION_MANIFEST["policy_steps"]["comma_starters"])
 
 
@@ -520,6 +522,61 @@ CLAUSE_BREAK = "|"
 CLAUSE_BREAK_WORDS = ("then", "before")
 
 
+_SPLIT_GUARD = []
+
+
+def _split_guard():
+    """(code nouns, stop words, window, environment words) of the step that has a code_work rule."""
+    if not _SPLIT_GUARD:
+        rules = (set(), set(), 0, ())
+        for step in POLICY_STEPS:
+            if step.get("code_work") and step.get("environment"):
+                work = step["code_work"]
+                rules = (
+                    set(wordish(" ".join(work["nouns"])).split()),
+                    set(work.get("stop_words", [])),
+                    int(work["after"]),
+                    tuple(step["environment"]["words"]),
+                )
+                break
+        _SPLIT_GUARD.append(rules)
+    return _SPLIT_GUARD[0]
+
+
+def _and_splits(tokens, index):
+    """True when the "and" at TOKENS[index] starts a new clause.
+
+    The word after it (past a lead-in such as please or now) must be an
+    and_starters operation verb, one or two words ("deploy", "roll back"). Not
+    when that operation word is directly followed (inside the code-noun window,
+    with no stop word between) by a code noun and the rest of the would-be clause
+    names no environment: "fix the deploy and publish command parsers" stays one
+    clause, while "fix the bug and deploy api to production" splits.
+    """
+    at = index + 1
+    while at < len(tokens) and tokens[at] in POLICY_AND_LEAD_INS:
+        at += 1
+    if at >= len(tokens):
+        return False
+    size = 1 if tokens[at] in POLICY_AND_STARTERS else 2 if " ".join(tokens[at:at + 2]) in POLICY_AND_STARTERS else 0
+    if not size:
+        return False
+    nouns, stops, window, environment = _split_guard()
+    rest = []
+    for token in tokens[at + size:]:
+        if token == CLAUSE_BREAK or token in CLAUSE_BREAK_WORDS or token == "that":
+            break
+        rest.append(token)
+    names_noun = False
+    for token in rest[:window]:
+        if token in stops:
+            break
+        if token in nouns:
+            names_noun = True
+            break
+    return not (names_noun and not contains_any(" ".join(rest), environment))
+
+
 def clause_tokens(text):
     """Words of TEXT with CLAUSE_BREAK between clauses.
 
@@ -527,8 +584,9 @@ def clause_tokens(text):
     at the words "then", "before", and "after that". A comma ends one only when
     the next word starts a new verb phrase (a comma_starters word such as
     "then", "please", or an operation or coding verb), and "and" ends one only
-    when the next word is an and_starters operation verb, so a list such as
-    "rsync, scp, and ssh wrapper" stays in one clause.
+    when the next word (past a lead-in such as "please") is an and_starters
+    operation verb that is not just modifying a code noun (see _and_splits), so
+    a list such as "rsync, scp, and ssh wrapper" stays in one clause.
     """
     tokens = []
     for segment in re.split(r"[;!?:\n]+|\.(?=\s|$)", str(text or "").lower()):
@@ -550,7 +608,7 @@ def clause_tokens(text):
                 out.append(CLAUSE_BREAK)
             index += 2 if word == "after" else 1
             continue
-        if word == "and" and tokens[index + 1:index + 2] and tokens[index + 1] in POLICY_AND_STARTERS:
+        if word == "and" and _and_splits(tokens, index):
             if out and out[-1] != CLAUSE_BREAK:
                 out.append(CLAUSE_BREAK)
             index += 1

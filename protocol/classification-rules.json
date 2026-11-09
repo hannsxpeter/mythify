@@ -607,7 +607,8 @@
             "restart",
             "ssh",
             "scp",
-            "rsync"
+            "rsync",
+            "spin up"
           ]
         },
         "pairs": [
@@ -990,7 +991,16 @@
       "apply",
       "execute",
       "migrate",
-      "push"
+      "push",
+      "roll back",
+      "roll out",
+      "spin up"
+    ],
+    "and_lead_ins": [
+      "please",
+      "also",
+      "then",
+      "now"
     ]
   },
   "task_types": [
