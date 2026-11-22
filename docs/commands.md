@@ -44,7 +44,7 @@ Continue durable goals through strict plan steps.
 ### campaign start
 
 ```text
-mythify campaign start [--plan PLAN | --name NAME] [--success SUCCESS] [--tasks TASKS] [--verify VERIFY] goal
+mythify campaign start [--plan PLAN | --name NAME] [--success SUCCESS] [--tasks TASKS] [--verify VERIFY] [--ordered] [--allowed-paths ALLOWED_PATHS] [--frozen-paths FROZEN_PATHS] goal
 ```
 
 Attach a campaign to the current or named plan, or create one.
@@ -60,6 +60,9 @@ Options:
 - `--success SUCCESS`: Success criteria for the campaign.
 - `--tasks TASKS`: JSON step objects for a new plan only.
 - `--verify VERIFY`: Default step verifier for a new plan only.
+- `--ordered`: Allow only the first unfinished step to run.
+- `--allowed-paths ALLOWED_PATHS`: Comma-separated project path prefixes. Implies --ordered.
+- `--frozen-paths FROZEN_PATHS`: Comma-separated immutable project path prefixes. Implies --ordered.
 
 ### campaign status
 
@@ -1104,7 +1107,7 @@ Options:
 mythify verify gate [--plan PLAN] [--json]
 ```
 
-Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Never runs a command and never writes state. Exits 0 when nothing is in flight or every in-progress step is verified, 2 otherwise, with the next command per step on stderr, and 1 when the active or named plan is missing or unreadable.
+Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Also checks scoped campaign paths, even with no step open. Never runs a verifier or writes state. Exits 0 when scope holds and every in-progress step is verified, 2 for a scope violation or a step without acceptable evidence, and 1 when the active or named plan or campaign scope cannot be inspected.
 
 Options:
 

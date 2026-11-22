@@ -47,7 +47,7 @@ def stamp_step_start(state, step):
     step["started_at"] = now_iso()
 
 
-def judge_path_risk(state, plan, step, human_input=None, environ=None):
+def judge_path_risk(state, plan, step, human_input=None, environ=None, *, path_changes=None):
     """Judge the high-risk rule for STEP at completion. Pure: reads only.
 
     Returns a dict: level ("high", "medium", "low", or None when git cannot
@@ -60,10 +60,12 @@ def judge_path_risk(state, plan, step, human_input=None, environ=None):
                "waived": False, "ok": True, "messages": [], "stamp": None}
     # A step that started with no commit (an unborn repository, or outside git)
     # has no baseline, so all current work counts as its own.
-    changed = changed_paths(
-        state, step.get("started_commit"),
-        whole_tree=bool(step.get("started_at")) and not step.get("started_commit"),
-    )
+    changed = path_changes
+    if changed is None:
+        changed = changed_paths(
+            state, step.get("started_commit"),
+            whole_tree=bool(step.get("started_at")) and not step.get("started_commit"),
+        )
     if changed is None:
         return verdict
     classified = classify_paths(changed)
@@ -71,8 +73,11 @@ def judge_path_risk(state, plan, step, human_input=None, environ=None):
     if classified["risk"] != "high":
         return verdict
     paths = [match["path"] for match in classified["matches"] if match["risk"] == "high"]
-    review = review_covers_current_source(state)
     given = bool(str(human_input or "").strip())
+    # With a scoped checkpoint and no human approval the risk gate cannot
+    # pass. In particular, a read-only hook need not compute legacy review
+    # provenance using a Git worktree diff.
+    review = review_covers_current_source(state) if given or path_changes is None else None
     verdict.update(paths=paths, review=review, human_input=given)
     verdict["stamp"] = {"level": "high", "paths": paths[:STAMP_PATHS],
                         "review": review, "human_input": given}

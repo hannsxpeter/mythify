@@ -2,7 +2,10 @@
 
 import hashlib
 import json
+from contextlib import nullcontext
 from pathlib import Path
+
+from mythify_plans import plan_transaction
 
 
 # Parents recorded by older versions with other kinds (research, design,
@@ -145,6 +148,11 @@ def _save_artifact(state, kind, artifact_id, record):
 
 
 def cmd_lineage_attach(args, state):
+    with (plan_transaction(state) if args.kind == "plan" else nullcontext()):
+        return attach_lineage(args, state)
+
+
+def attach_lineage(args, state):
     artifact_id = _slugify(args.id)
     if args.kind in IMMUTABLE_KINDS:
         _fail("[FAIL] Cannot attach lineage to {0}:{1}: {2}.".format(
