@@ -48,6 +48,7 @@ table, so no module imports the entry point.
 | `mythify_memory.py`, `mythify_log_compaction.py`, `mythify_loopfit.py` | memory and lessons, `logs compact`, the `loop-fit` advisory |
 | `mythify_outcomes.py` | outcome loops: start, check, run, status, results, stop, scope and frozen paths |
 | `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
+| `mythify_campaign_scope.py` | Git and filesystem snapshots, accepted checkpoints, and path scope comparisons |
 | `mythify_plans.py` | validated plan identifiers, contained paths, active pointers, plan reads and writes |
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
 | `mythify_quality.py` | blast-radius safety cases: create, prove, show |
@@ -152,6 +153,16 @@ plan selects it as active. Prompt and watch operations only read state.
 Campaign reads preserve corrupt JSON in place and refuse to proceed. Plan
 paths reject traversal identifiers and symlinks that resolve outside their
 store, including the active pointer, plan directory, and archive paths.
+
+Ordered campaigns store `ordered: true` and advance one step at a time.
+Scoped campaigns also store `scope` with the worktree root, initial commit,
+allowed and frozen path prefixes, and the last accepted checkpoint. The
+checkpoint records HEAD, index, and disk entries and a digest of external
+Git ignore rules. Step `allowed_paths` can narrow the campaign scope.
+Ordered steps carry a `verification_attempt` so a run can only count for
+the attempt that admitted it. Scoped runs compare source digests before and
+after verification and advance the checkpoint only on accepted completion.
+See [campaign scope](campaigns.md#require-step-order-or-restrict-file-changes).
 
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
@@ -652,3 +663,12 @@ parent of kind `product` are not read as anything, and ledger records that
 carry a `product` key stay scoped records that never count for a step.
 `docs/maintainers/ROADMAP.md` was rendered by `product show --markdown`; it is now a static
 file.
+
+### 2026-11-22: opt-in campaign order and scope
+
+`campaign start --ordered` restricts transitions to the first unfinished
+step. Campaign or step path limits also enable ordering. Scoped campaigns
+compare each step against the original campaign scope and the previous
+accepted checkpoint, so prior accepted work can stay uncommitted while new
+out-of-scope changes block advancement. The CLI and typed MCP tools use
+the same plan transitions and evidence checks.

@@ -2,13 +2,41 @@
 
 import json
 import sys
+from contextlib import contextmanager
+from functools import wraps
 
-from mythify_io import _write_text_atomic, read_json, write_json_atomic
+from mythify_io import _write_text_atomic, jsonl_file_lock, read_json, write_json_atomic
 from mythify_runtime_helpers import slugify
 
 
 class UnsafePlanPath(ValueError):
     """A plan path would leave its state directory or use an invalid slug."""
+
+
+class PlanBusy(RuntimeError):
+    """Another process holds the plan transaction lock."""
+
+
+@contextmanager
+def plan_transaction(state):
+    """Serialize plan reads followed by writes, including active plan selection."""
+    lock = jsonl_file_lock(plans_dir(state))
+    try:
+        lock.__enter__()
+    except TimeoutError as exc:
+        raise PlanBusy("Another process is updating the plan store. Retry the command.") from exc
+    try:
+        yield
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def serialize_plan_write(handler):
+    @wraps(handler)
+    def locked(args, state):
+        with plan_transaction(state):
+            return handler(args, state)
+    return locked
 
 
 def plans_dir(state):

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Campaigns can require step order with `--ordered` and restrict file changes
+  with campaign and step path limits. Scope violations block advancement
+  even after a passing verifier.
+
 ## [7.0.0] - 2026-11-09
 
 Mythify 7.0.0 narrows the tool to its job: evidence for agent work. Product

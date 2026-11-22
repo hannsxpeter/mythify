@@ -9,6 +9,10 @@ Campaigns have typed tools `campaign_start`, `campaign_status`,
 `campaign_prompt`, `campaign_advance`, `campaign_learn`, and
 `prompt_campaign`. They use the same plan as the CLI. `campaign_advance`
 requires passing executed evidence for the current in-progress step.
+`campaign_start` accepts `ordered` as a boolean and `allowed_paths` and
+`frozen_paths` as comma-separated strings. For example, pass
+`{"goal":"Update the parser","allowed_paths":"src,tests","frozen_paths":"tests"}`
+from a clean, committed worktree. See [campaign scope](campaigns.md#require-step-order-or-restrict-file-changes).
 
 You do not need MCP if your agent can run shell commands: it can call
 `mythify` directly. Add MCP when your host calls tools instead of a shell, or

@@ -1,17 +1,13 @@
-"""`verify gate`: a read-only check that no step is in flight without evidence.
-
-A host can wire it into a stop or pre-commit hook. Exit 0 means every
-in-progress step has passing evidence the step gate accepts right now; exit 2
-means unverified work is in flight, with the next command for each failing step
-on stderr. The gate never runs a command and never writes to the state
-directory: it asks evaluate_step_evidence, the same judge `step ... completed`
-uses, with no test-drop reason and no human input.
-"""
+"""Read-only evidence and campaign scope checks for stop and pre-commit hooks."""
 
 import json
 import shlex
 import sys
 
+from mythify_campaigns import (
+    CampaignPolicyError, CampaignScopeViolation, check_campaign_scope,
+    first_unfinished_step, ordered_campaign,
+)
 from mythify_plans import active_pointer_path, find_plan_slug, load_plan, plan_path
 from mythify_review_cover import unreadable_reviews
 from mythify_step_gate import evaluate_step_evidence
@@ -87,10 +83,23 @@ def evaluate_gate(state, plan_name=None):
     if error:
         view["error"] = error
         return view
+    snapshot, changed = None, None
+    try:
+        if plan is not None and ordered_campaign(plan):
+            current = first_unfinished_step(plan)
+            active_step = current if current and current["status"] == "in_progress" else None
+            snapshot, changed = check_campaign_scope(state, plan, active_step)
+    except CampaignScopeViolation as exc:
+        view.update(ok=False, scope_violation=str(exc))
+        return view
+    except CampaignPolicyError as exc:
+        view.update(ok=False, error=str(exc))
+        return view
     for step in (plan or {}).get("steps", []):
         if step.get("status") != "in_progress":
             continue
-        verdict = evaluate_step_evidence(state, slug, plan, step)
+        verdict = evaluate_step_evidence(
+            state, slug, plan, step, scope_snapshot=snapshot, scope_paths=changed)
         failure = _failure(verdict)
         row = {"id": step.get("id"), "title": step.get("title"), "ok": failure is None,
                "reasons": [], "next": ""}
@@ -110,6 +119,8 @@ def cmd_verify_gate(args, state):
     if view.get("error"):
         sys.stderr.write("[FAIL] verify gate cannot judge: {0}\n".format(view["error"]))
         return 1
+    if view.get("scope_violation"):
+        sys.stderr.write("[FAIL] {0}\n".format(view["scope_violation"]))
     for row in view["steps"]:
         if row["ok"]:
             continue
@@ -130,15 +141,16 @@ def add_gate_parser(actions):
     """Register `verify gate` under the `verify` action parsers."""
     p = actions.add_parser(
         "gate",
-        help="Exit 2 while an in-progress step lacks current passing evidence (read-only).",
+        help="Check campaign scope and in-progress step evidence (read-only).",
         description=(
             "Read-only check for host hooks. Judges each in-progress step of the "
             "active (or named) plan with the same rules as step completed, "
             "including stale evidence, a test-count drop and a high-risk change "
-            "under strict context. Never runs a command and never writes state. "
-            "Exits 0 when nothing is in flight or every in-progress step is "
-            "verified, 2 otherwise, with the next command per step on stderr, "
-            "and 1 when the active or named plan is missing or unreadable."
+            "under strict context. Also checks scoped campaign paths, even with "
+            "no step open. Never runs a verifier or writes state. "
+            "Exits 0 when scope holds and every in-progress step is verified, "
+            "2 for a scope violation or a step without acceptable evidence, "
+            "and 1 when the active or named plan or campaign scope cannot be inspected."
         ),
     )
     p.add_argument("--plan", help="Plan name; defaults to the active plan.")

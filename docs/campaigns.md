@@ -53,6 +53,63 @@ Status reflects plan progress. A non-empty plan is complete when every step
 is completed; skipped steps do not satisfy the campaign. The campaign's
 success text is advisory, so the plan's checks must cover that outcome.
 
+## Require step order or restrict file changes
+
+Start with `--ordered` to make the first unfinished step the only eligible
+step. A skipped or failed step stays first until you reopen and complete it.
+An ordered campaign can attach to a plan whose completed steps form a
+prefix and whose steps after the first unfinished one are all pending.
+Repeating `step ID in_progress` or `plan verify ID` on an open step keeps
+the original evidence window.
+
+```bash
+mythify campaign start "Update parser and help text" --name parser \
+  --allowed-paths "src,docs,tests" --frozen-paths "tests" \
+  --tasks '[{"title":"Update parser","allowed_paths":["src"],"verify_command":"python3 -m unittest discover -s tests"},{"title":"Update help text","allowed_paths":["docs"]}]'
+mythify step 1 in_progress
+mythify plan verify 1
+mythify campaign advance --result "Parser tests passed"
+```
+
+Either path flag enables scope and implies `--ordered`. The flags take
+comma-separated file or directory prefixes relative to the Git worktree
+root. A frozen path must name a tracked file or a directory containing
+tracked files. Frozen directories cover tracked and Git-visible untracked
+files. Keep trusted verifier inputs tracked. Frozen paths take precedence
+over allowed paths. A task's
+optional `allowed_paths` array also enables scope and narrows that step to
+the intersection with any campaign allowlist. An empty step allowlist
+(`"allowed_paths":[]`) permits zero file changes for that step.
+
+Start at the root of a committed, clean Git worktree. The raw checkout bytes
+and executable modes must agree with HEAD, so checkouts that transform
+tracked files can be refused. Start each step before making edits. Mythify
+compares the current HEAD tree, Git index, and on-disk files with the original
+scope and with the last accepted checkpoint. It includes Git-visible
+untracked files and checks both names of a rename. A commit is optional at
+a step boundary. Staging or committing an accepted deletion or rename
+preserves scope when the worktree paths stay as accepted. The same applies
+to staging or committing the exact accepted bytes and mode of an unchanged
+file, even during the next step. A different staged or committed blob or mode
+counts as a change.
+
+`plan verify` checks scope before and after running its verifier.
+Scoped verification requires matching source snapshots before and after
+the run.
+`campaign advance` and direct `step ID completed RESULT` refuse scope
+violations even after a passing check. Only accepted completion advances
+the checkpoint. `verify gate` checks for scope violations in flight and
+for any path changes when no step is open. It exits 2 on a confirmed
+violation and 1 if the baseline or worktree cannot be inspected. Resume
+with the same scope and correct the changes before retrying.
+
+The comparison covers filesystem checkpoints. Keep the worktree isolated
+while working. It hashes symlink targets as link text, excludes Mythify
+state and ordinary Git-ignored files, and refuses changes to Git's external
+ignore files. It refuses inspections that exceed 100,000 filesystem
+entries or 512 MiB of file contents, as well as submodules and nested Git
+worktrees.
+
 ## Resume and retain learning
 
 ```bash

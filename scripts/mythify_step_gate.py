@@ -8,6 +8,7 @@ changes the plan, so `step ... completed` and read-only callers can share it.
 import os
 from pathlib import Path
 
+from mythify_campaign_scope import snapshot_provenance
 from mythify_checks import check_reference, load_checks
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_path_risk import judge_path_risk
@@ -138,7 +139,10 @@ def _judge_test_count(state, result, window, accept_test_drop):
         ))
 
 
-def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human_input=None):
+def evaluate_step_evidence(
+    state, slug, plan, step, accept_test_drop=None, human_input=None,
+    *, scope_snapshot=None, scope_paths=None,
+):
     """Judge whether STEP of PLAN has passing executed evidence.
 
     Returns a dict: ok (bool, False means refuse), satisfying (the latest
@@ -257,9 +261,14 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
             messages.append(("fail", STRICT_CONTEXT_NOTICE))
         return result
     result["satisfying"] = satisfying[-1]
-    moved = evidence_moved_since_run(
-        satisfying[-1], current_verification_provenance(_config["version"], state=state)
-    )
+    if scope_snapshot is None:
+        current = current_verification_provenance(_config["version"], state=state)
+        moved = evidence_moved_since_run(satisfying[-1], current)
+    else:
+        current = snapshot_provenance(scope_snapshot)
+        moved = evidence_moved_since_run(satisfying[-1], current)
+        if not (satisfying[-1].get("provenance") or {}).get("worktree_digest"):
+            moved = "campaign_source_was_not_inspected"
     result["moved"] = moved
     if moved and strict_context:
         result["ok"] = False
@@ -277,7 +286,7 @@ def evaluate_step_evidence(state, slug, plan, step, accept_test_drop=None, human
             "the verifier if in doubt.".format(moved),
         ))
     _judge_test_count(state, result, records, accept_test_drop)
-    result["risk"] = judge_path_risk(state, plan, step, human_input)
+    result["risk"] = judge_path_risk(state, plan, step, human_input, path_changes=scope_paths)
     result["messages"].extend(result["risk"]["messages"])
     result["ok"] = result["ok"] and result["risk"]["ok"]
     return result

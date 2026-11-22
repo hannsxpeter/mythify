@@ -253,7 +253,7 @@ def git_changed_paths(root):
     return paths
 
 
-def paths_outside_scope(changed, allowed):
+def paths_outside_scope(changed, allowed, *, exempt_state=True):
     """Paths not contained by any allowed prefix. Empty allowed => no scope."""
     if not allowed:
         return []
@@ -262,7 +262,7 @@ def paths_outside_scope(changed, allowed):
     for path in changed:
         normalized = path.rstrip("/")
         # Mythify's own state directory is never the agent's target.
-        if normalized == ".mythify" or normalized.startswith(".mythify/"):
+        if exempt_state and (normalized == ".mythify" or normalized.startswith(".mythify/")):
             continue
         if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in prefixes):
             continue
