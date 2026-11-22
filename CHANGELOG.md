@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.1.0] - 2026-11-22
+
 ### Added
 
 - Campaigns can require step order with `--ordered` and restrict file changes
@@ -2226,7 +2228,8 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.0.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.1.0...HEAD
+[7.1.0]: https://github.com/hannsxpeter/mythify/compare/v7.0.0...v7.1.0
 [7.0.0]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...v7.0.0
 [6.2.0]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...v6.2.0
 [6.1.0]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...v6.1.0
