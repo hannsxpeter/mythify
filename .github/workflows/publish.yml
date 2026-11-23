@@ -33,8 +33,8 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      # npm 11.5.1 or newer can publish through npm Trusted Publishing (OIDC),
-      # so no long-lived token is needed once it is configured on npmjs.com.
+      # Trusted publishing (OIDC) needs npm 11.5.1 or newer. The trusted
+      # publisher on npmjs.com is bound to this repository and this file name.
       - name: Use an npm that supports trusted publishing
         run: npm install -g npm@11 && npm --version
 
@@ -75,11 +75,10 @@ jobs:
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
           if npm view "@hxp-tools/mythify@$version" version >/dev/null 2>&1; then
-            echo "@hxp-tools/mythify@$version is already published."
-            exit 1
+            echo "::notice::@hxp-tools/mythify@$version is already published; nothing to do."
+            exit 0
           fi
+          # Trusted publishing: npm trades the id-token for a short-lived
+          # publish credential. A long-lived token here fails with EOTP under
+          # the account's 2FA policy.
           npm publish --provenance --access public
-        env:
-          # Empty when the NPM_TOKEN secret is removed; npm then uses trusted
-          # publishing through the id-token permission above.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
