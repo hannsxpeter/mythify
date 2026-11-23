@@ -453,6 +453,107 @@ class RatchetTests(GitProjectCase):
         self.assertEqual(
             [i for i in cleared["attention"] if i["summary"].startswith("test count dropped")], [])
 
+    def test_repeated_partial_passes_do_not_lower_the_baseline(self):
+        self.create_plan()
+        self.ok("campaign", "start", "goal", "--plan", "p")
+        self.run_with_count(4)
+        self.run_with_count(2)
+        self.ok("step", "1", "in_progress")
+        self.set_count(2)
+        self.ok("plan", "verify", "1")
+        gate = self.run_cli("verify", "gate")
+        self.assertEqual(gate.returncode, 2, gate.stdout + gate.stderr)
+        refused = self.run_cli("step", "1", "completed", "still partial")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("below the baseline of 4", refused.stderr)
+        self.assertEqual(self.plan()["steps"][0]["status"], "in_progress")
+        first, second, third = self.records()
+        self.assertEqual(second["test_count_drop"]["previous"], 4)
+        self.assertEqual(third.get("test_count_drop"),
+                         {"previous": 4, "previous_id": first["id"], "current": 2})
+        status = json.loads(self.ok("status", "--json").stdout)
+        drops = [i for i in status["attention"] if i["summary"].startswith("test count dropped")]
+        self.assertEqual(len(drops), 1, status["attention"])
+        self.assertIn("2 tests, down from 4", drops[0]["detail"])
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        recovered = self.run_cli("verify", "gate")
+        self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
+        self.ok("step", "1", "completed", "full suite again")
+        cleared = json.loads(self.ok("status", "--json").stdout)
+        self.assertEqual(
+            [i for i in cleared["attention"] if i["summary"].startswith("test count dropped")], [])
+
+    def test_a_retained_drop_note_keeps_the_floor_after_compaction(self):
+        self.create_plan()
+        self.ok("campaign", "start", "goal", "--plan", "p")
+        self.run_with_count(4)
+        self.run_with_count(2)
+        self.ok("logs", "compact", "--keep", "1")
+        self.assertEqual(len(self.records()), 1)
+        self.ok("step", "1", "in_progress")
+        self.set_count(2)
+        self.ok("plan", "verify", "1")
+        retained, newest = self.records()
+        self.assertEqual(newest["test_count_drop"]["previous"], 4)
+        gate = self.run_cli("verify", "gate")
+        self.assertEqual(gate.returncode, 2, gate.stdout + gate.stderr)
+        refused = self.run_cli("step", "1", "completed", "still partial")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("below the baseline of 4", refused.stderr)
+        status = json.loads(self.ok("status", "--json").stdout)
+        drops = [i for i in status["attention"] if i["summary"].startswith("test count dropped")]
+        self.assertEqual(len(drops), 1, status["attention"])
+        self.assertIn("2 tests, down from 4", drops[0]["detail"])
+
+    def test_a_rise_inside_the_window_then_a_drop_stays_refused(self):
+        self.create_plan()
+        self.ok("campaign", "start", "goal", "--plan", "p")
+        self.ok("step", "1", "in_progress")
+        self.set_count(3)
+        self.ok("verify", "run", self.command)
+        self.set_count(5)
+        self.ok("verify", "run", self.command)
+        self.set_count(3)
+        self.ok("plan", "verify", "1")
+        refused = self.run_cli("step", "1", "completed", "dropped again")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("below the baseline of 5", refused.stderr)
+
+    def test_status_flags_a_ledger_whose_second_partial_was_unannotated(self):
+        def passing(rid, count):
+            return {"id": rid, "kind": "executed", "command": "c", "verified": True,
+                    "exit_code": 0, "test_count": count, "timestamp": "t" + rid}
+
+        ledger = [passing("a", 4), passing("b", 2), passing("c", 2)]
+        ledger[1]["test_count_drop"] = {"previous": 4, "previous_id": "a", "current": 2}
+        self.assertEqual(latest_test_count_drops(ledger),
+                         [("c", {"previous": 4, "previous_id": "a", "current": 2}, "tc")])
+        self.assertEqual(latest_test_count_drops(ledger + [passing("d", 4)]), [])
+
+    def test_step_baseline_uses_the_highest_earlier_count_only(self):
+        def passing(rid, count):
+            return {"id": rid, "kind": "executed", "command": "c", "verified": True,
+                    "exit_code": 0, "test_count": count}
+
+        a, b, c, d = passing("a", 4), passing("b", 2), passing("c", 2), passing("d", 9)
+        self.assertEqual(step_baseline([a, b], [c], "c", c), (4, "a"))
+        self.assertEqual(step_baseline([], [passing("x", 3), passing("y", 5), c], "c", c), (5, "y"))
+        self.assertEqual(step_baseline([a], [c, d], "c", c), (4, "a"))
+        self.assertIsNone(step_baseline([], [c], "c", c))
+        noted = dict(c, test_count_drop={"previous": 4, "previous_id": "gone", "current": 2})
+        self.assertEqual(step_baseline([], [noted], "c", noted), (4, "gone"))
+        self.assertEqual(step_baseline([b], [], "c", noted), (4, "gone"))
+        for bad in ({"previous": True, "previous_id": "x", "current": 2},
+                    {"previous": 4, "previous_id": "x", "current": 3},
+                    {"previous": 2, "previous_id": "x", "current": 2}):
+            self.assertIsNone(step_baseline([], [], "c", dict(c, test_count_drop=bad)))
+        self.assertEqual(detect_test_count_drop([noted], "c", 2),
+                         {"previous": 4, "previous_id": "gone", "current": 2})
+        kept = [dict(b, test_count_drop={"previous": 4, "previous_id": "gone", "current": 2}), c]
+        self.assertEqual(latest_test_count_drops([dict(r, command="c", timestamp="t") for r in kept]),
+                         [("c", {"previous": 4, "previous_id": "gone", "current": 2}, "t")])
+
     def test_baseline_window_ignores_records_appended_after_the_window_read(self):
         def passing(rid, count):
             return {"id": rid, "kind": "executed", "command": "c", "verified": True,
@@ -465,7 +566,7 @@ class RatchetTests(GitProjectCase):
         self.assertEqual(records_before_window(ledger[:2], [inside]), [before])
         self.assertEqual(records_before_window(ledger, []), ledger)
         self.assertEqual(records_before_window(ledger, [passing("gone", 1)]), [])
-        baseline = step_baseline(records_before_window(ledger, [inside]), [inside], "c")
+        baseline = step_baseline(records_before_window(ledger, [inside]), [inside], "c", inside)
         self.assertEqual(baseline, (10, "a"))
 
     def test_pure_helpers(self):
@@ -481,9 +582,10 @@ class RatchetTests(GitProjectCase):
                          {"previous": 10, "previous_id": "a", "current": 7})
         self.assertIsNone(detect_test_count_drop(log, "c", 10))
         self.assertIsNone(detect_test_count_drop(log, "never-run", 1))
-        self.assertEqual(step_baseline([record("a", 10)], [record("bb", 8)], "c"), (10, "a"))
-        self.assertEqual(step_baseline([], [record("bb", 8), record("ccc", 6)], "c"), (8, "bb"))
-        self.assertIsNone(step_baseline([], [], "c"))
+        later = record("zz", 1)
+        self.assertEqual(step_baseline([record("a", 10)], [record("bb", 8)], "c", later), (10, "a"))
+        self.assertEqual(step_baseline([], [record("bb", 8), record("ccc", 6)], "c", later), (8, "bb"))
+        self.assertIsNone(step_baseline([], [], "c", later))
         dropped = record("dd", 7, test_count_drop={"previous": 10, "previous_id": "a", "current": 7})
         reuse = record("eee", 7, reused_from="dd")
         self.assertEqual(len(latest_test_count_drops(log + [dropped])), 1)

@@ -32,8 +32,9 @@ and it cannot see files ignored by `.gitignore`, services, or the network, so
 use it only where those do not matter (`MYTHIFY_REUSE_ENV` names extra
 environment inputs).
 
-A passing run that executed fewer tests than the previous passing run of the
-same command prints a `[WARN]` and records `test_count_drop`. Completing a
+A passing run that executed fewer tests than the highest earlier passing count
+of the same command in the retained ledger (valid retained drop notes count)
+prints a `[WARN]` and records `test_count_drop`. Completing a
 step on such a run warns, and on a campaign plan refuses unless
 `--accept-test-drop REASON` says why fewer tests is right.
 
