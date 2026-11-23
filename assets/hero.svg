@@ -1,44 +1,89 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-labelledby="t d">
-  <title id="t">mythify 7.2.0</title>
-  <desc id="d">mythify wordmark with the line: prove done. A status board lists plan, act, verify, exit 0 gate, and .mythify/ artifacts.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 430" width="1200" height="430" role="img" aria-labelledby="t d" shape-rendering="crispEdges">
+  <title id="t">mythify</title>
+  <desc id="d">Arcade title screen. MYTHIFY in pixel letters, the line prove done, and npx @hxp-tools/mythify. On the right, a robot agent fires an exit 0 beam at a ghost called the hallucination, whose HP bar is nearly empty.</desc>
   <style>
-    .sans{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif}
-    .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+    .sans{font-family:&quot;Avenir Next&quot;,&quot;Helvetica Neue&quot;,Helvetica,Arial,sans-serif}
+    .mono{font-family:ui-monospace,&quot;SF Mono&quot;,Menlo,Consolas,&quot;Liberation Mono&quot;,monospace}
   </style>
-  <rect x="0.5" y="0.5" width="1199" height="419" rx="10" fill="#14110E" stroke="#2E2820"/>
-  <path d="M1 44H1199V11a10 10 0 0 0-10-10H11A10 10 0 0 0 1 11Z" fill="#1C1814"/>
-  <line x1="1" y1="44" x2="1199" y2="44" stroke="#2E2820"/>
-  <text x="32" y="28" class="mono" font-size="13" font-weight="700" fill="#E8A54B" letter-spacing="1.5">MYTHIFY 7.2.0</text>
-  <text x="600" y="28" class="mono" font-size="13" fill="#A09078" text-anchor="middle">@hxp-tools/mythify</text>
-  <text x="1168" y="28" class="mono" font-size="13" fill="#A09078" text-anchor="end">PRESS START  mythify</text>
+  <defs>
+    <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="2" fill="#000" opacity="0.22"/></pattern>
+  </defs>
 
-  <text x="52" y="168" class="sans" font-size="92" font-weight="800" fill="#F5EFE4" letter-spacing="-3">mythify</text>
-  <rect x="52" y="188" width="56" height="6" fill="#E8A54B"/>
-  <text x="52" y="238" class="sans" font-size="28" font-weight="600" fill="#F5EFE4">Prove done.</text>
-  <text x="52" y="276" class="sans" font-size="28" font-weight="600" fill="#F5EFE4">A step closes only on exit 0.</text>
-  <text x="52" y="318" class="sans" font-size="17" fill="#A09078">Executed checks. Plans on disk. Any model. Zero dependencies.</text>
-
-  <g transform="translate(776 76)">
-    <rect width="392" height="270" rx="4" fill="#1C1814" stroke="#2E2820"/>
-    <text x="20" y="31" class="mono" font-size="12" font-weight="700" fill="#A09078" letter-spacing="2">STATUS BOARD</text>
-    <line x1="0" y1="46" x2="392" y2="46" stroke="#2E2820"/>
-    <g class="sans" font-size="17" fill="#F5EFE4">
-      <text x="20" y="80">Loop</text>
-      <text x="20" y="124">Gate</text>
-      <text x="20" y="168">Runtime</text>
-      <text x="20" y="212">State</text>
-      <text x="20" y="256">Artifacts</text>
-    </g>
-    <g class="mono" font-size="22" font-weight="700" fill="#E8A54B" text-anchor="end">
-      <text x="372" y="80">PLAN ACT VERIFY</text>
-      <text x="372" y="124">EXIT 0</text>
-      <text x="372" y="168">PYTHON 3.9+</text>
-      <text x="372" y="212">ON DISK</text>
-      <text x="372" y="256">.mythify/</text>
-    </g>
-    <g stroke="#2E2820">
-      <line x1="0" y1="90" x2="392" y2="90"/><line x1="0" y1="134" x2="392" y2="134"/>
-      <line x1="0" y1="178" x2="392" y2="178"/><line x1="0" y1="222" x2="392" y2="222"/>
-    </g>
-  </g>
+<rect x="0.5" y="0.5" width="1199" height="429" rx="10" fill="#0D0B1E" stroke="#2C2758"/>
+<path fill="#8C86B8" opacity="0.35" d="M1094 257h2v2h-2zM749 118h2v2h-2zM530 314h2v2h-2zM415 86h2v2h-2zM688 90h3v3h-3zM982 187h2v2h-2zM995 318h2v2h-2zM332 351h3v3h-3zM1170 264h3v3h-3zM805 372h3v3h-3zM310 119h3v3h-3zM46 188h2v2h-2zM988 154h2v2h-2zM730 344h3v3h-3zM1040 172h3v3h-3zM536 375h2v2h-2zM885 399h2v2h-2zM135 52h2v2h-2zM724 290h2v2h-2zM174 124h2v2h-2zM122 239h2v2h-2zM345 239h2v2h-2zM1104 220h2v2h-2zM516 56h2v2h-2zM924 140h2v2h-2zM526 188h2v2h-2zM114 273h2v2h-2zM886 59h3v3h-3zM84 143h2v2h-2zM370 118h2v2h-2zM337 269h2v2h-2zM399 310h2v2h-2zM1150 58h2v2h-2zM1122 411h3v3h-3zM605 72h2v2h-2zM920 232h3v3h-3zM417 206h3v3h-3zM413 194h2v2h-2zM482 289h3v3h-3zM524 58h2v2h-2zM696 144h2v2h-2zM841 253h2v2h-2zM416 183h2v2h-2zM1113 227h2v2h-2zM491 137h3v3h-3zM377 204h2v2h-2zM508 403h2v2h-2zM356 302h2v2h-2zM1143 82h2v2h-2zM698 151h3v3h-3zM501 99h2v2h-2zM360 97h2v2h-2zM1073 152h3v3h-3zM496 121h3v3h-3zM22 303h3v3h-3zM1104 352h2v2h-2zM1041 399h2v2h-2zM742 406h2v2h-2zM236 174h3v3h-3zM1070 57h2v2h-2zM123 401h2v2h-2zM22 335h2v2h-2zM1011 223h2v2h-2zM680 256h2v2h-2zM623 214h2v2h-2zM850 394h2v2h-2zM168 216h2v2h-2zM95 82h2v2h-2zM105 137h3v3h-3zM1045 84h2v2h-2z"/>
+<path d="M1 44H1199V11a10 10 0 0 0-10-10H11A10 10 0 0 0 1 11Z" fill="#17142F"/>
+<line x1="1" y1="44" x2="1199" y2="44" stroke="#2C2758"/>
+<text x="32" y="28" class="mono" font-size="13" font-weight="700" fill="#FFD23F" text-anchor="start" letter-spacing="1.5">1UP</text><text x="78" y="28" class="mono" font-size="13" font-weight="700" fill="#EDE9FF" text-anchor="start" letter-spacing="1.5">AGENT</text>
+<text x="600" y="28" class="mono" font-size="13" font-weight="700" fill="#3DF58A" text-anchor="middle" letter-spacing="1.5">HI-SCORE: EXIT 0</text>
+<text x="1168" y="28" class="mono" font-size="13" font-weight="400" fill="#8C86B8" text-anchor="end" letter-spacing="1.5">CREDIT 01</text>
+<path fill="#F72585" d="M62 88h11v11h-11zM106 88h11v11h-11zM128 88h11v11h-11zM172 88h11v11h-11zM194 88h55v11h-55zM260 88h11v11h-11zM304 88h11v11h-11zM326 88h55v11h-55zM392 88h55v11h-55zM458 88h11v11h-11zM502 88h11v11h-11zM62 99h22v11h-22zM95 99h22v11h-22zM128 99h11v11h-11zM172 99h11v11h-11zM216 99h11v11h-11zM260 99h11v11h-11zM304 99h11v11h-11zM348 99h11v11h-11zM392 99h11v11h-11zM458 99h11v11h-11zM502 99h11v11h-11zM62 110h11v11h-11zM84 110h11v11h-11zM106 110h11v11h-11zM139 110h11v11h-11zM161 110h11v11h-11zM216 110h11v11h-11zM260 110h11v11h-11zM304 110h11v11h-11zM348 110h11v11h-11zM392 110h11v11h-11zM469 110h11v11h-11zM491 110h11v11h-11zM62 121h11v11h-11zM84 121h11v11h-11zM106 121h11v11h-11zM150 121h11v11h-11zM216 121h11v11h-11zM260 121h55v11h-55zM348 121h11v11h-11zM392 121h44v11h-44zM480 121h11v11h-11zM62 132h11v11h-11zM106 132h11v11h-11zM150 132h11v11h-11zM216 132h11v11h-11zM260 132h11v11h-11zM304 132h11v11h-11zM348 132h11v11h-11zM392 132h11v11h-11zM480 132h11v11h-11zM62 143h11v11h-11zM106 143h11v11h-11zM150 143h11v11h-11zM216 143h11v11h-11zM260 143h11v11h-11zM304 143h11v11h-11zM348 143h11v11h-11zM392 143h11v11h-11zM480 143h11v11h-11zM62 154h11v11h-11zM106 154h11v11h-11zM150 154h11v11h-11zM216 154h11v11h-11zM260 154h11v11h-11zM304 154h11v11h-11zM326 154h55v11h-55zM392 154h11v11h-11zM480 154h11v11h-11z"/>
+<path fill="#FFD23F" d="M56 82h11v11h-11zM100 82h11v11h-11zM122 82h11v11h-11zM166 82h11v11h-11zM188 82h55v11h-55zM254 82h11v11h-11zM298 82h11v11h-11zM320 82h55v11h-55zM386 82h55v11h-55zM452 82h11v11h-11zM496 82h11v11h-11zM56 93h22v11h-22zM89 93h22v11h-22zM122 93h11v11h-11zM166 93h11v11h-11zM210 93h11v11h-11zM254 93h11v11h-11zM298 93h11v11h-11zM342 93h11v11h-11zM386 93h11v11h-11zM452 93h11v11h-11zM496 93h11v11h-11zM56 104h11v11h-11zM78 104h11v11h-11zM100 104h11v11h-11zM133 104h11v11h-11zM155 104h11v11h-11zM210 104h11v11h-11zM254 104h11v11h-11zM298 104h11v11h-11zM342 104h11v11h-11zM386 104h11v11h-11zM463 104h11v11h-11zM485 104h11v11h-11zM56 115h11v11h-11zM78 115h11v11h-11zM100 115h11v11h-11zM144 115h11v11h-11zM210 115h11v11h-11zM254 115h55v11h-55zM342 115h11v11h-11zM386 115h44v11h-44zM474 115h11v11h-11zM56 126h11v11h-11zM100 126h11v11h-11zM144 126h11v11h-11zM210 126h11v11h-11zM254 126h11v11h-11zM298 126h11v11h-11zM342 126h11v11h-11zM386 126h11v11h-11zM474 126h11v11h-11zM56 137h11v11h-11zM100 137h11v11h-11zM144 137h11v11h-11zM210 137h11v11h-11zM254 137h11v11h-11zM298 137h11v11h-11zM342 137h11v11h-11zM386 137h11v11h-11zM474 137h11v11h-11zM56 148h11v11h-11zM100 148h11v11h-11zM144 148h11v11h-11zM210 148h11v11h-11zM254 148h11v11h-11zM298 148h11v11h-11zM320 148h55v11h-55zM386 148h11v11h-11zM474 148h11v11h-11z"/>
+<path fill="#EDE9FF" d="M58 194h16v4h-16zM82 194h16v4h-16zM110 194h12v4h-12zM130 194h4v4h-4zM146 194h4v4h-4zM154 194h20v4h-20zM202 194h16v4h-16zM230 194h12v4h-12zM250 194h4v4h-4zM266 194h4v4h-4zM274 194h20v4h-20zM58 198h4v4h-4zM74 198h4v4h-4zM82 198h4v4h-4zM98 198h4v4h-4zM106 198h4v4h-4zM122 198h4v4h-4zM130 198h4v4h-4zM146 198h4v4h-4zM154 198h4v4h-4zM202 198h4v4h-4zM218 198h4v4h-4zM226 198h4v4h-4zM242 198h4v4h-4zM250 198h8v4h-8zM266 198h4v4h-4zM274 198h4v4h-4zM58 202h4v4h-4zM74 202h4v4h-4zM82 202h4v4h-4zM98 202h4v4h-4zM106 202h4v4h-4zM122 202h4v4h-4zM130 202h4v4h-4zM146 202h4v4h-4zM154 202h4v4h-4zM202 202h4v4h-4zM218 202h4v4h-4zM226 202h4v4h-4zM242 202h4v4h-4zM250 202h4v4h-4zM258 202h4v4h-4zM266 202h4v4h-4zM274 202h4v4h-4zM58 206h16v4h-16zM82 206h16v4h-16zM106 206h4v4h-4zM122 206h4v4h-4zM130 206h4v4h-4zM146 206h4v4h-4zM154 206h16v4h-16zM202 206h4v4h-4zM218 206h4v4h-4zM226 206h4v4h-4zM242 206h4v4h-4zM250 206h4v4h-4zM262 206h8v4h-8zM274 206h16v4h-16zM58 210h4v4h-4zM82 210h4v4h-4zM90 210h4v4h-4zM106 210h4v4h-4zM122 210h4v4h-4zM130 210h4v4h-4zM146 210h4v4h-4zM154 210h4v4h-4zM202 210h4v4h-4zM218 210h4v4h-4zM226 210h4v4h-4zM242 210h4v4h-4zM250 210h4v4h-4zM266 210h4v4h-4zM274 210h4v4h-4zM58 214h4v4h-4zM82 214h4v4h-4zM94 214h4v4h-4zM106 214h4v4h-4zM122 214h4v4h-4zM134 214h4v4h-4zM142 214h4v4h-4zM154 214h4v4h-4zM202 214h4v4h-4zM218 214h4v4h-4zM226 214h4v4h-4zM242 214h4v4h-4zM250 214h4v4h-4zM266 214h4v4h-4zM274 214h4v4h-4zM302 214h8v4h-8zM58 218h4v4h-4zM82 218h4v4h-4zM98 218h4v4h-4zM110 218h12v4h-12zM138 218h4v4h-4zM154 218h20v4h-20zM202 218h16v4h-16zM230 218h12v4h-12zM250 218h4v4h-4zM266 218h4v4h-4zM274 218h20v4h-20zM302 218h8v4h-8z"/>
+<text x="56" y="266" class="sans" font-size="22" font-weight="600" fill="#EDE9FF">Your agent says the tests pass.</text>
+<text x="56" y="296" class="sans" font-size="22" font-weight="600" fill="#CFCBEF">Mythify makes it run them.</text>
+<text x="56" y="330" class="mono" font-size="12" font-weight="700" fill="#FFD23F" letter-spacing="2">PRESS START</text>
+<rect x="56" y="340" width="420" height="44" fill="#0F2A22" stroke="#3DF58A" stroke-width="2"/>
+<text x="74" y="368" class="mono" font-size="18" font-weight="700" fill="#3DF58A">&gt; npx @hxp-tools/mythify</text>
+<rect x="342" y="353" width="11" height="19" fill="#3DF58A"><animate attributeName="opacity" values="1;0" dur="1s" calcMode="discrete" repeatCount="indefinite"/></rect>
+<text x="56" y="410" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">PYTHON 3.9+ / ZERO DEPENDENCIES / ANY MODEL / SAVE FILE .mythify/</text>
+<rect x="680" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="696" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="712" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="728" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="744" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="760" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="776" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="792" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="808" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="824" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="840" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="856" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="872" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="888" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="904" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="920" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="936" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="952" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="968" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="984" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="1000" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="1016" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="1032" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="1048" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="1064" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="1080" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="1096" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="1112" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="1128" y="364" width="16" height="8" fill="#1F1A45"/>
+<rect x="1144" y="364" width="16" height="8" fill="#2C2758"/>
+<rect x="1160" y="364" width="16" height="8" fill="#1F1A45"/>
+<g>
+<path fill="#5A5590" d="M760 252h8v8h-8zM736 260h48v8h-48zM728 268h8v8h-8zM784 268h8v8h-8zM728 276h8v8h-8zM784 276h8v8h-8zM728 284h8v8h-8zM784 284h8v8h-8zM728 292h8v8h-8zM784 292h8v8h-8zM736 300h48v8h-48zM720 308h16v8h-16zM784 308h16v8h-16zM712 316h8v8h-8zM728 316h8v8h-8zM784 316h8v8h-8zM800 316h8v8h-8zM712 324h8v8h-8zM728 324h8v8h-8zM784 324h8v8h-8zM800 324h8v8h-8zM736 332h8v8h-8zM776 332h8v8h-8zM736 340h16v8h-16zM768 340h16v8h-16zM736 348h16v8h-16zM768 348h16v8h-16zM728 356h24v8h-24zM768 356h24v8h-24z"/>
+<path fill="#B8B5D9" d="M736 268h48v8h-48zM736 276h8v8h-8zM776 276h8v8h-8zM736 284h8v8h-8zM776 284h8v8h-8zM736 292h48v8h-48zM736 308h48v8h-48zM720 316h8v8h-8zM736 316h8v8h-8zM776 316h8v8h-8zM792 316h8v8h-8zM720 324h8v8h-8zM736 324h48v8h-48zM792 324h8v8h-8zM712 332h16v8h-16zM744 332h32v8h-32zM792 332h16v8h-16z"/>
+<path fill="#4CC9F0" d="M744 276h32v8h-32zM752 284h16v8h-16z"/>
+<path fill="#FFD23F" d="M760 244h8v8h-8zM744 316h32v8h-32z"/>
+<path fill="#0D0B1E" d="M744 284h8v8h-8zM768 284h8v8h-8z"/>
+</g>
+<rect x="824" y="284" width="8" height="8" fill="#3DF58A" opacity="0.45"/>
+<rect x="840" y="275" width="6" height="6" fill="#3DF58A" opacity="0.52"/>
+<rect x="857" y="266" width="8" height="8" fill="#3DF58A" opacity="0.59"/>
+<rect x="874" y="257" width="6" height="6" fill="#3DF58A" opacity="0.66"/>
+<rect x="891" y="249" width="8" height="8" fill="#3DF58A" opacity="0.73"/>
+<rect x="907" y="240" width="6" height="6" fill="#3DF58A" opacity="0.79"/>
+<rect x="924" y="231" width="8" height="8" fill="#3DF58A" opacity="0.86"/>
+<rect x="941" y="222" width="6" height="6" fill="#3DF58A" opacity="0.93"/>
+<rect x="958" y="214" width="8" height="8" fill="#3DF58A" opacity="1.00"/>
+<text x="810" y="134" class="mono" font-size="14" font-weight="700" fill="#FFD23F" letter-spacing="1.5">CRITICAL HIT!</text>
+<path fill="#0F2A22" d="M813 149h20v4h-20zM837 149h4v4h-4zM853 149h4v4h-4zM861 149h20v4h-20zM885 149h20v4h-20zM937 149h12v4h-12zM813 153h4v4h-4zM837 153h4v4h-4zM853 153h4v4h-4zM869 153h4v4h-4zM893 153h4v4h-4zM933 153h4v4h-4zM949 153h4v4h-4zM813 157h4v4h-4zM841 157h4v4h-4zM849 157h4v4h-4zM869 157h4v4h-4zM893 157h4v4h-4zM933 157h4v4h-4zM945 157h8v4h-8zM813 161h16v4h-16zM845 161h4v4h-4zM869 161h4v4h-4zM893 161h4v4h-4zM933 161h4v4h-4zM941 161h4v4h-4zM949 161h4v4h-4zM813 165h4v4h-4zM841 165h4v4h-4zM849 165h4v4h-4zM869 165h4v4h-4zM893 165h4v4h-4zM933 165h8v4h-8zM949 165h4v4h-4zM813 169h4v4h-4zM837 169h4v4h-4zM853 169h4v4h-4zM869 169h4v4h-4zM893 169h4v4h-4zM933 169h4v4h-4zM949 169h4v4h-4zM813 173h20v4h-20zM837 173h4v4h-4zM853 173h4v4h-4zM861 173h20v4h-20zM893 173h4v4h-4zM937 173h12v4h-12z"/>
+<path fill="#3DF58A" d="M810 146h20v4h-20zM834 146h4v4h-4zM850 146h4v4h-4zM858 146h20v4h-20zM882 146h20v4h-20zM934 146h12v4h-12zM810 150h4v4h-4zM834 150h4v4h-4zM850 150h4v4h-4zM866 150h4v4h-4zM890 150h4v4h-4zM930 150h4v4h-4zM946 150h4v4h-4zM810 154h4v4h-4zM838 154h4v4h-4zM846 154h4v4h-4zM866 154h4v4h-4zM890 154h4v4h-4zM930 154h4v4h-4zM942 154h8v4h-8zM810 158h16v4h-16zM842 158h4v4h-4zM866 158h4v4h-4zM890 158h4v4h-4zM930 158h4v4h-4zM938 158h4v4h-4zM946 158h4v4h-4zM810 162h4v4h-4zM838 162h4v4h-4zM846 162h4v4h-4zM866 162h4v4h-4zM890 162h4v4h-4zM930 162h8v4h-8zM946 162h4v4h-4zM810 166h4v4h-4zM834 166h4v4h-4zM850 166h4v4h-4zM866 166h4v4h-4zM890 166h4v4h-4zM930 166h4v4h-4zM946 166h4v4h-4zM810 170h20v4h-20zM834 170h4v4h-4zM850 170h4v4h-4zM858 170h20v4h-20zM890 170h4v4h-4zM934 170h12v4h-12z"/>
+<text x="938" y="74" class="mono" font-size="12" font-weight="700" fill="#EDE9FF" letter-spacing="1.5">THE HALLUCINATION</text>
+<text x="938" y="98" class="mono" font-size="12" font-weight="700" fill="#FFD23F">HP</text>
+<rect x="962" y="86" width="196" height="14" fill="#0D0B1E" stroke="#EDE9FF" stroke-width="2"/><rect x="964" y="88" width="11" height="10" fill="#FF4D6D"/>
+<g opacity="0.92">
+<path fill="#F72585" d="M1040 140h40v10h-40zM1020 150h80v10h-80zM1010 160h10v10h-10zM1030 160h80v10h-80zM1000 170h10v10h-10zM1020 170h100v10h-100zM1000 180h20v10h-20zM1040 180h40v10h-40zM1100 180h20v10h-20zM990 190h20v10h-20zM1050 190h20v10h-20zM1110 190h20v10h-20zM990 200h20v10h-20zM1050 200h20v10h-20zM1110 200h20v10h-20zM990 210h30v10h-30zM1040 210h40v10h-40zM1100 210h30v10h-30zM990 220h140v10h-140zM990 230h140v10h-140zM990 240h140v10h-140zM990 250h140v10h-140zM990 260h20v10h-20zM1020 260h30v10h-30zM1070 260h30v10h-30zM1110 260h20v10h-20zM990 270h10v10h-10zM1030 270h20v10h-20zM1070 270h20v10h-20zM1120 270h10v10h-10z"/>
+<path fill="#FF8CC6" d="M1020 160h10v10h-10zM1010 170h10v10h-10z"/>
+<path fill="#EDE9FF" d="M1020 180h20v10h-20zM1080 180h20v10h-20zM1010 190h20v10h-20zM1070 190h20v10h-20zM1010 200h20v10h-20zM1070 200h20v10h-20zM1020 210h20v10h-20zM1080 210h20v10h-20z"/>
+<path fill="#0D0B1E" d="M1030 190h20v10h-20zM1090 190h20v10h-20zM1030 200h20v10h-20zM1090 200h20v10h-20z"/>
+<animateTransform attributeName="transform" type="translate" calcMode="discrete" values="0 0;0 -3;0 -6;0 -3" dur="1.6s" repeatCount="indefinite"/></g>
+<rect x="1" y="1" width="1198" height="428" rx="10" fill="url(#scan)"/>
 </svg>

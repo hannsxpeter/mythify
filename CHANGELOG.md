@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- README art and game layer redrawn as a pixel arcade: a title screen
+  (`assets/hero.svg`), a turn-based battle for the plan, act, verify, reflect
+  loop (`assets/battle.svg`), and a bestiary of six ways agents fake done, each
+  paired with the Mythify rule that beats it (`assets/bestiary.svg`). A trophy
+  room lists milestones with the command that proves each one. Replaces
+  `assets/quest-map.svg` and `assets/loop.svg`.
+
 ## [7.2.0] - 2026-11-23
 
 Mythify 7.2.0 ships as an `@hxp-tools` product: gamified README and brand

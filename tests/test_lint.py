@@ -291,7 +291,7 @@ class TestDenylistEntriesFire(unittest.TestCase):
         self.assertFalse(lint.in_vendor_scope("docs/mcp.md"))
         self.assertFalse(lint.in_vendor_scope("scripts/install_user.sh"))
         self.assertTrue(lint.in_vendor_scope("assets/hero.svg"))
-        self.assertTrue(lint.in_vendor_scope("assets/quest-map.svg"))
+        self.assertTrue(lint.in_vendor_scope("assets/bestiary.svg"))
         self.assertTrue(lint.in_vendor_scope("CLAUDE.md"))
         # The host config path token is allowed only in the MCP setup table.
         self.assertEqual(lint.model_agnostic_hits("~/.gemini/config/mcp_config.json", path="docs/mcp.md"), [])

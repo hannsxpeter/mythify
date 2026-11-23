@@ -33,7 +33,7 @@ three workflows worth learning. Come back here for reference material.
 
 ## Assets
 
-`../assets/hero.svg`, `quest-map.svg`, and `loop.svg` are the README images.
+`../assets/hero.svg`, `battle.svg`, and `bestiary.svg` are the README images.
 They are self-contained SVG with no external fonts or network requests, because
 GitHub renders README images through `<img>`, which blocks external resources.
 They ship inside the standalone CLI archive and the npm package.

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="mythify 7.2.0. Prove done. Status board lists plan act verify, exit 0 gate, Python 3.9+, on-disk state, and .mythify/ artifacts." width="100%">
+  <img src="assets/hero.svg" alt="Arcade title screen: MYTHIFY, prove done, npx @hxp-tools/mythify. A robot agent hits a ghost called the hallucination with an exit 0 beam." width="100%">
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@ next session opens where this one stopped. Sibling of
 
 ---
 
-## Press start
+## Insert coin
 
 ```bash
 npx @hxp-tools/mythify@latest --project .
@@ -36,9 +36,19 @@ cd mythify
 
 Needs Python 3.9+. Nothing else. The installer puts `mythify`, `mythify-mcp`,
 and `mythify-uninstall` in `~/.local/bin` and copies chat skills into the
-agent folders it finds.
+agent folders it finds. Copy `AGENTS.md` into your project root so the agent
+reads the protocol. Host-specific MCP paths live in [docs/mcp.md](docs/mcp.md).
 
-Then clear the first level:
+---
+
+## Your first battle
+
+Every step is a fight against an unverified claim. Plan, act, and reflect set
+up the hit; only an exit code lands it.
+
+<p align="center">
+  <img src="assets/battle.svg" alt="Battle screen. The agent uses plan, act, verify, reflect. Verify returns exit 1 and the claim holds; after a reflection, verify returns exit 0 and step 1 completes." width="100%">
+</p>
 
 ```bash
 mythify plan create "Fix the failing parser test" \
@@ -49,41 +59,47 @@ mythify plan verify 1
 mythify step 1 completed "verify run exit 0: parser tests pass"
 ```
 
-The last line succeeds only because a real check passed first. Invoke the
-installed skills the way your host runs skills, or run `mythify status` from
-a shell. Copy `AGENTS.md` into your project root so the agent reads the
-protocol. Host-specific MCP paths live in [docs/mcp.md](docs/mcp.md).
+The last line succeeds only because a real check passed first. A red run keeps
+the step open: `mythify reflect`, fix the cause, and verify again.
 
 ---
 
-## The quest map
+## Bestiary
 
-Five levels. Each writes or unlocks state under `.mythify/`.
+Six ways agents fake done, and the Mythify rule that beats each one.
 
 <p align="center">
-  <img src="assets/quest-map.svg" alt="Quest map with five levels: install, one loop, plan work, map, campaign." width="100%">
+  <img src="assets/bestiary.svg" alt="Bestiary of six monsters: the hallucination, the echo, the shrinking suite, the amnesiac, the mimic, and the hydra, each with the Mythify check that beats it." width="100%">
 </p>
 
-| Level | Clear it with | Reward |
+| Monster | How it fakes done | Beaten by |
 |---|---|---|
-| 1. Install | `npx @hxp-tools/mythify` | `mythify` on PATH |
-| 2. One loop | `plan verify` then `step completed` | a proven step |
-| 3. Plan work | `mythify plan create ...` | steps that close on checks |
-| 4. Map | `mythify map` then `map promote` | settled decisions |
-| 5. Campaign | `campaign prompt` / `advance` | continuity across sessions |
-
-The game layer is a map, not a scoreboard. There are no points or XP. The real
-gate is exit 0.
+| The Hallucination | Says the tests pass without running them | `verify run`: a step closes on a recorded exit 0 |
+| The Echo | A check that cannot fail: `true`, `exit 0`, a bare `echo` | Mythify warns on no-op verifiers and `status` flags runs that checked nothing |
+| The Shrinking Suite | Goes green by running fewer tests | The test-count floor; zero tests is always refused |
+| The Amnesiac | Forgets the plan when the chat resets | `.mythify/` on disk; `mythify status` resumes |
+| The Mimic | Answers for the human | `--human-input` in the person's own words |
+| The Hydra | A review that never ends | Bounded rounds; round four needs `--rethink` |
 
 ---
 
-## Evidence loop
+## Trophy room
 
-<p align="center">
-  <img src="assets/loop.svg" alt="Evidence loop: plan, act, verify. State lives in .mythify/." width="100%">
-</p>
+Mythify keeps no score. These are milestones, and each one comes with the
+command that proves you earned it.
 
-**What you get**
+| Trophy | Earn it | Proof |
+|---|---|---|
+| First Blood | Your first `verify run` exits 0 | `mythify status` |
+| Comeback | Red, `reflect`, then green on the same step | `mythify report --since start` |
+| Clean Clear | Every step of a plan closed on its own check | `mythify plan show` |
+| Lorekeeper | Record a surprise with `lesson add` | `mythify lesson list` |
+| Continue? | A new session resumes from `.mythify/` | `mythify status` |
+| Campaigner | Advance a plan through the strict gate | `mythify campaign status` |
+
+---
+
+## What you get
 
 | Piece | What it is |
 |---|---|

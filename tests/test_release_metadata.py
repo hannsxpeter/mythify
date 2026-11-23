@@ -39,8 +39,9 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertNotIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
         self.assertIn("assets/hero.svg", self.text("README.md"))
         self.assertIn("assets/hero.svg", self.text("scripts/package_cli.py"))
-        self.assertIn("assets/quest-map.svg", self.text("README.md"))
-        self.assertIn("assets/quest-map.svg", self.text("scripts/package_cli.py"))
+        for asset in ("assets/battle.svg", "assets/bestiary.svg"):
+            self.assertIn(asset, self.text("README.md"))
+            self.assertIn(asset, self.text("scripts/package_cli.py"))
         self.assertIn('"name": "@hxp-tools/mythify"', self.text("package.json"))
         self.assertIn('"version": "{0}"'.format(VERSION), self.text("package.json"))
 

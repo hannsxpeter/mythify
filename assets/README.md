@@ -2,10 +2,11 @@
 
 | File | Use |
 |---|---|
-| `hero.svg` | README banner |
-| `quest-map.svg` | Five playable levels |
-| `loop.svg` | Evidence loop: plan, act, verify |
+| `hero.svg` | README title screen |
+| `battle.svg` | The loop as a turn-based battle: plan, act, verify, reflect |
+| `bestiary.svg` | Six ways agents fake done, and what beats each one |
 
-Palette matches the hxp-tools product family (warm dark board, amber accent
-`#E8A54B`). SVG embeds keep type on a documented fallback stack so GitHub and
-npm render the same board.
+Pixel arcade palette: indigo board `#0D0B1E`, gold `#FFD23F` for titles, green
+`#3DF58A` for exit 0, red `#FF4D6D` for failure. Sprites are drawn with
+`shape-rendering="crispEdges"`, and text uses a documented fallback font stack,
+so GitHub and npm render the same image with no external fonts or requests.

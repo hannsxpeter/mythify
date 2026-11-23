@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" width="1200" height="480" role="img" aria-labelledby="t d" shape-rendering="crispEdges">
+  <title id="t">The Mythify battle loop</title>
+  <desc id="d">A turn-based battle. The agent fights the hallucination with four moves: plan, act, verify, reflect. The battle log shows exit 1 failing to land, a reflection, then exit 0 landing a critical hit. Step 1 completes only after exit 0.</desc>
+  <style>
+    .sans{font-family:&quot;Avenir Next&quot;,&quot;Helvetica Neue&quot;,Helvetica,Arial,sans-serif}
+    .mono{font-family:ui-monospace,&quot;SF Mono&quot;,Menlo,Consolas,&quot;Liberation Mono&quot;,monospace}
+  </style>
+  <defs>
+    <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="2" fill="#000" opacity="0.22"/></pattern>
+  </defs>
+
+<rect x="0.5" y="0.5" width="1199" height="479" rx="10" fill="#0D0B1E" stroke="#2C2758"/>
+<path fill="#8C86B8" opacity="0.35" d="M1143 368h2v2h-2zM606 193h3v3h-3zM600 246h2v2h-2zM1155 271h2v2h-2zM251 243h2v2h-2zM39 86h2v2h-2zM411 328h3v3h-3zM634 95h2v2h-2zM244 271h2v2h-2zM820 160h3v3h-3zM490 124h2v2h-2zM1183 80h2v2h-2zM980 438h2v2h-2zM1008 403h3v3h-3zM103 209h3v3h-3zM927 130h3v3h-3zM1143 427h2v2h-2zM1044 244h3v3h-3zM450 432h2v2h-2zM407 328h3v3h-3zM170 235h2v2h-2zM716 294h2v2h-2zM439 452h2v2h-2zM639 393h2v2h-2zM945 321h2v2h-2zM524 280h3v3h-3zM1056 78h2v2h-2zM1090 262h2v2h-2zM579 62h2v2h-2zM252 112h2v2h-2zM238 107h2v2h-2zM307 98h2v2h-2zM798 379h3v3h-3zM845 203h2v2h-2zM1144 175h3v3h-3zM1134 404h2v2h-2zM566 272h2v2h-2zM32 188h2v2h-2zM952 105h2v2h-2zM430 353h2v2h-2zM477 395h2v2h-2zM643 389h2v2h-2zM675 458h3v3h-3zM38 102h2v2h-2zM770 340h2v2h-2zM834 292h2v2h-2zM958 441h2v2h-2zM950 63h3v3h-3zM886 92h2v2h-2zM1149 265h2v2h-2zM820 376h3v3h-3zM748 95h2v2h-2zM242 373h2v2h-2zM178 174h2v2h-2zM1131 313h2v2h-2zM430 71h3v3h-3zM1173 338h3v3h-3zM24 429h2v2h-2zM685 52h2v2h-2zM1144 267h2v2h-2zM668 120h2v2h-2zM106 159h2v2h-2zM1072 165h2v2h-2zM790 438h3v3h-3zM228 132h3v3h-3zM368 275h2v2h-2zM1085 71h2v2h-2zM1138 401h3v3h-3zM464 151h3v3h-3zM296 232h2v2h-2z"/>
+<path d="M1 44H1199V11a10 10 0 0 0-10-10H11A10 10 0 0 0 1 11Z" fill="#17142F"/>
+<line x1="1" y1="44" x2="1199" y2="44" stroke="#2C2758"/>
+<text x="32" y="28" class="mono" font-size="13" font-weight="700" fill="#FFD23F" text-anchor="start" letter-spacing="1.5">BATTLE</text><text x="108" y="28" class="mono" font-size="13" font-weight="700" fill="#EDE9FF" text-anchor="start" letter-spacing="1.5">STEP 1</text>
+<text x="1168" y="28" class="mono" font-size="13" font-weight="400" fill="#8C86B8" text-anchor="end" letter-spacing="1.5">RED STAYS OPEN / GREEN ADVANCES</text>
+<rect x="48" y="64" width="420" height="96" fill="#17142F" stroke="#EDE9FF" stroke-width="2"/>
+<text x="68" y="96" class="mono" font-size="19" font-weight="700" fill="#EDE9FF">THE HALLUCINATION</text>
+<text x="448" y="96" class="mono" font-size="14" font-weight="700" fill="#F72585" text-anchor="end">LV 99</text>
+<text x="68" y="124" class="mono" font-size="13" font-weight="700" fill="#FFD23F">HP</text>
+<rect x="96" y="112" width="352" height="14" fill="#0D0B1E" stroke="#EDE9FF" stroke-width="2"/><rect x="98" y="114" width="0" height="10" fill="#FF4D6D"/>
+<text x="68" y="148" class="mono" font-size="12" fill="#8C86B8">CLAIM: "tests pass" (never ran)</text>
+<ellipse cx="934" cy="196" rx="120" ry="14" fill="#1F1A45"/>
+<g opacity="0.45">
+<path fill="#F72585" d="M916 62h36v9h-36zM898 71h72v9h-72zM889 80h9v9h-9zM907 80h72v9h-72zM880 89h9v9h-9zM898 89h90v9h-90zM880 98h18v9h-18zM916 98h36v9h-36zM970 98h18v9h-18zM871 107h18v9h-18zM925 107h18v9h-18zM979 107h18v9h-18zM871 116h18v9h-18zM925 116h18v9h-18zM979 116h18v9h-18zM871 125h27v9h-27zM916 125h36v9h-36zM970 125h27v9h-27zM871 134h126v9h-126zM871 143h126v9h-126zM871 152h126v9h-126zM871 161h126v9h-126zM871 170h18v9h-18zM898 170h27v9h-27zM943 170h27v9h-27zM979 170h18v9h-18zM871 179h9v9h-9zM907 179h18v9h-18zM943 179h18v9h-18zM988 179h9v9h-9z"/>
+<path fill="#FF8CC6" d="M898 80h9v9h-9zM889 89h9v9h-9z"/>
+<path fill="#EDE9FF" d="M898 98h18v9h-18zM952 98h18v9h-18zM889 107h18v9h-18zM943 107h18v9h-18zM889 116h18v9h-18zM943 116h18v9h-18zM898 125h18v9h-18zM952 125h18v9h-18z"/>
+<path fill="#0D0B1E" d="M907 107h18v9h-18zM961 107h18v9h-18zM907 116h18v9h-18zM961 116h18v9h-18z"/>
+</g>
+<text x="934" y="132" class="mono" font-size="22" font-weight="700" fill="#FFD23F" text-anchor="middle" letter-spacing="3">K.O.</text>
+<ellipse cx="248" cy="284" rx="110" ry="12" fill="#1F1A45"/>
+<g>
+<path fill="#5A5590" d="M248 183h7v7h-7zM227 190h42v7h-42zM220 197h7v7h-7zM269 197h7v7h-7zM220 204h7v7h-7zM269 204h7v7h-7zM220 211h7v7h-7zM269 211h7v7h-7zM220 218h7v7h-7zM269 218h7v7h-7zM227 225h42v7h-42zM213 232h14v7h-14zM269 232h14v7h-14zM206 239h7v7h-7zM220 239h7v7h-7zM269 239h7v7h-7zM283 239h7v7h-7zM206 246h7v7h-7zM220 246h7v7h-7zM269 246h7v7h-7zM283 246h7v7h-7zM227 253h7v7h-7zM262 253h7v7h-7zM227 260h14v7h-14zM255 260h14v7h-14zM227 267h14v7h-14zM255 267h14v7h-14zM220 274h21v7h-21zM255 274h21v7h-21z"/>
+<path fill="#B8B5D9" d="M227 197h42v7h-42zM227 204h7v7h-7zM262 204h7v7h-7zM227 211h7v7h-7zM262 211h7v7h-7zM227 218h42v7h-42zM227 232h42v7h-42zM213 239h7v7h-7zM227 239h7v7h-7zM262 239h7v7h-7zM276 239h7v7h-7zM213 246h7v7h-7zM227 246h42v7h-42zM276 246h7v7h-7zM206 253h14v7h-14zM234 253h28v7h-28zM276 253h14v7h-14z"/>
+<path fill="#4CC9F0" d="M234 204h28v7h-28zM241 211h14v7h-14z"/>
+<path fill="#FFD23F" d="M248 176h7v7h-7zM234 239h28v7h-28z"/>
+<path fill="#0D0B1E" d="M234 211h7v7h-7zM255 211h7v7h-7z"/>
+</g>
+<rect x="700" y="216" width="452" height="72" fill="#17142F" stroke="#EDE9FF" stroke-width="2"/>
+<text x="720" y="246" class="mono" font-size="19" font-weight="700" fill="#EDE9FF">AGENT</text>
+<text x="1132" y="246" class="mono" font-size="14" font-weight="700" fill="#3DF58A" text-anchor="end">exit 0</text>
+<text x="720" y="274" class="mono" font-size="12" font-weight="700" fill="#FFD23F">PROOF</text>
+<rect x="770" y="262" width="362" height="14" fill="#0D0B1E" stroke="#EDE9FF" stroke-width="2"/><rect x="772" y="264" width="358" height="10" fill="#3DF58A"/>
+<rect x="48" y="306" width="364" height="150" fill="#17142F" stroke="#EDE9FF" stroke-width="2"/>
+<path fill="#EDE9FF" d="M84 340h12v3h-12zM102 340h3v3h-3zM123 340h9v3h-9zM138 340h3v3h-3zM150 340h3v3h-3zM84 343h3v3h-3zM96 343h3v3h-3zM102 343h3v3h-3zM120 343h3v3h-3zM132 343h3v3h-3zM138 343h6v3h-6zM150 343h3v3h-3zM84 346h3v3h-3zM96 346h3v3h-3zM102 346h3v3h-3zM120 346h3v3h-3zM132 346h3v3h-3zM138 346h3v3h-3zM144 346h3v3h-3zM150 346h3v3h-3zM84 349h12v3h-12zM102 349h3v3h-3zM120 349h15v3h-15zM138 349h3v3h-3zM147 349h6v3h-6zM84 352h3v3h-3zM102 352h3v3h-3zM120 352h3v3h-3zM132 352h3v3h-3zM138 352h3v3h-3zM150 352h3v3h-3zM84 355h3v3h-3zM102 355h3v3h-3zM120 355h3v3h-3zM132 355h3v3h-3zM138 355h3v3h-3zM150 355h3v3h-3zM84 358h3v3h-3zM102 358h15v3h-15zM120 358h3v3h-3zM132 358h3v3h-3zM138 358h3v3h-3zM150 358h3v3h-3z"/>
+<path fill="#EDE9FF" d="M247 340h9v3h-9zM265 340h9v3h-9zM280 340h15v3h-15zM244 343h3v3h-3zM256 343h3v3h-3zM262 343h3v3h-3zM274 343h3v3h-3zM286 343h3v3h-3zM244 346h3v3h-3zM256 346h3v3h-3zM262 346h3v3h-3zM286 346h3v3h-3zM244 349h15v3h-15zM262 349h3v3h-3zM286 349h3v3h-3zM244 352h3v3h-3zM256 352h3v3h-3zM262 352h3v3h-3zM286 352h3v3h-3zM244 355h3v3h-3zM256 355h3v3h-3zM262 355h3v3h-3zM274 355h3v3h-3zM286 355h3v3h-3zM244 358h3v3h-3zM256 358h3v3h-3zM265 358h9v3h-9zM286 358h3v3h-3z"/>
+<path fill="#3DF58A" d="M84 398h3v3h-3zM96 398h3v3h-3zM102 398h15v3h-15zM120 398h12v3h-12zM138 398h15v3h-15zM156 398h15v3h-15zM174 398h3v3h-3zM186 398h3v3h-3zM84 401h3v3h-3zM96 401h3v3h-3zM102 401h3v3h-3zM120 401h3v3h-3zM132 401h3v3h-3zM144 401h3v3h-3zM156 401h3v3h-3zM174 401h3v3h-3zM186 401h3v3h-3zM84 404h3v3h-3zM96 404h3v3h-3zM102 404h3v3h-3zM120 404h3v3h-3zM132 404h3v3h-3zM144 404h3v3h-3zM156 404h3v3h-3zM177 404h3v3h-3zM183 404h3v3h-3zM84 407h3v3h-3zM96 407h3v3h-3zM102 407h12v3h-12zM120 407h12v3h-12zM144 407h3v3h-3zM156 407h12v3h-12zM180 407h3v3h-3zM84 410h3v3h-3zM96 410h3v3h-3zM102 410h3v3h-3zM120 410h3v3h-3zM126 410h3v3h-3zM144 410h3v3h-3zM156 410h3v3h-3zM180 410h3v3h-3zM87 413h3v3h-3zM93 413h3v3h-3zM102 413h3v3h-3zM120 413h3v3h-3zM129 413h3v3h-3zM144 413h3v3h-3zM156 413h3v3h-3zM180 413h3v3h-3zM90 416h3v3h-3zM102 416h15v3h-15zM120 416h3v3h-3zM132 416h3v3h-3zM138 416h15v3h-15zM156 416h3v3h-3zM180 416h3v3h-3z"/>
+<path fill="#EDE9FF" d="M244 398h12v3h-12zM262 398h15v3h-15zM280 398h15v3h-15zM298 398h3v3h-3zM316 398h15v3h-15zM337 398h9v3h-9zM352 398h15v3h-15zM244 401h3v3h-3zM256 401h3v3h-3zM262 401h3v3h-3zM280 401h3v3h-3zM298 401h3v3h-3zM316 401h3v3h-3zM334 401h3v3h-3zM346 401h3v3h-3zM358 401h3v3h-3zM244 404h3v3h-3zM256 404h3v3h-3zM262 404h3v3h-3zM280 404h3v3h-3zM298 404h3v3h-3zM316 404h3v3h-3zM334 404h3v3h-3zM358 404h3v3h-3zM244 407h12v3h-12zM262 407h12v3h-12zM280 407h12v3h-12zM298 407h3v3h-3zM316 407h12v3h-12zM334 407h3v3h-3zM358 407h3v3h-3zM244 410h3v3h-3zM250 410h3v3h-3zM262 410h3v3h-3zM280 410h3v3h-3zM298 410h3v3h-3zM316 410h3v3h-3zM334 410h3v3h-3zM358 410h3v3h-3zM244 413h3v3h-3zM253 413h3v3h-3zM262 413h3v3h-3zM280 413h3v3h-3zM298 413h3v3h-3zM316 413h3v3h-3zM334 413h3v3h-3zM346 413h3v3h-3zM358 413h3v3h-3zM244 416h3v3h-3zM256 416h3v3h-3zM262 416h15v3h-15zM280 416h3v3h-3zM298 416h15v3h-15zM316 416h15v3h-15zM337 416h9v3h-9zM358 416h3v3h-3z"/>
+<path fill="#3DF58A" d="M58 398h6v21h-6zM64 401h4v15h-4zM68 405h4v7h-4z"/>
+<rect x="428" y="306" width="724" height="150" fill="#17142F" stroke="#EDE9FF" stroke-width="2"/>
+<text x="448" y="336" class="mono" font-size="14" font-weight="700" fill="#EDE9FF">AGENT used PLAN.</text>
+<text x="712" y="336" class="mono" font-size="14" fill="#8C86B8">Step 1 needs: python3 -m unittest</text>
+<text x="448" y="357" class="mono" font-size="14" font-weight="700" fill="#EDE9FF">AGENT used ACT.</text>
+<text x="712" y="357" class="mono" font-size="14" fill="#8C86B8">Parser edited.</text>
+<text x="448" y="378" class="mono" font-size="14" font-weight="700" fill="#EDE9FF">AGENT used VERIFY.</text>
+<text x="712" y="378" class="mono" font-size="14" fill="#FF4D6D">exit 1. 2 of 14 failed. The claim holds.</text>
+<text x="448" y="399" class="mono" font-size="14" font-weight="700" fill="#EDE9FF">AGENT used REFLECT.</text>
+<text x="712" y="399" class="mono" font-size="14" fill="#8C86B8">Root cause: no empty-input guard.</text>
+<text x="448" y="420" class="mono" font-size="14" font-weight="700" fill="#EDE9FF">AGENT used VERIFY.</text>
+<text x="712" y="420" class="mono" font-size="14" fill="#3DF58A">exit 0. 14 of 14 pass. Critical hit!</text>
+<text x="448" y="441" class="mono" font-size="14" font-weight="700" fill="#FFD23F">THE HALLUCINATION fainted.</text>
+<text x="712" y="441" class="mono" font-size="14" fill="#FFD23F">Step 1 completed.</text>
+<rect x="1" y="1" width="1198" height="478" rx="10" fill="url(#scan)"/>
+</svg>

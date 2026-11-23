@@ -37,8 +37,8 @@ STANDALONE_DOCS = (
 )
 STANDALONE_ASSETS = (
     "assets/hero.svg",
-    "assets/quest-map.svg",
-    "assets/loop.svg",
+    "assets/battle.svg",
+    "assets/bestiary.svg",
     "assets/README.md",
 )
 

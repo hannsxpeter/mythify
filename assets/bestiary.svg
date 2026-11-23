@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 624" width="1200" height="624" role="img" aria-labelledby="t d" shape-rendering="crispEdges">
+  <title id="t">Mythify bestiary</title>
+  <desc id="d">Six ways agents fake done, each beaten by a Mythify check. The hallucination: verify run. The echo: no-op check warning. The shrinking suite: the test-count floor. The amnesiac: mythify status. The mimic: human-input in the person's words. The hydra: round four needs rethink.</desc>
+  <style>
+    .sans{font-family:&quot;Avenir Next&quot;,&quot;Helvetica Neue&quot;,Helvetica,Arial,sans-serif}
+    .mono{font-family:ui-monospace,&quot;SF Mono&quot;,Menlo,Consolas,&quot;Liberation Mono&quot;,monospace}
+  </style>
+  <defs>
+    <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="2" fill="#000" opacity="0.22"/></pattern>
+  </defs>
+
+<rect x="0.5" y="0.5" width="1199" height="623" rx="10" fill="#0D0B1E" stroke="#2C2758"/>
+<path fill="#8C86B8" opacity="0.35" d="M47 593h2v2h-2zM58 589h2v2h-2zM803 603h2v2h-2zM283 55h2v2h-2zM1188 579h2v2h-2zM157 207h2v2h-2zM1076 258h2v2h-2zM44 598h3v3h-3zM591 173h2v2h-2zM764 428h2v2h-2zM380 541h2v2h-2zM839 476h2v2h-2zM743 182h3v3h-3zM181 208h2v2h-2zM492 411h2v2h-2zM858 73h2v2h-2zM915 547h2v2h-2zM269 375h2v2h-2zM525 352h2v2h-2zM476 170h2v2h-2zM874 315h2v2h-2zM533 175h3v3h-3zM1121 354h2v2h-2zM928 212h2v2h-2zM138 274h2v2h-2zM695 575h2v2h-2zM458 125h2v2h-2zM275 145h2v2h-2zM683 276h2v2h-2zM603 551h2v2h-2zM472 412h2v2h-2zM248 216h2v2h-2zM530 103h2v2h-2zM497 580h2v2h-2zM913 595h2v2h-2zM137 457h3v3h-3zM975 74h2v2h-2zM765 270h3v3h-3zM938 455h2v2h-2zM616 375h3v3h-3zM801 266h2v2h-2zM1067 138h2v2h-2zM1126 374h3v3h-3zM144 221h2v2h-2zM1149 479h2v2h-2zM259 593h2v2h-2zM606 535h2v2h-2zM440 439h3v3h-3zM733 337h2v2h-2zM343 548h3v3h-3zM602 355h2v2h-2zM1062 333h2v2h-2zM830 75h2v2h-2zM871 353h3v3h-3zM461 229h3v3h-3zM436 377h2v2h-2zM17 423h2v2h-2zM465 160h2v2h-2zM47 96h3v3h-3zM329 113h2v2h-2zM567 149h2v2h-2zM1129 124h2v2h-2zM1068 215h3v3h-3zM587 304h3v3h-3zM468 241h2v2h-2zM732 563h2v2h-2zM345 194h2v2h-2zM15 334h2v2h-2zM714 126h3v3h-3zM208 529h2v2h-2z"/>
+<path d="M1 44H1199V11a10 10 0 0 0-10-10H11A10 10 0 0 0 1 11Z" fill="#17142F"/>
+<line x1="1" y1="44" x2="1199" y2="44" stroke="#2C2758"/>
+<text x="32" y="28" class="mono" font-size="13" font-weight="700" fill="#FFD23F" text-anchor="start" letter-spacing="1.5">BESTIARY</text>
+<text x="1168" y="28" class="mono" font-size="13" font-weight="400" fill="#8C86B8" text-anchor="end" letter-spacing="1.5">SIX WAYS AGENTS FAKE DONE</text>
+<g transform="translate(28 64)">
+<rect width="368" height="260" fill="#17142F" stroke="#F72585" stroke-width="2"/>
+<rect x="16" y="16" width="124" height="124" fill="#0D0B1E" stroke="#2C2758"/>
+<g>
+<path fill="#F72585" d="M64 29h28v7h-28zM50 36h56v7h-56zM43 43h7v7h-7zM57 43h56v7h-56zM36 50h7v7h-7zM50 50h70v7h-70zM36 57h14v7h-14zM64 57h28v7h-28zM106 57h14v7h-14zM29 64h14v7h-14zM71 64h14v7h-14zM113 64h14v7h-14zM29 71h14v7h-14zM71 71h14v7h-14zM113 71h14v7h-14zM29 78h21v7h-21zM64 78h28v7h-28zM106 78h21v7h-21zM29 85h98v7h-98zM29 92h98v7h-98zM29 99h98v7h-98zM29 106h98v7h-98zM29 113h14v7h-14zM50 113h21v7h-21zM85 113h21v7h-21zM113 113h14v7h-14zM29 120h7v7h-7zM57 120h14v7h-14zM85 120h14v7h-14zM120 120h7v7h-7z"/>
+<path fill="#FF8CC6" d="M50 43h7v7h-7zM43 50h7v7h-7z"/>
+<path fill="#EDE9FF" d="M50 57h14v7h-14zM92 57h14v7h-14zM43 64h14v7h-14zM85 64h14v7h-14zM43 71h14v7h-14zM85 71h14v7h-14zM50 78h14v7h-14zM92 78h14v7h-14z"/>
+<path fill="#0D0B1E" d="M57 64h14v7h-14zM99 64h14v7h-14zM57 71h14v7h-14zM99 71h14v7h-14z"/>
+</g>
+<text x="156" y="36" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">No.01</text>
+<text x="156" y="62" class="mono" font-size="16" font-weight="700" fill="#EDE9FF">THE HALLUCINATION</text>
+<text x="156" y="86" class="mono" font-size="11" font-weight="700" fill="#F72585" letter-spacing="1">TYPE: FAKE PASS</text>
+<text x="156" y="120" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">THREAT</text>
+<rect x="156" y="128" width="14" height="10" fill="#F72585"/>
+<rect x="174" y="128" width="14" height="10" fill="#F72585"/>
+<rect x="192" y="128" width="14" height="10" fill="#F72585"/>
+<rect x="210" y="128" width="14" height="10" fill="#F72585"/>
+<rect x="228" y="128" width="14" height="10" fill="#F72585"/>
+<text x="16" y="172" class="sans" font-size="15" fill="#CFCBEF">Says the tests pass. Never ran them.</text>
+<text x="16" y="194" class="sans" font-size="15" fill="#CFCBEF">Confidence is its only attack.</text>
+<line x1="16" y1="210" x2="352" y2="210" stroke="#2C2758"/>
+<text x="16" y="232" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">BEATEN BY</text>
+<text x="16" y="250" class="mono" font-size="14" font-weight="700" fill="#3DF58A">mythify verify run CMD</text>
+</g>
+<g transform="translate(416 64)">
+<rect width="368" height="260" fill="#17142F" stroke="#9D4EDD" stroke-width="2"/>
+<rect x="16" y="16" width="124" height="124" fill="#0D0B1E" stroke="#2C2758"/>
+<g>
+<path fill="#9D4EDD" d="M30 54h6v6h-6zM66 54h6v6h-6zM84 54h6v6h-6zM120 54h6v6h-6zM30 60h12v6h-12zM66 60h24v6h-24zM114 60h12v6h-12zM30 66h18v6h-18zM60 66h6v6h-6zM72 66h12v6h-12zM90 66h6v6h-6zM108 66h18v6h-18zM30 72h96v6h-96zM30 78h18v6h-18zM54 78h18v6h-18zM84 78h18v6h-18zM108 78h18v6h-18zM30 84h12v6h-12zM54 84h48v6h-48zM114 84h12v6h-12zM30 90h6v6h-6zM66 90h24v6h-24zM120 90h6v6h-6zM66 96h6v6h-6zM84 96h6v6h-6z"/>
+<path fill="#C77DFF" d="M48 78h6v6h-6zM102 78h6v6h-6zM48 84h6v6h-6zM102 84h6v6h-6zM54 90h6v6h-6zM96 90h6v6h-6z"/>
+<path fill="#EDE9FF" d="M66 66h6v6h-6zM84 66h6v6h-6z"/>
+<path fill="#0D0B1E" d="M72 78h12v6h-12z"/>
+</g>
+<text x="156" y="36" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">No.02</text>
+<text x="156" y="62" class="mono" font-size="16" font-weight="700" fill="#EDE9FF">THE ECHO</text>
+<text x="156" y="86" class="mono" font-size="11" font-weight="700" fill="#9D4EDD" letter-spacing="1">TYPE: NO-OP CHECK</text>
+<text x="156" y="120" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">THREAT</text>
+<rect x="156" y="128" width="14" height="10" fill="#9D4EDD"/>
+<rect x="174" y="128" width="14" height="10" fill="#9D4EDD"/>
+<rect x="192" y="128" width="14" height="10" fill="#9D4EDD"/>
+<rect x="210" y="128" width="14" height="10" fill="#9D4EDD"/>
+<rect x="228" y="128" width="14" height="10" fill="#2C2758"/>
+<text x="16" y="172" class="sans" font-size="15" fill="#CFCBEF">Its check cannot fail: true, exit 0,</text>
+<text x="16" y="194" class="sans" font-size="15" fill="#CFCBEF">or a bare echo. Always green.</text>
+<line x1="16" y1="210" x2="352" y2="210" stroke="#2C2758"/>
+<text x="16" y="232" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">BEATEN BY</text>
+<text x="16" y="250" class="mono" font-size="14" font-weight="700" fill="#3DF58A">no-op check warning</text>
+</g>
+<g transform="translate(804 64)">
+<rect width="368" height="260" fill="#17142F" stroke="#FF9F1C" stroke-width="2"/>
+<rect x="16" y="16" width="124" height="124" fill="#0D0B1E" stroke="#2C2758"/>
+<g>
+<path fill="#FF9F1C" d="M66 51h24v6h-24zM54 57h48v6h-48zM48 63h6v6h-6zM66 63h48v6h-48zM42 69h6v6h-6zM54 69h60v6h-60zM42 75h18v6h-18zM66 75h24v6h-24zM96 75h18v6h-18zM36 81h24v6h-24zM66 81h24v6h-24zM96 81h24v6h-24zM36 87h84v6h-84zM36 93h84v6h-84zM42 99h72v6h-72z"/>
+<path fill="#FFD29A" d="M54 63h12v6h-12zM48 69h6v6h-6z"/>
+<path fill="#0D0B1E" d="M60 75h6v6h-6zM90 75h6v6h-6zM60 81h6v6h-6zM90 81h6v6h-6z"/>
+</g>
+<g>
+<path fill="#FF9F1C" d="M118 114h8v2h-8zM114 116h16v2h-16zM112 118h2v2h-2zM118 118h16v2h-16zM110 120h2v2h-2zM114 120h20v2h-20zM110 122h6v2h-6zM118 122h8v2h-8zM128 122h6v2h-6zM108 124h8v2h-8zM118 124h8v2h-8zM128 124h8v2h-8zM108 126h28v2h-28zM108 128h28v2h-28zM110 130h24v2h-24z"/>
+<path fill="#FFD29A" d="M114 118h4v2h-4zM112 120h2v2h-2z"/>
+<path fill="#0D0B1E" d="M116 122h2v2h-2zM126 122h2v2h-2zM116 124h2v2h-2zM126 124h2v2h-2z"/>
+</g>
+<text x="156" y="36" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">No.03</text>
+<text x="156" y="62" class="mono" font-size="16" font-weight="700" fill="#EDE9FF">THE SHRINKING SUITE</text>
+<text x="156" y="86" class="mono" font-size="11" font-weight="700" fill="#FF9F1C" letter-spacing="1">TYPE: TEST DROP</text>
+<text x="156" y="120" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">THREAT</text>
+<rect x="156" y="128" width="14" height="10" fill="#FF9F1C"/>
+<rect x="174" y="128" width="14" height="10" fill="#FF9F1C"/>
+<rect x="192" y="128" width="14" height="10" fill="#FF9F1C"/>
+<rect x="210" y="128" width="14" height="10" fill="#FF9F1C"/>
+<rect x="228" y="128" width="14" height="10" fill="#2C2758"/>
+<text x="16" y="172" class="sans" font-size="15" fill="#CFCBEF">Goes green by running fewer tests.</text>
+<text x="16" y="194" class="sans" font-size="15" fill="#CFCBEF">Zero tests is always refused.</text>
+<line x1="16" y1="210" x2="352" y2="210" stroke="#2C2758"/>
+<text x="16" y="232" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">BEATEN BY</text>
+<text x="16" y="250" class="mono" font-size="14" font-weight="700" fill="#3DF58A">the test-count floor</text>
+</g>
+<g transform="translate(28 340)">
+<rect width="368" height="260" fill="#17142F" stroke="#F77F00" stroke-width="2"/>
+<rect x="16" y="16" width="124" height="124" fill="#0D0B1E" stroke="#2C2758"/>
+<g>
+<path fill="#F77F00" d="M54 57h30v6h-30zM42 63h60v6h-60zM36 69h6v6h-6zM54 69h18v6h-18zM78 69h36v6h-36zM36 75h36v6h-36zM78 75h30v6h-30zM36 81h36v6h-36zM78 81h36v6h-36zM42 87h60v6h-60zM54 93h30v6h-30z"/>
+<path fill="#FCBF49" d="M114 63h6v6h-6zM72 69h6v6h-6zM114 69h6v6h-6zM72 75h6v6h-6zM108 75h12v6h-12zM72 81h6v6h-6zM114 81h6v6h-6zM114 87h6v6h-6z"/>
+<path fill="#EDE9FF" d="M42 69h6v6h-6z"/>
+<path fill="#0D0B1E" d="M48 69h6v6h-6z"/>
+</g>
+<path fill="#FFD23F" d="M115 26h9v3h-9zM112 29h3v3h-3zM124 29h3v3h-3zM124 32h3v3h-3zM121 35h3v3h-3zM118 38h3v3h-3zM118 44h3v3h-3z"/>
+<text x="156" y="36" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">No.04</text>
+<text x="156" y="62" class="mono" font-size="16" font-weight="700" fill="#EDE9FF">THE AMNESIAC</text>
+<text x="156" y="86" class="mono" font-size="11" font-weight="700" fill="#F77F00" letter-spacing="1">TYPE: LOST CONTEXT</text>
+<text x="156" y="120" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">THREAT</text>
+<rect x="156" y="128" width="14" height="10" fill="#F77F00"/>
+<rect x="174" y="128" width="14" height="10" fill="#F77F00"/>
+<rect x="192" y="128" width="14" height="10" fill="#F77F00"/>
+<rect x="210" y="128" width="14" height="10" fill="#2C2758"/>
+<rect x="228" y="128" width="14" height="10" fill="#2C2758"/>
+<text x="16" y="172" class="sans" font-size="15" fill="#CFCBEF">Forgets the plan when the chat resets.</text>
+<text x="16" y="194" class="sans" font-size="15" fill="#CFCBEF">Every session starts from zero.</text>
+<line x1="16" y1="210" x2="352" y2="210" stroke="#2C2758"/>
+<text x="16" y="232" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">BEATEN BY</text>
+<text x="16" y="250" class="mono" font-size="14" font-weight="700" fill="#3DF58A">mythify status</text>
+</g>
+<g transform="translate(416 340)">
+<rect width="368" height="260" fill="#17142F" stroke="#FF4D6D" stroke-width="2"/>
+<rect x="16" y="16" width="124" height="124" fill="#0D0B1E" stroke="#2C2758"/>
+<g>
+<path fill="#8B5A2B" d="M48 42h60v6h-60zM42 48h6v6h-6zM108 48h6v6h-6zM36 54h6v6h-6zM114 54h6v6h-6zM36 60h84v6h-84zM36 90h36v6h-36zM84 90h36v6h-36zM36 96h6v6h-6zM114 96h6v6h-6zM36 102h6v6h-6zM114 102h6v6h-6zM36 108h84v6h-84z"/>
+<path fill="#C08552" d="M48 48h60v6h-60zM42 54h12v6h-12zM60 54h36v6h-36zM102 54h12v6h-12zM42 96h30v6h-30zM84 96h30v6h-30zM42 102h72v6h-72z"/>
+<path fill="#FF4D6D" d="M54 54h6v6h-6zM96 54h6v6h-6zM66 72h24v6h-24zM54 78h48v6h-48z"/>
+<path fill="#FFD23F" d="M72 90h12v6h-12zM72 96h12v6h-12z"/>
+<path fill="#EDE9FF" d="M42 66h6v6h-6zM54 66h6v6h-6zM66 66h6v6h-6zM78 66h6v6h-6zM90 66h6v6h-6zM102 66h6v6h-6zM114 66h6v6h-6zM36 84h6v6h-6zM48 84h6v6h-6zM60 84h6v6h-6zM72 84h6v6h-6zM84 84h6v6h-6zM96 84h6v6h-6zM108 84h6v6h-6z"/>
+<path fill="#2A0F14" d="M36 66h6v6h-6zM48 66h6v6h-6zM60 66h6v6h-6zM72 66h6v6h-6zM84 66h6v6h-6zM96 66h6v6h-6zM108 66h6v6h-6zM36 72h30v6h-30zM90 72h30v6h-30zM36 78h18v6h-18zM102 78h18v6h-18zM42 84h6v6h-6zM54 84h6v6h-6zM66 84h6v6h-6zM78 84h6v6h-6zM90 84h6v6h-6zM102 84h6v6h-6zM114 84h6v6h-6z"/>
+</g>
+<text x="156" y="36" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">No.05</text>
+<text x="156" y="62" class="mono" font-size="16" font-weight="700" fill="#EDE9FF">THE MIMIC</text>
+<text x="156" y="86" class="mono" font-size="11" font-weight="700" fill="#FF4D6D" letter-spacing="1">TYPE: FAKE APPROVAL</text>
+<text x="156" y="120" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">THREAT</text>
+<rect x="156" y="128" width="14" height="10" fill="#FF4D6D"/>
+<rect x="174" y="128" width="14" height="10" fill="#FF4D6D"/>
+<rect x="192" y="128" width="14" height="10" fill="#FF4D6D"/>
+<rect x="210" y="128" width="14" height="10" fill="#FF4D6D"/>
+<rect x="228" y="128" width="14" height="10" fill="#FF4D6D"/>
+<text x="16" y="172" class="sans" font-size="15" fill="#CFCBEF">Answers for the human and calls it</text>
+<text x="16" y="194" class="sans" font-size="15" fill="#CFCBEF">approval. Wears your voice.</text>
+<line x1="16" y1="210" x2="352" y2="210" stroke="#2C2758"/>
+<text x="16" y="232" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">BEATEN BY</text>
+<text x="16" y="250" class="mono" font-size="14" font-weight="700" fill="#3DF58A">--human-input &quot;THEIR WORDS&quot;</text>
+</g>
+<g transform="translate(804 340)">
+<rect width="368" height="260" fill="#17142F" stroke="#2EC4B6" stroke-width="2"/>
+<rect x="16" y="16" width="124" height="124" fill="#0D0B1E" stroke="#2C2758"/>
+<g>
+<path fill="#2EC4B6" d="M43 43h10v5h-10zM73 43h10v5h-10zM103 43h10v5h-10zM38 48h5v5h-5zM48 48h10v5h-10zM68 48h5v5h-5zM78 48h10v5h-10zM98 48h5v5h-5zM108 48h10v5h-10zM38 53h15v5h-15zM68 53h15v5h-15zM98 53h15v5h-15zM43 58h10v5h-10zM73 58h10v5h-10zM103 58h10v5h-10zM43 63h10v5h-10zM73 63h10v5h-10zM103 63h10v5h-10zM48 68h10v5h-10zM73 68h10v5h-10zM98 68h10v5h-10zM53 73h10v5h-10zM73 73h10v5h-10zM93 73h10v5h-10zM58 78h40v5h-40zM53 83h10v5h-10zM68 83h20v5h-20zM93 83h10v5h-10zM48 88h60v5h-60zM48 93h10v5h-10zM63 93h30v5h-30zM98 93h10v5h-10zM53 98h50v5h-50zM53 103h10v5h-10zM93 103h10v5h-10zM48 108h15v5h-15zM93 108h15v5h-15z"/>
+<path fill="#1A7F78" d="M63 83h5v5h-5zM88 83h5v5h-5zM58 93h5v5h-5zM93 93h5v5h-5z"/>
+<path fill="#EDE9FF" d="M43 48h5v5h-5zM73 48h5v5h-5zM103 48h5v5h-5z"/>
+<path fill="#FF4D6D" d="M53 53h5v5h-5zM83 53h5v5h-5zM113 53h5v5h-5z"/>
+</g>
+<text x="156" y="36" class="mono" font-size="12" fill="#8C86B8" letter-spacing="1.5">No.06</text>
+<text x="156" y="62" class="mono" font-size="16" font-weight="700" fill="#EDE9FF">THE HYDRA</text>
+<text x="156" y="86" class="mono" font-size="11" font-weight="700" fill="#2EC4B6" letter-spacing="1">TYPE: ENDLESS REVIEW</text>
+<text x="156" y="120" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">THREAT</text>
+<rect x="156" y="128" width="14" height="10" fill="#2EC4B6"/>
+<rect x="174" y="128" width="14" height="10" fill="#2EC4B6"/>
+<rect x="192" y="128" width="14" height="10" fill="#2EC4B6"/>
+<rect x="210" y="128" width="14" height="10" fill="#2C2758"/>
+<rect x="228" y="128" width="14" height="10" fill="#2C2758"/>
+<text x="16" y="172" class="sans" font-size="15" fill="#CFCBEF">Every fixed finding grows two more.</text>
+<text x="16" y="194" class="sans" font-size="15" fill="#CFCBEF">The review never ends.</text>
+<line x1="16" y1="210" x2="352" y2="210" stroke="#2C2758"/>
+<text x="16" y="232" class="mono" font-size="11" fill="#8C86B8" letter-spacing="1.5">BEATEN BY</text>
+<text x="16" y="250" class="mono" font-size="14" font-weight="700" fill="#3DF58A">round 4 needs --rethink</text>
+</g>
+<rect x="1" y="1" width="1198" height="622" rx="10" fill="url(#scan)"/>
+</svg>
