@@ -21,6 +21,8 @@ def _failure(verdict):
         return "no passing executed run was recorded since the step started", "evidence"
     if verdict["moved"]:
         return "the passing run predates the current source state ({0})".format(verdict["moved"]), "evidence"
+    if verdict["zero_tests"]:
+        return "the passing run executed zero tests ({0})".format(verdict["zero_tests"]), "zero_tests"
     if not verdict["ok"] and verdict["test_drop"]:
         return "the passing run executed fewer tests than the step's baseline", "test_drop"
     if not verdict["ok"]:

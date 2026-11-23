@@ -593,5 +593,131 @@ class RatchetTests(GitProjectCase):
         self.assertEqual(latest_test_count_drops(log + [dropped, record("ffff", 11)]), [])
 
 
+class ZeroTestGateTests(GitProjectCase):
+    """A green run that executed zero tests never completes a step."""
+
+    def start_plan(self, command=None, strict=False):
+        command = command or self.command
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps(
+            [{"title": "only step", "verify_command": command}]))
+        if strict:
+            self.ok("campaign", "start", "goal", "--plan", "p")
+
+    def step(self):
+        return self.plan()["steps"][0]
+
+    def assert_zero_refused(self, result):
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("zero tests", result.stderr)
+        self.assertNotIn("--accept-test-drop", result.stderr)
+        self.assertNotEqual(self.step()["status"], "completed")
+        self.assertNotIn("test_drop_accepted", self.step())
+
+    def test_zero_after_a_floor_is_refused_even_with_a_reason_and_recovers(self):
+        self.start_plan(strict=True)
+        self.set_count(4)
+        self.ok("verify", "run", self.command)
+        self.set_count(0)
+        self.ok("plan", "verify", "1")
+        gate = self.run_cli("verify", "gate")
+        self.assertEqual(gate.returncode, 2, gate.stdout + gate.stderr)
+        self.assertIn("zero tests", gate.stderr)
+        self.assertIn("mythify plan verify 1 --plan p", gate.stderr)
+        self.assertNotIn("--accept-test-drop", gate.stderr)
+        self.assert_zero_refused(self.run_cli(
+            "step", "1", "completed", "x", "--accept-test-drop", "tests were deleted"))
+        self.set_count(6)
+        self.ok("plan", "verify", "1")
+        self.assertEqual(self.run_cli("verify", "gate").returncode, 0)
+        self.ok("step", "1", "completed", "6 tests ran")
+        self.assertEqual(self.step()["status"], "completed")
+
+    def test_zero_without_a_baseline_is_refused_by_default(self):
+        self.start_plan()
+        self.set_count(0)
+        self.ok("plan", "verify", "1")
+        self.assert_zero_refused(self.run_cli("step", "1", "completed", "x"))
+        self.assert_zero_refused(self.run_cli(
+            "step", "1", "completed", "x", "--accept-test-drop", "nothing to run"))
+
+    def test_campaign_advance_refuses_zero_with_a_reason(self):
+        self.start_plan(strict=True)
+        self.set_count(0)
+        self.ok("plan", "verify", "1")
+        self.assert_zero_refused(self.run_cli(
+            "campaign", "advance", "--result", "x", "--accept-test-drop", "nothing to run"))
+
+    def test_recognized_zero_output_without_a_count_is_refused(self):
+        script = "import sys; sys.stderr.write('No tests ran\\n')"
+        command = "{0} -c {1}".format(shlex.quote(sys.executable), shlex.quote(script))
+        self.start_plan(command)
+        self.ok("plan", "verify", "1")
+        self.assertNotIn("test_count", self.records()[-1])
+        self.assert_zero_refused(self.run_cli("step", "1", "completed", "x"))
+        gate = self.run_cli("verify", "gate")
+        self.assertEqual(gate.returncode, 2)
+        self.assertNotIn("--accept-test-drop", gate.stderr)
+
+    def uncounted_output_command(self, text):
+        script = "import sys; sys.stdout.write({0!r})".format(text)
+        return "{0} -c {1}".format(shlex.quote(sys.executable), shlex.quote(script))
+
+    def test_mixed_go_output_completes(self):
+        mixed = ("?    example.com/project/cmd    [no test files]\n"
+                 "ok   example.com/project/pkg    0.022s\n")
+        self.start_plan(self.uncounted_output_command(mixed))
+        self.ok("plan", "verify", "1")
+        self.assertNotIn("test_count", self.records()[-1])
+        self.assertEqual(self.run_cli("verify", "gate").returncode, 0)
+        self.ok("step", "1", "completed", "pkg tests ran")
+
+    def test_a_package_only_tail_does_not_hide_a_passing_package_truncated_away(self):
+        # Seven extra characters in the last package name move the 4000-char
+        # tail start so it begins exactly at "no test files]": the leading
+        # bracket of the first visible marker is clipped away.
+        names = ["cmd{0:03d}".format(i) for i in range(120)]
+        names[-1] += "padding"
+        output = "ok   example.com/project/pkg    0.022s\n" + "".join(
+            "?    example.com/project/{0}    [no test files]\n".format(name)
+            for name in names)
+        self.start_plan(self.uncounted_output_command(output))
+        self.ok("plan", "verify", "1")
+        record = self.records()[-1]
+        self.assertNotIn("test_count", record)
+        self.assertTrue(record["stdout_tail"].startswith("no test files]\n"),
+                        record["stdout_tail"][:40])
+        self.assertNotIn("ok   example.com/project/pkg", record["stdout_tail"])
+        self.assertNotIn("\nok ", "\n" + record["stdout_tail"])
+        self.assertEqual(self.run_cli("verify", "gate").returncode, 0)
+        self.ok("step", "1", "completed", "pkg tests ran")
+
+    def test_run_level_no_test_files_with_a_banner_is_refused(self):
+        banner = " RUN  v1.6.0 /work/project\n\nNo test files found, exiting with code 0\n"
+        self.start_plan(self.uncounted_output_command(banner))
+        self.ok("plan", "verify", "1")
+        self.assert_zero_refused(self.run_cli("step", "1", "completed", "x"))
+
+    def test_ten_passing_is_not_read_as_zero_passing(self):
+        self.start_plan(self.uncounted_output_command("  10 passing (20ms)\n"))
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "10 mocha tests ran")
+
+    def test_a_check_with_no_count_and_no_zero_output_still_completes(self):
+        command = "{0} -c pass".format(shlex.quote(sys.executable))
+        self.start_plan(command)
+        self.ok("plan", "verify", "1")
+        self.assertEqual(self.run_cli("verify", "gate").returncode, 0)
+        self.ok("step", "1", "completed", "check passed")
+
+    def test_legacy_opt_out_is_not_the_drop_override(self):
+        self.start_plan()
+        self.set_count(0)
+        self.ok("plan", "verify", "1")
+        done = self.run_cli("step", "1", "completed", "x",
+                            env_extra={"MYTHIFY_REQUIRE_VERIFIED_STEP": "0"})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(self.step()["strict_gate_waived"])
+
+
 if __name__ == "__main__":
     unittest.main()

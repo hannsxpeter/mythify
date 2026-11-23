@@ -11,6 +11,7 @@ flags. Nothing here upgrades or downgrades recorded evidence.
 
 import hashlib
 import json
+import re
 import shlex
 
 # noop_verifier_reason reads a command the way /bin/sh would run it, without
@@ -45,6 +46,13 @@ ZERO_TEST_PATTERNS = (
     "no tests collected",
     "no test files",
     "0 passing",
+)
+# Whole-run summaries only, for the hard zero-test refusal. "no test files"
+# is replaced by the Vitest summary "no test files found": Go prints the
+# shorter text per package, and a clipped tail can start at "no test files]".
+RUN_LEVEL_ZERO_TEST_PATTERNS = tuple(
+    "no test files found" if pattern == "no test files" else pattern
+    for pattern in ZERO_TEST_PATTERNS
 )
 FALSE_ENV_VALUES = ("0", "false", "no", "off")
 # Gate opt-outs an agent can set for itself. MYTHIFY_DISABLE_RUN is listed even
@@ -261,6 +269,27 @@ def trivial_pass_reason(record):
     ).lower()
     for pattern in ZERO_TEST_PATTERNS:
         if pattern in output:
+            return "the run reported '{0}'".format(pattern)
+    return None
+
+
+def zero_test_output_reason(record):
+    """Why RECORD's output says the whole green run executed zero tests, or None.
+
+    Stricter than trivial_pass_reason, for the step gate, which refuses on it.
+    It matches only whole-run summaries: "No tests ran", the Vitest summary
+    "No test files found", and similar; a digit guard keeps "10 passing" from
+    matching "0 passing". Go's per-package "[no test files]" marker is never
+    proof, whether complete or clipped: the record holds only a tail of the
+    output, so a passing package may have scrolled out of view, and a clipped
+    marker can start at "no test files]". The generic "no test files" pattern
+    of ZERO_TEST_PATTERNS therefore stays advisory and is not used here.
+    """
+    output = "{0}\n{1}".format(
+        record.get("stdout_tail") or "", record.get("stderr_tail") or ""
+    ).lower()
+    for pattern in RUN_LEVEL_ZERO_TEST_PATTERNS:
+        if re.search(r"(?<!\d)" + re.escape(pattern), output):
             return "the run reported '{0}'".format(pattern)
     return None
 

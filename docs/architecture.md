@@ -330,7 +330,12 @@ hash chain still links, and leaves every verification artifact in place.
   ledger shows. A valid `test_count_drop` note on an earlier run or on the
   satisfying run can preserve the earlier count after compaction archives the
   original run. A lower count produces a warning. In `strict_context` it
-  blocks completion unless the caller passes `--accept-test-drop REASON`.
+  blocks completion unless the caller passes `--accept-test-drop REASON`. A
+  satisfying run with a recorded count of 0, or with a recognized zero-test line
+  when no count was read (a per-package `[no test files]` line never counts: the
+  record keeps only an output tail), is refused in every plan with or without a baseline
+  (`zero_tests` on the verdict); `--accept-test-drop` never waives it, and only
+  the global `MYTHIFY_REQUIRE_VERIFIED_STEP=0` opt-out bypasses the evaluator.
 - Named checks. `.mythify/checks.json` is `{"schema_version": 1, "checks":
   {NAME: {"command", "description", "updated"}}}` with names matching
   `[a-z0-9-]+`. `verify check NAME` runs the command through the same runner as
@@ -352,7 +357,7 @@ hash chain still links, and leaves every verification artifact in place.
   `evaluate_step_evidence` for each in-progress step, with no test-drop reason
   and no human input, and never executes a command or writes state. It exits 0
   when nothing is in flight or every in-progress step is accepted (a stale
-  pass, a strict-context test-count drop, and a strict-context high-risk step
+  pass, a zero-test run, a strict-context test-count drop, and a strict-context high-risk step
   without its review or human input all count as not accepted), and 2
   otherwise, with a failure line and a next-command line per step on stderr.
   It ignores `MYTHIFY_REQUIRE_VERIFIED_STEP=0`: a hook asks whether evidence
@@ -617,6 +622,11 @@ fourth needs `--rethink TEXT`, because a loop that does not converge in three
 rounds usually has the wrong approach, not too few rounds. Why: verification
 cost grew with the suite, and the fix had to speed up honest runs without
 letting a self-report stand in for one.
+
+Update, 2026-11-22: a passing verifier that executed zero tests cannot satisfy
+the step evidence gate. The test-drop override still applies to positive test
+counts. A zero-test run can return exit 0 without checking the work, so the
+gate asks for a rerun with working test selection.
 
 ### 2026-11-09: route reports a user-owned policy, advisory only
 
