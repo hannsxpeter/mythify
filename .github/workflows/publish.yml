@@ -1,0 +1,85 @@
+name: Publish to npm
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (for example v7.2.0). Defaults to the latest v* tag.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # npm 11.5.1 or newer can publish through npm Trusted Publishing (OIDC),
+      # so no long-lived token is needed once it is configured on npmjs.com.
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@11 && npm --version
+
+      - name: Verify release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            tag_version="${{ inputs.tag }}"
+            tag_version="${tag_version#v}"
+          else
+            tag_version="${GITHUB_REF_NAME#v}"
+          fi
+          version="$(node -p "require('./package.json').version")"
+          if [[ "$tag_version" != "$version" ]]; then
+            echo "Tag v$tag_version does not match package.json version $version."
+            exit 1
+          fi
+          cli_version="$(python3 -c 'import re,pathlib; t=pathlib.Path("scripts/mythify.py").read_text(); print(re.search(r"^VERSION = \"([^\"]+)\"", t, re.M).group(1))')"
+          if [[ "$version" != "$cli_version" ]]; then
+            echo "package.json version $version does not match CLI VERSION $cli_version."
+            exit 1
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Tagged commit is not on main."
+            exit 1
+          fi
+
+      - name: Lint and package smoke
+        run: |
+          python3 scripts/lint.py
+          python3 scripts/package_cli.py --check-release-tag "v$(node -p "require('./package.json').version")"
+
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@hxp-tools/mythify@$version" version >/dev/null 2>&1; then
+            echo "@hxp-tools/mythify@$version is already published."
+            exit 1
+          fi
+          npm publish --provenance --access public
+        env:
+          # Empty when the NPM_TOKEN secret is removed; npm then uses trusted
+          # publishing through the id-token permission above.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
