@@ -36,7 +36,8 @@ A passing run that executed fewer tests than the highest earlier passing count
 of the same command in the retained ledger (valid retained drop notes count)
 prints a `[WARN]` and records `test_count_drop`. Completing a
 step on such a run warns, and on a campaign plan refuses unless
-`--accept-test-drop REASON` says why fewer tests is right.
+`--accept-test-drop REASON` says why fewer tests is right. A run of zero tests
+is never accepted that way: fix the test selection and re-run.
 
 Completing a step whose changed paths match the high-risk globs (auth,
 payments, migrations, deploy files, and the like) needs a review that covers

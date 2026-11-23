@@ -10,6 +10,7 @@ from pathlib import Path
 
 from mythify_campaign_scope import snapshot_provenance
 from mythify_checks import check_reference, load_checks
+from mythify_evidence_guard import zero_test_output_reason
 from mythify_io import read_jsonl, read_jsonl_after_marker, read_jsonl_since
 from mythify_path_risk import judge_path_risk
 from mythify_provenance import current_verification_provenance, evidence_moved_since_run
@@ -97,12 +98,29 @@ def _judge_test_count(state, result, window, accept_test_drop):
 
     Sets result["test_drop"] (a dict, or None) and result["test_drop_accepted"]
     (the dict a caller stamps on the step, or None). A drop warns, and under
-    strict context refuses unless ACCEPT_TEST_DROP carries a reason.
+    strict context refuses unless ACCEPT_TEST_DROP carries a reason. A run that
+    executed zero tests (a recorded count of 0, or recognized zero-test output
+    when no count was read) is always refused and sets result["zero_tests"];
+    ACCEPT_TEST_DROP never waives it.
     """
-    result["test_drop"] = result["test_drop_accepted"] = None
+    result["test_drop"] = result["test_drop_accepted"] = result["zero_tests"] = None
     satisfying = result["satisfying"]
     count = satisfying.get("test_count")
-    if not isinstance(count, int) or isinstance(count, bool):
+    has_count = isinstance(count, int) and not isinstance(count, bool)
+    zero = "the recorded test count is 0" if has_count and count == 0 else (
+        None if has_count else zero_test_output_reason(satisfying))
+    if zero:
+        # No baseline and no reason can make a run that tested nothing count.
+        result["zero_tests"] = zero
+        result["ok"] = False
+        result["messages"].append((
+            "fail",
+            "[FAIL] The passing run executed zero tests ({0}) for '{1}': a green exit "
+            "code that ran nothing proves nothing. Fix the test selection and re-run "
+            "the verifier.".format(zero, str(satisfying.get("command") or "").strip()),
+        ))
+        return
+    if not has_count:
         return
     everything = read_jsonl(Path(state) / "verifications.jsonl")
     prior = records_before_window(everything, window)
@@ -149,7 +167,8 @@ def evaluate_step_evidence(
     passing record, or None), messages (list of (level, text) in print order;
     level is "fail" for lines meant for stderr), moved (staleness reason or
     None), strict_context (bool), test_drop (the baseline comparison when the
-    satisfying run executed fewer tests, else None), and test_drop_accepted
+    satisfying run executed fewer tests, else None), zero_tests (why the
+    satisfying run executed none, else None; always refused), and test_drop_accepted
     (what to stamp on the step when ACCEPT_TEST_DROP gave a reason), and risk
     (the high-risk path verdict from judge_path_risk, judged with HUMAN_INPUT;
     None when the evidence is already refused). Pure: no printing, no plan
@@ -158,7 +177,7 @@ def evaluate_step_evidence(
     step_id = step.get("id")
     strict_context = bool(plan.get("strict_context"))
     result = {"ok": True, "satisfying": None, "messages": [], "moved": None,
-              "strict_context": strict_context, "test_drop": None,
+              "strict_context": strict_context, "test_drop": None, "zero_tests": None,
               "test_drop_accepted": None, "risk": None}
     messages = result["messages"]
     expected_command = str(step.get("verify_command") or "").strip()

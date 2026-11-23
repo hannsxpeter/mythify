@@ -129,7 +129,7 @@ Arguments:
 Options:
 
 - `--result RESULT`: Executed evidence supporting completion. Required.
-- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline. A run that executed zero tests is never accepted this way.
 - `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ### campaign learn
@@ -933,7 +933,7 @@ Arguments:
 Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
-- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline. A run that executed zero tests is never accepted this way.
 - `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ## memory

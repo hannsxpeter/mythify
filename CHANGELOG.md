@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Step completion and `verify gate` refuse a passing run that executed zero
+  tests, even with `--accept-test-drop`. The gate names the zero-test reason and
+  points at a re-run.
 - The strict test-count gate holds repeated partial passes to the highest earlier
   passing count of the same command in retained ledger evidence. `verify run`
   and `status` continue to flag the drop even after another partial pass.

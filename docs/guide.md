@@ -59,7 +59,11 @@ zero tests.
 A run that executes fewer tests than the highest earlier passing count of the
 same command in the retained ledger (including retained drop notes) is flagged.
 A plan started by `campaign start` refuses to complete on it unless you pass
-`--accept-test-drop REASON`. Other plans warn.
+`--accept-test-drop REASON`. Other plans warn. A run that executed zero tests
+(a recorded count of 0, or recognized zero-test output with no count) never
+completes a step, with or without that reason; fix the test selection and re-run.
+Only the separate legacy opt-out `MYTHIFY_REQUIRE_VERIFIED_STEP=0` skips the
+evidence gate, and it stamps the step as waived.
 
 ## Maps: deciding before planning
 
