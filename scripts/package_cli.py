@@ -33,6 +33,7 @@ STANDALONE_DOCS = (
     "docs/start-here.md",
     "docs/trials.md",
     "docs/examples/trial_demo.py",
+    "scripts/trial_evaluator_v2.py",
     "docs/guide.md",
     "docs/maintainers/MAINTAINING.md",
     "docs/maintainers/RELEASE-CHECKLIST.md",
