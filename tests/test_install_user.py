@@ -146,6 +146,7 @@ class TestUserInstaller(unittest.TestCase):
             root + "/docs/mcp.md",
             root + "/docs/trials.md",
             root + "/docs/examples/trial_demo.py",
+            root + "/scripts/trial_evaluator_v2.py",
             root + "/docs/start-here.md",
             root + "/docs/prose-quality.md",
             root + "/docs/guide.md",
