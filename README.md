@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hannsxpeter/mythify/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://www.npmjs.com/package/@hxp-tools/mythify"><img alt="npm" src="https://img.shields.io/npm/v/@hxp-tools/mythify.svg"></a>
-  <a href="CHANGELOG.md"><img alt="version" src="https://img.shields.io/badge/version-7.2.0-blue"></a>
+  <a href="CHANGELOG.md"><img alt="version" src="https://img.shields.io/badge/version-7.2.1-blue"></a>
   <a href="skills/mythify/SKILL.md"><img alt="agent skills" src="https://img.shields.io/badge/Agent%20Skills-compatible-2f6fed"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>

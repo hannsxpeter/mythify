@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "7.2.0"
+VERSION = "7.2.1"
 
 
 class ReleaseMetadataTests(unittest.TestCase):

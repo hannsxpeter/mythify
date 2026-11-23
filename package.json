@@ -1,6 +1,6 @@
 {
   "name": "@hxp-tools/mythify",
-  "version": "7.2.0",
+  "version": "7.2.1",
   "description": "Prove done. Evidence for AI coding agents: plans close only on a passing check. Any model, zero dependencies.",
   "keywords": [
     "agent-skills",

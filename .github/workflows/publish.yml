@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish (for example v7.2.0). Defaults to the latest v* tag.'
+        description: 'Tag to publish (for example v7.2.1). Defaults to the latest v* tag.'
         required: false
         type: string
 

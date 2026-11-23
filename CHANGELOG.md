@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.2.1] - 2026-11-23
+
+Mythify 7.2.1 redraws the README as a pixel arcade.
+
 ### Changed
 
 - README art and game layer redrawn as a pixel arcade: a title screen
@@ -2312,7 +2316,8 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.2.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.2.1...HEAD
+[7.2.1]: https://github.com/hannsxpeter/mythify/compare/v7.2.0...v7.2.1
 [7.2.0]: https://github.com/hannsxpeter/mythify/compare/v7.1.0...v7.2.0
 [7.1.0]: https://github.com/hannsxpeter/mythify/compare/v7.0.0...v7.1.0
 [7.0.0]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...v7.0.0
