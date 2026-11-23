@@ -189,8 +189,9 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   `artifacts` (`stdout` and `stderr`, each `path`, `bytes`, `source_bytes`,
   `sha256`, `truncated`, `redacted`), optional `test_count` (display only),
   optional `test_count_drop` (`previous`, `previous_id`, `current`; set when a
-  passing run executed fewer tests than the previous passing run of the same
-  command), optional `reused_from` (the original run's id) with
+  passing run executed fewer tests than the highest earlier passing count of
+  the same command that retained ledger evidence still shows, counting valid
+  retained drop notes), optional `reused_from` (the original run's id) with
   `reused_duration_seconds` (a reused record copies `exit_code`, `verified`,
   `test_count`, and the output tails, has `duration_seconds: 0`, and no
   artifacts), optional `check` (the name of the named check that produced the
@@ -324,11 +325,12 @@ hash chain still links, and leaves every verification artifact in place.
   command is refused until the command passes again. When the commit or
   worktree digest moved after the passing run, completion warns, and on an
   imported (`strict_context`) plan it refuses. The digest leaves the resolved
-  state directory out, so ledger writes never move it. Under the same
-  baseline rule, a satisfying run whose `test_count` is below the baseline (the
-  latest passing run of that command before the step's evidence window, else
-  the first passing run inside it) warns, and on a `strict_context` plan
-  refuses unless the caller passes `--accept-test-drop REASON`.
+  state directory out, so ledger writes never move it. The test-count baseline
+  is the highest earlier passing count of the same command that the retained
+  ledger shows. A valid `test_count_drop` note on an earlier run or on the
+  satisfying run can preserve the earlier count after compaction archives the
+  original run. A lower count produces a warning. In `strict_context` it
+  blocks completion unless the caller passes `--accept-test-drop REASON`.
 - Named checks. `.mythify/checks.json` is `{"schema_version": 1, "checks":
   {NAME: {"command", "description", "updated"}}}` with names matching
   `[a-z0-9-]+`. `verify check NAME` runs the command through the same runner as

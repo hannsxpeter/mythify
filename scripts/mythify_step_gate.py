@@ -106,7 +106,7 @@ def _judge_test_count(state, result, window, accept_test_drop):
         return
     everything = read_jsonl(Path(state) / "verifications.jsonl")
     prior = records_before_window(everything, window)
-    found = step_baseline(prior, window, satisfying.get("command"))
+    found = step_baseline(prior, window, satisfying.get("command"), satisfying)
     if found is None or count >= found[0]:
         return
     baseline, baseline_id = found

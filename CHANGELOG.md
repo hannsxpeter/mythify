@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The strict test-count gate holds repeated partial passes to the highest earlier
+  passing count of the same command in retained ledger evidence. `verify run`
+  and `status` continue to flag the drop even after another partial pass.
+
 ## [7.1.0] - 2026-11-22
 
 ### Added

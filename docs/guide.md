@@ -56,9 +56,10 @@ zero tests.
 
 ### Test-count drops
 
-A run that executes fewer tests than the last passing run is flagged. A plan
-started by `campaign start` refuses to complete on it unless you pass
-`--accept-test-drop REASON`; other plans warn.
+A run that executes fewer tests than the highest earlier passing count of the
+same command in the retained ledger (including retained drop notes) is flagged.
+A plan started by `campaign start` refuses to complete on it unless you pass
+`--accept-test-drop REASON`. Other plans warn.
 
 ## Maps: deciding before planning
 
