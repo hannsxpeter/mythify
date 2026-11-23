@@ -31,6 +31,8 @@ STANDALONE_DOCS = (
     "docs/prose-quality.md",
     "docs/reviews.md",
     "docs/start-here.md",
+    "docs/trials.md",
+    "docs/examples/trial_demo.py",
     "docs/guide.md",
     "docs/maintainers/MAINTAINING.md",
     "docs/maintainers/RELEASE-CHECKLIST.md",

@@ -42,6 +42,7 @@ real commands and recording real exit codes:
 | `outcome run` | the outcome's agent command, then its verify and metric commands, in a bounded loop |
 | `map verify ID` | the ticket's stored `verify_command` |
 | `review prove NAME` | the review's merge-gate command, or `--command` |
+| `trial compare MANIFEST` | the pinned evaluator, as `python -I` on staged copies of the evaluator and manifest (see [docs/trials.md](docs/trials.md) for the trust boundary) |
 
 Each runs through the system shell with the privileges of whoever runs the
 CLI, in its own process session, with a timeout and an output cap. Mythify

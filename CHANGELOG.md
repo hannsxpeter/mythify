@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `mythify trial compare MANIFEST --evaluator PATH --evaluator-sha256 HASH`
+  compares a small instruction edit against a baseline from pinned raw
+  evidence. It stages the exact pinned bytes, runs the pinned evaluator as
+  `python -I` through an ordinary recorded verification, and prints a JSON
+  decision (`retain`, `replay_required`, `reject`, or `evaluator_failed`).
+  It saves each verdict to `verification-artifacts/<id>/trial.json` and ships
+  a runnable example,
+  `docs/examples/trial_demo.py`. See `docs/trials.md`.
+- Stdout artifacts record `raw_sha256` and `invalid_utf8`, so a lossy capture
+  is detectable.
+- `campaign learn --verification ID` (repeatable) pins a lesson to executed
+  ledger records as `verification_refs` in campaign prompts.
+
 ### Changed
 
 - `--accept-test-drop REASON` on `step ID completed` and `campaign advance` now

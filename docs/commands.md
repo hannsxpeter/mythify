@@ -15,6 +15,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 ## Commands
 
 - `campaign`: Continue durable goals through strict plan steps.
+- `trial`: Compare a pinned instruction edit with a pinned evaluator.
 - `init`: Create ./.mythify with subdirectories and an empty memory.json.
 - `protocol`: Protocol copy checks.
 - `status`: Orient: active plan, outcome, and map, evidence breakdown, and attention items.
@@ -135,7 +136,7 @@ Options:
 ### campaign learn
 
 ```text
-mythify campaign learn [--plan NAME] [--apply-next] lesson
+mythify campaign learn [--plan NAME] [--apply-next] [--verification ID] lesson
 ```
 
 Record learning for subsequent host prompts.
@@ -148,6 +149,28 @@ Options:
 
 - `--plan NAME`: Campaign plan name; defaults to active plan.
 - `--apply-next`: Mark the learning for subsequent work.
+- `--verification ID`: Cite an executed verification record (pinned to its revision). Repeatable; the cited run informs, but never proves, the learning.
+
+## trial
+
+Compare a pinned instruction edit with a pinned evaluator.
+
+### trial compare
+
+```text
+mythify trial compare --evaluator EVALUATOR --evaluator-sha256 EVALUATOR_SHA256 manifest
+```
+
+Validate MANIFEST, stage its pinned inputs, run the pinned evaluator as python -I through a recorded verification, and print a JSON decision. Decisions: replay_required (calibration passed, no replay), retain (qualifying replay), reject (thresholds failed), evaluator_failed. Exit 0 for replay_required or retain; 2 for reject, an unsuccessful evaluator run, or MYTHIFY_DISABLE_RUN; 1 for invalid inputs or malformed evaluator output. Run it from a controller directory outside every subject workspace. See docs/trials.md.
+
+Arguments:
+
+- `manifest`: Trial manifest JSON.
+
+Options:
+
+- `--evaluator EVALUATOR`: Pinned standalone Python evaluator. Required.
+- `--evaluator-sha256 EVALUATOR_SHA256`: SHA-256 the evaluator file must have. Required.
 
 ## init
 

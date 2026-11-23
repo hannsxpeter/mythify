@@ -121,6 +121,16 @@ mythify prompt campaign existing-plan
 
 Learning appears in subsequent campaign prompts. `--apply-next` marks the
 entry for subsequent work; it never edits the implementation automatically.
+
+`--verification ID` (repeatable, at most 32) cites executed records, passing
+or failing, from the local ledger, including records from another plan or a
+detached [trial](trials.md) run. Each ID must match a single executed record
+with a status that agrees with its exit code, a valid timestamp, and provenance
+with `mythify_version` and `environment_digest`. Each cited ID must be unique.
+Citations require a ledger of valid UTF-8 JSON records with unique keys. The
+lesson stores `verification_refs`, a list of `{id, revision}` pins that appear
+in prompt JSON. The revision is the record's digest at the time of citation.
+Campaign completion still requires passing executed evidence for the step.
 Named operations on existing plans leave the active plan pointer unchanged. Their output gives
 the named continuation command so another active plan is not selected by
 accident.
