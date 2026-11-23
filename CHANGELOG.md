@@ -121,6 +121,18 @@ data is ignored and never deleted.
   `RELEASE-CHECKLIST.md`, and `ROADMAP.md` now live in `docs/maintainers/`.
   User-facing docs no longer carry version numbers or release-history notes;
   the CHANGELOG and the architecture decision log keep that history.
+- Most test CLI calls fork from a warm interpreter (`tests/warm_cli.py`) that
+  has already imported the runtime. They return the exit code, stdout, and
+  stderr of a fresh run, which `tests/test_warm_cli.py` checks, and
+  `MYTHIFY_TEST_FRESH_CLI=1` runs every call fresh. The warm server honors the
+  timeout a call passes and stops its own child. If a call was delivered and
+  its reply is then lost, the runner raises an error and does not run the call
+  again.
+- `tests/subprocess_env.py` speeds up the test subprocesses. With
+  `PYTHONDONTWRITEBYTECODE` set they recompiled every Mythify module, so they
+  now share a private `PYTHONPYCACHEPREFIX` that is removed at exit. On macOS,
+  when `git` on `PATH` is the `/usr/bin/git` trampoline, the git it runs goes
+  first on `PATH`.
 
 ### Removed
 

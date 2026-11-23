@@ -13,6 +13,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 CLI = SCRIPTS_DIR / "mythify.py"
 if str(SCRIPTS_DIR) not in sys.path:
@@ -259,9 +263,11 @@ class TestRunDisabledParse(unittest.TestCase):
             for value in (" 1", "true"):
                 env["MYTHIFY_DISABLE_RUN"] = value
                 marker = os.path.join(tmp, "ran")
-                result = subprocess.run(
-                    [sys.executable, str(CLI), "verify", "run", "touch " + marker],
-                    cwd=tmp, env=env, capture_output=True, text=True, timeout=60,
+                result = warm_cli.run(
+                    ["verify", "run", "touch " + marker],
+                    cwd=tmp,
+                    env=env,
+                    timeout=60,
                 )
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertFalse(os.path.exists(marker), repr(value))

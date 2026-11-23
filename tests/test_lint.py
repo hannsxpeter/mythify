@@ -20,6 +20,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LINT = REPO_ROOT / "scripts" / "lint.py"
 CLI = REPO_ROOT / "scripts" / "mythify.py"
@@ -340,14 +344,7 @@ class TestRemovedModelSurface(unittest.TestCase):
             env = dict(os.environ)
             env.pop("MYTHIFY_DIR", None)
             env["HOME"] = str(root / "home")
-            return subprocess.run(
-                [sys.executable, str(CLI)] + list(args),
-                cwd=str(root / "project"),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
+            return warm_cli.run(list(args), cwd=str(root / "project"), env=env, timeout=120)
 
     def test_model_modules_and_manifest_are_deleted(self):
         for relative in self.DELETED_PATHS:

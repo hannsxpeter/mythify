@@ -18,6 +18,10 @@ import time
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 if str(REPO_ROOT / "scripts") not in sys.path:
@@ -241,14 +245,7 @@ class McpServerCase(unittest.TestCase):
         return message
 
     def init_project(self):
-        result = subprocess.run(
-            [sys.executable, str(CLI), "init"],
-            cwd=str(self.project),
-            env=self.env(),
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        result = warm_cli.run(["init"], cwd=str(self.project), env=self.env(), timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         return self.project / ".mythify"
 

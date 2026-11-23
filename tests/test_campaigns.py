@@ -13,6 +13,10 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 CLI = Path(__file__).resolve().parents[1] / "scripts" / "mythify.py"
 
 
@@ -31,10 +35,7 @@ class CampaignTests(unittest.TestCase):
         self.verifier = shlex.quote(sys.executable) + " -c 'assert 2 + 2 == 4'"
 
     def run_cli(self, *args, env=None):
-        return subprocess.run(
-            [sys.executable, str(CLI), *args], cwd=self.project,
-            env=env or self.env, capture_output=True, text=True, timeout=30,
-        )
+        return warm_cli.run(list(args), cwd=self.project, env=env or self.env, timeout=30)
 
     def ok(self, *args):
         result = self.run_cli(*args)

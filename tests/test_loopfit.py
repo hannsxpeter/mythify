@@ -10,6 +10,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 
@@ -26,14 +30,7 @@ class LoopFitCase(unittest.TestCase):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
         env["HOME"] = str(self.home)
-        return subprocess.run(
-            [sys.executable, str(CLI)] + list(args),
-            cwd=str(self.project),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        return warm_cli.run(list(args), cwd=str(self.project), env=env, timeout=60)
 
     def git_init(self):
         for cmd in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
@@ -115,9 +112,11 @@ class TestLoopFit(LoopFitCase):
         env = dict(os.environ)
         env["HOME"] = str(self.home)
         env["MYTHIFY_DIR"] = str(state_dir)
-        proc = subprocess.run(
-            [sys.executable, str(CLI), "loop-fit", "just answer a question"],
-            cwd=str(self.project), env=env, capture_output=True, text=True, timeout=60,
+        proc = warm_cli.run(
+            ["loop-fit", "just answer a question"],
+            cwd=str(self.project),
+            env=env,
+            timeout=60,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertFalse(state_dir.exists(), "loop-fit must not create the .mythify tree")

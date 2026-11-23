@@ -8,6 +8,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import subprocess_env  # noqa: E402,F401  (faster subprocesses, same behavior)
+import warm_cli  # noqa: E402  (runs the CLI forked from a warm interpreter)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "scripts" / "mythify.py"
 
@@ -28,8 +32,7 @@ class MetricsProject(unittest.TestCase):
         env = dict(os.environ)
         env.pop("MYTHIFY_DIR", None)
         env["HOME"] = str(self.home)
-        return subprocess.run([sys.executable, str(CLI)] + list(args), cwd=str(self.project),
-                              env=env, capture_output=True, text=True, timeout=120)
+        return warm_cli.run(list(args), cwd=str(self.project), env=env, timeout=120)
 
     def ok(self, *args):
         result = self.run_cli(*args)
@@ -152,8 +155,7 @@ class MetricsTests(MetricsProject):
         bare = Path(self.tmp.name) / "bare"
         bare.mkdir()
         env = dict(os.environ, MYTHIFY_DIR=str(bare), HOME=str(self.home))
-        result = subprocess.run([sys.executable, str(CLI), "report", "--metrics"], cwd=str(self.project),
-                                env=env, capture_output=True, text=True, timeout=120)
+        result = warm_cli.run(["report", "--metrics"], cwd=str(self.project), env=env, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(list(bare.iterdir()), [])
 
