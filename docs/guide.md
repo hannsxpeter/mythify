@@ -58,8 +58,30 @@ zero tests.
 
 A run that executes fewer tests than the highest earlier passing count of the
 same command in the retained ledger (including retained drop notes) is flagged.
-A plan started by `campaign start` refuses to complete on it unless you pass
-`--accept-test-drop REASON`. Other plans warn. A run that executed zero tests
+A plan started by `campaign start` refuses to complete on it. Other plans warn.
+`--accept-test-drop REASON` on `step ID completed` or `campaign advance` records
+the current run as a partial pass on the step (`test_drop_partial`: reason,
+baseline, current count, verifier) and still refuses completion with a nonzero
+exit. The step stays open, `verify gate` stays red, and any later run that is
+below the floor, has no test count, or belongs to another verifier is refused,
+even on a plan that otherwise only warns. A fresh passing run of the same
+verifier at or above the floor completes the step normally and keeps the note,
+but a run whose source has since moved is refused once a partial is recorded.
+Stale or risk-refused evidence records nothing and says so. A named check must
+keep the definition it had when the partial was recorded (restore it with
+`verify check NAME --set`); a completed step never gains a partial. Recovery is scoped to the held step:
+only a run stamped to that plan and step closes it, so a full run recorded for
+another plan does not. A step that stored no
+verifier adopts the judged run's verifier when the partial is recorded (`@NAME`
+for a named check, otherwise the exact command, marked `verify_command_literal`
+when the command itself looks like `@NAME`), so `plan verify ID --plan SLUG` is
+always the retry. For a named check that uses `{files}`, pass
+`plan verify ID --plan SLUG --files PATH ...` to choose the files on a clean
+tree; a literal verifier refuses `--files` before anything runs. The note never
+names a command: a malformed or mismatched note is refused, not run. The flag cannot be
+combined with `MYTHIFY_REQUIRE_VERIFIED_STEP=0`; without the flag that opt-out
+keeps its documented meaning.
+A run that executed zero tests
 (a recorded count of 0, or recognized zero-test output with no count) never
 completes a step, with or without that reason; fix the test selection and re-run.
 Only the separate legacy opt-out `MYTHIFY_REQUIRE_VERIFIED_STEP=0` skips the

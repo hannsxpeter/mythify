@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -69,6 +70,10 @@ class GitProjectCase(unittest.TestCase):
 
     def git(self, *args):
         subprocess.run(["git", *args], cwd=str(self.project), check=True, capture_output=True)
+
+    def git_status(self):
+        return subprocess.run(["git", "status", "--porcelain"], cwd=str(self.project), check=True,
+                              capture_output=True, text=True).stdout.strip()
 
     def set_count(self, count):
         (self.project / "count.txt").write_text("{0}\n".format(count), encoding="utf-8")
@@ -388,24 +393,30 @@ class RatchetTests(GitProjectCase):
         self.assertEqual(blank.returncode, 1)
         self.assertIn("needs a reason", blank.stderr)
 
-    def test_gate_passes_with_acceptance_and_stamps_the_step(self):
+    # check-tests: allow renamed from test_gate_passes_with_acceptance_and_stamps_the_step
+    def test_acceptance_records_a_partial_and_leaves_the_step_open(self):
         self.drop_scenario(strict=True)
-        done = self.ok("step", "1", "completed", "ran fewer tests",
-                       "--accept-test-drop", "obsolete tests were deleted")
-        self.assertIn("accepted", done.stderr)
+        done = self.run_cli("step", "1", "completed", "ran fewer tests",
+                            "--accept-test-drop", "obsolete tests were deleted")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("Partial pass recorded", done.stderr)
         step = self.plan()["steps"][0]
-        self.assertEqual(step["status"], "completed")
-        self.assertEqual(step["test_drop_accepted"],
-                         {"reason": "obsolete tests were deleted", "baseline": 5, "current": 3})
+        self.assertEqual(step["status"], "in_progress")
+        self.assertEqual(step["test_drop_partial"]["reason"], "obsolete tests were deleted")
+        self.assertEqual((step["test_drop_partial"]["baseline"],
+                          step["test_drop_partial"]["current"]), (5, 3))
 
     def test_campaign_advance_takes_the_same_flag(self):
         self.drop_scenario(strict=True)
         refused = self.run_cli("campaign", "advance", "--result", "ran fewer tests")
         self.assertEqual(refused.returncode, 1)
         self.assertIn("Test count dropped under strict context", refused.stderr)
-        self.ok("campaign", "advance", "--result", "ran fewer tests",
-                "--accept-test-drop", "obsolete tests were deleted")
-        self.assertEqual(self.plan()["steps"][0]["test_drop_accepted"]["current"], 3)
+        partial = self.run_cli("campaign", "advance", "--result", "ran fewer tests",
+                               "--accept-test-drop", "obsolete tests were deleted")
+        self.assertEqual(partial.returncode, 1, partial.stdout + partial.stderr)
+        step = self.plan()["steps"][0]
+        self.assertEqual(step["test_drop_partial"]["current"], 3)
+        self.assertEqual(step["status"], "in_progress")
 
     def test_baseline_falls_back_to_the_first_run_in_the_window(self):
         self.create_plan()
@@ -432,11 +443,12 @@ class RatchetTests(GitProjectCase):
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["test_drop"]["baseline"], 5)
         self.assertEqual(denied["test_drop"]["current"], 3)
-        self.assertIsNone(denied["test_drop_accepted"])
-        allowed = evaluate_step_evidence(self.state, "p", plan, step, "deleted obsolete tests")
-        self.assertTrue(allowed["ok"], allowed["messages"])
-        self.assertEqual(allowed["test_drop_accepted"],
-                         {"reason": "deleted obsolete tests", "baseline": 5, "current": 3})
+        self.assertIsNone(denied["partial_candidate"])
+        recorded = evaluate_step_evidence(self.state, "p", plan, step, "deleted obsolete tests")
+        self.assertFalse(recorded["ok"])
+        candidate = recorded["partial_candidate"]
+        self.assertEqual((candidate["reason"], candidate["baseline"], candidate["current"]),
+                         ("deleted obsolete tests", 5, 3))
         self.assertEqual((self.state / "plans" / "p.json").read_bytes(), before)
 
     def test_status_shows_and_clears_the_drop_attention_item(self):
@@ -593,6 +605,437 @@ class RatchetTests(GitProjectCase):
         self.assertEqual(latest_test_count_drops(log + [dropped, record("ffff", 11)]), [])
 
 
+class PartialPassTests(GitProjectCase):
+    """--accept-test-drop records a partial pass and leaves the step open."""
+
+    REASON = "obsolete tests were deleted"
+
+    def partial_scenario(self, strict=True, floor=4, partial=2):
+        """Floor of FLOOR tests recorded before the step; the step's own run counts PARTIAL."""
+        self.create_plan()
+        if strict:
+            self.ok("campaign", "start", "goal", "--plan", "p")
+        self.set_count(floor)
+        self.ok("verify", "run", self.command)
+        self.set_count(partial)
+        self.ok("plan", "verify", "1")
+
+    def step(self):
+        return self.plan()["steps"][0]
+
+    def test_four_to_two_records_a_partial_and_refuses_completion(self):
+        self.partial_scenario()
+        before = self.step()
+        floor_id = self.records()[0]["id"]
+        result = self.run_cli("step", "1", "completed", "ran fewer tests",
+                              "--accept-test-drop", self.REASON)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Partial pass recorded", result.stderr)
+        after = self.step()
+        self.assertEqual(after.pop("test_drop_partial"), {
+            "reason": self.REASON, "baseline": 4, "baseline_id": floor_id,
+            "current": 2, "command": self.command})
+        self.assertEqual(after, before)
+        self.assertEqual(after["status"], "in_progress")
+        self.assertNotIn("test_drop_accepted", after)
+
+    def accept(self, *extra, reason=None):
+        return self.run_cli("step", "1", "completed", "ran fewer tests",
+                            *(("--accept-test-drop", reason or self.REASON) if reason != "" else ()),
+                            *extra)
+
+    def assert_open(self, result):
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(self.step()["status"], "in_progress")
+
+    def test_retries_and_omitting_the_flag_never_complete_and_keep_the_floor(self):
+        for strict in (True, False):
+            with self.subTest(strict=strict):
+                self.setUp()
+                self.partial_scenario(strict=strict)
+                self.assert_open(self.accept())
+                note = self.step()["test_drop_partial"]
+                self.assert_open(self.accept(reason=""))
+                self.assertIn("partial pass", self.accept(reason="").stderr)
+                self.set_count(3)
+                self.ok("plan", "verify", "1")
+                self.assert_open(self.accept(reason="a different reason"))
+                again = self.step()["test_drop_partial"]
+                self.assertEqual((again["baseline"], again["current"], again["reason"]),
+                                 (4, 3, "a different reason"))
+                self.assertEqual(again["baseline_id"], note["baseline_id"])
+                self.assert_open(self.accept(reason=""))
+                self.assertNotIn("completed_count", self.step()["test_drop_partial"])
+
+    def test_a_full_run_at_the_floor_completes_and_keeps_the_audit_note(self):
+        self.partial_scenario()
+        self.assert_open(self.accept())
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "4 tests ran")
+        step = self.step()
+        self.assertEqual(step["status"], "completed")
+        self.assertEqual(step["test_drop_partial"]["reason"], self.REASON)
+        self.assertEqual((step["test_drop_partial"]["baseline"], step["test_drop_partial"]["current"],
+                          step["test_drop_partial"]["completed_count"]), (4, 2, 4))
+        self.assertNotIn("test_drop_accepted", step)
+
+    def test_non_strict_plans_record_the_partial_and_then_hold_the_floor(self):
+        self.partial_scenario(strict=False)
+        self.assert_open(self.accept())
+        self.assertEqual(self.step()["test_drop_partial"]["current"], 2)
+        refused = self.accept(reason="")
+        self.assert_open(refused)
+        self.assertIn("holds a partial pass", refused.stderr)
+
+    def test_the_floor_survives_compaction_of_the_high_count_run(self):
+        self.partial_scenario()
+        self.assert_open(self.accept())
+        path = self.state / "verifications.jsonl"
+        before = self.records()
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), len(before))
+        # Compaction archived the count-4 run and its carried drop annotation.
+        kept = [{k: v for k, v in row.items() if k != "test_count_drop"}
+                for row in rows if row.get("test_count") != 4]
+        self.assertLess(len(kept), len(before))
+        path.write_text("".join(json.dumps(row) + "\n" for row in kept), encoding="utf-8")
+        retained = self.records()
+        self.assertEqual(retained, kept)
+        self.assertNotIn(4, [r.get("test_count") for r in retained])
+        self.assertTrue(all("test_count_drop" not in r for r in retained))
+        self.assert_open(self.accept(reason=""))
+        self.set_count(3)
+        self.ok("plan", "verify", "1")
+        appended = self.records()
+        self.assertEqual(len(appended), len(kept) + 1)
+        self.assertEqual(appended[-1]["test_count"], 3)
+        self.assertNotIn("test_count_drop", appended[-1])
+        missing = self.accept(reason="")
+        self.assert_open(missing)
+        self.assertIn("below the baseline of 4", missing.stderr)
+        self.assert_open(self.accept(reason=""))
+        self.assertEqual(self.step()["test_drop_partial"]["baseline"], 4)
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "4 tests ran")
+
+    def test_a_count_free_run_or_an_unrelated_verifier_never_completes_a_partial(self):
+        self.ok("plan", "create", "goal", "--name", "p", "--steps",
+                json.dumps([{"title": "only step"}]))
+        self.ok("campaign", "start", "goal", "--plan", "p")
+        self.ok("step", "1", "in_progress")
+        self.set_count(4)
+        self.ok("verify", "run", self.command)
+        self.set_count(2)
+        self.ok("verify", "run", self.command)
+        self.assert_open(self.accept())
+        self.set_count("many")
+        self.ok("verify", "run", self.command)
+        self.assertNotIn("test_count", self.records()[-1])
+        count_free = self.accept(reason="")
+        self.assert_open(count_free)
+        self.assertIn("no test count", count_free.stderr)
+        script = "print('unrelated')"
+        self.ok("verify", "run", "{0} -c {1}".format(shlex.quote(sys.executable), shlex.quote(script)))
+        unrelated = self.accept(reason="")
+        self.assert_open(unrelated)
+        # The partial adopted the judged verifier, so an unrelated run is ignored
+        # and the count-free run of the held command still decides.
+        self.assertIn("no test count", unrelated.stderr)
+        self.assertIn("test_drop_partial", self.step())
+        self.assertEqual(self.step()["verify_command"], self.command)
+        self.assertNotIn("verify_command_literal", self.step())
+
+    def test_stale_evidence_never_stamps_an_acceptance(self):
+        for strict in (True, False):
+            with self.subTest(strict=strict):
+                self.setUp()
+                self.partial_scenario(strict=strict)
+                (self.project / "later.txt").write_text("edit\n", encoding="utf-8")
+                refused = self.accept()
+                self.assert_open(refused)
+                self.assertNotIn("test_drop_partial", self.step())
+                self.assertNotIn("Partial pass recorded", refused.stderr)
+                self.assertIn("No partial pass was recorded", refused.stderr)
+
+    def test_a_recorded_partial_refuses_a_count_restoring_run_on_moved_source(self):
+        self.partial_scenario(strict=False)
+        self.assert_open(self.accept())
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        (self.project / "later.txt").write_text("edit\n", encoding="utf-8")
+        stale = self.accept(reason="")
+        self.assert_open(stale)
+        self.assertIn("Stale evidence for a recorded partial pass", stale.stderr)
+        self.assertNotIn("completed_count", self.step()["test_drop_partial"])
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "4 tests ran")
+        self.assertEqual(self.step()["status"], "completed")
+
+    def named_scenario(self, verify_command):
+        """Check 'suite' (this project's command); floor 4 recorded, then a run of 2."""
+        self.ok("verify", "check", "suite", "--set", self.command)
+        item = {"title": "only step"}
+        if verify_command:
+            item["verify_command"] = verify_command
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps([item]))
+        self.ok("step", "1", "in_progress")
+        self.set_count(4)
+        self.ok("verify", "check", "suite")
+        self.set_count(2)
+        self.ok("verify", "check", "suite")
+
+    def test_a_named_partial_is_bound_to_the_check_template(self):
+        self.named_scenario("@suite")
+        self.assert_open(self.accept())
+        note = self.step()["test_drop_partial"]
+        self.assertEqual((note["check"], note["check_template"]), ("suite", self.command))
+        other = "{0} -c {1}".format(shlex.quote(sys.executable),
+                                    shlex.quote("import sys; sys.stderr.write('Ran 9 tests\\nOK\\n')"))
+        self.ok("verify", "check", "suite", "--set", other)
+        self.ok("verify", "check", "suite")
+        for flag in ("", "--accept-test-drop"):
+            args = ("step", "1", "completed", "x") + ((flag, "again") if flag else ())
+            self.assert_open(self.run_cli(*args))
+            self.assertEqual(self.step()["test_drop_partial"], note)
+        self.ok("verify", "check", "suite", "--set", self.command)
+        self.set_count(4)
+        self.ok("verify", "check", "suite")
+        self.ok("step", "1", "completed", "4 tests ran")
+        self.assertEqual(self.step()["status"], "completed")
+
+    def test_a_redefined_check_cannot_complete_a_named_partial_with_no_stored_verifier(self):
+        self.named_scenario(None)
+        first = self.accept()
+        self.assert_open(first)
+        self.assertIn("Partial pass recorded", first.stderr)
+        note = self.step()["test_drop_partial"]
+        other = "{0} -c {1}".format(shlex.quote(sys.executable),
+                                    shlex.quote("import sys; sys.stderr.write('Ran 9 tests\\nOK\\n')"))
+        self.ok("verify", "check", "suite", "--set", other)
+        self.ok("verify", "check", "suite")
+        refused = self.accept(reason="")
+        self.assert_open(refused)
+        self.assertIn("was redefined", refused.stderr)
+        self.assertIn("verify check suite --set", refused.stderr)
+        self.assert_open(self.accept(reason="other"))
+        self.assertEqual(self.step()["test_drop_partial"], note)
+        self.ok("verify", "check", "suite", "--set", self.command)
+        self.set_count(4)
+        self.ok("verify", "check", "suite")
+        self.ok("step", "1", "completed", "4 tests ran")
+
+    def test_a_literal_step_is_bound_to_its_command_not_to_a_check_field(self):
+        self.named_scenario(self.command)
+        self.assertTrue(all(r.get("check") == "suite" for r in self.records()))
+        self.assert_open(self.accept())
+        note = self.step()["test_drop_partial"]
+        self.assertNotIn("check", note)
+        self.assertEqual(note["command"], self.command)
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "4 tests ran")
+        self.assertEqual(self.step()["status"], "completed")
+
+    def test_a_literal_command_that_looks_like_a_check_name_stays_literal(self):
+        bindir = Path(self.tmp.name) / "bin"
+        bindir.mkdir()
+        tool = bindir / "@suite"
+        tool.write_text("#!/bin/sh\nprintf 'Ran %s tests\\nOK\\n' \"$(cat count.txt)\" >&2\n",
+                        encoding="utf-8")
+        tool.chmod(0o755)
+        env = {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+        # A distinct registered check of the same name exists and must never run.
+        self.ok("verify", "check", "suite", "--set", self.command)
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps([{"title": "only"}]))
+        self.ok("step", "1", "in_progress")
+        self.set_count(4)
+        self.ok("verify", "run", "@suite", env_extra=env)
+        self.set_count(2)
+        self.ok("verify", "run", "@suite", env_extra=env)
+        recorded = self.run_cli("step", "1", "completed", "fewer", "--accept-test-drop", "why",
+                                env_extra=env)
+        self.assertEqual(recorded.returncode, 1, recorded.stdout + recorded.stderr)
+        step = self.step()
+        self.assertEqual((step["verify_command"], step["verify_command_literal"]), ("@suite", True))
+        self.assertNotIn("check", step["test_drop_partial"])
+        # Competing open plans: q stores the named check @suite, s stores @alias, a
+        # check whose template text is the literal command "@suite".
+        self.ok("verify", "check", "alias", "--set", "@suite")
+        for name, stored in (("q", "@suite"), ("s", "@alias")):
+            self.ok("plan", "create", name, "--name", name, "--steps",
+                    json.dumps([{"title": name, "verify_command": stored}]))
+            self.ok("step", "1", "in_progress", "--plan", name)
+        # A named run whose command text is "@suite" belongs to s, never to the held
+        # literal alias in p (the active plan), and does not restore p's floor.
+        self.ok("plan", "switch", "p")
+        self.set_count(4)
+        self.ok("verify", "check", "alias", env_extra=env)
+        named = self.records()[-1]
+        self.assertEqual((named["command"], named["check"], named["plan"]), ("@suite", "alias", "s"))
+        refused = self.run_cli("step", "1", "completed", "x", "--plan", "p", env_extra=env)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertEqual(self.step()["status"], "in_progress")
+        # A generic `verify run @suite` belongs to the held literal alias in p, not to
+        # the named @suite step in q even though q is the active plan.
+        self.ok("plan", "switch", "q")
+        self.ok("verify", "run", "@suite", env_extra=env)
+        generic = self.records()[-1]
+        self.assertEqual((generic["command"], generic["plan"], generic["step_id"]), ("@suite", "p", 1))
+        self.assertNotIn("check", generic)
+        self.set_count(4)
+        self.ok("plan", "verify", "1", "--plan", "p", env_extra=env)
+        last = self.records()[-1]
+        self.assertEqual((last["command"], last["plan"], last["step_id"]), ("@suite", "p", 1))
+        self.assertNotIn("check", last)
+        self.ok("step", "1", "completed", "4 tests ran", "--plan", "p", env_extra=env)
+        self.assertEqual(self.plan("q")["steps"][0]["status"], "in_progress")
+        self.assertTrue(all("check" not in r for r in self.records() if r.get("plan") == "p"))
+
+    def test_explicit_files_on_a_clean_tree_run_for_the_selected_step(self):
+        template = self.command + " {files}"
+        self.ok("verify", "check", "suite", "--set", template)
+        self.assertEqual(self.git_status(), "")
+        steps = json.dumps([{"title": "s", "verify_command": "@suite"}])
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", steps)
+        self.ok("plan", "create", "other", "--name", "q", "--steps", steps)
+        self.ok("step", "1", "in_progress", "--plan", "q")
+        self.ok("step", "1", "in_progress", "--plan", "p")
+        none = self.ok("plan", "verify", "1", "--plan", "p")
+        self.assertIn("No changed files", none.stdout)
+        self.assertEqual(self.executions(), 0)
+        self.ok("plan", "verify", "1", "--plan", "p", "--files", "count.txt")
+        last = self.records()[-1]
+        self.assertEqual((last["plan"], last["step_id"], last["check"]), ("p", 1, "suite"))
+        self.assertIn("count.txt", last["command"])
+        self.assertEqual(last["check_template"], template)
+        self.assertEqual(self.executions(), 1)
+
+    def test_files_are_refused_for_a_literal_verifier_before_anything_runs(self):
+        self.create_plan()
+        before = (self.state / "plans" / "p.json").read_bytes()
+        refused = self.run_cli("plan", "verify", "1", "--plan", "p", "--files", "count.txt")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("--files only applies", refused.stderr)
+        self.assertEqual(self.executions(), 0)
+        self.assertEqual((self.state / "plans" / "p.json").read_bytes(), before)
+        self.assertFalse((self.state / "verifications.jsonl").exists()
+                         and self.records())
+
+    def test_a_flagged_retry_on_a_completed_step_writes_no_partial(self):
+        self.create_plan()
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "4 tests ran")
+        self.set_count(2)
+        self.ok("plan", "verify", "1")
+        before = self.plan()
+        refused = self.accept()
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("already completed", refused.stderr)
+        self.assertNotIn("Partial pass recorded", refused.stderr)
+        self.assertEqual(self.plan(), before)
+        self.set_count(4)
+        self.ok("plan", "verify", "1")
+        self.ok("step", "1", "completed", "4 tests ran again")
+        self.assertEqual(self.step()["status"], "completed")
+
+    def test_ordinary_non_strict_stale_evidence_still_only_warns(self):
+        self.partial_scenario(strict=False, floor=2, partial=2)
+        (self.project / "later.txt").write_text("edit\n", encoding="utf-8")
+        done = self.ok("step", "1", "completed", "x")
+        self.assertIn("[WARN] The world moved", done.stderr)
+
+    def test_the_legacy_waiver_still_works_without_the_flag_after_a_partial(self):
+        self.partial_scenario(strict=False)
+        self.assert_open(self.accept())
+        done = self.run_cli("step", "1", "completed", "prose only",
+                            env_extra={"MYTHIFY_REQUIRE_VERIFIED_STEP": "0"})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        step = self.step()
+        self.assertEqual((step["status"], step["strict_gate_waived"]), ("completed", True))
+        self.assertEqual(step["test_drop_partial"]["current"], 2)
+
+    def test_the_flag_cannot_be_combined_with_the_legacy_waiver(self):
+        self.partial_scenario(strict=False)
+        before = self.step()
+        refused = self.run_cli("step", "1", "completed", "prose only",
+                               "--accept-test-drop", self.REASON,
+                               env_extra={"MYTHIFY_REQUIRE_VERIFIED_STEP": "0"})
+        self.assert_open(refused)
+        self.assertIn("cannot be combined", refused.stderr)
+        self.assertEqual(self.step(), before)
+
+    def test_ordered_campaign_advance_records_without_moving_the_checkpoint(self):
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps(
+            [{"title": "first", "verify_command": self.command},
+             {"title": "second", "verify_command": self.command}]))
+        self.set_count(4)
+        self.ok("verify", "run", self.command)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "baseline of four")
+        self.ok("campaign", "start", "goal", "--plan", "p", "--allowed-paths", "count.txt")
+        self.ok("step", "1", "in_progress")
+        self.set_count(2)
+        self.ok("plan", "verify", "1")
+        before = self.plan()
+        checkpoint = before["campaign"]["scope"]["checkpoint"]
+        self.assertTrue(checkpoint)
+        refused = self.run_cli("campaign", "advance", "--result", "fewer",
+                               "--accept-test-drop", self.REASON)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        after = self.plan()
+        note = after["steps"][0].pop("test_drop_partial", None)
+        self.assertEqual((note["baseline"], note["current"]), (4, 2))
+        self.assertEqual(after, before)
+        self.assertEqual(after["campaign"]["scope"]["checkpoint"], checkpoint)
+        self.assertEqual([s["status"] for s in after["steps"]], ["in_progress", "pending"])
+
+    def test_recovery_is_scoped_to_the_held_step_when_another_plan_runs_the_check(self):
+        self.named_scenario(None)
+        self.assert_open(self.accept())
+        # Another open plan stores @suite: a bare `verify check suite` now binds there.
+        self.ok("plan", "create", "other", "--name", "q", "--steps", json.dumps(
+            [{"title": "other step", "verify_command": "@suite"}]))
+        self.ok("step", "1", "in_progress", "--plan", "q")
+        self.set_count(4)
+        self.ok("plan", "verify", "1", "--plan", "q")
+        self.assertEqual((self.records()[-1]["plan"], self.records()[-1]["test_count"]), ("q", 4))
+        refused = self.run_cli("step", "1", "completed", "x", "--plan", "p")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("recorded for plan q step 1", refused.stderr)
+        self.assertEqual(self.plan("p")["steps"][0]["status"], "in_progress")
+        gate = json.loads(self.run_cli("verify", "gate", "--plan", "p", "--json").stdout)
+        self.assertFalse(gate["steps"][0]["ok"])
+        hint = re.search(r"mythify (plan verify \d+ --plan \S+)", gate["steps"][0]["next"])
+        self.assertEqual(hint.group(1), "plan verify 1 --plan p")
+        self.ok(*hint.group(1).split())
+        last = self.records()[-1]
+        self.assertEqual((last["plan"], last["step_id"], last["check"], last["test_count"]),
+                         ("p", 1, "suite", 4))
+        self.assertEqual(self.run_cli("verify", "gate", "--plan", "p").returncode, 0)
+        self.ok("step", "1", "completed", "4 tests ran", "--plan", "p")
+        self.assertEqual(self.plan("p")["steps"][0]["status"], "completed")
+        self.assertEqual(self.plan("q")["steps"][0]["status"], "in_progress")
+
+    def test_replacing_the_held_check_alone_does_not_clear_a_named_partial(self):
+        self.named_scenario(None)
+        self.assert_open(self.accept())
+        self.set_count(4)
+        self.ok("verify", "check", "suite")
+        other = "{0} -c {1}".format(shlex.quote(sys.executable),
+                                    shlex.quote("import sys; sys.stderr.write('Ran 9 tests\\nOK\\n')"))
+        self.ok("verify", "check", "suite", "--set", other)
+        refused = self.accept(reason="")
+        self.assert_open(refused)
+        self.assertIn("changed since the run", refused.stderr)
+        self.ok("verify", "check", "suite", "--set", self.command)
+        self.ok("verify", "check", "suite")
+        self.ok("step", "1", "completed", "4 tests ran")
+        self.assertEqual(self.step()["status"], "completed")
+
+
 class ZeroTestGateTests(GitProjectCase):
     """A green run that executed zero tests never completes a step."""
 
@@ -612,6 +1055,7 @@ class ZeroTestGateTests(GitProjectCase):
         self.assertNotIn("--accept-test-drop", result.stderr)
         self.assertNotEqual(self.step()["status"], "completed")
         self.assertNotIn("test_drop_accepted", self.step())
+        self.assertNotIn("test_drop_partial", self.step())
 
     def test_zero_after_a_floor_is_refused_even_with_a_reason_and_recovers(self):
         self.start_plan(strict=True)

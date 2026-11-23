@@ -577,6 +577,12 @@ def build_parser(symbols):
         help="Timeout in seconds for the verify command.",
     )
     p.add_argument("--reuse", action="store_true", help=REUSE_HELP)
+    p.add_argument(
+        "--files", nargs="+", metavar="PATH",
+        help=("For a step whose verifier is a named check (@NAME): the files for its "
+              "{files} placeholder, instead of the changed files. Refused, with nothing "
+              "run, for a literal verifier."),
+    )
     p.set_defaults(handler=cmd_plan_verify)
 
     p = plan_sub.add_parser(

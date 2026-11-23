@@ -166,11 +166,18 @@ See [campaign scope](campaigns.md#require-step-order-or-restrict-file-changes).
 
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
-`verify_command`, `verification_anchor` (`{"after_sha256": <hex or null>}`),
+`verify_command` (a partial pass on a step with none stores the judged run's
+verifier here), `verify_command_literal` (`true` when that adopted command looks
+like `@NAME` and must never be read as a check; `step_check` in
+`mythify_checks.py` is the one place `@NAME` is interpreted),
+`verification_anchor` (`{"after_sha256": <hex or null>}`),
 `updated_at`, `started_commit` (the git commit when the step went in progress,
-null outside git), `started_at`, `strict_gate_waived`, `test_drop_accepted`
-(`reason`, `baseline`, `current`, stamped when `--accept-test-drop` let a lower
-test count through), `risk` (`level: "high"`, `paths`, `review`, `human_input`,
+null outside git), `started_at`, `strict_gate_waived`, `test_drop_partial`
+(`reason`, `baseline`, `baseline_id`, `current`, `command`, and `check` plus
+`check_template` when the step's verifier is a named check; a step that stores a
+literal command is held to that command; stamped when `--accept-test-drop` recorded a partial pass, kept with
+`completed_count` once a full run completes the step; `test_drop_accepted` on
+older completed steps is historical), `risk` (`level: "high"`, `paths`, `review`, `human_input`,
 stamped when the step's changed paths were high risk), `human_input` (the
 person's words from `--human-input`), and `risk_gate_waived` (`true` when
 `MYTHIFY_RISK_GATE=0` let a high-risk completion through). A step already in
@@ -330,7 +337,12 @@ hash chain still links, and leaves every verification artifact in place.
   ledger shows. A valid `test_count_drop` note on an earlier run or on the
   satisfying run can preserve the earlier count after compaction archives the
   original run. A lower count produces a warning. In `strict_context` it
-  blocks completion unless the caller passes `--accept-test-drop REASON`. A
+  blocks completion. `--accept-test-drop REASON` on a current, risk-clear run
+  stamps `test_drop_partial` on the step under the serialized plan save and
+  still refuses (`partial_candidate` on the verdict); status, result, evidence
+  window and campaign checkpoint do not change. While the note is open, any run
+  below its stored floor, without a count, or of another verifier is refused in
+  every mode (`partial_blocked`), and `verify gate` reports it read-only. A
   satisfying run with a recorded count of 0, or with a recognized zero-test line
   when no count was read (a per-package `[no test files]` line never counts: the
   record keeps only an output tail), is refused in every plan with or without a baseline
@@ -627,6 +639,16 @@ Update, 2026-11-22: a passing verifier that executed zero tests cannot satisfy
 the step evidence gate. The test-drop override still applies to positive test
 counts. A zero-test run can return exit 0 without checking the work, so the
 gate asks for a rerun with working test selection.
+
+Update, 2026-11-23: `--accept-test-drop REASON` no longer completes a step. For
+a positive, current test run below the floor it records a partial pass on the
+step (`test_drop_partial`) and still refuses completion, so the audit note
+exists without a lower count standing in for full evidence. Only a fresh passing
+run of the same verifier at or above the recorded floor completes the step, and
+the note stays on it. Why: accepting a reduced suite as completion let a
+deleted test be a one-flag decision with no later proof that the suite came
+back; recording the partial keeps the reason and the floor while the gate stays
+red until the full run exists. The zero-test refusal above is unchanged.
 
 ### 2026-11-09: route reports a user-owned policy, advisory only
 
