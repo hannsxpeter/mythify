@@ -35,6 +35,7 @@ from mythify_campaigns import (  # noqa: E402
     first_unfinished_step, read_campaign_scope, require_ordered_step,
 )
 from mythify_campaign_scope import snapshot_provenance  # noqa: E402
+from mythify_trials import configure_trial_store  # noqa: E402
 from mythify_plans import (  # noqa: E402
     PlanBusy, UnsafePlanPath, active_pointer_path, checked_plan_path, clear_active_slug,
     count_archived, find_existing_slug_by_name, find_plan_slug, get_active_slug,
@@ -398,7 +399,8 @@ def refuse_verification(record, exc):
 
 
 def execute_recorded_verification(
-    state, command, claim, timeout=None, context=None, parents=None, reuse=False, extra=None
+    state, command, claim, timeout=None, context=None, parents=None, reuse=False, extra=None,
+    *, capture_dir=None
 ):
     """Run COMMAND, append an executed verification record, return the record.
 
@@ -441,7 +443,7 @@ def execute_recorded_verification(
         run = run_shell_capture(
             command,
             timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
-            artifact_dir=artifact_dir,
+            artifact_dir=artifact_dir, capture_dir=capture_dir,
         )
     record = {
         "id": verification_id,
@@ -1220,6 +1222,8 @@ def _persist_capture_artifacts(stdout_path, stderr_path, artifact_dir, max_outpu
             "sha256": hashlib.sha256(encoded).hexdigest(),
             "truncated": source_size > len(raw),
             "redacted": redacted != decoded,
+            "raw_sha256": hashlib.sha256(raw).hexdigest(),
+            "invalid_utf8": decoded.encode("utf-8") != raw,
         }
     return results
 
@@ -1271,7 +1275,7 @@ def terminate_process_tree(process):
     return False
 
 
-def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None):
+def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None, capture_dir=None):
     max_output_bytes = (
         verify_max_output_bytes() if max_output_bytes is None else max_output_bytes
     )
@@ -1283,7 +1287,7 @@ def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None
     exit_code = None
     artifacts = None
     artifact_error = None
-    with tempfile.TemporaryDirectory(prefix="mythify-capture-") as tempdir:
+    with tempfile.TemporaryDirectory(prefix="mythify-capture-", dir=capture_dir) as tempdir:
         stdout_path = Path(tempdir) / "stdout"
         stderr_path = Path(tempdir) / "stderr"
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
@@ -1583,6 +1587,9 @@ configure_campaign_store(
     now_iso=now_iso, cmd_step=update_step,
     strict_step_evidence_enabled=strict_step_evidence_enabled,
 )
+
+configure_trial_store(execute=execute_recorded_verification, write_json=write_json_atomic,
+                      resolve_state=resolve_state_dir)
 
 configure_prompt_router(
     get_active_slug_func=get_active_slug,

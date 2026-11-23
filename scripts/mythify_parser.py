@@ -13,6 +13,7 @@ from mythify_ratchet import ACCEPT_TEST_DROP_HELP
 from mythify_reuse import REUSE_HELP
 from mythify_map_parser import add_map_parser
 from mythify_campaigns import add_campaign_parser, cmd_campaign
+from mythify_trials import add_trial_parser
 from mythify_mcp import serve as serve_mcp
 
 # EX_USAGE from sysexits.h. Exit 2 is the recorded "unverified" verdict, so a
@@ -65,6 +66,7 @@ def build_parser(symbols):
     parser.set_defaults(needs_state=True)
     sub = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
     add_campaign_parser(sub)
+    add_trial_parser(sub)
 
     p = sub.add_parser(
         "init",

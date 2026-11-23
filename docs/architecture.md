@@ -48,6 +48,7 @@ table, so no module imports the entry point.
 | `mythify_memory.py`, `mythify_log_compaction.py`, `mythify_loopfit.py` | memory and lessons, `logs compact`, the `loop-fit` advisory |
 | `mythify_outcomes.py` | outcome loops: start, check, run, status, results, stop, scope and frozen paths |
 | `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
+| `mythify_trials.py` | `trial compare`: strict manifest validation, pinned staging, and a decision over a pinned evaluator's recorded run (see [trials.md](trials.md)) |
 | `mythify_campaign_scope.py` | Git and filesystem snapshots, accepted checkpoints, and path scope comparisons |
 | `mythify_plans.py` | validated plan identifiers, contained paths, active pointers, plan reads and writes |
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
@@ -118,7 +119,7 @@ lessons and is never a project workspace.
 |-- reviews/<slug>.json
 |-- checks.json                    named checks for verify check
 |-- reports/<cursor>.json
-|-- verification-artifacts/<verification id>/stdout.txt, stderr.txt
+|-- verification-artifacts/<verification id>/stdout.txt, stderr.txt, trial.json (trial compare only)
 |-- logs/archive/<log stem>-<YYYYMMDDHHMMSS>.jsonl
 `-- locks/jsonl-<digest>.lock/     transient JSONL write lock
 ```
@@ -140,7 +141,9 @@ created; plans written before this field existed have none), and when present
 optional `campaign` metadata.
 
 Campaign metadata: `schema_version: 1`, `goal`, `success`, `created`, and
-`lessons` (entries with `text`, `apply_next`, and `timestamp`). The `success`
+`lessons` (entries with `text`, `apply_next`, `timestamp`, and optional
+`verification_refs`: `{id, revision}` pins to executed ledger records,
+revision being `revision_digest` of the record). The `success`
 text describes the goal; step verifiers must cover it. Campaign progress is
 derived from the plan's steps, with no campaign pointer or separate task
 store. `campaign start` preserves existing steps, results, and verification
@@ -194,7 +197,10 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   (`git_commit`, `worktree_clean`, `worktree_digest`, `mythify_version`,
   `environment_digest`),
   `artifacts` (`stdout` and `stderr`, each `path`, `bytes`, `source_bytes`,
-  `sha256`, `truncated`, `redacted`), optional `test_count` (display only),
+  `sha256`, `truncated`, `redacted`, `raw_sha256` (digest of the exact captured
+  bytes), `invalid_utf8` (decoding replaced bytes)), optional `trial` (the
+  pre-run receipt of `trial compare`: binding, pins, policy, parent, edit),
+  optional `test_count` (display only),
   optional `test_count_drop` (`previous`, `previous_id`, `current`; set when a
   passing run executed fewer tests than the highest earlier passing count of
   the same command that retained ledger evidence still shows, counting valid
@@ -473,7 +479,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | 0 | success, or a verified check |
 | 1 | refusal or failure: no workspace, bad input, a gate refused, a record not found |
-| 2 | unverified: a check ran and failed, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, or `MYTHIFY_DISABLE_RUN=1` refused to run |
+| 2 | unverified: a check ran and failed, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, `trial compare` rejected a candidate or its evaluator run failed, or `MYTHIFY_DISABLE_RUN=1` refused to run |
 | 64 | usage error from the argument parser |
 | 124 | MCP only: the call timed out and was terminated |
 | 130, 143 | the CLI received SIGINT or SIGTERM while a verify child ran |
@@ -706,3 +712,21 @@ compare each step against the original campaign scope and the previous
 accepted checkpoint, so prior accepted work can stay uncommitted while new
 out-of-scope changes block advancement. The CLI and typed MCP tools use
 the same plan transitions and evidence checks.
+
+### 2026-11-23: pinned evidence trials
+
+`trial compare` judges a small instruction edit only from a pinned evaluator's
+per-task output on raw evidence the operator supplies. The trust root is the
+operator and that evaluator: manifest scores are never read, and a candidate
+process cannot influence the decision. The evaluator runs through
+`execute_recorded_verification` with an empty step context, so there is no
+second execution path and no decision ledger. The ordinary record stays
+append-only and carries the pre-run receipt (`trial`: binding, pins including
+the replay task, evidence, and runbook, the forbidden-term policy, parent,
+edit sizes). The final verdict is written once to `trial.json` beside the
+run's artifacts, so the append-only record never needs rewriting. The runner
+gained additive `raw_sha256` and `invalid_utf8` capture fields so a lossy
+stdout cannot be parsed as evidence. Path isolation is advisory: operating
+system separation of subjects from the controller is the host's job.
+`campaign learn --verification` cites such records without making learning
+evidence.

@@ -11,6 +11,7 @@ three workflows worth learning. Come back here for reference material.
 | [guide.md](guide.md) | Feature guide: plans, verification, maps, outcome loops, reviews, memory, routing, protocol files. |
 | [commands.md](commands.md) | Every command and flag, generated from the CLI's parser. |
 | [campaigns.md](campaigns.md) | Continue existing plans across sessions with strict evidence, learning, and read-only prompt watching. |
+| [trials.md](trials.md) | Compare a small instruction edit against a baseline with a pinned evaluator and raw evidence. |
 | [mcp.md](mcp.md) | MCP setup for any host: the launcher, `MYTHIFY_DIR`, config locations, tools, exit codes. |
 | [blast-radius.md](blast-radius.md) | Safety cases for changes whose risk sits outside the visible diff. |
 | [checks-and-gate.md](checks-and-gate.md) | Named checks for fast, selective verification, and `verify gate` for host stop and pre-commit hooks. |

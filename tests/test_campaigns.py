@@ -1,5 +1,6 @@
 """Campaigns reuse plans and their evidence gates through the real CLI."""
 
+import hashlib
 import json
 import os
 import queue
@@ -854,6 +855,125 @@ class CampaignTests(unittest.TestCase):
                 result = self.ok(*args)
                 self.assertIn("file left unchanged", result.stderr)
                 self.assertEqual(self.snapshot(), before)
+
+    def ledger(self):
+        lines = (self.state / "verifications.jsonl").read_text().splitlines()
+        return [json.loads(line) for line in lines]
+
+    def test_learning_pins_cited_executed_records_without_changing_the_gate(self):
+        self.create_plan()
+        self.ok("campaign", "start", "Existing goal", "--plan", "existing")
+        self.ok("campaign", "learn", "Plain learning")
+        self.ok("verify", "run", self.verifier)
+        self.assertEqual(self.run_cli("verify", "run", shlex.quote(sys.executable) + " -c 'raise SystemExit(3)'"
+                                      ).returncode, 2)
+        green, red = self.ledger()
+        refs = [{"id": r["id"], "revision": hashlib.sha256(json.dumps(
+            r, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()}
+            for r in (green, red)]
+        self.assertFalse(red["verified"])
+        self.ok("campaign", "learn", "Cited learning", "--verification", green["id"],
+                "--verification", red["id"])
+        lessons = self.plan()["campaign"]["lessons"]
+        self.assertNotIn("verification_refs", lessons[0])
+        self.assertEqual(lessons[1]["verification_refs"], refs)
+        packet = json.loads(self.ok("campaign", "prompt", "--json").stdout)
+        self.assertEqual(packet["context"]["lessons"][1]["verification_refs"], refs)
+        human = self.ok("campaign", "prompt").stdout
+        self.assertIn("Cited learning (cited records, not proof: {0}, {1})".format(green["id"], red["id"]), human)
+        self.assertIn("Learning for subsequent work: Plain learning\n", human)
+        self.assertEqual(self.plan()["steps"][0]["status"], "pending")
+
+    def test_learning_refuses_unusable_verification_references_unchanged(self):
+        self.init_git()
+        (self.project / ".git" / "info" / "exclude").write_text(".mythify/\n")
+        self.create_plan()
+        self.ok("campaign", "start", "Existing goal", "--plan", "existing")
+        self.ok("verify", "run", self.verifier)
+        self.ok("verify", "claim", "It works", "I looked")
+        self.ok("verify", "run", self.verifier, "--reuse")
+        executed, attested, reused = self.ledger()
+        self.assertIn("reused_from", reused)
+        self.assertNotIn("id", attested)
+        forged = [{"id": "v-20260101000000-aaaaaaaaaaaa", "kind": "attested", "verified": None},
+                  {"id": "v-20260101000000-bbbbbbbbbbbb", "kind": "executed", "verified": True},
+                  {"id": "v-20260101000000-cccccccccccc", "kind": "executed", "verified": True,
+                   "command": "x"},
+                  {"id": executed["id"], "kind": "attested"},
+                  dict(executed, id="v-20260101000000-dddddddddddd", exit_code=5),
+                  dict(executed, id="v-20260101000000-eeeeeeeeeeee", timestamp=" "),
+                  dict(executed, id="v-20260101000000-ffffffffffff", provenance={})]
+        with (self.state / "verifications.jsonl").open("a") as handle:
+            handle.writelines(json.dumps(record) + "\n" for record in forged)
+        cases = {
+            "missing": "v-20000101000000-000000000000",
+            "attested": forged[0]["id"],
+            "malformed": forged[1]["id"],
+            "no exit code": forged[2]["id"],
+            "ambiguous": executed["id"],
+            "contradictory status": forged[4]["id"],
+            "blank timestamp": forged[5]["id"],
+            "empty provenance": forged[6]["id"],
+            "reused": reused["id"],
+            "truncated": executed["id"][:-1],
+            "prefix": executed["id"][:12],
+            "uppercase": executed["id"].upper(),
+            "slug": "existing",
+        }
+        before = self.snapshot()
+        for name, value in cases.items():
+            with self.subTest(name):
+                result = self.run_cli("campaign", "learn", "Bad", "--verification", value)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(self.snapshot(), before)
+        duplicate = self.run_cli("campaign", "learn", "Bad", "--verification", executed["id"],
+                                 "--verification", executed["id"])
+        self.assertEqual(duplicate.returncode, 1, duplicate.stdout + duplicate.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_citing_needs_a_clean_strict_ledger(self):
+        self.create_plan()
+        self.ok("campaign", "start", "Existing goal", "--plan", "existing")
+        self.ok("verify", "run", self.verifier)
+        ledger = self.state / "verifications.jsonl"
+        clean = ledger.read_bytes()
+        good = json.loads(clean.splitlines()[0])["id"]
+        before = self.snapshot()
+        bad_rows = {
+            "duplicate keys": b'{"id": "v-20260101000000-aaaaaaaaaaaa", "kind": "attested", "kind": "executed"}\n',
+            "invalid utf8": b'{"id": "\xff"}\n',
+            "not json": b"{broken\n",
+            "nan": b'{"id": "x", "n": NaN}\n',
+        }
+        for name, row in bad_rows.items():
+            with self.subTest(name):
+                ledger.write_bytes(clean + row)
+                before = self.snapshot()
+                result = self.run_cli("campaign", "learn", "Cited", "--verification", good)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("strict JSON", result.stderr)
+                self.assertEqual(self.snapshot(), before)
+        ledger.write_bytes(clean)
+        self.ok("campaign", "learn", "Cited", "--verification", good)
+
+    def test_learning_without_citations_never_reads_the_ledger(self):
+        self.create_plan()
+        self.ok("campaign", "start", "Existing goal", "--plan", "existing")
+        (self.state / "verifications.jsonl").write_bytes(b"\xff\xfe not text\n")
+        self.ok("campaign", "learn", "Plain learning")
+        self.assertEqual(self.plan()["campaign"]["lessons"][0]["text"], "Plain learning")
+
+    def test_learning_accepts_records_from_another_plan(self):
+        self.ok("plan", "create", "Other", "--name", "other", "--steps",
+                json.dumps([{"title": "Only", "verify_command": self.verifier}]))
+        self.ok("step", "1", "in_progress", "--plan", "other")
+        self.ok("verify", "run", self.verifier)
+        record = self.ledger()[-1]
+        self.assertEqual(record["plan"], "other")
+        self.create_plan()
+        self.ok("campaign", "start", "Existing goal", "--plan", "existing")
+        self.ok("campaign", "learn", "From elsewhere", "--plan", "existing", "--verification", record["id"])
+        self.assertEqual(self.plan()["campaign"]["lessons"][0]["verification_refs"][0]["id"], record["id"])
 
 
 if __name__ == "__main__":
