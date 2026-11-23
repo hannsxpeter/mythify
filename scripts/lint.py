@@ -442,7 +442,7 @@ VENDOR_SCOPE = (
     "docs/maintainers/*.md",
     "CODE_OF_CONDUCT.md",
     "docs/*.md",
-    "docs/assets/*.svg",
+    "assets/*.svg",
     "CLAUDE.md",
 )
 VENDOR_SCOPE_EXCLUDED = ("docs/mcp.md",)
@@ -550,14 +550,50 @@ def import_roots(tree):
             yield node.lineno, node.module.split(".")[0]
 
 
+# Zero-dependency npm packaging surface for `npx @hxp-tools/mythify`.
+# The Python runtime stays stdlib-only; these files install that runtime.
+ALLOWED_PACKAGING_JS = frozenset({"bin/mythify.js"})
+PACKAGE_DEP_KEYS = (
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+    "bundleDependencies",
+    "bundledDependencies",
+)
+
+
+def package_json_declares_deps(text):
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return True
+    if not isinstance(data, dict):
+        return True
+    for key in PACKAGE_DEP_KEYS:
+        value = data.get(key)
+        if value:
+            return True
+    return False
+
+
 def check_dependencies(root, files):
     findings = []
     for path in files:
         name = posixpath.basename(path)
         if "node_modules" in path.split("/"):
             findings.append(Finding(path, 1, "dependencies", "node_modules is tracked"))
+        elif path == "package.json":
+            text = read_text(root, path) or ""
+            if package_json_declares_deps(text):
+                findings.append(Finding(
+                    path, 1, "dependencies",
+                    "package.json declares npm dependencies; the packaging surface must stay zero-dep",
+                ))
         elif any(fnmatch.fnmatch(name, pattern) for pattern in DEPENDENCY_MANIFESTS):
             findings.append(Finding(path, 1, "dependencies", "dependency manifest is tracked"))
+        elif path in ALLOWED_PACKAGING_JS:
+            continue
         elif posixpath.splitext(name)[1] in (".js", ".mjs", ".cjs", ".ts"):
             findings.append(Finding(path, 1, "dependencies", "JavaScript or TypeScript source is tracked; Mythify is one Python runtime"))
         elif name == "pyproject.toml":

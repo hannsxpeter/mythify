@@ -23,13 +23,9 @@ STANDALONE_DOCS = (
     "SECURITY.md",
     "docs/README.md",
     "docs/architecture.md",
-    "docs/blast-radius.md",
     "docs/campaigns.md",
-    "docs/checks-and-gate.md",
     "docs/commands.md",
     "docs/mcp.md",
-    "docs/prose-quality.md",
-    "docs/reviews.md",
     "docs/start-here.md",
     "docs/trials.md",
     "docs/examples/trial_demo.py",
@@ -40,8 +36,10 @@ STANDALONE_DOCS = (
     "docs/maintainers/ROADMAP.md",
 )
 STANDALONE_ASSETS = (
-    "docs/assets/banner.svg",
-    "docs/assets/loop.svg",
+    "assets/hero.svg",
+    "assets/quest-map.svg",
+    "assets/loop.svg",
+    "assets/README.md",
 )
 
 

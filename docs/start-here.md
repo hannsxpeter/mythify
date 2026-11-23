@@ -15,6 +15,8 @@ Everything below makes that habit cheap.
 You need Python 3.9 or newer. Nothing else.
 
 ```bash
+npx @hxp-tools/mythify@latest --project /path/to/your/project
+# or from source:
 git clone https://github.com/hannsxpeter/mythify.git
 cd mythify
 ./scripts/install_user.sh --project /path/to/your/project
@@ -107,8 +109,7 @@ mythify verify run "python3 -m unittest discover -s tests" --claim "tests still 
 
 Once a command is stable, name it with `mythify verify check fast --set
 "COMMAND"` and run it as `verify check fast`; add `--reuse` to skip a run an
-identical passing run already proves. See
-[checks-and-gate.md](checks-and-gate.md).
+identical passing run already proves.
 
 ### Serious change
 
@@ -189,7 +190,7 @@ None of these are needed on day one:
   loops with iteration, cost, and scope budgets. Reach for them when one check
   must go green and you want the agent to keep trying inside a fence.
 - `review blast-radius` and `review prove`: safety cases for changes whose
-  risk sits outside the diff. See [blast-radius.md](blast-radius.md).
+  risk sits outside the diff.
 - `lineage`, `prompt`, `loop-fit`, `history`, `logs compact`, and
   `plan import`.
 - `MYTHIFY_REQUIRE_VERIFIED_STEP=0`. It turns off the evidence gate, and the

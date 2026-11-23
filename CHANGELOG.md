@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.2.0] - 2026-11-23
+
+Mythify 7.2.0 ships as an `@hxp-tools` product: gamified README and brand
+assets, a zero-dependency npm install wrapper, and a thinner docs set.
+
 ### Added
 
+- `@hxp-tools/mythify` npm package: `npx @hxp-tools/mythify` runs
+  `scripts/install_user.sh` through a thin Node wrapper with no npm
+  dependencies.
+- Brand assets under `assets/` (`hero.svg`, `quest-map.svg`, `loop.svg`) in the
+  hxp-tools dark board palette.
 - `mythify trial compare MANIFEST --evaluator PATH --evaluator-sha256 HASH`
   compares a small instruction edit against a baseline from pinned raw
   evidence. It stages the exact pinned bytes, runs the pinned evaluator as
@@ -24,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- README is a product page in the godplans/godaudits style (Press start, quest
+  map, evidence loop) and points at `@hxp-tools/mythify`.
+- Docs consolidated: named checks, reviews, blast-radius, and prose guidance
+  live in `docs/guide.md` and `CONTRIBUTING.md`. Removed standalone
+  `docs/blast-radius.md`, `docs/checks-and-gate.md`, `docs/reviews.md`, and
+  `docs/prose-quality.md`.
+- Lint allows the zero-dependency packaging surface (`package.json`,
+  `bin/mythify.js`) and still refuses npm dependency declarations and other
+  JavaScript.
 - `--accept-test-drop REASON` on `step ID completed` and `campaign advance` now
   records a partial pass (`test_drop_partial`: reason, baseline, current count,
   verifier) and still refuses completion with a nonzero exit, leaving the step
@@ -247,7 +266,7 @@ default and refuse only under strict context (plans started by
   Exit 0 means nothing is in flight without evidence; exit 2 means unverified
   work is in flight, with the step and the next command on stderr; exit 1
   means the active or named plan is missing or unreadable. See
-  [docs/checks-and-gate.md](docs/checks-and-gate.md).
+  `docs/guide.md` (named checks and the verify gate).
 
 ### Changed
 
@@ -2284,7 +2303,8 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.1.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.2.0...HEAD
+[7.2.0]: https://github.com/hannsxpeter/mythify/compare/v7.1.0...v7.2.0
 [7.1.0]: https://github.com/hannsxpeter/mythify/compare/v7.0.0...v7.1.0
 [7.0.0]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...v7.0.0
 [6.2.0]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...v6.2.0

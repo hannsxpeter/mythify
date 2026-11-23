@@ -45,8 +45,7 @@ verify --reuse` works the same way.
 with `--set`), optionally on only the changed files through a `{files}`
 placeholder. A step can use `@NAME` as its `verify_command`. `verify gate` is a
 read-only check for a host's stop or pre-commit hook: it runs nothing and exits
-2 while an in-progress step lacks current passing evidence. See
-[checks-and-gate.md](checks-and-gate.md).
+2 while an in-progress step lacks current passing evidence.
 
 ### Checks that cannot fail
 
@@ -127,21 +126,21 @@ starts, so a run that is killed or times out still spends its round.
 When the dangerous behavior sits outside the visible diff, `review blast-radius`
 records one safety fact, an exact source fingerprint, the risks, and the
 cheapest command that would catch the real failure. `review prove` runs that
-command and links the evidence only while the reviewed tree is unchanged. See
-[blast-radius.md](blast-radius.md).
+command and links the evidence only while the reviewed tree is unchanged.
 
 ## Findings reviews and path risk
 
 A findings review records an independent reviewer's rounds: `review round`
 opens one stamped with the source it saw, `review finding` and `review resolve`
 track what was raised and settled (a dismissed finding cannot be raised
-again), and a fourth round needs `--rethink TEXT`.
+again), and a fourth round needs `--rethink TEXT`. Three rounds are the limit
+unless `--rethink` explains why the approach still stands.
 
 A step that touches high-risk paths (auth, secrets, migrations, schema, deploy
 and CI config, payments) needs a review that covers the current source and the
 person's own words (`--human-input`) before it completes. Like the test-count
 drop, this check warns by default and refuses on a campaign plan;
-`MYTHIFY_RISK_GATE=0` waives it with a stamp. See [reviews.md](reviews.md).
+`MYTHIFY_RISK_GATE=0` waives it with a stamp.
 
 ## Memory and lessons
 

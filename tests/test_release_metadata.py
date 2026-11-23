@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "7.1.0"
+VERSION = "7.2.0"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_runtime_versions_and_release_target_agree(self):
         cli = re.search(r'^VERSION = "([^"]+)"$', self.text("scripts/mythify.py"), re.MULTILINE)
         self.assertEqual(cli.group(1), VERSION)
-        self.assertIn("## [{0}] - 2026-11-22".format(VERSION), self.text("CHANGELOG.md"))
+        self.assertIn("## [{0}] - 2026-11-23".format(VERSION), self.text("CHANGELOG.md"))
 
     def test_roadmap_is_a_static_file_of_outcomes_non_goals_and_bets(self):
         # Exact-case listing: a case-insensitive filesystem would let a stale
@@ -37,10 +37,12 @@ class ReleaseMetadataTests(unittest.TestCase):
         release = self.text("docs/maintainers/RELEASE-CHECKLIST.md")
         self.assertIn("mythify-cli-{0}.tar.gz".format(VERSION), release)
         self.assertNotIn("docs/humanlayer-integration-research.md", self.text("scripts/package_cli.py"))
-        self.assertIn("docs/prose-quality.md", self.text("README.md"))
-        self.assertIn("docs/prose-quality.md", self.text("scripts/package_cli.py"))
-        self.assertIn("docs/blast-radius.md", self.text("README.md"))
-        self.assertIn("docs/blast-radius.md", self.text("scripts/package_cli.py"))
+        self.assertIn("assets/hero.svg", self.text("README.md"))
+        self.assertIn("assets/hero.svg", self.text("scripts/package_cli.py"))
+        self.assertIn("assets/quest-map.svg", self.text("README.md"))
+        self.assertIn("assets/quest-map.svg", self.text("scripts/package_cli.py"))
+        self.assertIn('"name": "@hxp-tools/mythify"', self.text("package.json"))
+        self.assertIn('"version": "{0}"'.format(VERSION), self.text("package.json"))
 
 
 if __name__ == "__main__":

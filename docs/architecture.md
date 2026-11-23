@@ -276,7 +276,7 @@ Review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 `blast_radius_review`): `name`, `status`, `changed_paths`,
 `change_fingerprint`, `safety_fact`, `risks`, `merge_gate`, `created`,
 `updated`, `evidence_status`. Never rewritten; proof status is derived from
-linked records at read time ([blast-radius.md](blast-radius.md)).
+linked records at read time.
 
 Findings review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 `findings_review`, `review_type` `findings`): `name`, `rounds`, `created`,
@@ -287,7 +287,7 @@ Findings review (`reviews/<slug>.json`, `schema_version` 1, `kind`
 `summary`, `path`, `severity`, `status` (`open`, `fixed`, `dismissed`),
 `reason`, `created_at`, `resolved_at`, and `repeat_of` when it repeats a fixed
 finding. Unlike a blast-radius review it is edited by `review round|finding|resolve`;
-it is material and never verification evidence ([reviews.md](reviews.md)).
+it is material and never verification evidence.
 
 Lineage block (on plans, maps, outcomes, and executed records):
 `captured_at` and `parents`, each `kind` (`map`, `plan`, `outcome`, `review`,
@@ -321,7 +321,7 @@ hash chain still links, and leaves every verification artifact in place.
   step's `started_commit` (working tree against that commit, plus untracked
   files, minus `.mythify/`) and rates them with `path_risk` from
   `protocol/classification-rules.json`. High risk wants a review that covers
-  the current source ([reviews.md](reviews.md)) and `--human-input TEXT`. A
+  the current source and `--human-input TEXT`. A
   missing piece warns; on a `strict_context` plan it refuses (exit 1).
   With no commit to compare against (an unborn repository, or a step that
   started without one) every tracked and untracked file counts as changed.

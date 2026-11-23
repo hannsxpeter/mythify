@@ -1,19 +1,20 @@
 # Release checklist
 
-Current release target: `v7.1.0`.
+Current release target: `v7.2.0`.
 
 The ordered commands to cut a Mythify release. [MAINTAINING.md](MAINTAINING.md)
 explains the version model and why each step exists. Run every command from
 the repository root on the final commit, and stop at the first failure: fix,
 commit, and start again from step 3.
 
-Release assets for 7.1.0:
+Release assets for 7.2.0:
 
 - `mythify.skill`, the packaged `skills/mythify` skill
-- `mythify-cli-7.1.0.tar.gz`, the self-contained CLI with the MCP server
+- `mythify-cli-7.2.0.tar.gz`, the self-contained CLI with the MCP server
   (`scripts/mythify_mcp.py`), the installer, the protocol files, and all four
   skills
 - `SHA256SUMS`, the flat checksum manifest for both
+- `@hxp-tools/mythify` on npm (zero-dependency install wrapper; publish by hand)
 
 Below, `X.Y.Z` stands for the release version.
 

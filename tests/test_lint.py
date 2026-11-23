@@ -103,8 +103,8 @@ def inject_model_agnostic(root):
     append(root / "README.md", "\nTested in a codex terminal.\n")
     # docs/mcp.md documents host setup, so this line is not a finding.
     append(root / "docs" / "mcp.md", "\nTested in a codex terminal.\n")
-    # The README banner ships in the archive, so it is in the vendor scope too.
-    replace(root / "docs" / "assets" / "banner.svg", "</svg>", "<text>Built for Claude Code</text></svg>")
+    # The README hero ships in the archive, so it is in the vendor scope too.
+    replace(root / "assets" / "hero.svg", "</svg>", "<text>Built for Claude Code</text></svg>")
     append(
         root / "scripts" / "mythify_io.py",
         "".join("\n# reads {0}".format(form) for form in ROUTING_PREFIX_FORMS) + "\n",
@@ -113,7 +113,11 @@ def inject_model_agnostic(root):
 
 def inject_dependencies(root):
     append(root / "scripts" / "mythify_io.py", "\nimport yaml  # noqa: E402\n")
-    (root / "package.json").write_text("{}\n", encoding="utf-8")
+    # A packaging package.json is allowed only when it declares no npm deps.
+    (root / "package.json").write_text(
+        '{"name":"@hxp-tools/mythify","dependencies":{"left-pad":"1.0.0"}}\n',
+        encoding="utf-8",
+    )
     # A second runtime without a manifest is still a dependency.
     (root / "scripts" / "check_legacy.mjs").write_text("#!/usr/bin/env node\n", encoding="utf-8")
 
@@ -140,7 +144,7 @@ INJECTIONS = {
     "prose": (inject_prose, ["docs/start-here.md"]),
     "model-agnostic": (
         inject_model_agnostic,
-        ["README.md", "docs/assets/banner.svg", "docs/start-here.md", "scripts/mythify_io.py", "skills/mythify/SKILL.md"],
+        ["README.md", "assets/hero.svg", "docs/start-here.md", "scripts/mythify_io.py", "skills/mythify/SKILL.md"],
     ),
     "dependencies": (inject_dependencies, ["package.json", "scripts/check_legacy.mjs", "scripts/mythify_io.py"]),
     "mcp-surface": (inject_mcp_surface, ["docs/mcp.md", "scripts/mythify_mcp.py"]),
@@ -286,7 +290,8 @@ class TestDenylistEntriesFire(unittest.TestCase):
             self.assertTrue(lint.in_vendor_scope(path), path)
         self.assertFalse(lint.in_vendor_scope("docs/mcp.md"))
         self.assertFalse(lint.in_vendor_scope("scripts/install_user.sh"))
-        self.assertTrue(lint.in_vendor_scope("docs/assets/banner.svg"))
+        self.assertTrue(lint.in_vendor_scope("assets/hero.svg"))
+        self.assertTrue(lint.in_vendor_scope("assets/quest-map.svg"))
         self.assertTrue(lint.in_vendor_scope("CLAUDE.md"))
         # The host config path token is allowed only in the MCP setup table.
         self.assertEqual(lint.model_agnostic_hits("~/.gemini/config/mcp_config.json", path="docs/mcp.md"), [])

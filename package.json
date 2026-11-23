@@ -1,0 +1,54 @@
+{
+  "name": "@hxp-tools/mythify",
+  "version": "7.2.0",
+  "description": "Prove done. Evidence for AI coding agents: plans close only on a passing check. Any model, zero dependencies.",
+  "keywords": [
+    "agent-skills",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "developer-tools",
+    "evidence",
+    "mcp",
+    "verification",
+    "zero-dependency"
+  ],
+  "homepage": "https://github.com/hannsxpeter/mythify#readme",
+  "bugs": {
+    "url": "https://github.com/hannsxpeter/mythify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hannsxpeter/mythify.git"
+  },
+  "license": "MIT",
+  "author": "hannsxpeter",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "mythify": "bin/mythify.js"
+  },
+  "files": [
+    "bin",
+    "assets",
+    "skills",
+    "scripts",
+    "protocol",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "!**/__pycache__",
+    "!**/*.pyc"
+  ],
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests",
+    "lint": "python3 scripts/lint.py"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

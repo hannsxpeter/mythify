@@ -15,8 +15,10 @@ Python standard library and nothing else.
 - Python 3.9 or newer. Do not use syntax or library calls added after 3.9,
   such as `match` statements, `X | Y` unions evaluated at runtime, or
   `zip(strict=True)`. CI runs the suite on 3.9 and 3.13.
-- No third-party packages, no `requirements.txt`, no Node, no npm. There is
-  nothing to install before you run the tests.
+- No third-party packages and no `requirements.txt` for the Python runtime.
+  The optional `@hxp-tools/mythify` npm package is a zero-dependency install
+  wrapper around `scripts/install_user.sh`; do not add npm runtime deps.
+  There is nothing to install before you run the tests.
 - Each file under `scripts/` stays under 1500 nonblank lines
   (`python3 scripts/check_runtime_source_size.py`). Split a module by
   responsibility when it grows past that.
@@ -39,6 +41,10 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests must not rewrite tracked files; generate into a temporary copy instead.
+
+Prose in shipped docs is checked by `python3 scripts/check_prose_quality.py`
+(rules in `protocol/prose-quality.json`). Prefer concrete actors, actions, and
+evidence. Do not introduce em dashes, en dashes, or emojis.
 
 Tests that drive the CLI call `warm_cli.run` from `tests/warm_cli.py` instead
 of starting `python3 scripts/mythify.py` themselves. It forks each call from
