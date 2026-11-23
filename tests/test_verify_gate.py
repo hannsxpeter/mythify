@@ -79,6 +79,10 @@ class GateProject(unittest.TestCase):
     def gate(self, *args):
         return self.run_cli("verify", "gate", *args)
 
+    def records(self):
+        path = self.state / "verifications.jsonl"
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
     def plan(self, name="p"):
         return json.loads((self.state / "plans" / (name + ".json")).read_text(encoding="utf-8"))
 
@@ -283,6 +287,167 @@ class StrictContextTests(GateProject):
                 view = json.loads(self.gate("--json").stdout)
                 self.assertTrue(any("Test count dropped under strict context" in reason
                                     for reason in view["steps"][0]["reasons"]))
+
+    def test_a_recorded_partial_keeps_the_gate_red_until_a_full_run(self):
+        for strict in (True, False):
+            with self.subTest(strict=strict):
+                self.setUp()
+                self.start(strict=strict)
+                self.ok("verify", "run", self.command)
+                (self.project / "count.txt").write_text("2\n", encoding="utf-8")
+                self.ok("plan", "verify", "1", "--plan", "p")
+                recorded = self.run_cli("step", "1", "completed", "fewer", "--plan", "p",
+                                        "--accept-test-drop", "obsolete tests were deleted")
+                self.assertEqual(recorded.returncode, 1, recorded.stdout + recorded.stderr)
+                before = self.snapshot()
+                red = self.gate()
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(red.returncode, 2, red.stderr)
+                self.assertIn("recorded partial pass", red.stderr)
+                self.assertIn("mythify plan verify 1 --plan p", red.stderr)
+                self.assertNotIn("--accept-test-drop", red.stderr)
+                view = json.loads(self.gate("--json").stdout)
+                self.assertFalse(view["steps"][0]["ok"])
+                (self.project / "count.txt").write_text("5\n", encoding="utf-8")
+                self.ok("plan", "verify", "1", "--plan", "p")
+                self.assertEqual(self.gate().returncode, 0)
+                self.ok("step", "1", "completed", "5 tests ran", "--plan", "p")
+                self.assertEqual(self.plan()["steps"][0]["test_drop_partial"]["completed_count"], 5)
+
+    def test_a_named_partial_without_a_stored_verifier_hints_a_command_that_clears_it(self):
+        self.ok("verify", "check", "suite", "--set", self.command)
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps([{"title": "only"}]))
+        self.ok("step", "1", "in_progress", "--plan", "p")
+        self.ok("verify", "check", "suite")
+        (self.project / "count.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "check", "suite")
+        recorded = self.run_cli("step", "1", "completed", "fewer", "--plan", "p",
+                                "--accept-test-drop", "why")
+        self.assertEqual(recorded.returncode, 1, recorded.stdout + recorded.stderr)
+        self.assertEqual(self.plan()["steps"][0]["test_drop_partial"]["check"], "suite")
+        view = json.loads(self.gate("--json").stdout)
+        hint = shlex.split(view["steps"][0]["next"].split(": ")[1].split(" (")[0])
+        self.assertEqual(hint, ["mythify", "plan", "verify", "1", "--plan", "p"])
+        # Rerunning the hinted command at the same count keeps the gate red ...
+        self.ok(*hint[1:])
+        self.assertEqual(self.gate().returncode, 2)
+        # ... and at the floor it clears it.
+        (self.project / "count.txt").write_text("5\n", encoding="utf-8")
+        self.ok(*hint[1:])
+        self.assertEqual(self.gate().returncode, 0)
+        self.ok("step", "1", "completed", "5 tests ran", "--plan", "p")
+
+    def test_a_malformed_partial_note_is_refused_gracefully(self):
+        notes = (None, "junk", {"reason": "r", "baseline": 4, "current": 2, "command": 5},
+                 {"reason": "r", "baseline": 4, "current": 2, "command": ["a"], "check": 7})
+        for note in notes:
+            with self.subTest(note=note):
+                self.setUp()
+                self.ok("plan", "create", "goal", "--name", "p", "--steps",
+                        json.dumps([{"title": "only"}]))
+                self.ok("step", "1", "in_progress", "--plan", "p")
+                self.ok("verify", "run", self.command)
+                path = self.state / "plans" / "p.json"
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data["steps"][0]["test_drop_partial"] = note
+                path.write_text(json.dumps(data), encoding="utf-8")
+                red = self.gate()
+                self.assertEqual(red.returncode, 2, red.stdout + red.stderr)
+                self.assertNotIn("Traceback", red.stderr)
+                done = self.run_cli("step", "1", "completed", "x", "--plan", "p")
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertNotIn("Traceback", done.stderr)
+                self.assertEqual(self.plan()["steps"][0]["status"], "in_progress")
+
+    def test_a_partial_without_a_stored_verifier_hints_the_exact_verify_run(self):
+        plan = ["plan", "create", "goal", "--name", "p", "--steps", json.dumps([{"title": "only"}])]
+        self.ok(*plan)
+        self.ok("step", "1", "in_progress", "--plan", "p")
+        self.ok("verify", "run", self.command)
+        (self.project / "count.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "run", self.command)
+        self.run_cli("step", "1", "completed", "fewer", "--plan", "p", "--accept-test-drop", "why")
+        red = self.gate()
+        self.assertEqual(red.returncode, 2, red.stderr)
+        self.assertEqual(self.plan()["steps"][0]["test_drop_partial"]["command"], self.command)
+        self.assertIn("mythify plan verify 1 --plan p", red.stderr)
+        # The hinted, step-scoped command runs the literal verifier the partial holds.
+        (self.project / "count.txt").write_text("5\n", encoding="utf-8")
+        self.ok("plan", "verify", "1", "--plan", "p")
+        self.assertEqual(self.gate().returncode, 0)
+        self.ok("step", "1", "completed", "5 tests ran", "--plan", "p")
+
+    # check-tests: allow renamed from test_a_malformed_note_on_a_stored_verifier_dispatches_only_the_stored_one
+    def test_a_malformed_note_on_a_stored_verifier_is_refused_before_any_dispatch(self):
+        marker = Path(self.tmp.name) / "ran.marker"
+        raw = "{0} -c {1}".format(shlex.quote(sys.executable), shlex.quote(
+            "open({0!r}, 'w').close()".format(str(marker))))
+        notes = (None, {"reason": "r", "baseline": 4, "current": 2, "command": raw},
+                 {"reason": "r", "baseline": 4, "current": 4, "command": self.command},
+                 {"reason": "r", "baseline": 2, "current": 4, "command": self.command},
+                 {"reason": "r", "baseline": 4, "current": 2, "command": self.command,
+                  "check": "suite", "check_template": "x"})
+        for note in notes:
+            with self.subTest(note=note):
+                self.setUp()
+                self.start()
+                self.ok("verify", "run", self.command)  # ordinary passing evidence
+                path = self.state / "plans" / "p.json"
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data["steps"][0]["test_drop_partial"] = note
+                path.write_text(json.dumps(data), encoding="utf-8")
+                plan_bytes = path.read_bytes()
+                ledger = (self.state / "verifications.jsonl").read_bytes()
+                dispatched = self.run_cli("plan", "verify", "1", "--plan", "p")
+                self.assertEqual(dispatched.returncode, 1, dispatched.stdout + dispatched.stderr)
+                self.assertIn("Step 1 holds a malformed test_drop_partial note", dispatched.stderr)
+                self.assertNotIn(self.command, dispatched.stdout + dispatched.stderr)
+                self.assertNotIn(str(marker), dispatched.stdout + dispatched.stderr)
+                self.assertFalse(marker.exists())
+                self.assertEqual(path.read_bytes(), plan_bytes)
+                self.assertEqual((self.state / "verifications.jsonl").read_bytes(), ledger)
+                refused = self.run_cli("step", "1", "completed", "x", "--plan", "p")
+                self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                self.assertIn("malformed", refused.stderr)
+                self.assertNotIn(str(marker), refused.stderr)
+                self.assertEqual(self.gate().returncode, 2)
+
+    def test_a_zero_run_after_a_partial_hints_the_scoped_plan_verify(self):
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps([{"title": "only"}]))
+        self.ok("step", "1", "in_progress", "--plan", "p")
+        self.ok("verify", "run", self.command)
+        (self.project / "count.txt").write_text("2\n", encoding="utf-8")
+        self.ok("verify", "run", self.command)
+        self.run_cli("step", "1", "completed", "fewer", "--plan", "p", "--accept-test-drop", "why")
+        self.assertEqual(self.plan()["steps"][0]["verify_command"], self.command)
+        (self.project / "count.txt").write_text("0\n", encoding="utf-8")
+        self.ok("plan", "verify", "1", "--plan", "p")
+        red = self.gate("--json")
+        self.assertEqual(red.returncode, 2, red.stderr)
+        row = json.loads(red.stdout)["steps"][0]
+        self.assertIn("zero tests", row["reasons"][0])
+        self.assertEqual(row["next"], "mythify plan verify 1 --plan p")
+
+    def test_an_invalid_partial_note_never_supplies_a_command_to_run_or_print(self):
+        marker = Path(self.tmp.name) / "ran.marker"
+        raw = "{0} -c {1}".format(shlex.quote(sys.executable), shlex.quote(
+            "open({0!r}, 'w').close()".format(str(marker))))
+        self.ok("plan", "create", "goal", "--name", "p", "--steps", json.dumps([{"title": "only"}]))
+        self.ok("step", "1", "in_progress", "--plan", "p")
+        self.ok("verify", "run", self.command)
+        path = self.state / "plans" / "p.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["steps"][0]["test_drop_partial"] = {
+            "reason": "r", "baseline": 4, "current": 2, "command": raw, "check": 7}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        before = len(self.records())
+        refused = self.run_cli("plan", "verify", "1", "--plan", "p")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertFalse(marker.exists())
+        self.assertEqual(len(self.records()), before)
+        red = self.gate("--json")
+        self.assertNotIn(str(marker), red.stdout + red.stderr)
+        self.assertNotIn("plan verify 1", json.loads(red.stdout)["steps"][0]["next"])
 
     def test_a_high_risk_step_lacks_review_and_human_input_under_strict_context(self):
         self.start(strict=True)

@@ -46,6 +46,10 @@ an interpreter that has already imported the runtime and returns the exit
 code, stdout, and stderr a fresh run returns; `tests/test_warm_cli.py` checks
 that. Set `MYTHIFY_TEST_FRESH_CLI=1` to run every call as a fresh
 interpreter, for example after a change to code that runs at import time.
+The warm server honors the timeout a call passes by stopping its own child
+with SIGTERM and then SIGKILL. If a call was delivered and its reply is then
+lost or late, `warm_cli.run` raises `WarmCliError` and does not run the call
+again, because it may already have changed state.
 
 ## Lint
 

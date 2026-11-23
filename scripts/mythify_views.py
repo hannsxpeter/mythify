@@ -1102,6 +1102,8 @@ def status_next_action(view):
         return "resolve attention item: {0}".format(attention[0]["summary"])
     plan = view.get("active_plan")
     if plan:
+        if plan.get("campaign", {}).get("blocked_reason"):
+            return "inspect the blocked campaign with mythify campaign status"
         current = plan.get("current_step")
         if current:
             return "continue step {0}: {1}".format(
@@ -1135,7 +1137,8 @@ def status_next_action(view):
 
 
 def status_control(view):
-    if view.get("attention_total"):
+    campaign = (view.get("active_plan") or {}).get("campaign", {})
+    if view.get("attention_total") or campaign.get("blocked_reason"):
         return "needs_attention"
     if view["evidence"]["executed"] == 0:
         return "needs_evidence"
@@ -1258,12 +1261,16 @@ def format_status_view(view):
             )
         )
         lines.append("Goal: {0}".format(plan.get("goal", "")))
-        if plan.get("campaign"):
+        campaign = plan.get("campaign", {})
+        if campaign:
             lines.append("Campaign: {0} ({1})".format(
-                plan["campaign"]["goal"], plan["campaign"]["status"]))
+                campaign["goal"], campaign["status"]))
+            if campaign.get("blocked_reason"):
+                lines.append(campaign["blocked_reason"])
         for step in plan.get("steps", []):
             lines.append(format_step_line(step))
-        lines.append(plan["next_summary"])
+        if not campaign.get("blocked_reason"):
+            lines.append(plan["next_summary"])
     else:
         lines.append("Active plan: none")
     outcome = view.get("active_outcome")

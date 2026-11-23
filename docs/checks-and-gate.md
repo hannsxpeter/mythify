@@ -78,6 +78,9 @@ step of the active plan (or `--plan NAME`) it applies the same rules as
 - the step needs a passing executed run since it started, and a later failing
   run of the same command cancels it;
 - evidence that predates the current commit or worktree does not pass;
+- a passing run that executed zero tests (a recorded count of 0, or output
+  that reports none) does not pass in any plan; re-run the verifier after
+  fixing the test selection, since a reason never waives it;
 - on a strict-context plan, a test count below the step's baseline does not
   pass without a recorded reason, and a high-risk change without a covering
   review and the person's words does not pass.

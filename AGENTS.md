@@ -1,5 +1,5 @@
 <!-- Generated from protocol/PROTOCOL.md by scripts/build_variants.py. Edit the source, then rebuild. -->
-<!-- Mythify protocol-sha256: 80b8f46ad0a15b1230551204aa73b9d82c33579983748e6a1128b6c570df16dd -->
+<!-- Mythify protocol-sha256: eb29f6e57cc729344559206252150c8bd88996fb776d343f361d2fcc07a15084 -->
 
 # The Mythify Protocol
 
@@ -92,8 +92,10 @@ task's exact verify command.
 - Name project checks once: `verify check NAME --set COMMAND`, then
   `verify check NAME` runs it. A step's `verify_command` may be `@NAME`.
 - A passing run with fewer tests than before is flagged. Under strict context
-  (plans started by `campaign start`) `step ID completed` refuses it unless you
-  pass `--accept-test-drop REASON`; otherwise it warns.
+  (plans started by `campaign start`) `step ID completed` refuses it; otherwise
+  it warns. `--accept-test-drop REASON` records a partial pass on the step and
+  still refuses; only a run back at the floor completes. Zero tests is always
+  refused.
 - Hooks: `verify gate` runs nothing and exits non-zero while an in-progress
   step lacks current passing evidence. Hosts can wire it into stop or
   pre-commit hooks.

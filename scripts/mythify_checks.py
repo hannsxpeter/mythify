@@ -44,10 +44,37 @@ def check_reference(verify_command):
     return None
 
 
-def verifier_matches(stored, command, check=None):
-    """True when a run of COMMAND (for check CHECK, if any) fits a step's STORED verifier."""
+LITERAL_MARKER = "verify_command_literal"
+
+
+def step_check(step):
+    """The check name a step's stored verifier names, else None.
+
+    The one place a step's verify_command is read as `@NAME`. A step marked
+    verify_command_literal (set when a partial pass adopts a literal command
+    that happens to look like `@NAME`) never names a check.
+    """
+    if step.get(LITERAL_MARKER) is True:
+        return None
+    return check_reference(step.get("verify_command"))
+
+
+def verifier_matches(stored, command, check=None, literal=False):
+    """True when a run of COMMAND (for check CHECK, if any) fits a step's STORED verifier.
+
+    Three identities, one rule each. A stored `@NAME` is met only by a run of
+    the check NAME, never by a command that merely reads `@NAME`. LITERAL is
+    True for an adopted literal alias (verify_command_literal): it is met only
+    by that exact command from a run that carries no check. An ordinary stored
+    command is met by that exact command, whatever check metadata the run has.
+    """
     stored = str(stored or "").strip()
-    return bool(stored) and (stored == command or (check is not None and stored == "@" + check))
+    if not stored:
+        return False
+    name = None if literal else check_reference(stored)
+    if name is not None:
+        return check == name
+    return stored == command and not (literal and check is not None)
 
 
 def _placeholder_contexts(template):

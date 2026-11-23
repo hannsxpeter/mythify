@@ -15,6 +15,7 @@ refusal or failure, 2 a recorded unverified verdict, 64 a usage error.
 ## Commands
 
 - `campaign`: Continue durable goals through strict plan steps.
+- `trial`: Compare a pinned instruction edit with a pinned evaluator.
 - `init`: Create ./.mythify with subdirectories and an empty memory.json.
 - `protocol`: Protocol copy checks.
 - `status`: Orient: active plan, outcome, and map, evidence breakdown, and attention items.
@@ -44,7 +45,7 @@ Continue durable goals through strict plan steps.
 ### campaign start
 
 ```text
-mythify campaign start [--plan PLAN | --name NAME] [--success SUCCESS] [--tasks TASKS] [--verify VERIFY] goal
+mythify campaign start [--plan PLAN | --name NAME] [--success SUCCESS] [--tasks TASKS] [--verify VERIFY] [--ordered] [--allowed-paths ALLOWED_PATHS] [--frozen-paths FROZEN_PATHS] goal
 ```
 
 Attach a campaign to the current or named plan, or create one.
@@ -60,6 +61,9 @@ Options:
 - `--success SUCCESS`: Success criteria for the campaign.
 - `--tasks TASKS`: JSON step objects for a new plan only.
 - `--verify VERIFY`: Default step verifier for a new plan only.
+- `--ordered`: Allow only the first unfinished step to run.
+- `--allowed-paths ALLOWED_PATHS`: Comma-separated project path prefixes. Implies --ordered.
+- `--frozen-paths FROZEN_PATHS`: Comma-separated immutable project path prefixes. Implies --ordered.
 
 ### campaign status
 
@@ -126,13 +130,13 @@ Arguments:
 Options:
 
 - `--result RESULT`: Executed evidence supporting completion. Required.
-- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Records the current passing run as a partial pass on the step (test_drop_partial) and still refuses completion, so the step stays open until a run of the same verifier reaches the baseline count. A run that executed zero tests is never recorded.
 - `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ### campaign learn
 
 ```text
-mythify campaign learn [--plan NAME] [--apply-next] lesson
+mythify campaign learn [--plan NAME] [--apply-next] [--verification ID] lesson
 ```
 
 Record learning for subsequent host prompts.
@@ -145,6 +149,28 @@ Options:
 
 - `--plan NAME`: Campaign plan name; defaults to active plan.
 - `--apply-next`: Mark the learning for subsequent work.
+- `--verification ID`: Cite an executed verification record (pinned to its revision). Repeatable; the cited run informs, but never proves, the learning.
+
+## trial
+
+Compare a pinned instruction edit with a pinned evaluator.
+
+### trial compare
+
+```text
+mythify trial compare --evaluator EVALUATOR --evaluator-sha256 EVALUATOR_SHA256 manifest
+```
+
+Validate MANIFEST, stage its pinned inputs, run the pinned evaluator as python -I through a recorded verification, and print a JSON decision. Decisions: replay_required (calibration passed, no replay), retain (qualifying replay), reject (thresholds failed), evaluator_failed. Exit 0 for replay_required or retain; 2 for reject, an unsuccessful evaluator run, or MYTHIFY_DISABLE_RUN; 1 for invalid inputs or malformed evaluator output. Run it from a controller directory outside every subject workspace. See docs/trials.md.
+
+Arguments:
+
+- `manifest`: Trial manifest JSON.
+
+Options:
+
+- `--evaluator EVALUATOR`: Pinned standalone Python evaluator. Required.
+- `--evaluator-sha256 EVALUATOR_SHA256`: SHA-256 the evaluator file must have. Required.
 
 ## init
 
@@ -854,7 +880,7 @@ Options:
 ### plan verify
 
 ```text
-mythify plan verify [--plan PLAN] [--timeout TIMEOUT] [--reuse] id
+mythify plan verify [--plan PLAN] [--timeout TIMEOUT] [--reuse] [--files PATH [PATH ...]] id
 ```
 
 Execute the step's verify_command, mark the step in progress, and record the executed verification against that step. On success the strict-evidence gate is satisfied, so step ID completed will pass. Exits 0 when verified, 2 when the command fails, 1 on usage errors.
@@ -868,6 +894,7 @@ Options:
 - `--plan PLAN`: Plan name; defaults to the active plan.
 - `--timeout TIMEOUT`: Timeout in seconds for the verify command. Default: `300.0`.
 - `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
+- `--files PATH [PATH ...]`: For a step whose verifier is a named check (@NAME): the files for its {files} placeholder, instead of the changed files. Refused, with nothing run, for a literal verifier.
 
 ### plan list
 
@@ -930,7 +957,7 @@ Arguments:
 Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
-- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Records the current passing run as a partial pass on the step (test_drop_partial) and still refuses completion, so the step stays open until a run of the same verifier reaches the baseline count. A run that executed zero tests is never recorded.
 - `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ## memory
@@ -1104,7 +1131,7 @@ Options:
 mythify verify gate [--plan PLAN] [--json]
 ```
 
-Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Never runs a command and never writes state. Exits 0 when nothing is in flight or every in-progress step is verified, 2 otherwise, with the next command per step on stderr, and 1 when the active or named plan is missing or unreadable.
+Read-only check for host hooks. Judges each in-progress step of the active (or named) plan with the same rules as step completed, including stale evidence, a test-count drop and a high-risk change under strict context. Also checks scoped campaign paths, even with no step open. Never runs a verifier or writes state. Exits 0 when scope holds and every in-progress step is verified, 2 for a scope violation or a step without acceptable evidence, and 1 when the active or named plan or campaign scope cannot be inspected.
 
 Options:
 

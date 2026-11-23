@@ -30,12 +30,17 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from mythify_parser import build_parser as build_cli_parser  # noqa: E402
-from mythify_campaigns import configure_campaign_store  # noqa: E402
+from mythify_campaigns import (  # noqa: E402
+    CampaignPolicyError, check_campaign_scope, configure_campaign_store, ordered_campaign,
+    first_unfinished_step, read_campaign_scope, require_ordered_step,
+)
+from mythify_campaign_scope import snapshot_provenance  # noqa: E402
+from mythify_trials import configure_trial_store  # noqa: E402
 from mythify_plans import (  # noqa: E402
-    UnsafePlanPath, active_pointer_path, checked_plan_path, clear_active_slug,
+    PlanBusy, UnsafePlanPath, active_pointer_path, checked_plan_path, clear_active_slug,
     count_archived, find_existing_slug_by_name, find_plan_slug, get_active_slug,
     list_plan_slugs, load_plan, plan_path, plan_slug_taken, plans_dir, save_plan,
-    set_active_slug, target_plan_slug,
+    plan_transaction, serialize_plan_write, set_active_slug, target_plan_slug,
 )
 from mythify_io import (  # noqa: E402
     JSONL_TAIL_CHUNK_BYTES,
@@ -113,19 +118,23 @@ from mythify_path_risk import (  # noqa: E402
 )
 from mythify_ratchet import detect_test_count_drop, drop_warning  # noqa: E402
 from mythify_reuse import (  # noqa: E402
+    environment_digest,
     find_reusable_run,
     reuse_hit_message,
     reuse_miss_message,
     reused_run_fields,
 )
 from mythify_checks import (  # noqa: E402
-    check_reference,
+    LITERAL_MARKER,
     configure_checks,
+    step_check,
     verifier_matches,
     warn_undefined_check,
     run_check,
 )
 from mythify_step_gate import (  # noqa: E402,F401
+    apply_partial_verdict,
+    malformed_partial_message,
     FALSE_ENV_VALUES,
     SCOPED_RECORD_KEYS,
     STRICT_CONTEXT_NOTICE,
@@ -173,7 +182,7 @@ from mythify_router import (  # noqa: E402
     configure_prompt_router,
 )
 from mythify_plan_import import (  # noqa: E402
-    cmd_plan_import,
+    cmd_plan_import as import_plan,
     configure_plan_import,
     project_root_for_workspace,
 )
@@ -194,7 +203,7 @@ from mythify_views import (  # noqa: E402
 )
 
 WORKSPACE_DIR_NAME = ".mythify"
-VERSION = "6.2.0"
+VERSION = "7.1.0"
 configure_step_gate(VERSION)
 NO_WORKSPACE_MESSAGE = (
     "[FAIL] No .mythify workspace found. Run: mythify init"
@@ -336,8 +345,62 @@ configure_lineage_store(
 # Plan store
 # ---------------------------------------------------------------------------
 
+def ordered_verification_context(state, context):
+    slug = context.get("plan")
+    plan = load_plan(state, slug) if slug else None
+    if plan is None or not ordered_campaign(plan):
+        return None
+    step = first_unfinished_step(plan)
+    if step is None or step["id"] != context.get("step_id") or step["status"] != "in_progress":
+        raise CampaignPolicyError("Ordered campaign step changed while verification was running.")
+    return plan, step
+
+
+def verification_source(state, command, snapshot=None):
+    if snapshot is None:
+        return current_verification_provenance(VERSION, state=state, command=command)
+    return {**snapshot_provenance(snapshot), "mythify_version": VERSION,
+            "environment_digest": environment_digest(command)}
+
+
+def scoped_verification_source(state, command, plan, step, context):
+    if context.get("_plan_verify"):
+        snapshot, _ = check_campaign_scope(state, plan, step)
+    else:
+        snapshot, _ = read_campaign_scope(state, plan)
+    return verification_source(state, command, snapshot)
+
+
+def record_ordered_verification(state, record, context, attempt, admitted_source):
+    # Re-read after running the verifier. A retry or completion can occur
+    # while it runs, and its old result must not prove a different attempt.
+    with plan_transaction(state):
+        try:
+            target = ordered_verification_context(state, context)
+            if target is None or target[1].get("verification_attempt") != attempt:
+                raise CampaignPolicyError("Ordered campaign step changed while verification was running.")
+        except CampaignPolicyError as exc:
+            refuse_verification(record, exc)
+            return
+        plan, step = target
+        try:
+            if "scope" in plan["campaign"]:
+                current = scoped_verification_source(state, record["command"], plan, step, context)
+                if admitted_source != current:
+                    raise CampaignPolicyError("Campaign source changed during verification.")
+        except CampaignPolicyError as exc:
+            refuse_verification(record, exc)
+        append_chained_jsonl(state / "verifications.jsonl", record)
+
+
+def refuse_verification(record, exc):
+    record.update(verified=False, campaign_refusal=str(exc),
+                  stderr_tail=_append_stderr_notice(record["stderr_tail"], str(exc)))
+
+
 def execute_recorded_verification(
-    state, command, claim, timeout=None, context=None, parents=None, reuse=False, extra=None
+    state, command, claim, timeout=None, context=None, parents=None, reuse=False, extra=None,
+    *, capture_dir=None
 ):
     """Run COMMAND, append an executed verification record, return the record.
 
@@ -354,12 +417,22 @@ def execute_recorded_verification(
     and ``check_template`` of a named check) are stamped on the record.
     """
     lineage = capture_lineage(state, parents) if parents else None
+    candidate = context if context is not None else verification_step_context(
+        state, command, (extra or {}).get("check"))
+    ordered_target = ordered_verification_context(state, candidate)
+    scoped = ordered_target is not None and "scope" in ordered_target[0]["campaign"]
+    attempt = None
+    if ordered_target is not None:
+        attempt = ordered_target[1].get("verification_attempt")
+    if candidate.get("_plan_verify") and (ordered_target is None or candidate["_attempt"] != attempt):
+        raise CampaignPolicyError("Ordered campaign step changed before verification could run.")
     verification_id = "v-{0}-{1}".format(now_stamp(), uuid.uuid4().hex[:12])
     artifact_dir = state / "verification-artifacts" / verification_id
-    original = current = None
+    admitted_source = scoped_verification_source(state, command, *ordered_target, candidate) if scoped else None
+    original = None
+    current = admitted_source
     if reuse:
-        # One sample serves the lookup and, on a hit, the record itself.
-        current = current_verification_provenance(VERSION, state=state, command=command)
+        current = admitted_source or verification_source(state, command)
         original, why = find_reusable_run(
             read_jsonl(state / "verifications.jsonl"), command, current
         )
@@ -370,7 +443,7 @@ def execute_recorded_verification(
         run = run_shell_capture(
             command,
             timeout if timeout is not None else DEFAULT_VERIFY_TIMEOUT,
-            artifact_dir=artifact_dir,
+            artifact_dir=artifact_dir, capture_dir=capture_dir,
         )
     record = {
         "id": verification_id,
@@ -383,9 +456,7 @@ def execute_recorded_verification(
         "stderr_tail": run["stderr_tail"],
         "verified": run["verified"],
         "timestamp": now_iso(),
-        "provenance": current if original else current_verification_provenance(
-            VERSION, state=state, command=command
-        ),
+        "provenance": current if original or scoped else verification_source(state, command),
     }
     if original:
         record.update(run)
@@ -427,9 +498,13 @@ def execute_recorded_verification(
     # active plan sets them, so no record can pass as pre-6.0 legacy evidence.
     record.update(null_step_context())
     record.update(extra or {})
-    record.update(context if context is not None else verification_step_context(
-        state, command, (extra or {}).get("check")))
-    append_chained_jsonl(state / "verifications.jsonl", record)
+    if ordered_target is not None:
+        record.update({key: value for key, value in candidate.items() if not key.startswith("_")})
+        record_ordered_verification(state, record, candidate, attempt, admitted_source)
+    else:
+        record.update(context if context is not None else verification_step_context(
+            state, command, (extra or {}).get("check")))
+        append_chained_jsonl(state / "verifications.jsonl", record)
     return record
 
 
@@ -448,11 +523,17 @@ configure_quality_store(
 
 
 def attach_plan_lineage(state, slug, parents):
-    plan = load_plan(state, slug)
-    if plan is None:
-        raise ValueError("plan not found while attaching lineage: " + slug)
-    plan["lineage"] = capture_lineage(state, parents)
-    save_plan(state, slug, plan)
+    with plan_transaction(state):
+        plan = load_plan(state, slug)
+        if plan is None:
+            raise ValueError("plan not found while attaching lineage: " + slug)
+        plan["lineage"] = capture_lineage(state, parents)
+        save_plan(state, slug, plan)
+
+
+def create_promoted_plan(state, goal, name, steps, source):
+    with plan_transaction(state):
+        return create_plan_record(state, goal, name=name, steps=steps, source=source)
 
 
 configure_plan_import(
@@ -472,9 +553,7 @@ configure_map_store(
     fail_func=fail,
     find_existing_slug_by_name_func=find_existing_slug_by_name,
     execute_verification_func=execute_recorded_verification,
-    create_plan_record_func=lambda state, goal, name, steps, source: create_plan_record(
-        state, goal, name=name, steps=steps, source=source
-    ),
+    create_plan_record_func=create_promoted_plan,
     attach_plan_lineage_func=attach_plan_lineage,
     environ_map=os.environ,
 )
@@ -514,7 +593,8 @@ def verification_step_context(state, command=None, check=None):
                 continue
             context = {"plan": slug, "step_id": step.get("id"),
                        "step_title": step.get("title"), "step_status": "in_progress"}
-            if wanted and verifier_matches(step.get("verify_command"), wanted, check):
+            if wanted and verifier_matches(
+                    step.get("verify_command"), wanted, check, step.get(LITERAL_MARKER) is True):
                 return context
             if slug == active and fallback["plan"] is None:
                 fallback = context
@@ -582,6 +662,7 @@ def cmd_init(args, _state):
 # ---------------------------------------------------------------------------
 # Plans
 # ---------------------------------------------------------------------------
+@serialize_plan_write
 def cmd_plan_create(args, state):
     steps_input = []
     if args.steps is not None:
@@ -619,15 +700,17 @@ def cmd_plan_create(args, state):
     return 0
 
 
+cmd_plan_import = serialize_plan_write(import_plan)
+
+
 def create_plan_record(
-    state, goal, name=None, steps=None, source=None, parents=None
+    state, goal, name=None, steps=None, source=None, parents=None, campaign=None
 ):
     """Write a new plan, set it active, and return (slug, error_message).
 
     Shared by `plan create` and `map promote`, so a promoted map produces the
     same plan shape as a hand-written one, plus a `source` provenance block.
-    Step objects keep title, success_criteria, and verify_command; other keys
-    are ignored.
+    Campaign steps may also carry an allowed_paths restriction.
     """
     for item in steps or []:
         if not isinstance(item, dict) or not item.get("title"):
@@ -652,6 +735,8 @@ def create_plan_record(
         if verify_command:
             step["verify_command"] = verify_command
             warn_noop_verifier(step["id"], verify_command, state)
+        if campaign and "allowed_paths" in item:
+            step["allowed_paths"] = item["allowed_paths"]
         plan_steps.append(step)
     plan = {
         "name": slug,
@@ -670,6 +755,8 @@ def create_plan_record(
             return None, "[FAIL] Invalid lineage: {0}.".format(exc)
     if source is not None:
         plan["source"] = source
+    if campaign is not None:
+        plan.update(campaign=campaign, strict_context=True)
     save_plan(state, slug, plan)
     set_active_slug(state, slug)
     return slug, None
@@ -689,6 +776,7 @@ def warn_noop_verifier(step_id, verify_command, state=None):
         )
 
 
+@serialize_plan_write
 def cmd_plan_add_step(args, state):
     slug = target_plan_slug(state, args.plan)
     if slug is None:
@@ -733,6 +821,12 @@ def mark_step_verification_anchor(state, step):
     stamp_step_start(state, step)
 
 
+def open_step(state, step, ordered):
+    mark_step_verification_anchor(state, step)
+    if ordered:
+        step["verification_attempt"] = uuid.uuid4().hex
+
+
 def cmd_plan_verify(args, state):
     """Run a step's own verify command and record the evidence scoped to it.
 
@@ -748,41 +842,16 @@ def cmd_plan_verify(args, state):
     except ValueError:
         fail("[FAIL] Invalid step id: {0}. Step ids are integers.".format(args.id))
         return 1
-    slug = target_plan_slug(state, args.plan)
-    if slug is None:
-        fail("[FAIL] No active plan. Create one with: plan create GOAL")
+    with plan_transaction(state):
+        prepared = prepare_plan_verification(args, state, step_id)
+    if prepared is None:
         return 1
-    plan = load_plan(state, slug)
-    if plan is None:
-        fail("[FAIL] Plan not found: {0}".format(slug))
-        return 1
-    step = next((candidate for candidate in plan["steps"] if candidate.get("id") == step_id), None)
-    if step is None:
-        fail("[FAIL] Step {0} not found in plan {1}.".format(step_id, slug))
-        return 1
-    command = (step.get("verify_command") or "").strip()
-    if not command:
-        fail(
-            "[FAIL] Step {0} has no verify_command. Add one with "
-            "plan add-step --verify, or run verify run manually.".format(step_id)
-        )
-        return 1
-    if step.get("status") != "completed":
-        mark_step_verification_anchor(state, step)
-        step["status"] = "in_progress"
-        step["updated_at"] = now_iso()
-        plan["last_updated"] = step["updated_at"]
-        save_plan(state, slug, plan)
-    context = {
-        "plan": slug,
-        "step_id": step_id,
-        "step_title": step.get("title"),
-        "step_status": "in_progress",
-    }
-    claim = "step {0}: {1}".format(step_id, step.get("title", ""))
-    if check_reference(command):
+    command, context, check = prepared
+    claim = "step {0}: {1}".format(step_id, context.get("step_title", ""))
+    if check:
         record, code = run_check(
-            state, check_reference(command), claim, args.timeout, context, getattr(args, "reuse", False)
+            state, check, claim, args.timeout, context, getattr(args, "reuse", False),
+            files=getattr(args, "files", None),
         )
         if record is None:
             return code
@@ -790,6 +859,9 @@ def cmd_plan_verify(args, state):
         record = execute_recorded_verification(
             state, command, claim, args.timeout, context, reuse=getattr(args, "reuse", False)
         )
+    if record.get("campaign_refusal"):
+        fail("[FAIL] " + record["campaign_refusal"])
+        return 1
     if record["verified"]:
         print(
             "[OK] VERIFIED step {0}: {1} (exit 0, {2:.2f}s)".format(
@@ -810,6 +882,57 @@ def cmd_plan_verify(args, state):
         print("--- stderr (tail) ---")
         print(record["stderr_tail"])
     return 2
+
+
+def prepare_plan_verification(args, state, step_id):
+    slug = target_plan_slug(state, args.plan)
+    if slug is None:
+        fail("[FAIL] No active plan. Create one with: plan create GOAL")
+        return None
+    plan = load_plan(state, slug)
+    if plan is None:
+        fail("[FAIL] Plan not found: {0}".format(slug))
+        return None
+    ordered = ordered_campaign(plan)
+    step = next((candidate for candidate in plan["steps"] if candidate.get("id") == step_id), None)
+    if step is None:
+        fail("[FAIL] Step {0} not found in plan {1}.".format(step_id, slug))
+        return None
+    problem = malformed_partial_message(step)
+    if problem:
+        # Fail closed before the step is opened or any verifier is dispatched.
+        fail(problem)
+        return None
+    if ordered:
+        require_ordered_step(plan, step)
+        check_campaign_scope(state, plan, None if step["status"] == "pending" else step)
+    command = (step.get("verify_command") or "").strip()
+    if not command:
+        fail(
+            "[FAIL] Step {0} has no verify_command. Add one with "
+            "plan add-step --verify, or run verify run manually.".format(step_id)
+        )
+        return None
+    check = step_check(step)
+    if getattr(args, "files", None) and check is None:
+        fail("[FAIL] --files only applies to a step whose verifier is a named check (@NAME); "
+             "step {0} stores a literal command. Nothing was run.".format(step_id))
+        return None
+    if step["status"] != "completed" and (not ordered or step["status"] != "in_progress"):
+        open_step(state, step, ordered)
+        step["status"] = "in_progress"
+        step["updated_at"] = now_iso()
+        plan["last_updated"] = step["updated_at"]
+        save_plan(state, slug, plan)
+    context = {
+        "plan": slug,
+        "step_id": step_id,
+        "step_title": step.get("title"),
+        "step_status": "in_progress",
+    }
+    if ordered:
+        context.update(_plan_verify=True, _attempt=step.get("verification_attempt"))
+    return command, context, check
 
 
 def cmd_plan_list(args, state):
@@ -894,6 +1017,7 @@ def cmd_plan_show(args, state):
     return 0
 
 
+@serialize_plan_write
 def cmd_plan_switch(args, state):
     slug = find_plan_slug(state, args.name)
     if slug is None:
@@ -904,6 +1028,7 @@ def cmd_plan_switch(args, state):
     return 0
 
 
+@serialize_plan_write
 def cmd_plan_archive(args, state):
     name = args.name
     if not name:
@@ -929,7 +1054,12 @@ def cmd_plan_archive(args, state):
     return 0
 
 
+@serialize_plan_write
 def cmd_step(args, state):
+    return update_step(args, state)
+
+
+def update_step(args, state):
     if args.status not in STEP_STATUSES:
         fail(
             "[FAIL] Invalid status: {0}. Use one of: {1}.".format(
@@ -974,17 +1104,38 @@ def cmd_step(args, state):
     if human_input is not None and not human_input.strip():
         fail("[FAIL] --human-input needs the person's own words approving the change.")
         return 1
+    ordered = ordered_campaign(plan)
+    scoped_snapshot, scoped_changed = None, None
+    if ordered:
+        require_ordered_step(plan, step, completing=args.status == "completed")
+        if args.status in ("completed", "in_progress"):
+            active_step = None if step["status"] == "pending" else step
+            scoped_snapshot, scoped_changed = check_campaign_scope(state, plan, active_step)
+        if args.status == "in_progress" and step["status"] == "in_progress":
+            print("[OK] Step {0} is already in progress: {1}".format(step_id, step.get("title")))
+            return 0
+        if args.status == "completed" and not strict_step_evidence_enabled():
+            raise CampaignPolicyError("Ordered campaign completion requires strict evidence; unset MYTHIFY_REQUIRE_VERIFIED_STEP.")
     risk = None
     if args.status == "completed" and strict_step_evidence_enabled():
-        verdict = evaluate_step_evidence(state, slug, plan, step, accept_drop, human_input)
+        verdict = evaluate_step_evidence(
+            state, slug, plan, step, accept_drop, human_input,
+            scope_snapshot=scoped_snapshot, scope_paths=scoped_changed)
         for _level, text in verdict["messages"]:
             fail(text)
+        note, record_partial = apply_partial_verdict(step, verdict)
+        if record_partial:
+            save_plan(state, slug, plan)
+        if note:
+            fail(note)
         if not verdict["ok"]:
             return 1
-        step.pop("test_drop_accepted", None)
-        if verdict["test_drop_accepted"]:
-            step["test_drop_accepted"] = verdict["test_drop_accepted"]
         risk = verdict["risk"]
+    elif args.status == "completed" and accept_drop is not None:
+        fail("[FAIL] --accept-test-drop records a partial pass from executed evidence and "
+             "cannot be combined with MYTHIFY_REQUIRE_VERIFIED_STEP=0, which would close "
+             "the step on prose. Unset the waiver to record it, or drop the flag.")
+        return 1
     elif args.status == "completed":
         # The legacy opt-out stays available, but never silently: the waiver is
         # stamped on the step so watchers can surface prose-only completions.
@@ -1001,8 +1152,10 @@ def cmd_step(args, state):
             return 1
     if args.status == "completed":
         stamp_completion_risk(step, risk, human_input)
+        if scoped_snapshot is not None:
+            plan["campaign"]["scope"]["checkpoint"] = scoped_snapshot
     if args.status == "in_progress":
-        mark_step_verification_anchor(state, step)
+        open_step(state, step, ordered)
     step["status"] = args.status
     if args.result is not None:
         step["result"] = args.result
@@ -1069,6 +1222,8 @@ def _persist_capture_artifacts(stdout_path, stderr_path, artifact_dir, max_outpu
             "sha256": hashlib.sha256(encoded).hexdigest(),
             "truncated": source_size > len(raw),
             "redacted": redacted != decoded,
+            "raw_sha256": hashlib.sha256(raw).hexdigest(),
+            "invalid_utf8": decoded.encode("utf-8") != raw,
         }
     return results
 
@@ -1120,7 +1275,7 @@ def terminate_process_tree(process):
     return False
 
 
-def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None):
+def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None, capture_dir=None):
     max_output_bytes = (
         verify_max_output_bytes() if max_output_bytes is None else max_output_bytes
     )
@@ -1132,7 +1287,7 @@ def run_shell_capture(command, timeout, max_output_bytes=None, artifact_dir=None
     exit_code = None
     artifacts = None
     artifact_error = None
-    with tempfile.TemporaryDirectory(prefix="mythify-capture-") as tempdir:
+    with tempfile.TemporaryDirectory(prefix="mythify-capture-", dir=capture_dir) as tempdir:
         stdout_path = Path(tempdir) / "stdout"
         stderr_path = Path(tempdir) / "stderr"
         with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
@@ -1429,9 +1584,12 @@ configure_campaign_store(
     target_plan_slug=target_plan_slug,
     load_plan=lambda state, slug: load_plan(state, slug, readonly=True),
     create_plan_record=create_plan_record, save_plan=save_plan,
-    now_iso=now_iso, cmd_step=cmd_step,
+    now_iso=now_iso, cmd_step=update_step,
     strict_step_evidence_enabled=strict_step_evidence_enabled,
 )
+
+configure_trial_store(execute=execute_recorded_verification, write_json=write_json_atomic,
+                      resolve_state=resolve_state_dir)
 
 configure_prompt_router(
     get_active_slug_func=get_active_slug,
@@ -1470,7 +1628,7 @@ def main(argv=None):
             fail(NO_WORKSPACE_MESSAGE)
             return 1
         return args.handler(args, state)
-    except UnsafePlanPath as exc:
+    except (UnsafePlanPath, PlanBusy, CampaignPolicyError) as exc:
         fail("[FAIL] " + str(exc))
         return 1
 

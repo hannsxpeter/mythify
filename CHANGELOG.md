@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `mythify trial compare MANIFEST --evaluator PATH --evaluator-sha256 HASH`
+  compares a small instruction edit against a baseline from pinned raw
+  evidence. It stages the exact pinned bytes, runs the pinned evaluator as
+  `python -I` through an ordinary recorded verification, and prints a JSON
+  decision (`retain`, `replay_required`, `reject`, or `evaluator_failed`).
+  It saves each verdict to `verification-artifacts/<id>/trial.json` and ships
+  a runnable example,
+  `docs/examples/trial_demo.py`. See `docs/trials.md`.
+- Stdout artifacts record `raw_sha256` and `invalid_utf8`, so a lossy capture
+  is detectable.
+- `campaign learn --verification ID` (repeatable) pins a lesson to executed
+  ledger records as `verification_refs` in campaign prompts.
+
+### Changed
+
+- `--accept-test-drop REASON` on `step ID completed` and `campaign advance` now
+  records a partial pass (`test_drop_partial`: reason, baseline, current count,
+  verifier) and still refuses completion with a nonzero exit, leaving the step
+  open. The note keeps the floor when the ledger is compacted. A lower count, a
+  run with no test count, an unrelated verifier, or stale evidence never
+  completes it, in any mode, and `verify gate` stays red with a hint to restore
+  the tests and re-run. A fresh run at or above the floor completes the step
+  and keeps the note. A named check is held to its name and the template it had
+  when the partial was recorded (a redefined check cannot clear or overwrite it);
+  a literal verifier is held to its command. A step that is already completed
+  never gains a partial. Steps completed earlier keep `test_drop_accepted`.
+  A step with no stored verifier adopts the judged run's
+  verifier when a partial is recorded, so `plan verify ID --plan SLUG` is the
+  retry; a literal command that looks like `@NAME` is marked
+  `verify_command_literal` and never read as a check. A note is validated against
+  the step and never supplies a command. `plan verify` takes `--files PATH ...`
+  for a named check (refused for a literal verifier before anything runs).
+
+### Fixed
+
+- Step completion and `verify gate` refuse a passing run that executed zero
+  tests, even with `--accept-test-drop`. The gate names the zero-test reason and
+  points at a re-run.
+- The strict test-count gate holds repeated partial passes to the highest earlier
+  passing count of the same command in retained ledger evidence. `verify run`
+  and `status` continue to flag the drop even after another partial pass.
+
+## [7.1.0] - 2026-11-22
+
+### Added
+
+- Campaigns can require step order with `--ordered` and restrict file changes
+  with campaign and step path limits. Scope violations block advancement
+  even after a passing verifier.
+
+## [7.0.0] - 2026-11-09
+
+Mythify 7.0.0 narrows the tool to its job: evidence for agent work. Product
+planning is removed, which is the breaking change behind the major version.
+`route` can also show what your own routing policy file says about a task,
+and the README is now a short product page with the full feature guide in
+`docs/guide.md`. Existing `.mythify/` state keeps working; leftover product
+data is ignored and never deleted.
+
+### Added
+
 - `route` shows what the user's own routing policy file says about the task. With
   `MYTHIFY_AGENT_POLICY` (a path) or `~/.agents/policy.json` present, the text
   output ends with a `Delegation` section and `--json` gains a `delegation`
@@ -47,33 +108,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The test suite takes less than half the time it did, with every test
-  still checking what it checked. Most CLI calls now fork from a warm
-  interpreter (`tests/warm_cli.py`) that has already imported the runtime, and
-  return the exit code, stdout, and stderr of a fresh run, which
-  `tests/test_warm_cli.py` checks; `MYTHIFY_TEST_FRESH_CLI=1` runs every call
-  fresh. `tests/subprocess_env.py` speeds up the subprocesses that remain:
-  with `PYTHONDONTWRITEBYTECODE` set they recompiled every Mythify module, and
-  a system Python with its standard-library cache under `$HOME` recompiled the
-  standard library too in each test with a throwaway `HOME`, so children now
-  share a private `PYTHONPYCACHEPREFIX` that is removed at exit (no `.pyc`
-  files reach the source tree or the user's cache folders); and on macOS,
+- `route` sends requests to write a product roadmap, PRD, RFC, specification,
+  requirements document, or design document to planning (`plan`); without the
+  product task type they had classified as trivial. These terms count only
+  near a creation verb (write, draft, create, prepare, author, produce,
+  outline, plan), so "What is an RFC?" still routes as a question and "inspect
+  the product requirements document" as a review.
+- The README is a short product page: the problem, how it works, who it is
+  for, and a quickstart that ends at a first verified step. The full feature
+  tour moved to the new `docs/guide.md`.
+- Maintainer files moved off the top level: `MAINTAINING.md`,
+  `RELEASE-CHECKLIST.md`, and `ROADMAP.md` now live in `docs/maintainers/`.
+  User-facing docs no longer carry version numbers or release-history notes;
+  the CHANGELOG and the architecture decision log keep that history.
+- Most test CLI calls fork from a warm interpreter (`tests/warm_cli.py`) that
+  has already imported the runtime. They return the exit code, stdout, and
+  stderr of a fresh run, which `tests/test_warm_cli.py` checks, and
+  `MYTHIFY_TEST_FRESH_CLI=1` runs every call fresh. The warm server honors the
+  timeout a call passes and stops its own child. If a call was delivered and
+  its reply is then lost, the runner raises an error and does not run the call
+  again.
+- `tests/subprocess_env.py` speeds up the test subprocesses. With
+  `PYTHONDONTWRITEBYTECODE` set they recompiled every Mythify module, so they
+  now share a private `PYTHONPYCACHEPREFIX` that is removed at exit. On macOS,
   when `git` on `PATH` is the `/usr/bin/git` trampoline, the git it runs goes
-  first on `PATH`. On the maintainer's Mac, both suites plus the lint, run
-  one after another, went from about 1435 s (3.15: 606 s, 3.9: 829 s) to
-  621 s (3.15: 285 s, 3.9: 331 s) while the machine's load average stayed
-  between 40 and 60.
-- Judging a step's evidence (`step ... completed`, `verify gate`) runs each
-  distinct read-only git command once: the provenance sample, the changed-path
-  check, and a high-risk step's review check share one snapshot
-  (`git_read_snapshot` in `scripts/mythify_provenance.py`). A completion now
-  starts 11 git processes instead of 13, and a high-risk completion with a
-  findings review no longer runs the provenance's git commands twice. Output,
-  exit codes, and records are unchanged.
+  first on `PATH`.
 
 ### Removed
 
-- Breaking: product planning is removed, so the next release is 7.0.0.
+- Breaking: product planning is removed.
   `mythify product ...` (`create`, `outcome`, `non-goal`, `bet`, `risk`,
   `check`, `approve`, `decide`, `promote`, `measure`, `show`, `list`) is an
   unknown command and exits 64, like any other removed command. Also removed:
@@ -93,10 +156,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an `active_product` pointer, and a plan's `product_ref` are never read,
   written, or deleted, and ledger records with a `product` key stay scoped
   records that never count for a step. `ROADMAP.md`, which `product show
-  --markdown` rendered, is now a static file of outcomes, non-goals, and bets.
+  --markdown` rendered, is now a static file of outcomes, non-goals, and bets
+  at `docs/maintainers/ROADMAP.md`.
   An agent following the old protocol text that runs `product create` now gets a
   usage error and should use `map create` for open decisions or `plan create`
   for work.
+- `docs/DRIFT.md` and `docs/evidence/` (efficacy reproduction notes and smoke
+  results), which described past releases rather than the current tool.
 
 ## [6.2.0] - 2026-11-09
 
@@ -2218,7 +2284,9 @@ ground-up rebuild around the contracts in `docs/design.md`.
   orchestrator, and prebuilt `.skill` archives). The source research report is
   preserved verbatim at `docs/research-report.md`.
 
-[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...HEAD
+[Unreleased]: https://github.com/hannsxpeter/mythify/compare/v7.1.0...HEAD
+[7.1.0]: https://github.com/hannsxpeter/mythify/compare/v7.0.0...v7.1.0
+[7.0.0]: https://github.com/hannsxpeter/mythify/compare/v6.2.0...v7.0.0
 [6.2.0]: https://github.com/hannsxpeter/mythify/compare/v6.1.0...v6.2.0
 [6.1.0]: https://github.com/hannsxpeter/mythify/compare/v6.0.0...v6.1.0
 [6.0.0]: https://github.com/hannsxpeter/mythify/compare/v5.8.0...v6.0.0

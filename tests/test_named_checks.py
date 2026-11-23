@@ -189,7 +189,14 @@ class DefineAndListTests(CheckProject):
         self.assertFalse(verifier_matches("@fast", "ls x", "full"))
         self.assertFalse(verifier_matches("@fast", "ls x"))
         self.assertTrue(verifier_matches("ls x", "ls x"))
+        self.assertTrue(verifier_matches("ls x", "ls x", "fast"))
         self.assertFalse(verifier_matches("", ""))
+        # A stored @NAME is met by the check, never by a command that reads @fast;
+        # an adopted literal alias is met by that command from a run with no check.
+        self.assertFalse(verifier_matches("@fast", "@fast"))
+        self.assertTrue(verifier_matches("@fast", "@fast", literal=True))
+        self.assertFalse(verifier_matches("@fast", "@fast", "fast", literal=True))
+        self.assertFalse(verifier_matches("@fast", "ls x", "fast", literal=True))
 
 
 class PlaceholderTests(CheckProject):

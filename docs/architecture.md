@@ -1,7 +1,7 @@
 # Mythify architecture
 
-The maintainer contract for Mythify 6.x: runtime layout, on-disk state, the
-rules that make evidence count, and the 6.0 decisions. Commands are in the
+The maintainer contract for Mythify 7.x: runtime layout, on-disk state, the
+rules that make evidence count, and the decisions behind them. Commands are in the
 generated [commands.md](commands.md); MCP host setup is in [mcp.md](mcp.md).
 A design change adds a decision log entry here in the same pull request.
 
@@ -48,6 +48,8 @@ table, so no module imports the entry point.
 | `mythify_memory.py`, `mythify_log_compaction.py`, `mythify_loopfit.py` | memory and lessons, `logs compact`, the `loop-fit` advisory |
 | `mythify_outcomes.py` | outcome loops: start, check, run, status, results, stop, scope and frozen paths |
 | `mythify_campaigns.py` | campaign grammar, plan metadata, strict advancement, learning, and read-only prompt watching |
+| `mythify_trials.py` | `trial compare`: strict manifest validation, pinned staging, and a decision over a pinned evaluator's recorded run (see [trials.md](trials.md)) |
+| `mythify_campaign_scope.py` | Git and filesystem snapshots, accepted checkpoints, and path scope comparisons |
 | `mythify_plans.py` | validated plan identifiers, contained paths, active pointers, plan reads and writes |
 | `mythify_maps.py` | decision maps, tickets, fog, scope-out, promote |
 | `mythify_quality.py` | blast-radius safety cases: create, prove, show |
@@ -117,7 +119,7 @@ lessons and is never a project workspace.
 |-- reviews/<slug>.json
 |-- checks.json                    named checks for verify check
 |-- reports/<cursor>.json
-|-- verification-artifacts/<verification id>/stdout.txt, stderr.txt
+|-- verification-artifacts/<verification id>/stdout.txt, stderr.txt, trial.json (trial compare only)
 |-- logs/archive/<log stem>-<YYYYMMDDHHMMSS>.jsonl
 `-- locks/jsonl-<digest>.lock/     transient JSONL write lock
 ```
@@ -139,7 +141,9 @@ created; plans written before this field existed have none), and when present
 optional `campaign` metadata.
 
 Campaign metadata: `schema_version: 1`, `goal`, `success`, `created`, and
-`lessons` (entries with `text`, `apply_next`, and `timestamp`). The `success`
+`lessons` (entries with `text`, `apply_next`, `timestamp`, and optional
+`verification_refs`: `{id, revision}` pins to executed ledger records,
+revision being `revision_digest` of the record). The `success`
 text describes the goal; step verifiers must cover it. Campaign progress is
 derived from the plan's steps, with no campaign pointer or separate task
 store. `campaign start` preserves existing steps, results, and verification
@@ -153,13 +157,30 @@ Campaign reads preserve corrupt JSON in place and refuse to proceed. Plan
 paths reject traversal identifiers and symlinks that resolve outside their
 store, including the active pointer, plan directory, and archive paths.
 
+Ordered campaigns store `ordered: true` and advance one step at a time.
+Scoped campaigns also store `scope` with the worktree root, initial commit,
+allowed and frozen path prefixes, and the last accepted checkpoint. The
+checkpoint records HEAD, index, and disk entries and a digest of external
+Git ignore rules. Step `allowed_paths` can narrow the campaign scope.
+Ordered steps carry a `verification_attempt` so a run can only count for
+the attempt that admitted it. Scoped runs compare source digests before and
+after verification and advance the checkpoint only on accepted completion.
+See [campaign scope](campaigns.md#require-step-order-or-restrict-file-changes).
+
 Step: `id` (integer), `title`, `success_criteria`, `status` (`pending`,
 `in_progress`, `completed`, `failed`, `skipped`), `result`, and when set
-`verify_command`, `verification_anchor` (`{"after_sha256": <hex or null>}`),
+`verify_command` (a partial pass on a step with none stores the judged run's
+verifier here), `verify_command_literal` (`true` when that adopted command looks
+like `@NAME` and must never be read as a check; `step_check` in
+`mythify_checks.py` is the one place `@NAME` is interpreted),
+`verification_anchor` (`{"after_sha256": <hex or null>}`),
 `updated_at`, `started_commit` (the git commit when the step went in progress,
-null outside git), `started_at`, `strict_gate_waived`, `test_drop_accepted`
-(`reason`, `baseline`, `current`, stamped when `--accept-test-drop` let a lower
-test count through), `risk` (`level: "high"`, `paths`, `review`, `human_input`,
+null outside git), `started_at`, `strict_gate_waived`, `test_drop_partial`
+(`reason`, `baseline`, `baseline_id`, `current`, `command`, and `check` plus
+`check_template` when the step's verifier is a named check; a step that stores a
+literal command is held to that command; stamped when `--accept-test-drop` recorded a partial pass, kept with
+`completed_count` once a full run completes the step; `test_drop_accepted` on
+older completed steps is historical), `risk` (`level: "high"`, `paths`, `review`, `human_input`,
 stamped when the step's changed paths were high risk), `human_input` (the
 person's words from `--human-input`), and `risk_gate_waived` (`true` when
 `MYTHIFY_RISK_GATE=0` let a high-risk completion through). A step already in
@@ -176,10 +197,14 @@ Verification record (`verifications.jsonl`, one JSON object per line):
   (`git_commit`, `worktree_clean`, `worktree_digest`, `mythify_version`,
   `environment_digest`),
   `artifacts` (`stdout` and `stderr`, each `path`, `bytes`, `source_bytes`,
-  `sha256`, `truncated`, `redacted`), optional `test_count` (display only),
+  `sha256`, `truncated`, `redacted`, `raw_sha256` (digest of the exact captured
+  bytes), `invalid_utf8` (decoding replaced bytes)), optional `trial` (the
+  pre-run receipt of `trial compare`: binding, pins, policy, parent, edit),
+  optional `test_count` (display only),
   optional `test_count_drop` (`previous`, `previous_id`, `current`; set when a
-  passing run executed fewer tests than the previous passing run of the same
-  command), optional `reused_from` (the original run's id) with
+  passing run executed fewer tests than the highest earlier passing count of
+  the same command that retained ledger evidence still shows, counting valid
+  retained drop notes), optional `reused_from` (the original run's id) with
   `reused_duration_seconds` (a reused record copies `exit_code`, `verified`,
   `test_count`, and the output tails, has `duration_seconds: 0`, and no
   artifacts), optional `check` (the name of the named check that produced the
@@ -313,11 +338,22 @@ hash chain still links, and leaves every verification artifact in place.
   command is refused until the command passes again. When the commit or
   worktree digest moved after the passing run, completion warns, and on an
   imported (`strict_context`) plan it refuses. The digest leaves the resolved
-  state directory out, so ledger writes never move it. Under the same
-  baseline rule, a satisfying run whose `test_count` is below the baseline (the
-  latest passing run of that command before the step's evidence window, else
-  the first passing run inside it) warns, and on a `strict_context` plan
-  refuses unless the caller passes `--accept-test-drop REASON`.
+  state directory out, so ledger writes never move it. The test-count baseline
+  is the highest earlier passing count of the same command that the retained
+  ledger shows. A valid `test_count_drop` note on an earlier run or on the
+  satisfying run can preserve the earlier count after compaction archives the
+  original run. A lower count produces a warning. In `strict_context` it
+  blocks completion. `--accept-test-drop REASON` on a current, risk-clear run
+  stamps `test_drop_partial` on the step under the serialized plan save and
+  still refuses (`partial_candidate` on the verdict); status, result, evidence
+  window and campaign checkpoint do not change. While the note is open, any run
+  below its stored floor, without a count, or of another verifier is refused in
+  every mode (`partial_blocked`), and `verify gate` reports it read-only. A
+  satisfying run with a recorded count of 0, or with a recognized zero-test line
+  when no count was read (a per-package `[no test files]` line never counts: the
+  record keeps only an output tail), is refused in every plan with or without a baseline
+  (`zero_tests` on the verdict); `--accept-test-drop` never waives it, and only
+  the global `MYTHIFY_REQUIRE_VERIFIED_STEP=0` opt-out bypasses the evaluator.
 - Named checks. `.mythify/checks.json` is `{"schema_version": 1, "checks":
   {NAME: {"command", "description", "updated"}}}` with names matching
   `[a-z0-9-]+`. `verify check NAME` runs the command through the same runner as
@@ -339,7 +375,7 @@ hash chain still links, and leaves every verification artifact in place.
   `evaluate_step_evidence` for each in-progress step, with no test-drop reason
   and no human input, and never executes a command or writes state. It exits 0
   when nothing is in flight or every in-progress step is accepted (a stale
-  pass, a strict-context test-count drop, and a strict-context high-risk step
+  pass, a zero-test run, a strict-context test-count drop, and a strict-context high-risk step
   without its review or human input all count as not accepted), and 2
   otherwise, with a failure line and a next-command line per step on stderr.
   It ignores `MYTHIFY_REQUIRE_VERIFIED_STEP=0`: a hook asks whether evidence
@@ -443,7 +479,7 @@ versions are `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and
 | --- | --- |
 | 0 | success, or a verified check |
 | 1 | refusal or failure: no workspace, bad input, a gate refused, a record not found |
-| 2 | unverified: a check ran and failed, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, or `MYTHIFY_DISABLE_RUN=1` refused to run |
+| 2 | unverified: a check ran and failed, an outcome is not met, `verify gate` found an in-progress step without accepted evidence, `trial compare` rejected a candidate or its evaluator run failed, or `MYTHIFY_DISABLE_RUN=1` refused to run |
 | 64 | usage error from the argument parser |
 | 124 | MCP only: the call timed out and was terminated |
 | 130, 143 | the CLI received SIGINT or SIGTERM while a verify child ran |
@@ -605,6 +641,21 @@ rounds usually has the wrong approach, not too few rounds. Why: verification
 cost grew with the suite, and the fix had to speed up honest runs without
 letting a self-report stand in for one.
 
+Update, 2026-11-22: a passing verifier that executed zero tests cannot satisfy
+the step evidence gate. The test-drop override still applies to positive test
+counts. A zero-test run can return exit 0 without checking the work, so the
+gate asks for a rerun with working test selection.
+
+Update, 2026-11-23: `--accept-test-drop REASON` no longer completes a step. For
+a positive, current test run below the floor it records a partial pass on the
+step (`test_drop_partial`) and still refuses completion, so the audit note
+exists without a lower count standing in for full evidence. Only a fresh passing
+run of the same verifier at or above the recorded floor completes the step, and
+the note stays on it. Why: accepting a reduced suite as completion let a
+deleted test be a one-flag decision with no later proof that the suite came
+back; recording the partial keeps the reason and the floor while the gate stays
+red until the full run exists. The zero-test refusal above is unchanged.
+
 ### 2026-11-09: route reports a user-owned policy, advisory only
 
 `mythify route` shows what the user's routing policy file says about the task:
@@ -652,3 +703,30 @@ parent of kind `product` are not read as anything, and ledger records that
 carry a `product` key stay scoped records that never count for a step.
 `docs/maintainers/ROADMAP.md` was rendered by `product show --markdown`; it is now a static
 file.
+
+### 2026-11-22: opt-in campaign order and scope
+
+`campaign start --ordered` restricts transitions to the first unfinished
+step. Campaign or step path limits also enable ordering. Scoped campaigns
+compare each step against the original campaign scope and the previous
+accepted checkpoint, so prior accepted work can stay uncommitted while new
+out-of-scope changes block advancement. The CLI and typed MCP tools use
+the same plan transitions and evidence checks.
+
+### 2026-11-23: pinned evidence trials
+
+`trial compare` judges a small instruction edit only from a pinned evaluator's
+per-task output on raw evidence the operator supplies. The trust root is the
+operator and that evaluator: manifest scores are never read, and a candidate
+process cannot influence the decision. The evaluator runs through
+`execute_recorded_verification` with an empty step context, so there is no
+second execution path and no decision ledger. The ordinary record stays
+append-only and carries the pre-run receipt (`trial`: binding, pins including
+the replay task, evidence, and runbook, the forbidden-term policy, parent,
+edit sizes). The final verdict is written once to `trial.json` beside the
+run's artifacts, so the append-only record never needs rewriting. The runner
+gained additive `raw_sha256` and `invalid_utf8` capture fields so a lossy
+stdout cannot be parsed as evidence. Path isolation is advisory: operating
+system separation of subjects from the controller is the host's job.
+`campaign learn --verification` cites such records without making learning
+evidence.

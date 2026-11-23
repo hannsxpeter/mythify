@@ -494,6 +494,59 @@ class TestSchemaGeneration(unittest.TestCase):
 
 
 class TestToolCalls(McpServerCase):
+    def test_ordered_scope_flags_and_advance_through_typed_tools(self):
+        git_env = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                   "XDG_CONFIG_HOME": str(self.home)}
+        client = self.start(**git_env)
+        self.initialize(client)
+        tools = client.request("tools/list")["result"]["tools"]
+        start = next(tool for tool in tools if tool["name"] == "campaign_start")
+        props = start["inputSchema"]["properties"]
+        self.assertEqual([props[name]["type"] for name in ("ordered", "allowed_paths", "frozen_paths")],
+                         ["boolean", "string", "string"])
+        self.assertEqual(exit_code(client.call("init")), 0)
+        for name in ("editable.txt", "trusted.txt"):
+            (self.project / name).write_text("original\n")
+        for args in (("init", "-q"), ("add", "."), ("commit", "-qm", "Initial")):
+            git = subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", *args],
+                cwd=self.project, env=self.env(**git_env),
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(git.returncode, 0, git.stdout + git.stderr)
+        verifier = shell_py("assert 2 + 2 == 4")
+        created = client.call("campaign_start", {
+            "goal": "Scoped", "ordered": True, "allowed_paths": "editable.txt,trusted.txt",
+            "frozen_paths": "trusted.txt", "verify": verifier,
+            "tasks": json.dumps([{"title": "First"}, {"title": "Second"}]),
+        })
+        self.assertEqual(exit_code(created), 0, result_text(created))
+        self.assertEqual(exit_code(client.call("step", {"id": "1", "status": "in_progress"})), 0)
+        for tool, arguments in (("step", {"id": "2", "status": "in_progress"}), ("plan_verify", {"id": "2"})):
+            refused = client.call(tool, arguments)
+            self.assertEqual(exit_code(refused), 1, result_text(refused))
+            self.assertIn("first unfinished step is 1", result_text(refused))
+        frozen = self.project / "trusted.txt"
+        frozen.write_text("tampered")
+        refused = client.call("plan_verify", {"id": "1"})
+        self.assertEqual(exit_code(refused), 1, result_text(refused))
+        self.assertIn("Frozen campaign paths changed", result_text(refused))
+        frozen.write_text("original\n")
+        (self.project / "editable.txt").write_text("allowed")
+        extra = self.project / "outside.txt"
+        extra.write_text("outside scope")
+        green = client.call("verify_run", {"command": verifier})
+        self.assertEqual(exit_code(green), 0, result_text(green))
+        self.assertIn("[OK] VERIFIED", result_text(green))
+        refused = client.call("campaign_advance", {"result": "Independent check passed"})
+        self.assertEqual(exit_code(refused), 1, result_text(refused))
+        self.assertIn("Paths outside campaign scope: 'outside.txt'", result_text(refused))
+        extra.unlink()
+        self.assertEqual(exit_code(client.call("plan_verify", {"id": "1"})), 0)
+        advanced = client.call("campaign_advance", {"result": "Edit verified"})
+        self.assertEqual(exit_code(advanced), 0, result_text(advanced))
+
     def test_campaign_uses_plan_gate_through_mcp(self):
         client = self.start()
         self.initialize(client)

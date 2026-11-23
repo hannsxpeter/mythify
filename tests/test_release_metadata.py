@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "6.2.0"
+VERSION = "7.1.0"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_runtime_versions_and_release_target_agree(self):
         cli = re.search(r'^VERSION = "([^"]+)"$', self.text("scripts/mythify.py"), re.MULTILINE)
         self.assertEqual(cli.group(1), VERSION)
-        self.assertIn("## [{0}] - 2026-11-09".format(VERSION), self.text("CHANGELOG.md"))
+        self.assertIn("## [{0}] - 2026-11-22".format(VERSION), self.text("CHANGELOG.md"))
 
     def test_roadmap_is_a_static_file_of_outcomes_non_goals_and_bets(self):
         # Exact-case listing: a case-insensitive filesystem would let a stale
