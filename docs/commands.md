@@ -129,7 +129,7 @@ Arguments:
 Options:
 
 - `--result RESULT`: Executed evidence supporting completion. Required.
-- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline. A run that executed zero tests is never accepted this way.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Records the current passing run as a partial pass on the step (test_drop_partial) and still refuses completion, so the step stays open until a run of the same verifier reaches the baseline count. A run that executed zero tests is never recorded.
 - `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ### campaign learn
@@ -857,7 +857,7 @@ Options:
 ### plan verify
 
 ```text
-mythify plan verify [--plan PLAN] [--timeout TIMEOUT] [--reuse] id
+mythify plan verify [--plan PLAN] [--timeout TIMEOUT] [--reuse] [--files PATH [PATH ...]] id
 ```
 
 Execute the step's verify_command, mark the step in progress, and record the executed verification against that step. On success the strict-evidence gate is satisfied, so step ID completed will pass. Exits 0 when verified, 2 when the command fails, 1 on usage errors.
@@ -871,6 +871,7 @@ Options:
 - `--plan PLAN`: Plan name; defaults to the active plan.
 - `--timeout TIMEOUT`: Timeout in seconds for the verify command. Default: `300.0`.
 - `--reuse`: Reuse an earlier passing run of the same command at the same commit, worktree digest, version, and environment instead of executing it again. Files ignored by .gitignore, services, and the network are not covered; name extra environment inputs in MYTHIFY_REUSE_ENV.
+- `--files PATH [PATH ...]`: For a step whose verifier is a named check (@NAME): the files for its {files} placeholder, instead of the changed files. Refused, with nothing run, for a literal verifier.
 
 ### plan list
 
@@ -933,7 +934,7 @@ Arguments:
 Options:
 
 - `--plan PLAN`: Plan name; defaults to the active plan.
-- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Without it a strict-context plan refuses completion when the passing run executed fewer tests than the baseline. A run that executed zero tests is never accepted this way.
+- `--accept-test-drop REASON`: Why a lower test count than the baseline run is acceptable (for example, a deleted obsolete test). Records the current passing run as a partial pass on the step (test_drop_partial) and still refuses completion, so the step stays open until a run of the same verifier reaches the baseline count. A run that executed zero tests is never recorded.
 - `--human-input TEXT`: What the human actually said approving this high-risk change. Never write these words yourself; ask the person and record what they said.
 
 ## memory

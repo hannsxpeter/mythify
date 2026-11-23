@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `--accept-test-drop REASON` on `step ID completed` and `campaign advance` now
+  records a partial pass (`test_drop_partial`: reason, baseline, current count,
+  verifier) and still refuses completion with a nonzero exit, leaving the step
+  open. The note keeps the floor when the ledger is compacted. A lower count, a
+  run with no test count, an unrelated verifier, or stale evidence never
+  completes it, in any mode, and `verify gate` stays red with a hint to restore
+  the tests and re-run. A fresh run at or above the floor completes the step
+  and keeps the note. A named check is held to its name and the template it had
+  when the partial was recorded (a redefined check cannot clear or overwrite it);
+  a literal verifier is held to its command. A step that is already completed
+  never gains a partial. Steps completed earlier keep `test_drop_accepted`.
+  A step with no stored verifier adopts the judged run's
+  verifier when a partial is recorded, so `plan verify ID --plan SLUG` is the
+  retry; a literal command that looks like `@NAME` is marked
+  `verify_command_literal` and never read as a check. A note is validated against
+  the step and never supplies a command. `plan verify` takes `--files PATH ...`
+  for a named check (refused for a literal verifier before anything runs).
+
 ### Fixed
 
 - Step completion and `verify gate` refuse a passing run that executed zero

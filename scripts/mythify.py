@@ -124,13 +124,16 @@ from mythify_reuse import (  # noqa: E402
     reused_run_fields,
 )
 from mythify_checks import (  # noqa: E402
-    check_reference,
+    LITERAL_MARKER,
     configure_checks,
+    step_check,
     verifier_matches,
     warn_undefined_check,
     run_check,
 )
 from mythify_step_gate import (  # noqa: E402,F401
+    apply_partial_verdict,
+    malformed_partial_message,
     FALSE_ENV_VALUES,
     SCOPED_RECORD_KEYS,
     STRICT_CONTEXT_NOTICE,
@@ -588,7 +591,8 @@ def verification_step_context(state, command=None, check=None):
                 continue
             context = {"plan": slug, "step_id": step.get("id"),
                        "step_title": step.get("title"), "step_status": "in_progress"}
-            if wanted and verifier_matches(step.get("verify_command"), wanted, check):
+            if wanted and verifier_matches(
+                    step.get("verify_command"), wanted, check, step.get(LITERAL_MARKER) is True):
                 return context
             if slug == active and fallback["plan"] is None:
                 fallback = context
@@ -840,11 +844,12 @@ def cmd_plan_verify(args, state):
         prepared = prepare_plan_verification(args, state, step_id)
     if prepared is None:
         return 1
-    command, context = prepared
+    command, context, check = prepared
     claim = "step {0}: {1}".format(step_id, context.get("step_title", ""))
-    if check_reference(command):
+    if check:
         record, code = run_check(
-            state, check_reference(command), claim, args.timeout, context, getattr(args, "reuse", False)
+            state, check, claim, args.timeout, context, getattr(args, "reuse", False),
+            files=getattr(args, "files", None),
         )
         if record is None:
             return code
@@ -891,6 +896,11 @@ def prepare_plan_verification(args, state, step_id):
     if step is None:
         fail("[FAIL] Step {0} not found in plan {1}.".format(step_id, slug))
         return None
+    problem = malformed_partial_message(step)
+    if problem:
+        # Fail closed before the step is opened or any verifier is dispatched.
+        fail(problem)
+        return None
     if ordered:
         require_ordered_step(plan, step)
         check_campaign_scope(state, plan, None if step["status"] == "pending" else step)
@@ -900,6 +910,11 @@ def prepare_plan_verification(args, state, step_id):
             "[FAIL] Step {0} has no verify_command. Add one with "
             "plan add-step --verify, or run verify run manually.".format(step_id)
         )
+        return None
+    check = step_check(step)
+    if getattr(args, "files", None) and check is None:
+        fail("[FAIL] --files only applies to a step whose verifier is a named check (@NAME); "
+             "step {0} stores a literal command. Nothing was run.".format(step_id))
         return None
     if step["status"] != "completed" and (not ordered or step["status"] != "in_progress"):
         open_step(state, step, ordered)
@@ -915,7 +930,7 @@ def prepare_plan_verification(args, state, step_id):
     }
     if ordered:
         context.update(_plan_verify=True, _attempt=step.get("verification_attempt"))
-    return command, context
+    return command, context, check
 
 
 def cmd_plan_list(args, state):
@@ -1106,12 +1121,19 @@ def update_step(args, state):
             scope_snapshot=scoped_snapshot, scope_paths=scoped_changed)
         for _level, text in verdict["messages"]:
             fail(text)
+        note, record_partial = apply_partial_verdict(step, verdict)
+        if record_partial:
+            save_plan(state, slug, plan)
+        if note:
+            fail(note)
         if not verdict["ok"]:
             return 1
-        step.pop("test_drop_accepted", None)
-        if verdict["test_drop_accepted"]:
-            step["test_drop_accepted"] = verdict["test_drop_accepted"]
         risk = verdict["risk"]
+    elif args.status == "completed" and accept_drop is not None:
+        fail("[FAIL] --accept-test-drop records a partial pass from executed evidence and "
+             "cannot be combined with MYTHIFY_REQUIRE_VERIFIED_STEP=0, which would close "
+             "the step on prose. Unset the waiver to record it, or drop the flag.")
+        return 1
     elif args.status == "completed":
         # The legacy opt-out stays available, but never silently: the waiver is
         # stamped on the step so watchers can surface prose-only completions.

@@ -10,9 +10,10 @@ over parsed ledger records; nothing here prints or writes.
 
 ACCEPT_TEST_DROP_HELP = (
     "Why a lower test count than the baseline run is acceptable (for example, "
-    "a deleted obsolete test). Without it a strict-context plan refuses "
-    "completion when the passing run executed fewer tests than the baseline. "
-    "A run that executed zero tests is never accepted this way."
+    "a deleted obsolete test). Records the current passing run as a partial "
+    "pass on the step (test_drop_partial) and still refuses completion, "
+    "so the step stays open until a run of the same verifier reaches the "
+    "baseline count. A run that executed zero tests is never recorded."
 )
 
 

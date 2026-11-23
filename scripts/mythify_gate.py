@@ -23,6 +23,8 @@ def _failure(verdict):
         return "the passing run predates the current source state ({0})".format(verdict["moved"]), "evidence"
     if verdict["zero_tests"]:
         return "the passing run executed zero tests ({0})".format(verdict["zero_tests"]), "zero_tests"
+    if verdict["partial_blocked"]:
+        return "the step holds a recorded partial pass and no run has restored its test floor", "partial"
     if not verdict["ok"] and verdict["test_drop"]:
         return "the passing run executed fewer tests than the step's baseline", "test_drop"
     if not verdict["ok"]:
@@ -30,11 +32,24 @@ def _failure(verdict):
     return None
 
 
+def _verify_hint(step, slug):
+    if str(step.get("verify_command") or "").strip():
+        # plan verify is scoped to this step and runs its stored verifier.
+        return "mythify plan verify {0} --plan {1}".format(step.get("id"), shlex.quote(slug))
+    return 'mythify verify run "COMMAND" --claim {0}'.format(
+        shlex.quote("step {0}".format(step.get("id"))))
+
+
 def _next_command(step, slug, kind):
     quoted, step_id = shlex.quote(slug), step.get("id")
+    if kind == "partial" or (kind == "evidence" and "test_drop_partial" in step):
+        return ("restore the removed tests, then re-run the verifier: {0} (a partial pass is recorded "
+                "on this step, so only a run at or above its floor completes it), then: mythify step "
+                "{1} completed RESULT --plan {2}".format(_verify_hint(step, slug), step_id, quoted))
     if kind == "test_drop":
-        return ("restore the removed tests and re-run the verifier, or complete with: mythify step "
-                "{0} completed RESULT --plan {1} --accept-test-drop REASON".format(step_id, quoted))
+        return ("restore the removed tests and re-run the verifier, or record a partial pass (the step "
+                "stays open) with: mythify step {0} completed RESULT --plan {1} "
+                "--accept-test-drop REASON".format(step_id, quoted))
     if kind == "risk":
         return ("get a review that covers the current source (mythify review round NAME --clean), "
                 "ask the person to approve, then: mythify step {0} completed RESULT --plan {1} "
